@@ -3,19 +3,22 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+android_signing_properties="$repo_root/.local/keystore.properties"
 macos_signing_properties="$repo_root/.local/macos-signing.properties"
 
 usage() {
     cat <<'EOF'
 Usage: ./scripts/build-release-artifacts.sh
 
-Builds the distributable artifacts owned by Gradle:
+Builds the signed release candidates owned by Gradle:
   - Android mobile Release APK
   - Android TV Release APK
   - macOS Release DMG, including Developer ID signing, notarization, and stapling
 
 iOS and tvOS release archives remain Xcode-owned and are not built by this script.
-The release candidate must be committed and the Git worktree must be clean.
+The release candidate must be committed, the Git worktree must be clean, and
+Android and macOS release credentials must be configured. This script does not
+create or upload a GitHub Release.
 EOF
 }
 
@@ -24,26 +27,34 @@ die() {
     exit 1
 }
 
+read_property() {
+    local properties_file="$1"
+    local property_key="$2"
+
+    [[ -f "$properties_file" ]] || return 1
+    awk -F= -v key="$property_key" '
+        /^[[:space:]]*#/ { next }
+        {
+            name = $1
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+            if (name == key) {
+                value = substr($0, index($0, "=") + 1)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+                print value
+                exit
+            }
+        }
+    ' "$properties_file"
+}
+
 credential_is_set() {
     local property_key="$1"
     local environment_key="$2"
     local environment_value="${!environment_key-}"
+    local configured_value
 
-    if [[ -f "$macos_signing_properties" ]] &&
-        awk -F= -v key="$property_key" '
-            /^[[:space:]]*#/ { next }
-            {
-                name = $1
-                gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
-                if (name == key) {
-                    value = substr($0, index($0, "=") + 1)
-                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-                    found = length(value) > 0
-                    exit
-                }
-            }
-            END { exit(found ? 0 : 1) }
-        ' "$macos_signing_properties"; then
+    configured_value="$(read_property "$macos_signing_properties" "$property_key" || true)"
+    if [[ -n "$configured_value" ]]; then
         return 0
     fi
 
@@ -74,6 +85,18 @@ command -v awk >/dev/null 2>&1 || die "Required command is missing: awk"
 command -v codesign >/dev/null 2>&1 || die "Required command is missing: codesign"
 command -v spctl >/dev/null 2>&1 || die "Required command is missing: spctl"
 command -v xcrun >/dev/null 2>&1 || die "Required command is missing: xcrun"
+
+[[ -f "$android_signing_properties" ]] \
+    || die "Create .local/keystore.properties before building signed Android release candidates"
+for property_key in storeFile storePassword keyAlias keyPassword; do
+    [[ -n "$(read_property "$android_signing_properties" "$property_key" || true)" ]] \
+        || die "Android signing property is missing or blank: $property_key"
+done
+android_keystore="$(read_property "$android_signing_properties" storeFile)"
+if [[ "$android_keystore" != /* ]]; then
+    android_keystore="$repo_root/$android_keystore"
+fi
+[[ -f "$android_keystore" ]] || die "Android release keystore was not found: $android_keystore"
 
 credential_is_set signingIdentity APPLE_SIGNING_IDENTITY \
     || die "Set signingIdentity or APPLE_SIGNING_IDENTITY for the macOS release"
@@ -107,14 +130,11 @@ macos_dmg="$macos_dmg_dir/JellyScope-$desktop_package_version.dmg"
 cd "$repo_root"
 trap stop_gradle EXIT
 
-if [[ -f "$repo_root/.local/keystore.properties" ]]; then
-    android_signing="configured release keystore"
-else
-    android_signing="debug-signing fallback (not store-ready)"
-fi
-
-echo "==> Android signing: $android_signing"
+echo "==> Android signing: configured release keystore"
 echo "==> macOS notarization: $notarization_method"
+echo "==> Running the repository release preflight"
+./scripts/verify.sh
+
 echo "==> Building Android mobile, Android TV, and the complete macOS DMG"
 ./gradlew \
     :android-app:assembleRelease \
@@ -143,9 +163,10 @@ trap - EXIT
 stop_gradle
 
 echo
-echo "Release artifacts are ready:"
-echo "  Android mobile ($android_signing): $android_apk"
-echo "  Android TV ($android_signing):     $android_tv_apk"
-echo "  macOS signed/notarized DMG:        $macos_dmg"
-echo "  macOS corresponding source:       $macos_dmg_dir"
-echo "  iOS/tvOS:                          build and archive through Xcode"
+echo "Signed release candidates are ready for the remaining manual release checks:"
+echo "  Android mobile:              $android_apk"
+echo "  Android TV:                  $android_tv_apk"
+echo "  macOS signed/notarized DMG:  $macos_dmg"
+echo "  macOS corresponding source: $macos_dmg_dir"
+echo "  iOS/tvOS:                    build and archive through Xcode"
+echo "  GitHub publication:          not performed"

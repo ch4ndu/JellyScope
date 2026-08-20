@@ -2,11 +2,11 @@
 
 The release runbook: signing setup, release builds, and the release checklist.
 
-Release credentials are local and optional. Android selects its release
-signing config only when `.local/keystore.properties` exists. macOS signing and
-notarization are selected only when their required credentials are available.
-Without credentials, the existing local release gates continue to produce
-unsigned/debug-signed artifacts as before.
+Release credentials stay local. Ordinary Android `assembleRelease` builds use
+the release signing config only when `.local/keystore.properties` exists and
+otherwise retain the debug-signing fallback needed by credential-free CI. The
+maintained release-artifact script is stricter: it requires Android release
+signing plus macOS signing and notarization credentials before it builds.
 
 Never commit `.local/`, keystores, passwords, Apple private keys, or generated
 signing output.
@@ -143,13 +143,38 @@ repository command for all Gradle-owned release artifacts is:
 ./scripts/build-release-artifacts.sh
 ```
 
-It builds the Android mobile and Android TV Release APKs, then signs, notarizes,
-staples, and validates the macOS Release DMG and its corresponding-source
-artifacts. When `.local/keystore.properties` is absent, the Android Release
-variants retain their existing debug-signing fallback and the script labels
-those APKs as not store-ready. iOS and tvOS archives remain Xcode-owned. The
-individual commands below remain useful when running or troubleshooting one
-stage in isolation.
+It runs the repository preflight, builds Android mobile and Android TV with the
+configured release key, then signs, notarizes, staples, and validates the macOS
+Release DMG and its corresponding-source artifacts. It fails before building
+when Android release signing is absent or incomplete. iOS and tvOS archives
+remain Xcode-owned. The individual commands below remain useful when running or
+troubleshooting one stage in isolation.
+
+The script does not create a tag, GitHub Release, or remote upload. After the
+remaining smoke-test, binary-compliance, and release checks pass, manually
+publish the two APKs, the DMG, and the macOS corresponding-source files printed
+by the script.
+
+## iOS release artifacts
+
+Archive the iOS application through Xcode using a generic iOS device, then use
+the Organizer's **Distribute App** flow.
+
+- For normal public beta distribution, upload the archive to App Store Connect
+  and use TestFlight. For general public distribution, use the App Store or an
+  Apple-approved alternative-distribution route where available.
+- Xcode can export a development or ad hoc `.ipa`. GitHub Releases can store
+  that file, but it installs only on devices covered by its provisioning route;
+  ad hoc distribution requires registered device identifiers, and users must
+  enable Developer Mode. It is not a general public iOS download.
+- Do not publish the raw `.xcarchive` as an end-user release. Keep it as a local
+  release record for re-exporting and crash-symbolication.
+- A zipped simulator `.app` may help developers, but it runs only in a
+  compatible simulator and must be labeled as a developer artifact.
+
+Apple's current workflows are documented in
+[Distributing your app to registered devices](https://developer.apple.com/documentation/xcode/distributing-your-app-to-registered-devices)
+and the [TestFlight overview](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview).
 
 7. Verify the pinned IINA 1.4.0 arm64 mpv runtime before signing. The task
    rechecks the complete 69-file manifest, stages only arm64
@@ -289,7 +314,7 @@ the pair.
 - Confirm the minified release artifacts exist:
   - Mobile: `android-app/build/outputs/apk/release/android-app-release.apk`
   - TV: `android-tv-app/build/outputs/apk/release/android-tv-app-release.apk`
-- Hosted CI is intentionally not published for this repository. Run the local
+- Hosted CI verifies pull requests but does not publish releases. Run the local
   release verification gate and retain its output before distributing builds.
 - Without a configured release keystore (above), release variants are
   debug-signed and suitable for local testing only; production signing and
