@@ -1,0 +1,3 @@
+// Shared iOS signing configuration. Personal Team IDs stay in the ignored file.
+CODE_SIGN_STYLE = Automatic
+#include? "LocalSigning.xcconfig"

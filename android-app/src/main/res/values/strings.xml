@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">JellyScope</string>
+    <string name="pip_play">Play</string>
+    <string name="pip_pause">Pause</string>
+    <string name="pip_rewind">Back 10 seconds</string>
+    <string name="pip_forward">Forward 10 seconds</string>
+</resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the Compose theme's colorScheme.background (JellyfinColors.Navy,
+         0xFF0D1F30). Used as the Activity window background so any frame where
+         Compose has not yet drawn (cold start, process-death restore, surface
+         teardown on back from the player) shows the app's dark background
+         instead of a white flash. -->
+    <color name="window_background">#FF0D1F30</color>
+</resources>

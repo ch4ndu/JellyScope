@@ -1,0 +1,632 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 5,
+    "identityHash": "e0e284d5de5442adaf65acef766f5ca7",
+    "entities": [
+      {
+        "tableName": "playback_preferences",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `defaultPlayerBackend` TEXT DEFAULT 'Auto', `defaultMaxBitrateBps` INTEGER, `preferredAudioLanguage` TEXT, `preferredSubtitleLanguage` TEXT, `autoPlayNext` INTEGER NOT NULL DEFAULT 1, `stillWatchingPrompt` INTEGER NOT NULL DEFAULT 1, `autoPlayNextDelaySeconds` INTEGER NOT NULL DEFAULT 10, `introSkip` TEXT, `outroSkip` TEXT, `recapSkip` TEXT, `previewSkip` TEXT, `commercialSkip` TEXT, PRIMARY KEY(`serverId`))",
+        "fields": [
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultPlayerBackend",
+            "columnName": "defaultPlayerBackend",
+            "affinity": "TEXT",
+            "defaultValue": "'Auto'"
+          },
+          {
+            "fieldPath": "defaultMaxBitrateBps",
+            "columnName": "defaultMaxBitrateBps",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "preferredAudioLanguage",
+            "columnName": "preferredAudioLanguage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "preferredSubtitleLanguage",
+            "columnName": "preferredSubtitleLanguage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "autoPlayNext",
+            "columnName": "autoPlayNext",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "stillWatchingPrompt",
+            "columnName": "stillWatchingPrompt",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "autoPlayNextDelaySeconds",
+            "columnName": "autoPlayNextDelaySeconds",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "10"
+          },
+          {
+            "fieldPath": "introSkip",
+            "columnName": "introSkip",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "outroSkip",
+            "columnName": "outroSkip",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "recapSkip",
+            "columnName": "recapSkip",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "previewSkip",
+            "columnName": "previewSkip",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "commercialSkip",
+            "columnName": "commercialSkip",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "serverId"
+          ]
+        }
+      },
+      {
+        "tableName": "playback_selections",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `userId` TEXT NOT NULL, `itemId` TEXT NOT NULL, `mediaSourceId` TEXT NOT NULL, `audioStreamIndex` INTEGER, `maxStreamingBitrateBps` INTEGER, `schemaVersion` INTEGER NOT NULL DEFAULT 1, `qualityIsOriginal` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`serverId`, `userId`, `itemId`, `mediaSourceId`))",
+        "fields": [
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaSourceId",
+            "columnName": "mediaSourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "audioStreamIndex",
+            "columnName": "audioStreamIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "maxStreamingBitrateBps",
+            "columnName": "maxStreamingBitrateBps",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "qualityIsOriginal",
+            "columnName": "qualityIsOriginal",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "serverId",
+            "userId",
+            "itemId",
+            "mediaSourceId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_playback_selections_serverId_userId_itemId",
+            "unique": false,
+            "columnNames": [
+              "serverId",
+              "userId",
+              "itemId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playback_selections_serverId_userId_itemId` ON `${TABLE_NAME}` (`serverId`, `userId`, `itemId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "playback_timing_offsets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `userId` TEXT NOT NULL, `itemId` TEXT NOT NULL, `mediaSourceId` TEXT NOT NULL, `trackId` TEXT NOT NULL, `kind` TEXT NOT NULL, `offsetMs` INTEGER NOT NULL, `schemaVersion` INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(`serverId`, `userId`, `itemId`, `mediaSourceId`, `trackId`, `kind`))",
+        "fields": [
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaSourceId",
+            "columnName": "mediaSourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackId",
+            "columnName": "trackId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "offsetMs",
+            "columnName": "offsetMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "serverId",
+            "userId",
+            "itemId",
+            "mediaSourceId",
+            "trackId",
+            "kind"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_playback_timing_offsets_serverId_userId_itemId",
+            "unique": false,
+            "columnNames": [
+              "serverId",
+              "userId",
+              "itemId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playback_timing_offsets_serverId_userId_itemId` ON `${TABLE_NAME}` (`serverId`, `userId`, `itemId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "player_backend_overrides",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `itemId` TEXT NOT NULL, `backend` TEXT, PRIMARY KEY(`serverId`, `itemId`))",
+        "fields": [
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "backend",
+            "columnName": "backend",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "serverId",
+            "itemId"
+          ]
+        }
+      },
+      {
+        "tableName": "recent_searches",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `userId` TEXT NOT NULL, `normalizedQuery` TEXT NOT NULL, `displayQuery` TEXT NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`serverId`, `userId`, `normalizedQuery`))",
+        "fields": [
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedQuery",
+            "columnName": "normalizedQuery",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayQuery",
+            "columnName": "displayQuery",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "serverId",
+            "userId",
+            "normalizedQuery"
+          ]
+        }
+      },
+      {
+        "tableName": "watch_next_sync",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `userId` TEXT NOT NULL, `itemId` TEXT NOT NULL, `playbackPositionTicks` INTEGER, `played` INTEGER NOT NULL, `lastSyncedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`serverId`, `userId`, `itemId`))",
+        "fields": [
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playbackPositionTicks",
+            "columnName": "playbackPositionTicks",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "played",
+            "columnName": "played",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncedAtEpochMs",
+            "columnName": "lastSyncedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "serverId",
+            "userId",
+            "itemId"
+          ]
+        }
+      },
+      {
+        "tableName": "player_device_settings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `audioMode` TEXT NOT NULL, `hdrMode` TEXT NOT NULL, `matchDisplayRefreshRate` INTEGER NOT NULL DEFAULT 0, `maxVideoResolution` TEXT NOT NULL DEFAULT 'Unlimited', PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "audioMode",
+            "columnName": "audioMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hdrMode",
+            "columnName": "hdrMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "matchDisplayRefreshRate",
+            "columnName": "matchDisplayRefreshRate",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "maxVideoResolution",
+            "columnName": "maxVideoResolution",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'Unlimited'"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "subtitle_selections",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`serverId` TEXT NOT NULL, `userId` TEXT NOT NULL, `itemId` TEXT NOT NULL, `mediaSourceId` TEXT NOT NULL, `selectionType` TEXT NOT NULL, `streamIndex` INTEGER, `localAssetId` TEXT, PRIMARY KEY(`serverId`, `userId`, `itemId`, `mediaSourceId`))",
+        "fields": [
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaSourceId",
+            "columnName": "mediaSourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "selectionType",
+            "columnName": "selectionType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamIndex",
+            "columnName": "streamIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "localAssetId",
+            "columnName": "localAssetId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "serverId",
+            "userId",
+            "itemId",
+            "mediaSourceId"
+          ]
+        }
+      },
+      {
+        "tableName": "local_subtitle_assets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `serverId` TEXT NOT NULL, `userId` TEXT NOT NULL, `itemId` TEXT NOT NULL, `mediaSourceId` TEXT NOT NULL, `provider` TEXT NOT NULL, `providerSubtitleId` TEXT NOT NULL, `providerFileId` TEXT NOT NULL, `language` TEXT NOT NULL, `label` TEXT NOT NULL, `releaseName` TEXT, `originalFormat` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `fileId` TEXT NOT NULL, `hearingImpaired` INTEGER NOT NULL, `forced` INTEGER NOT NULL, `trusted` INTEGER NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `lastUsedAtEpochMs` INTEGER NOT NULL, `syncState` TEXT NOT NULL, `confirmedStreamIndex` INTEGER, `uploadBaseline` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaSourceId",
+            "columnName": "mediaSourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerSubtitleId",
+            "columnName": "providerSubtitleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerFileId",
+            "columnName": "providerFileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "language",
+            "columnName": "language",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseName",
+            "columnName": "releaseName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "originalFormat",
+            "columnName": "originalFormat",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileId",
+            "columnName": "fileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hearingImpaired",
+            "columnName": "hearingImpaired",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "forced",
+            "columnName": "forced",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trusted",
+            "columnName": "trusted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUsedAtEpochMs",
+            "columnName": "lastUsedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncState",
+            "columnName": "syncState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedStreamIndex",
+            "columnName": "confirmedStreamIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "uploadBaseline",
+            "columnName": "uploadBaseline",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_local_subtitle_assets_serverId_userId_itemId_mediaSourceId_provider_providerFileId",
+            "unique": true,
+            "columnNames": [
+              "serverId",
+              "userId",
+              "itemId",
+              "mediaSourceId",
+              "provider",
+              "providerFileId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_local_subtitle_assets_serverId_userId_itemId_mediaSourceId_provider_providerFileId` ON `${TABLE_NAME}` (`serverId`, `userId`, `itemId`, `mediaSourceId`, `provider`, `providerFileId`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e0e284d5de5442adaf65acef766f5ca7')"
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+# Local, untracked working data (credentials, research, plans, and reports)
+.local/
+.local/reference-repos/
+
+# Personal automation and assistant configuration. Keep these available in the
+# local checkout, but do not publish them with the application source.
+/.agents/
+/.claude/
+/.codex/
+/CLAUDE.md
+
+# Private research and working design material.
+/docs/research/
+/docs/design/launch-redesign/launch-redesign-mockups.html
+/docs/design/launch-redesign/PREVIEW-all-directions.png
+/docs/design/launch-redesign/concept-art/01-ambient-login-landscape.png
+/docs/design/launch-redesign/concept-art/01-ambient-login-phone.png
+/docs/design/launch-redesign/concept-art/settings-touch/01-phone-account-appearance.png
+/docs/design/launch-redesign/concept-art/settings-tv-dialog-navigation/01-settings-account-appearance-round.png
+/docs/design/launch-redesign/concept-art/settings-tv-dialog-navigation/01-settings-account-appearance.png
+/docs/design/launch-redesign/concept-art/settings-tv-dialog-navigation/03-settings-device-services-round.png
+
+# Hosted automation is intentionally not published for this repository.
+/.github/workflows/
+
+# Codex-parallel worktrees (transient; each has its own branch, never a submodule)
+.worktrees/
+
+# Gradle / build
+.gradle/
+build/
+**/build/
+# AGP external-native-build (CMake) working directories
+.cxx/
+local.properties
+.kotlin/
+
+# Release credentials and signing material (defense in depth; `.local/` is the
+# documented location for JellyScope signing configuration).
+*.jks
+*.keystore
+*.p8
+*.p12
+*.pfx
+*.mobileprovision
+keystore.properties
+macos-signing.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.fleet/
+
+# OS
+.DS_Store
+hs_err_pid*.log
+
+# Apple / Xcode (added when Apple spike tracks begin)
+xcuserdata/
+*.xcworkspace/xcuserdata/
+ios-app/LocalSigning.xcconfig
+
+# Vendored MobileVLCKit binary (fetched via scripts/fetch-vlckit.sh; not committed)
+ios-app/Frameworks/
+
+# Local SPM package build artifacts (VLCKit wrapper)
+ios-app/VLCKitLocal/.build/

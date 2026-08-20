@@ -1,0 +1,438 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "5bb3da797f706e1172804ce791352a2b",
+    "entities": [
+      {
+        "tableName": "download_settings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `quotaBytes` INTEGER, `nextFifoSequence` INTEGER NOT NULL, `membershipRevision` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quotaBytes",
+            "columnName": "quotaBytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "nextFifoSequence",
+            "columnName": "nextFifoSequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "membershipRevision",
+            "columnName": "membershipRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "download_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`downloadId` TEXT NOT NULL, `serverId` TEXT NOT NULL, `userId` TEXT NOT NULL, `itemId` TEXT NOT NULL, `mediaSourceId` TEXT NOT NULL, `itemKindKey` TEXT NOT NULL, `qualityKey` TEXT NOT NULL, `qualityBitrateBps` INTEGER, `artifactKindKey` TEXT NOT NULL, `selectedAudioStreamIndex` INTEGER, `subtitleSelectionKey` TEXT NOT NULL, `subtitleStreamIndex` INTEGER, `subtitleLocalAssetId` TEXT, `subtitleBurnInConfirmed` INTEGER NOT NULL, `admissionEstimateBytes` INTEGER NOT NULL, `initialReservationBytes` INTEGER NOT NULL, `expectedSourceBytes` INTEGER, `sourceValidator` TEXT, `artifactKey` TEXT NOT NULL, `artifactFormatVersion` INTEGER NOT NULL, `snapshotEncoding` TEXT NOT NULL, `fifoSequence` INTEGER NOT NULL, `stateKey` TEXT NOT NULL, `activeSlot` TEXT, `reservationBytes` INTEGER NOT NULL, `physicalBytes` INTEGER NOT NULL, `checkpointBytes` INTEGER NOT NULL, `attemptGeneration` INTEGER NOT NULL, `platformWorkKindKey` TEXT, `platformWorkIdentity` TEXT, `localResumePositionMs` INTEGER NOT NULL, `localWatched` INTEGER NOT NULL, `failureKey` TEXT, `createdAtEpochMs` INTEGER NOT NULL, `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`downloadId`))",
+        "fields": [
+          {
+            "fieldPath": "downloadId",
+            "columnName": "downloadId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaSourceId",
+            "columnName": "mediaSourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemKindKey",
+            "columnName": "itemKindKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qualityKey",
+            "columnName": "qualityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qualityBitrateBps",
+            "columnName": "qualityBitrateBps",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "artifactKindKey",
+            "columnName": "artifactKindKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "selectedAudioStreamIndex",
+            "columnName": "selectedAudioStreamIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "subtitleSelectionKey",
+            "columnName": "subtitleSelectionKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subtitleStreamIndex",
+            "columnName": "subtitleStreamIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "subtitleLocalAssetId",
+            "columnName": "subtitleLocalAssetId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "subtitleBurnInConfirmed",
+            "columnName": "subtitleBurnInConfirmed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "admissionEstimateBytes",
+            "columnName": "admissionEstimateBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "initialReservationBytes",
+            "columnName": "initialReservationBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedSourceBytes",
+            "columnName": "expectedSourceBytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "sourceValidator",
+            "columnName": "sourceValidator",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artifactKey",
+            "columnName": "artifactKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artifactFormatVersion",
+            "columnName": "artifactFormatVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotEncoding",
+            "columnName": "snapshotEncoding",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fifoSequence",
+            "columnName": "fifoSequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stateKey",
+            "columnName": "stateKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeSlot",
+            "columnName": "activeSlot",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reservationBytes",
+            "columnName": "reservationBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "physicalBytes",
+            "columnName": "physicalBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "checkpointBytes",
+            "columnName": "checkpointBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attemptGeneration",
+            "columnName": "attemptGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "platformWorkKindKey",
+            "columnName": "platformWorkKindKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "platformWorkIdentity",
+            "columnName": "platformWorkIdentity",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localResumePositionMs",
+            "columnName": "localResumePositionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localWatched",
+            "columnName": "localWatched",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failureKey",
+            "columnName": "failureKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "downloadId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_download_records_serverId_userId_itemId_mediaSourceId",
+            "unique": true,
+            "columnNames": [
+              "serverId",
+              "userId",
+              "itemId",
+              "mediaSourceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_records_serverId_userId_itemId_mediaSourceId` ON `${TABLE_NAME}` (`serverId`, `userId`, `itemId`, `mediaSourceId`)"
+          },
+          {
+            "name": "index_download_records_fifoSequence",
+            "unique": true,
+            "columnNames": [
+              "fifoSequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_records_fifoSequence` ON `${TABLE_NAME}` (`fifoSequence`)"
+          },
+          {
+            "name": "index_download_records_artifactKey",
+            "unique": true,
+            "columnNames": [
+              "artifactKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_records_artifactKey` ON `${TABLE_NAME}` (`artifactKey`)"
+          },
+          {
+            "name": "index_download_records_activeSlot",
+            "unique": true,
+            "columnNames": [
+              "activeSlot"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_records_activeSlot` ON `${TABLE_NAME}` (`activeSlot`)"
+          },
+          {
+            "name": "index_download_records_serverId_userId_fifoSequence",
+            "unique": false,
+            "columnNames": [
+              "serverId",
+              "userId",
+              "fifoSequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_records_serverId_userId_fifoSequence` ON `${TABLE_NAME}` (`serverId`, `userId`, `fifoSequence`)"
+          }
+        ]
+      },
+      {
+        "tableName": "download_removal_operations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `kindKey` TEXT NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`operationId`))",
+        "fields": [
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kindKey",
+            "columnName": "kindKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "operationId"
+          ]
+        }
+      },
+      {
+        "tableName": "download_removal_targets",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `serverId` TEXT NOT NULL, `userId` TEXT NOT NULL, `observedMembershipRevision` INTEGER NOT NULL, `cleanupGeneration` INTEGER NOT NULL, `remainingArtifactKeysEncoding` TEXT NOT NULL, `accountRemoved` INTEGER NOT NULL, `downloadsRemoved` INTEGER NOT NULL, PRIMARY KEY(`operationId`, `serverId`, `userId`), FOREIGN KEY(`operationId`) REFERENCES `download_removal_operations`(`operationId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedMembershipRevision",
+            "columnName": "observedMembershipRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cleanupGeneration",
+            "columnName": "cleanupGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remainingArtifactKeysEncoding",
+            "columnName": "remainingArtifactKeysEncoding",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountRemoved",
+            "columnName": "accountRemoved",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "downloadsRemoved",
+            "columnName": "downloadsRemoved",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "operationId",
+            "serverId",
+            "userId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_download_removal_targets_operationId",
+            "unique": false,
+            "columnNames": [
+              "operationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_removal_targets_operationId` ON `${TABLE_NAME}` (`operationId`)"
+          },
+          {
+            "name": "index_download_removal_targets_serverId_userId",
+            "unique": true,
+            "columnNames": [
+              "serverId",
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_removal_targets_serverId_userId` ON `${TABLE_NAME}` (`serverId`, `userId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "download_removal_operations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "operationId"
+            ],
+            "referencedColumns": [
+              "operationId"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5bb3da797f706e1172804ce791352a2b')"
+    ]
+  }
+}

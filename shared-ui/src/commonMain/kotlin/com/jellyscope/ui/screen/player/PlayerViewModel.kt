@@ -1,0 +1,4737 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package com.jellyscope.ui.screen.player
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.jellyscope.core.data.local.SubtitleSelectionKey
+import com.jellyscope.core.data.remote.JellyfinApiException
+import com.jellyscope.core.domain.action.SavePlaybackSelectionAction
+import com.jellyscope.core.domain.action.SavePlaybackTimingOffsetAction
+import com.jellyscope.core.domain.action.SaveSubtitleSelectionAction
+import com.jellyscope.core.domain.model.DownloadArtifactKind
+import com.jellyscope.core.domain.model.DownloadId
+import com.jellyscope.core.domain.model.JellyfinImageType
+import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
+import com.jellyscope.core.domain.model.LocalSubtitleAsset
+import com.jellyscope.core.domain.model.LocalSubtitleContext
+import com.jellyscope.core.domain.model.MediaItem
+import com.jellyscope.core.domain.model.MediaItemDetail
+import com.jellyscope.core.domain.model.MediaKind
+import com.jellyscope.core.domain.model.MediaVersion
+import com.jellyscope.core.domain.model.OfflineTrackKind
+import com.jellyscope.core.domain.model.OfflineTrackSnapshot
+import com.jellyscope.core.domain.model.PlaybackPreferences
+import com.jellyscope.core.domain.model.PlaybackSelectionKey
+import com.jellyscope.core.domain.model.PlaybackTimingKey
+import com.jellyscope.core.domain.model.PlaybackTimingKind
+import com.jellyscope.core.domain.model.SegmentSkipPolicy
+import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.platform.DeviceInfoProvider
+import com.jellyscope.core.domain.playback.AudioActivationState
+import com.jellyscope.core.domain.playback.AudioActivationTarget
+import com.jellyscope.core.domain.playback.AutoPlaybackQualityRecoveryAuthorization
+import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryCoordinator
+import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryDecision
+import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryInput
+import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryPromptReason
+import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryResult
+import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryState
+import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryTrigger
+import com.jellyscope.core.domain.playback.BackendSourceDescriptor
+import com.jellyscope.core.domain.playback.Chapter
+import com.jellyscope.core.domain.playback.DEFAULT_PLAYBACK_REPORT_INTERVAL_MS
+import com.jellyscope.core.domain.playback.DEFAULT_PLAYBACK_SPEED
+import com.jellyscope.core.domain.playback.DeviceProfileProvider
+import com.jellyscope.core.domain.playback.EmbeddedAudioSelection
+import com.jellyscope.core.domain.playback.EmbeddedSubtitleSelection
+import com.jellyscope.core.domain.playback.LocalSubtitleKind
+import com.jellyscope.core.domain.playback.MAX_PLAYBACK_SPEED
+import com.jellyscope.core.domain.playback.MIN_PLAYBACK_SPEED
+import com.jellyscope.core.domain.playback.MediaSegment
+import com.jellyscope.core.domain.playback.MediaSegmentType
+import com.jellyscope.core.domain.playback.PlannedSubtitle
+import com.jellyscope.core.domain.playback.PlaybackAction
+import com.jellyscope.core.domain.playback.PlaybackActionNotice
+import com.jellyscope.core.domain.playback.PlaybackActionNoticeReason
+import com.jellyscope.core.domain.playback.PlaybackBackendAvailability
+import com.jellyscope.core.domain.playback.PlaybackBackendConstructionResult
+import com.jellyscope.core.domain.playback.PlaybackBackendConstructionStage
+import com.jellyscope.core.domain.playback.PlaybackBackendFallbackResult
+import com.jellyscope.core.domain.playback.PlaybackBitrateConstraint
+import com.jellyscope.core.domain.playback.PlaybackCapabilityResult
+import com.jellyscope.core.domain.playback.PlaybackClientTrigger
+import com.jellyscope.core.domain.playback.PlaybackContentTimeline
+import com.jellyscope.core.domain.playback.PlaybackContentTimelineSource
+import com.jellyscope.core.domain.playback.PlaybackDiagnostic
+import com.jellyscope.core.domain.playback.PlaybackDiagnosticEvent
+import com.jellyscope.core.domain.playback.PlaybackDiagnosticPlatform
+import com.jellyscope.core.domain.playback.PlaybackDiagnosticStage
+import com.jellyscope.core.domain.playback.PlaybackDiagnosticTrackActivation
+import com.jellyscope.core.domain.playback.PlaybackDiagnosticTrackKind
+import com.jellyscope.core.domain.playback.PlaybackDiagnosticTrackState
+import com.jellyscope.core.domain.playback.PlaybackError
+import com.jellyscope.core.domain.playback.PlaybackFirstVideoOutputState
+import com.jellyscope.core.domain.playback.PlaybackHealthExclusionReason
+import com.jellyscope.core.domain.playback.PlaybackHealthGuidance
+import com.jellyscope.core.domain.playback.PlaybackHealthGuidancePolicy
+import com.jellyscope.core.domain.playback.PlaybackHealthSessionContext
+import com.jellyscope.core.domain.playback.PlaybackHealthSessionCoordinator
+import com.jellyscope.core.domain.playback.PlaybackHealthSignal
+import com.jellyscope.core.domain.playback.PlaybackHealthSignalKind
+import com.jellyscope.core.domain.playback.PlaybackHealthSummary
+import com.jellyscope.core.domain.playback.PlaybackHealthThresholdClass
+import com.jellyscope.core.domain.playback.PlaybackInfoPlanner
+import com.jellyscope.core.domain.playback.PlaybackInfoRequestPolicy
+import com.jellyscope.core.domain.playback.PlaybackLaunchReadOutcome
+import com.jellyscope.core.domain.playback.PlaybackMediaStream
+import com.jellyscope.core.domain.playback.PlaybackPersistenceResult
+import com.jellyscope.core.domain.playback.PlaybackPersistenceTarget
+import com.jellyscope.core.domain.playback.PlaybackPlan
+import com.jellyscope.core.domain.playback.PlaybackPlanningException
+import com.jellyscope.core.domain.playback.PlaybackProgressEvent
+import com.jellyscope.core.domain.playback.PlaybackProgressReporter
+import com.jellyscope.core.domain.playback.PlaybackQualityCapOrigin
+import com.jellyscope.core.domain.playback.PlaybackQualityMode
+import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
+import com.jellyscope.core.domain.playback.PlaybackQualityPolicyOrigin
+import com.jellyscope.core.domain.playback.PlaybackRecoveryDecision
+import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
+import com.jellyscope.core.domain.playback.PlaybackSessionRecoveryDecision
+import com.jellyscope.core.domain.playback.PlaybackSessionRecoveryInput
+import com.jellyscope.core.domain.playback.PlaybackSessionRecoveryPolicy
+import com.jellyscope.core.domain.playback.PlaybackSessionRecoveryState
+import com.jellyscope.core.domain.playback.PlaybackState
+import com.jellyscope.core.domain.playback.PlaybackStatus
+import com.jellyscope.core.domain.playback.PlaybackTerminalOutcome
+import com.jellyscope.core.domain.playback.PlayerBackend
+import com.jellyscope.core.domain.playback.PlayerBackendPlatform
+import com.jellyscope.core.domain.playback.PlayerController
+import com.jellyscope.core.domain.playback.PlayerVolumeController
+import com.jellyscope.core.domain.playback.PlayerVolumeState
+import com.jellyscope.core.domain.playback.StreamMode
+import com.jellyscope.core.domain.playback.SubtitleActivationIdentity
+import com.jellyscope.core.domain.playback.SubtitleActivationState
+import com.jellyscope.core.domain.playback.SubtitleActivationTarget
+import com.jellyscope.core.domain.playback.SubtitleAsset
+import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
+import com.jellyscope.core.domain.playback.SubtitleKind
+import com.jellyscope.core.domain.playback.SubtitleRenderInfo
+import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleStyle
+import com.jellyscope.core.domain.playback.SubtitleTrackOption
+import com.jellyscope.core.domain.playback.TrickplayInfo
+import com.jellyscope.core.domain.playback.audioOptions
+import com.jellyscope.core.domain.playback.currentSegment
+import com.jellyscope.core.domain.playback.defaultSubtitleStreamIndex
+import com.jellyscope.core.domain.playback.diagnosticClass
+import com.jellyscope.core.domain.playback.diagnosticName
+import com.jellyscope.core.domain.playback.formatPlaybackDiagnostic
+import com.jellyscope.core.domain.playback.isExternalSubtitle
+import com.jellyscope.core.domain.playback.millisecondsToTicks
+import com.jellyscope.core.domain.playback.offlineControllerFallbackAllowed
+import com.jellyscope.core.domain.playback.playbackExceptionType
+import com.jellyscope.core.domain.playback.playerQualityOptions
+import com.jellyscope.core.domain.playback.preferredAudioStreamIndex
+import com.jellyscope.core.domain.playback.preferredSubtitleStreamIndex
+import com.jellyscope.core.domain.playback.qualityOptions
+import com.jellyscope.core.domain.playback.resolveOfflinePlaybackBackend
+import com.jellyscope.core.domain.playback.resolvePlayerBackend
+import com.jellyscope.core.domain.playback.subtitleKind
+import com.jellyscope.core.domain.playback.subtitleOptions
+import com.jellyscope.core.domain.playback.subtitleRenderInfo
+import com.jellyscope.core.domain.playback.thresholdClass
+import com.jellyscope.core.domain.playback.ticksToMilliseconds
+import com.jellyscope.core.domain.playback.toBitrateConstraint
+import com.jellyscope.core.domain.usecase.GetChronologicalEpisodeQueueUseCase
+import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
+import com.jellyscope.core.domain.usecase.GetItemsByIdsUseCase
+import com.jellyscope.core.domain.usecase.GetLocalSubtitleAssetUseCase
+import com.jellyscope.core.domain.usecase.GetMediaSegmentsUseCase
+import com.jellyscope.core.domain.usecase.GetOfflinePlaybackPlanUseCase
+import com.jellyscope.core.domain.usecase.GetPlaybackInfoAtStartStateUseCase
+import com.jellyscope.core.domain.usecase.GetPlaybackLaunchContextUseCase
+import com.jellyscope.core.domain.usecase.GetPlaybackTimingOffsetUseCase
+import com.jellyscope.core.domain.usecase.GetPlayerBackendOverrideUseCase
+import com.jellyscope.core.domain.usecase.ObserveLocalSubtitleAssetsUseCase
+import com.jellyscope.core.domain.usecase.ObservePlayerDeviceSettingsUseCase
+import com.jellyscope.core.playback.PlaybackDiagnosticsContext
+import com.jellyscope.core.playback.PlaybackReportingCoordinator
+import com.jellyscope.core.playback.PlaybackReportingQueue
+import com.jellyscope.core.playback.PlaybackStopSettlementRegistry
+import com.jellyscope.core.playback.resolvePlaybackDurationMs
+import com.jellyscope.core.playback.toDiagnosticsSourceDescriptor
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.time.TimeSource
+
+class PlayerViewModel(
+    private val session: Session,
+    private val itemId: String,
+    private val startPositionTicks: Long,
+    private val mediaSourceId: String?,
+    private val initialAudioStreamIndex: Int? = null,
+    private val initialSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified,
+    queue: List<String> = emptyList(),
+    playerController: PlayerController,
+    private val playbackInfoPlanner: PlaybackInfoPlanner,
+    private val progressReporter: PlaybackProgressReporter,
+    private val playbackStopSettlementRegistry: PlaybackStopSettlementRegistry,
+    private val getItemDetailUseCase: GetItemDetailUseCase,
+    private val getMediaSegmentsUseCase: GetMediaSegmentsUseCase,
+    private val getItemsByIdsUseCase: GetItemsByIdsUseCase,
+    private val getChronologicalEpisodeQueueUseCase: GetChronologicalEpisodeQueueUseCase? = null,
+    private val imageUrlBuilder: JellyfinImageUrlBuilder,
+    private val deviceInfoProvider: DeviceInfoProvider,
+    private val playbackSelectionMemory: PlaybackSelectionMemory,
+    private val getPlaybackLaunchContextUseCase: GetPlaybackLaunchContextUseCase,
+    private val getLocalSubtitleAssetUseCase: GetLocalSubtitleAssetUseCase? = null,
+    private val observeLocalSubtitleAssetsUseCase: ObserveLocalSubtitleAssetsUseCase? = null,
+    private val saveSubtitleSelectionAction: SaveSubtitleSelectionAction? = null,
+    private val savePlaybackSelectionAction: SavePlaybackSelectionAction? = null,
+    private val getPlaybackTimingOffsetUseCase: GetPlaybackTimingOffsetUseCase? = null,
+    private val savePlaybackTimingOffsetAction: SavePlaybackTimingOffsetAction? = null,
+    private val observePlayerDeviceSettingsUseCase: ObservePlayerDeviceSettingsUseCase,
+    private val workDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    backend: PlayerBackend = PlayerBackend.AVPlayer,
+    private val playerControllerFactory: (PlayerBackend) -> PlayerController = { playerController },
+    private val deviceProfileProvider: DeviceProfileProvider? = null,
+    private val playbackDiagnosticsContext: PlaybackDiagnosticsContext? = null,
+    private val getPlayerBackendOverrideUseCase: GetPlayerBackendOverrideUseCase? = null,
+    getPlaybackInfoAtStartStateUseCase: GetPlaybackInfoAtStartStateUseCase? = null,
+    private val monotonicTimeMs: () -> Long = ::playerMonotonicTimeMs,
+    private val playbackHealthGuidancePolicy: PlaybackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Actionable,
+    private val offlineDownloadId: DownloadId? = null,
+    private val getOfflinePlaybackPlanUseCase: GetOfflinePlaybackPlanUseCase? = null,
+) : ViewModel() {
+    /** Diagnostics preference captured once per playback start. */
+    val startWithPlaybackInfoOverlay: Boolean =
+        getPlaybackInfoAtStartStateUseCase?.invoke()?.value ?: false
+    private var playerController: PlayerController = playerController
+    private var backend =
+        playerController.activeBackend
+            .takeUnless { candidate -> candidate == PlayerBackend.Auto }
+            ?: backend
+    val currentPlayerController: PlayerController
+        get() = playerController
+    private val accountIdentity = session.accountIdentity()
+    private val _state = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
+    val state: StateFlow<PlayerUiState> = _state.asStateFlow()
+    private val _playbackState = MutableStateFlow(playerController.playbackState.value)
+    val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+    private val _runtimeDiagnostics = MutableStateFlow(PlaybackRuntimeDiagnostics.EMPTY)
+    val runtimeDiagnostics: StateFlow<PlaybackRuntimeDiagnostics> = _runtimeDiagnostics.asStateFlow()
+    private val _matchDisplayRefreshRate =
+        MutableStateFlow(observePlayerDeviceSettingsUseCase().value.matchDisplayRefreshRate)
+    val matchDisplayRefreshRate: StateFlow<Boolean> = _matchDisplayRefreshRate.asStateFlow()
+    private val playbackEndedEvents = Channel<Unit>(Channel.BUFFERED)
+    val playbackEnded: Flow<Unit> = playbackEndedEvents.receiveAsFlow()
+
+    private var queueIds = normalizedQueue(initialItemId = itemId, queue = queue)
+    private val queueIdentity: String
+        get() = queueIds.joinToString(separator = "\u001f")
+    private var currentItemId = itemId
+    private var currentStartPositionTicks = startPositionTicks
+    private var currentQueueIndex = queueIds.indexOf(itemId).takeIf { index -> index >= 0 } ?: 0
+    private var playSessionId = deviceInfoProvider.newDeviceId()
+    private var plan: PlaybackPlan? = null
+    private var selectedMediaSourceId: String? = null
+    private var selectedSourceContainer: String? = null
+    private var mediaStreams: List<PlaybackMediaStream> = emptyList()
+
+    private val projections = PlayerProjectionCache()
+    private var mediaSegments: List<MediaSegment> = emptyList()
+
+    // Settings changes apply on the next playback start.
+    private var activePlaybackPreferences = PlaybackPreferences()
+    private val timingCoordinator =
+        PlayerTimingCoordinator(
+            controllerProvider = { playerController },
+            saveAction = savePlaybackTimingOffsetAction,
+            getUseCase = getPlaybackTimingOffsetUseCase,
+            scope = viewModelScope,
+            workDispatcher = workDispatcher,
+            keyProvider = ::timingKey,
+            onTimingStateChanged = {
+                if (_state.value is PlayerUiState.Content) {
+                    publishContent()
+                }
+            },
+        )
+    private var autoplayGeneration = 0L
+    private val autoSkippedSegmentKeys = mutableSetOf<String>()
+
+    // Prevents controller emissions from republishing the outgoing item.
+    private var queueSwitchInFlight = false
+    private var chapters: List<Chapter> = emptyList()
+    private var trickplay: TrickplayInfo? = null
+    private var playbackSpeed: Float = DEFAULT_PLAYBACK_SPEED
+    private var subtitleStyle: SubtitleStyle = SubtitleStyle()
+    private var resizeMode: PlayerResizeMode = PlayerResizeMode.Fit
+    private var metadata = PlayerMediaMetadata()
+    private var playlist: PlaylistUi? = null
+    private var requestedAudioStreamIndex: Int? = null
+    private var installedAudioStreamIndex: Int? = null
+    private var audioActivationRequestId = 0L
+    private var audioRecoveryTarget: AudioActivationTarget? = null
+    private var desiredPlayWhenReady = true
+    private var requestedSubtitleStreamIndex: Int? = null
+    private var requestedSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified
+    private var requestedLocalSubtitleAsset: LocalSubtitleAsset? = null
+    private var localSubtitleAssets: List<LocalSubtitleAsset> = emptyList()
+    private var subtitleActivationRequestId = 0L
+    private var subtitleFallbackTarget: SubtitleActivationTarget? = null
+    private var subtitleFallbackGeneration = 0L
+    private var subtitleNoticeToken = 0L
+    private var subtitleNotice: PlayerNotice? = null
+    private var backendNoticeToken = 0L
+    private var backendNotice: PlayerBackendNotice? = null
+    private var selectedQualityMaxBitrate: Long? = null
+    private var selectedQualityPolicy: PlaybackQualityPolicy = PlaybackQualityPolicy.Auto
+    private var selectedQualityCapOrigin: PlaybackQualityCapOrigin? = null
+    private var playbackLaunchGeneration = 0L
+    private var playbackLaunchMarker: PlaybackLaunchMarker? = null
+    private var launchToFirstFrameMs: Long? = null
+    private var activePlaybackTimelineFacts: ActivePlaybackTimelineFacts? = null
+
+    // Explicit audio is durable intent; requested and installed indices are runtime truth.
+    private var explicitAudioStreamIndex: Int? = null
+    private var qualityExplicitlyChosen = false
+    private var consecutiveAutoPlayCount = 0
+    private var stillWatchingPrompt = false
+    private var pendingStillWatchingQueueIndex: Int? = null
+    private var reportingJob: Job? = null
+    private var runtimeDiagnosticsJob: Job? = null
+    private var droppedFrameMeasurementsJob: Job? = null
+    private var videoOutputObservationsJob: Job? = null
+    private var playbackTransitionObservationsJob: Job? = null
+    private var volumeStateJob: Job? = null
+    private var playlistMetadataJob: Job? = null
+    private var derivedEpisodeQueueJob: Job? = null
+    private var queueSwitchJob: Job? = null
+    private var replanJob: Job? = null
+    private var localSubtitleAssetsJob: Job? = null
+    private var lastStatus: PlaybackStatus = PlaybackStatus.Idle
+    private var alternateBackendFallbackAttempted = false
+    private var controllerInstallInFlight = false
+    private var stopRequestedDuringControllerInstall = false
+    private var stopCompletedDuringControllerInstall = false
+    private var volumeControl: PlayerVolumeState? = (playerController as? PlayerVolumeController)?.volumeState?.value
+
+    private var playbackGuidance: PlaybackHealthGuidance? = null
+    private var lastHealthSignal: PlaybackHealthSignalKind? = null
+    private var lastHealthThresholdClass: PlaybackHealthThresholdClass? = null
+    private var lastAudioTrackDiagnostic: PlayerTrackDiagnosticSnapshot? = null
+    private var lastSubtitleTrackDiagnostic: PlayerTrackDiagnosticSnapshot? = null
+    private var lastTerminalDiagnostic: PlayerTerminalDiagnosticSnapshot? = null
+    private var pendingRecoveredPlaybackGuidanceItemId: String? = null
+    private var pendingRecoveredAutoQualityBps: Long? = null
+    private var playbackActionNotice: PlaybackActionNotice? = null
+
+    private fun setPlaybackActionNotice(notice: PlaybackActionNotice?) {
+        playbackActionNotice = notice?.takeIf { activePlaybackPreferences.playbackWarningsEnabled }
+    }
+
+    private var pictureInPictureMode = false
+    private var pendingPictureInPictureRecoveryTrigger: AutoPlaybackRecoveryTrigger? = null
+    private val autoRecoveryCoordinator = AutoPlaybackRecoveryCoordinator()
+    private var autoRecoveryState = AutoPlaybackRecoveryState()
+    private val playbackSessionRecoveryPolicy = PlaybackSessionRecoveryPolicy()
+    private var playbackSessionRecoveryState = PlaybackSessionRecoveryState()
+
+    // Distinguishes output measurement support from observed output.
+    private var expectedVideoOutputPrepareEpoch: Long? = null
+    private var firstVideoOutputDebug = PlayerFirstVideoOutputDebug()
+    private val playbackHealthCoordinator =
+        PlaybackHealthSessionCoordinator(
+            scope = viewModelScope,
+            monotonicTimeMs = monotonicTimeMs,
+            measurementCapabilities = {
+                val capabilities = playerController.playbackHealthMeasurementCapabilities
+                capabilities.copy(
+                    hasReliableFirstVideoOutput =
+                        capabilities.hasReliableFirstVideoOutput &&
+                            playerController.videoOutputMeasurementCapabilities.isSupported &&
+                            firstVideoOutputDebug.state != PlaybackFirstVideoOutputState.Unsupported,
+                )
+            },
+            onSignal = { signal ->
+                lastHealthSignal = signal.kind
+                lastHealthThresholdClass = signal.thresholdClass()
+                if (
+                    signal.kind == PlaybackHealthSignalKind.NoVideoOutput &&
+                    firstVideoOutputDebug.state != PlaybackFirstVideoOutputState.Unsupported
+                ) {
+                    firstVideoOutputDebug =
+                        firstVideoOutputDebug.copy(state = PlaybackFirstVideoOutputState.TimedOut)
+                    if (_state.value is PlayerUiState.Content) {
+                        publishContent(playbackState = playbackState.value)
+                    }
+                }
+                logPlaybackHealthSignal(signal)
+                // Warning settings hide presentation, never automatic recovery.
+                if (playbackHealthGuidancePolicy == PlaybackHealthGuidancePolicy.Actionable) {
+                    handleAutomaticRecoverySignal(signal)
+                }
+            },
+            onGuidanceChanged = { guidance ->
+                playbackGuidance = guidance
+                if (_state.value is PlayerUiState.Content) {
+                    publishContent()
+                }
+            },
+            onSessionEnded = { summary ->
+                if (plan != null) {
+                    logPlaybackHealthSummary(summary)
+                }
+            },
+        )
+    private var backendResolvedForSession = false
+    private val playbackReportingQueue =
+        PlaybackReportingQueue(
+            reporter = progressReporter,
+            dispatcher = workDispatcher,
+            settlementRegistry = playbackStopSettlementRegistry,
+        )
+    private val playbackReportingCoordinator =
+        PlaybackReportingCoordinator(
+            queue = playbackReportingQueue,
+            scope = viewModelScope,
+            playbackState = _playbackState,
+        )
+
+    init {
+        observePlayerDeviceSettings()
+        observeRuntimeDiagnostics()
+        observeVolumeState()
+        observeTimingState()
+        load()
+    }
+
+    private fun observePlayerDeviceSettings() {
+        viewModelScope.launch {
+            observePlayerDeviceSettingsUseCase().collect { settings ->
+                _matchDisplayRefreshRate.value = settings.matchDisplayRefreshRate
+            }
+        }
+    }
+
+    private fun observeTimingState() {
+        timingCoordinator.observe()
+    }
+
+    fun play() {
+        if (controllerInstallInFlight) return
+        desiredPlayWhenReady = true
+        restartPlaybackHealthEvidence()
+        playerController.play()
+    }
+
+    fun pause() {
+        if (controllerInstallInFlight) return
+        desiredPlayWhenReady = false
+        restartPlaybackHealthEvidence()
+        playerController.pause()
+    }
+
+    fun togglePlayPause() {
+        if (playbackState.value.status == PlaybackStatus.Playing) {
+            pause()
+        } else {
+            play()
+        }
+    }
+
+    fun playPrevious() {
+        if (controllerInstallInFlight) return
+        val playback = playbackState.value
+        if (playback.positionMs >= PREVIOUS_ITEM_RESTART_THRESHOLD_MS) {
+            seekTo(0L)
+            return
+        }
+        val previousIndex =
+            (currentQueueIndex - 1)
+                .takeIf { index -> queueIds.size > 1 && index in queueIds.indices }
+                ?: return
+        consecutiveAutoPlayCount = 0
+        stillWatchingPrompt = false
+        pendingStillWatchingQueueIndex = null
+        invalidateSubtitleFallback()
+        startQueueSwitch(
+            index = previousIndex,
+            stopPositionMs = playback.positionMs,
+        )
+    }
+
+    fun setVolume(percent: Int) {
+        if (controllerInstallInFlight) return
+        (playerController as? PlayerVolumeController)?.setVolume(percent)
+    }
+
+    fun toggleMute() {
+        if (controllerInstallInFlight) return
+        val volumeController = playerController as? PlayerVolumeController ?: return
+        volumeController.setMuted(!volumeController.volumeState.value.muted)
+    }
+
+    fun seekTo(positionMs: Long) {
+        if (controllerInstallInFlight) return
+        val target = positionMs.coerceAtLeast(0L)
+        restartPlaybackHealthEvidence(PlaybackHealthExclusionReason.Seek)
+        val currentPlan = plan
+        if (
+            playerController.transcodeSeekRestartsStream &&
+            currentPlan?.streamMode == StreamMode.Transcode &&
+            !isWithinTranscodedWindow(target, currentPlan)
+        ) {
+            // Restart when the target lies outside the server-produced HLS window.
+            replanAtPosition(target)
+            return
+        }
+        playerController.seekTo(target)
+        playbackReportingCoordinator.progress(
+            positionMs = target,
+            isPaused = playerController.playbackState.value.status == PlaybackStatus.Paused,
+            eventName = PlaybackProgressEvent.TimeUpdate,
+        )
+    }
+
+    // Only the produced transcode window supports an in-stream seek.
+    private fun isWithinTranscodedWindow(
+        targetPositionMs: Long,
+        currentPlan: PlaybackPlan,
+    ): Boolean {
+        val bufferedAheadMs = playerController.playbackState.value.bufferedPositionMs
+        return targetPositionMs in currentPlan.startPositionMs..bufferedAheadMs
+    }
+
+    fun retry() {
+        if (controllerInstallInFlight) return
+        autoplayGeneration += 1
+        _state.update { PlayerUiState.Loading }
+        playSessionId = deviceInfoProvider.newDeviceId()
+        lastStatus = PlaybackStatus.Idle
+        replanJob?.cancel()
+        replanJob = null
+        val sameItemFastRetry = plan?.itemId == currentItemId
+        emitPlaybackHealthSummary()
+        val retryGeneration = ++playbackLaunchGeneration
+        activePlaybackTimelineFacts =
+            if (sameItemFastRetry) {
+                activePlaybackTimelineFacts
+                    ?.takeIf { facts -> facts.itemId == currentItemId }
+                    ?.copy(generation = retryGeneration)
+            } else {
+                null
+            }
+        // Retry resets all session health and recovery budgets.
+        resetPlaybackHealthSession(retryGeneration)
+        plan = plan?.copy(diagnosticSessionSequence = retryGeneration)
+        pendingRecoveredPlaybackGuidanceItemId = null
+        pendingRecoveredAutoQualityBps = null
+        pendingPictureInPictureRecoveryTrigger = null
+        playbackActionNotice = null
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
+        playbackSessionRecoveryState =
+            playbackSessionRecoveryPolicy.reset(playbackLaunchGeneration, currentItemId)
+        if (offlineDownloadId != null || plan?.streamMode == StreamMode.Offline) {
+            if (offlineDownloadId == null) {
+                failOfflineLaunch(retryGeneration, PlaybackError.OfflineArtifactUnavailable)
+                return
+            }
+            viewModelScope.launch {
+                if (
+                    startPlaybackForItem(
+                        itemId = currentItemId,
+                        requestedMediaSourceId = selectedMediaSourceId,
+                        requestedAudioStreamIndex = requestedAudioStreamIndex,
+                        requestedSubtitleSelection = requestedSubtitleSelection,
+                        startPositionTicks = currentStartPositionTicks,
+                        resetReporting = false,
+                    )
+                ) {
+                    observePlaybackState()
+                }
+            }
+            return
+        }
+        if (sameItemFastRetry) {
+            plan?.let { currentPlan ->
+                playbackReportingCoordinator.install(
+                    session = session,
+                    plan = currentPlan,
+                    playSessionId = currentPlan.effectivePlaySessionId(),
+                )
+            }
+            playbackLaunchMarker = null
+            playerController.retry()
+            playerController.runtimeDiagnostics.value.prepareEpoch
+                ?.let(playbackHealthCoordinator::expectVideoOutput)
+            armFirstVideoOutputDebugState()
+            return
+        }
+
+        viewModelScope.launch {
+            if (
+                startPlaybackForItem(
+                    itemId = currentItemId,
+                    requestedMediaSourceId =
+                        selectedMediaSourceId
+                            ?: mediaSourceId.takeIf { currentItemId == this@PlayerViewModel.itemId },
+                    requestedAudioStreamIndex = requestedAudioStreamIndex,
+                    requestedSubtitleSelection = requestedSubtitleSelection,
+                    startPositionTicks = currentStartPositionTicks,
+                    resetReporting = false,
+                )
+            ) {
+                observePlaybackState()
+                fetchPlaylistMetadata()
+            }
+        }
+    }
+
+    fun playQueueItem(index: Int) {
+        if (controllerInstallInFlight) return
+        if (queueIds.size <= 1 || index !in queueIds.indices) {
+            return
+        }
+        consecutiveAutoPlayCount = 0
+        stillWatchingPrompt = false
+        pendingStillWatchingQueueIndex = null
+        // A newer queue switch cancels the in-flight plan and prepare.
+        invalidateSubtitleFallback()
+        startQueueSwitch(
+            index = index,
+            stopPositionMs = playerController.playbackState.value.positionMs,
+        )
+    }
+
+    /** False keeps Up Next visible when the switch is refused. */
+    fun playNext(
+        auto: Boolean = false,
+        expectedGeneration: Long? = null,
+    ): Boolean {
+        if (controllerInstallInFlight) return false
+        return playNext(
+            auto = auto,
+            stopPositionMs = playerController.playbackState.value.positionMs,
+            expectedGeneration = expectedGeneration,
+        )
+    }
+
+    fun confirmStillWatching() {
+        if (controllerInstallInFlight) return
+        val pendingIndex = pendingStillWatchingQueueIndex
+        consecutiveAutoPlayCount = 0
+        stillWatchingPrompt = false
+        pendingStillWatchingQueueIndex = null
+        if (state.value is PlayerUiState.Content) {
+            publishContent()
+        }
+
+        if (pendingIndex != null) {
+            invalidateSubtitleFallback()
+            startQueueSwitch(
+                index = pendingIndex,
+                stopPositionMs = playerController.playbackState.value.positionMs,
+            )
+        }
+    }
+
+    // Auto-skip fires once per segment identity in each item session.
+    private fun maybeAutoSkipSegment(enrichedPlaybackState: PlaybackState) {
+        if (enrichedPlaybackState.status != PlaybackStatus.Playing) return
+        val segment = enrichedPlaybackState.currentSegment ?: return
+        if (activePlaybackPreferences.policyFor(segment.type) != SegmentSkipPolicy.AutoSkip) return
+        val key = "${segment.type.name}:${segment.startTicks}:${segment.endTicks}"
+        if (!autoSkippedSegmentKeys.add(key)) return
+        seekTo(segment.endMs)
+    }
+
+    fun skipCurrentSegment() {
+        if (controllerInstallInFlight) return
+        val segment = playbackState.value.currentSegment ?: return
+        seekTo(segment.endMs)
+    }
+
+    fun setResizeMode(mode: PlayerResizeMode) {
+        resizeMode = mode
+        if (state.value is PlayerUiState.Content) {
+            publishContent()
+        }
+    }
+
+    fun cycleResizeMode(twoState: Boolean = false) {
+        resizeMode =
+            if (twoState) {
+                when (resizeMode) {
+                    PlayerResizeMode.Fit -> PlayerResizeMode.Fill
+                    PlayerResizeMode.Fill,
+                    PlayerResizeMode.Zoom,
+                    -> PlayerResizeMode.Fit
+                }
+            } else {
+                when (resizeMode) {
+                    PlayerResizeMode.Fit -> PlayerResizeMode.Fill
+                    PlayerResizeMode.Fill -> PlayerResizeMode.Zoom
+                    PlayerResizeMode.Zoom -> PlayerResizeMode.Fit
+                }
+            }
+        if (state.value is PlayerUiState.Content) {
+            publishContent()
+        }
+    }
+
+    fun shuffleQueue() {
+        if (queueIds.size <= 1) {
+            return
+        }
+        val currentId = currentItemId
+        val existingItemsById = playlist?.items.orEmpty().associateBy { item -> item.id }
+        queueIds = listOf(currentId) + queueIds.filterNot { id -> id == currentId }.shuffled()
+        currentQueueIndex = 0
+        playlist =
+            playlist?.copy(
+                items =
+                    queueIds.map { id ->
+                        existingItemsById[id]
+                            ?: unresolvedQueueItem(id)
+                    },
+                currentIndex = currentQueueIndex,
+            )
+        publishContent()
+        if (queueIds.any { id -> id !in existingItemsById }) {
+            fetchPlaylistMetadata()
+        }
+    }
+
+    fun stop() {
+        if (controllerInstallInFlight) {
+            stopRequestedDuringControllerInstall = true
+            return
+        }
+        performStop(stopController = true)
+    }
+
+    private fun performStop(stopController: Boolean) {
+        cancelAndInvalidateSubtitleFallback()
+        activePlaybackTimelineFacts = null
+        emitPlaybackHealthSummary()
+        endPlaybackHealthSession()
+        pendingRecoveredPlaybackGuidanceItemId = null
+        if (_state.value is PlayerUiState.Content) {
+            publishContent()
+        }
+        playbackReportingCoordinator.stop(playerController.playbackState.value.positionMs)
+        if (stopController) playerController.stop()
+    }
+
+    fun showPicker(picker: PlayerPicker) {
+        publishContent(pickerVisible = picker)
+    }
+
+    fun hidePicker() {
+        publishContent(pickerVisible = PlayerPicker.None)
+    }
+
+    fun selectAudio(streamIndex: Int) {
+        if (controllerInstallInFlight) return
+        val option =
+            audioOptions(mediaStreams)
+                .firstOrNull { track -> track.streamIndex == streamIndex }
+                ?: return
+        val currentPlan = plan ?: return
+        if (currentPlan.streamMode == StreamMode.Offline) {
+            selectOfflineAudio(currentPlan, streamIndex)
+            return
+        }
+        cancelAndInvalidateSubtitleFallback()
+        audioRecoveryTarget = null
+        requestedAudioStreamIndex = streamIndex
+        explicitAudioStreamIndex = streamIndex
+        rememberSelection()
+
+        if (currentPlan.streamMode == StreamMode.DirectPlay) {
+            val descriptor =
+                currentPlan.embeddedAudioTracks.firstOrNull { track -> track.jellyfinStreamIndex == streamIndex }
+            val target = newAudioActivationTarget(streamIndex)
+            plan =
+                currentPlan.copy(
+                    selectedAudioStreamIndex = streamIndex,
+                    audioActivationTarget = target,
+                )
+            // Native index selection does not prove the codec can decode.
+            if (descriptor == null || !descriptor.directPlayAdmissible) {
+                maybeHandleImmediatePlaybackSessionRecovery(
+                    playerController.playbackState.value.copy(
+                        audioActivation = AudioActivationState.Unavailable(target),
+                    ),
+                )
+            } else {
+                playerController.selectEmbeddedAudio(
+                    EmbeddedAudioSelection(target = target, descriptor = descriptor),
+                )
+            }
+            reloadTimingForCurrentTracks()
+            publishContent(pickerVisible = PlayerPicker.None)
+        } else {
+            // Dismiss before the PlaybackInfo round trip and native swap.
+            publishContent(pickerVisible = PlayerPicker.None)
+            replanAtCurrentPosition()
+        }
+    }
+
+    /** Offline audio is limited to tracks captured in the artifact snapshot. */
+    private fun selectOfflineAudio(
+        currentPlan: PlaybackPlan,
+        streamIndex: Int,
+    ) {
+        val descriptor =
+            currentPlan.embeddedAudioTracks.firstOrNull { track ->
+                track.jellyfinStreamIndex == streamIndex
+            }
+        if (descriptor == null || !descriptor.directPlayAdmissible) {
+            _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
+            return
+        }
+        cancelAndInvalidateSubtitleFallback()
+        audioRecoveryTarget = null
+        requestedAudioStreamIndex = streamIndex
+        explicitAudioStreamIndex = streamIndex
+        rememberSelection()
+        val target = newAudioActivationTarget(streamIndex)
+        plan =
+            currentPlan.copy(
+                selectedAudioStreamIndex = streamIndex,
+                audioActivationTarget = target,
+            )
+        playerController.selectEmbeddedAudio(
+            EmbeddedAudioSelection(target = target, descriptor = descriptor),
+        )
+        reloadTimingForCurrentTracks()
+        publishContent(pickerVisible = PlayerPicker.None)
+    }
+
+    /** Offline subtitles may disable a sidecar or switch captured embedded tracks. */
+    private fun selectOfflineSubtitle(
+        currentPlan: PlaybackPlan,
+        option: SubtitleTrackOption?,
+    ) {
+        if (option?.isExternal == true) return
+        invalidateSubtitleFallback()
+        replanJob?.cancel()
+        replanJob = null
+        requestedSubtitleStreamIndex = option?.streamIndex
+        requestedLocalSubtitleAsset = null
+        requestedSubtitleSelection = option?.streamIndex.toSubtitleSelectionIntent()
+        val targetAndSelection =
+            option?.let { selectedOption ->
+                val descriptor =
+                    currentPlan.embeddedSubtitleTracks.firstOrNull { track ->
+                        track.jellyfinStreamIndex == selectedOption.streamIndex
+                    } ?: return
+                val target =
+                    newSubtitleActivationTarget(
+                        streamIndex = selectedOption.streamIndex,
+                        kind =
+                            if (subtitleKind(descriptor.codec) == SubtitleKind.Bitmap) {
+                                LocalSubtitleKind.EmbeddedBitmap
+                            } else {
+                                LocalSubtitleKind.EmbeddedText
+                            },
+                    )
+                target to
+                    EmbeddedSubtitleSelection(
+                        target = target,
+                        descriptor = descriptor,
+                    )
+            }
+        val target = targetAndSelection?.first
+        plan =
+            currentPlan.copy(
+                selectedSubtitleStreamIndex = option?.streamIndex,
+                subtitleAsset = null,
+                subtitleActivationTarget = target,
+                plannedSubtitle =
+                    targetAndSelection?.let { (_, selection) ->
+                        PlannedSubtitle.Track(
+                            streamIndex = selection.target.streamIndex ?: return,
+                            embeddedTrack = selection.descriptor,
+                            deliveryMethod = SubtitleDeliveryMethod.Embed,
+                            kind = subtitleKind(selection.descriptor.codec),
+                            activationTarget = selection.target,
+                            normalizedFormat = selection.descriptor.codec,
+                        )
+                    } ?: PlannedSubtitle.Off,
+            )
+        playerController.selectEmbeddedSubtitle(targetAndSelection?.second)
+        reloadTimingForCurrentTracks()
+        publishContent(pickerVisible = PlayerPicker.None)
+    }
+
+    fun selectSubtitle(streamIndex: Int?) {
+        if (controllerInstallInFlight) return
+        val option =
+            streamIndex?.let { selectedIndex ->
+                subtitleOptions(mediaStreams)
+                    .firstOrNull { track -> track.streamIndex == selectedIndex }
+                    ?: return
+            }
+        val currentPlan = plan ?: return
+        if (currentPlan.streamMode == StreamMode.Offline) {
+            selectOfflineSubtitle(currentPlan, option)
+            return
+        }
+        invalidateSubtitleFallback()
+        replanJob?.cancel()
+        replanJob = null
+        requestedSubtitleStreamIndex = streamIndex
+        requestedLocalSubtitleAsset = null
+        requestedSubtitleSelection = streamIndex.toSubtitleSelectionIntent()
+        persistSubtitleSelection(requestedSubtitleSelection)
+        rememberSelection()
+
+        val installedTrack = currentPlan.plannedSubtitle as? PlannedSubtitle.Track
+        val retainedEmbeddedDescriptor =
+            option
+                ?.takeUnless(SubtitleTrackOption::isExternal)
+                ?.let { selectedOption ->
+                    currentPlan.embeddedSubtitleTracks.firstOrNull { descriptor ->
+                        descriptor.jellyfinStreamIndex == selectedOption.streamIndex
+                    }
+                }
+        val canSwitchApprovedEmbeddedSubtitle =
+            currentPlan.streamMode == StreamMode.DirectPlay &&
+                currentPlan.plannedSubtitle is PlannedSubtitle.Off &&
+                retainedEmbeddedDescriptor?.let { descriptor ->
+                    subtitleKind(descriptor.codec) == SubtitleKind.Text
+                } == true
+        val canSwitchInPlayer =
+            (option == null && installedTrack?.deliveryMethod in localEmbeddedDeliveryMethods) ||
+                (
+                    option != null &&
+                        installedTrack?.streamIndex == option.streamIndex &&
+                        installedTrack.deliveryMethod in localEmbeddedDeliveryMethods
+                ) ||
+                canSwitchApprovedEmbeddedSubtitle
+        if (canSwitchInPlayer) {
+            val target =
+                option?.let { track ->
+                    // The retained descriptor guard admits text tracks only.
+                    val kind =
+                        installedTrack?.localKind()
+                            ?: retainedEmbeddedDescriptor?.let { LocalSubtitleKind.EmbeddedText }
+                            ?: return
+                    newSubtitleActivationTarget(
+                        streamIndex = track.streamIndex,
+                        kind = kind,
+                    )
+                }
+            val selection =
+                option?.let { track ->
+                    val descriptor = installedTrack?.embeddedTrack ?: retainedEmbeddedDescriptor ?: return
+                    EmbeddedSubtitleSelection(
+                        target = target ?: return,
+                        descriptor = descriptor,
+                    )
+                }
+            plan =
+                currentPlan.copy(
+                    selectedSubtitleStreamIndex = streamIndex,
+                    subtitleAsset = null,
+                    subtitleActivationTarget = target,
+                    plannedSubtitle =
+                        if (option == null) {
+                            PlannedSubtitle.Off
+                        } else {
+                            installedTrack?.copy(activationTarget = target)
+                                ?: retainedEmbeddedDescriptor?.let { descriptor ->
+                                    PlannedSubtitle.Track(
+                                        streamIndex = option.streamIndex,
+                                        embeddedTrack = descriptor,
+                                        deliveryMethod = SubtitleDeliveryMethod.Embed,
+                                        kind = subtitleKind(descriptor.codec),
+                                        activationTarget = target,
+                                        normalizedFormat = descriptor.codec,
+                                    )
+                                } ?: PlannedSubtitle.Off
+                        },
+                )
+            playerController.selectEmbeddedSubtitle(selection)
+            reloadTimingForCurrentTracks()
+            publishContent(pickerVisible = PlayerPicker.None)
+        } else {
+            if (option == null || currentPlan.plannedSubtitle is PlannedSubtitle.LocalAsset) {
+                playerController.selectEmbeddedSubtitle(null)
+            }
+            publishContent(pickerVisible = PlayerPicker.None)
+            replanAtCurrentPosition()
+        }
+    }
+
+    fun selectLocalSubtitle(assetId: String) {
+        if (controllerInstallInFlight) return
+        if (plan?.streamMode == StreamMode.Offline) return
+        val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return
+        val context = LocalSubtitleContext(session.serverId, session.userId, currentItemId, sourceId)
+        invalidateSubtitleFallback()
+        replanJob?.cancel()
+        replanJob =
+            viewModelScope.launch {
+                val asset = withContext(workDispatcher) { getLocalSubtitleAssetUseCase?.invoke(assetId, context) }
+                if (asset == null) {
+                    logPlaybackDiagnostic(
+                        stage = PlaybackDiagnosticStage.Mapping,
+                        event = PlaybackDiagnosticEvent.Failed,
+                        trackKind = PlaybackDiagnosticTrackKind.Subtitle,
+                    )
+                    return@launch
+                }
+                requestedSubtitleStreamIndex = null
+                requestedLocalSubtitleAsset = asset
+                requestedSubtitleSelection = SubtitleSelectionIntent.LocalAsset(asset.id)
+                persistSubtitleSelection(requestedSubtitleSelection)
+                playerController.selectEmbeddedSubtitle(null)
+                reloadTimingForCurrentTracks()
+                publishContent(pickerVisible = PlayerPicker.None)
+                // Clear the shared job slot before the replan replaces it.
+                replanJob = null
+                replanAtCurrentPosition()
+            }
+    }
+
+    fun selectQuality(maxBitrateBps: Long?) {
+        if (controllerInstallInFlight) return
+        if (plan?.streamMode == StreamMode.Offline) return
+        playbackHealthCoordinator.dismissGuidance()
+        pendingRecoveredPlaybackGuidanceItemId = null
+        selectedQualityPolicy =
+            maxBitrateBps
+                ?.let(PlaybackQualityPolicy::fixed)
+                ?: PlaybackQualityPolicy.Original
+        selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
+        selectedQualityCapOrigin =
+            PlaybackQualityCapOrigin.ExplicitSessionChoice.takeIf { maxBitrateBps != null }
+        qualityExplicitlyChosen = true
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
+        updatePlaybackHealthSessionContext()
+        // Show buffering while the replan fetches PlaybackInfo off Main.
+        val currentState = state.value
+        if (currentState is PlayerUiState.Content) {
+            publishContent(
+                playbackState = currentState.playbackState.copy(status = PlaybackStatus.Buffering),
+            )
+        }
+        replanAtCurrentPosition()
+    }
+
+    fun selectQuality(policy: PlaybackQualityPolicy) {
+        if (controllerInstallInFlight) return
+        if (plan?.streamMode == StreamMode.Offline) return
+        val normalized = policy.normalized()
+        playbackHealthCoordinator.dismissGuidance()
+        pendingRecoveredPlaybackGuidanceItemId = null
+        pendingRecoveredAutoQualityBps = null
+        playbackActionNotice = null
+        selectedQualityPolicy = normalized
+        selectedQualityMaxBitrate = normalized.maxBitrateBps
+        selectedQualityCapOrigin =
+            PlaybackQualityCapOrigin.ExplicitSessionChoice.takeIf { normalized.mode == PlaybackQualityMode.Fixed }
+        qualityExplicitlyChosen = true
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
+        updatePlaybackHealthSessionContext()
+        replanAtCurrentPosition()
+    }
+
+    fun acceptAutoPlayback() {
+        if (controllerInstallInFlight) return
+        if (plan?.streamMode == StreamMode.Offline) return
+        playbackActionNotice = null
+        pendingRecoveredAutoQualityBps = null
+        selectedQualityPolicy = PlaybackQualityPolicy.Auto
+        selectedQualityMaxBitrate = null
+        selectedQualityCapOrigin = null
+        qualityExplicitlyChosen = true
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
+        updatePlaybackHealthSessionContext()
+        replanAtCurrentPosition()
+    }
+
+    fun clearQualityOverride() {
+        if (controllerInstallInFlight) return
+        if (plan?.streamMode == StreamMode.Offline) return
+        val inheritedPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend)
+        playbackActionNotice = null
+        pendingRecoveredAutoQualityBps = null
+        selectedQualityPolicy = inheritedPolicy
+        selectedQualityMaxBitrate = inheritedPolicy.maxBitrateBps
+        selectedQualityCapOrigin =
+            PlaybackQualityCapOrigin.SettingsDefault.takeIf { inheritedPolicy.mode == PlaybackQualityMode.Fixed }
+        qualityExplicitlyChosen = false
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
+        updatePlaybackHealthSessionContext()
+        replanAtCurrentPosition()
+    }
+
+    fun keepRecoveredQualityForSession() {
+        if (controllerInstallInFlight) return
+        if (plan?.streamMode == StreamMode.Offline) return
+        val bitrate = autoRecoveryState.runtimeQualityCapBps ?: selectedQualityMaxBitrate ?: return
+        selectedQualityPolicy = PlaybackQualityPolicy.fixed(bitrate)
+        selectedQualityMaxBitrate = bitrate
+        selectedQualityCapOrigin = PlaybackQualityCapOrigin.ExplicitSessionChoice
+        qualityExplicitlyChosen = true
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
+        playbackActionNotice = null
+        updatePlaybackHealthSessionContext()
+        replanAtCurrentPosition()
+    }
+
+    fun tryHigherQualityOrOriginal() {
+        if (controllerInstallInFlight) return
+        if (plan?.streamMode == StreamMode.Offline) return
+        // Clear recovery state before an explicit uncapped retry.
+        pendingRecoveredAutoQualityBps = null
+        playbackActionNotice = null
+        selectedQualityPolicy = PlaybackQualityPolicy.Auto
+        selectedQualityMaxBitrate = null
+        selectedQualityCapOrigin = null
+        qualityExplicitlyChosen = true
+        autoRecoveryState = autoRecoveryCoordinator.clearRuntimeQualityCap(autoRecoveryState)
+        updatePlaybackHealthSessionContext()
+        replanAtCurrentPosition()
+    }
+
+    fun dismissPlaybackActionNotice() {
+        playbackActionNotice = null
+        publishContent()
+    }
+
+    fun retryPlaybackFromNotice() {
+        if (controllerInstallInFlight) return
+        playbackActionNotice = null
+        playbackSessionRecoveryState =
+            playbackSessionRecoveryPolicy.reset(playbackLaunchGeneration, currentItemId)
+        playerController.retry()
+        playerController.runtimeDiagnostics.value.prepareEpoch
+            ?.let(playbackHealthCoordinator::expectVideoOutput)
+        armFirstVideoOutputDebugState()
+    }
+
+    fun handlePlaybackAction(action: PlaybackAction) {
+        if (controllerInstallInFlight) return
+        when (action) {
+            PlaybackAction.AcceptAuto -> acceptAutoPlayback()
+            PlaybackAction.ClearQualityOverride -> clearQualityOverride()
+            PlaybackAction.KeepCurrentQuality -> keepRecoveredQualityForSession()
+            PlaybackAction.ChooseLowerQuality -> chooseLowerQuality()
+            PlaybackAction.TryHigherQuality -> tryHigherQualityOrOriginal()
+            PlaybackAction.TryOriginal -> selectQuality(PlaybackQualityPolicy.Original)
+            PlaybackAction.Retry -> retryPlaybackFromNotice()
+            PlaybackAction.Dismiss -> dismissPlaybackActionNotice()
+            PlaybackAction.OpenPlaybackSettings,
+            PlaybackAction.Close,
+            -> Unit
+        }
+    }
+
+    private fun chooseLowerQuality() {
+        playbackActionNotice = null
+        publishContent(pickerVisible = PlayerPicker.Quality)
+    }
+
+    fun dismissPlaybackGuidance() {
+        playbackHealthCoordinator.dismissGuidance()
+    }
+
+    /** Defers actionable recovery until the full player UI can present it. */
+    fun setPictureInPictureMode(inPictureInPicture: Boolean) {
+        pictureInPictureMode = inPictureInPicture
+        if (!inPictureInPicture) {
+            val pendingTrigger = pendingPictureInPictureRecoveryTrigger ?: return
+            pendingPictureInPictureRecoveryTrigger = null
+            handleAutomaticRecoveryTrigger(pendingTrigger)
+        }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        if (controllerInstallInFlight) return
+        if (!speed.isFinite()) {
+            return
+        }
+        playbackSpeed = speed.coerceIn(MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED)
+        plan = plan?.copy(playbackSpeed = playbackSpeed)
+        playerController.setPlaybackSpeed(playbackSpeed)
+        publishContent(playbackState = playbackState.value.copy(playbackSpeed = playbackSpeed))
+    }
+
+    fun setSubtitleStyle(style: SubtitleStyle) {
+        if (controllerInstallInFlight) return
+        subtitleStyle = style
+        plan = plan?.copy(subtitleStyle = subtitleStyle)
+        playerController.setSubtitleStyle(style)
+        publishContent(playbackState = playbackState.value.copy(subtitleStyle = subtitleStyle))
+    }
+
+    fun adjustAudioTiming(deltaMs: Long) {
+        adjustTiming(PlaybackTimingKind.Audio, deltaMs)
+    }
+
+    fun adjustSubtitleTiming(deltaMs: Long) {
+        adjustTiming(PlaybackTimingKind.Subtitle, deltaMs)
+    }
+
+    fun resetAudioTiming() {
+        setTiming(PlaybackTimingKind.Audio, 0L)
+    }
+
+    fun resetSubtitleTiming() {
+        setTiming(PlaybackTimingKind.Subtitle, 0L)
+    }
+
+    private fun adjustTiming(
+        kind: PlaybackTimingKind,
+        deltaMs: Long,
+    ) {
+        if (controllerInstallInFlight) return
+        timingCoordinator.adjust(kind, deltaMs)
+    }
+
+    private fun setTiming(
+        kind: PlaybackTimingKind,
+        offsetMs: Long,
+    ) {
+        if (controllerInstallInFlight) return
+        timingCoordinator.set(kind, offsetMs)
+    }
+
+    private fun timingKey(kind: PlaybackTimingKind): PlaybackTimingKey? {
+        val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return null
+        val trackId =
+            when (kind) {
+                PlaybackTimingKind.Audio ->
+                    (requestedAudioStreamIndex ?: installedAudioStreamIndex)?.toString()
+                PlaybackTimingKind.Subtitle ->
+                    requestedLocalSubtitleAsset?.id
+                        ?: requestedSubtitleStreamIndex?.toString()
+            } ?: return null
+        return PlaybackTimingKey(
+            serverId = session.serverId,
+            userId = session.userId,
+            itemId = currentItemId,
+            mediaSourceId = sourceId,
+            trackId = trackId,
+            kind = kind,
+        )
+    }
+
+    private suspend fun loadTimingOffsets() {
+        timingCoordinator.load()
+    }
+
+    private fun reloadTimingForCurrentTracks() {
+        timingCoordinator.reloadForCurrentTracks()
+    }
+
+    fun dispose() {
+        cancelAndInvalidateSubtitleFallback()
+        emitPlaybackHealthSummary()
+        endPlaybackHealthSession()
+        audioRecoveryTarget = null
+        reportingJob?.cancel()
+        reportingJob = null
+        runtimeDiagnosticsJob?.cancel()
+        runtimeDiagnosticsJob = null
+        droppedFrameMeasurementsJob?.cancel()
+        droppedFrameMeasurementsJob = null
+        videoOutputObservationsJob?.cancel()
+        videoOutputObservationsJob = null
+        playbackTransitionObservationsJob?.cancel()
+        playbackTransitionObservationsJob = null
+        localSubtitleAssetsJob?.cancel()
+        timingCoordinator.dispose()
+        saveSubtitleSelectionAction?.drainLatest()
+        savePlaybackSelectionAction?.drainLatest()
+        replanJob?.cancel()
+        replanJob = null
+        activePlaybackTimelineFacts = null
+        playlistMetadataJob?.cancel()
+        derivedEpisodeQueueJob?.cancel()
+        playbackReportingCoordinator.dispose(playerController.playbackState.value.positionMs)
+        playerController.release()
+    }
+
+    override fun onCleared() {
+        dispose()
+        super.onCleared()
+    }
+
+    private fun load() {
+        viewModelScope.launch {
+            if (
+                startPlaybackForItem(
+                    itemId = itemId,
+                    requestedMediaSourceId = mediaSourceId,
+                    requestedAudioStreamIndex = initialAudioStreamIndex,
+                    requestedSubtitleSelection = initialSubtitleSelection,
+                    startPositionTicks = startPositionTicks,
+                    resetReporting = false,
+                )
+            ) {
+                observePlaybackState()
+                if (offlineDownloadId == null) {
+                    fetchPlaylistMetadata()
+                }
+            }
+        }
+    }
+
+    private suspend fun startPlaybackForItem(
+        itemId: String,
+        requestedMediaSourceId: String?,
+        requestedAudioStreamIndex: Int?,
+        requestedSubtitleSelection: SubtitleSelectionIntent,
+        startPositionTicks: Long,
+        resetReporting: Boolean,
+    ): Boolean {
+        emitPlaybackHealthSummary()
+        activePlaybackTimelineFacts = null
+        playbackLaunchGeneration += 1L
+        val launchGeneration = playbackLaunchGeneration
+        playbackLaunchMarker =
+            PlaybackLaunchMarker(
+                generation = launchGeneration,
+                startedAtMs = monotonicTimeMs(),
+                healthStartedAtMs = monotonicTimeMs(),
+            )
+        resetPlaybackHealthSession(
+            generation = launchGeneration,
+            launchAtMs = playbackLaunchMarker?.healthStartedAtMs ?: monotonicTimeMs(),
+        )
+        launchToFirstFrameMs = null
+        timingCoordinator.cancelLoad()
+        invalidateSubtitleFallback()
+        derivedEpisodeQueueJob?.cancel()
+        derivedEpisodeQueueJob = null
+        currentItemId = itemId
+        autoRecoveryState = autoRecoveryCoordinator.reset(launchGeneration, currentItemId, backend)
+        autoSkippedSegmentKeys.clear()
+        alternateBackendFallbackAttempted = false
+        playbackSessionRecoveryState =
+            playbackSessionRecoveryPolicy.reset(launchGeneration, currentItemId)
+        pendingRecoveredPlaybackGuidanceItemId = null
+        pendingRecoveredAutoQualityBps = null
+        playbackActionNotice = null
+        if (offlineDownloadId != null) {
+            return startOfflinePlaybackForItem(
+                itemId = itemId,
+                startPositionTicks = startPositionTicks,
+                launchGeneration = launchGeneration,
+                resetReporting = resetReporting,
+            )
+        }
+        val effectiveStartPositionTicks = startPositionTicks
+        currentStartPositionTicks = effectiveStartPositionTicks
+        // Fetch skip segments concurrently so they do not delay first frame.
+        val segmentsDeferred =
+            CoroutineScope(currentCoroutineContext()).async(workDispatcher) {
+                getMediaSegmentsUseCase(itemId).getOrDefault(emptyList())
+            }
+        val detail =
+            withContext(workDispatcher) {
+                getItemDetailUseCase(itemId, includePlaybackFields = true).getOrNull()
+            }
+        val selectedVersion = detail?.selectedVersion(requestedMediaSourceId)
+
+        if (selectedVersion == null) {
+            clearPlaybackLaunch(launchGeneration)
+            segmentsDeferred.cancel()
+            _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
+            return false
+        }
+        currentCoroutineContext().ensureActive()
+        if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+            segmentsDeferred.cancel()
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
+        activePlaybackTimelineFacts = detail.toActivePlaybackTimelineFacts(launchGeneration)
+
+        val launchContext =
+            withContext(workDispatcher) {
+                getPlaybackLaunchContextUseCase(session, itemId, selectedVersion.id)
+            }
+        currentCoroutineContext().ensureActive()
+        if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+            segmentsDeferred.cancel()
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
+        val playbackPreferences = launchContext.playbackPreferences
+        activePlaybackPreferences = playbackPreferences
+
+        chapters = detail.chapters
+        trickplay = detail.trickplay
+        selectedMediaSourceId = selectedVersion.id
+        selectedSourceContainer = selectedVersion.container
+        observeLocalSubtitleAssets(itemId, selectedVersion.id)
+        mediaStreams = selectedVersion.mediaStreams
+        resolveBackendForSession(selectedVersion)
+        metadata =
+            PlayerMediaMetadata(
+                title = detail.item.name,
+                seriesName = detail.item.seriesName,
+                episodeLabel = detail.item.episodeLabel,
+                productionYear = detail.productionYear ?: detail.item.productionYear,
+                runtimeMs = detail.item.runtime?.inWholeMilliseconds,
+                qualityBadge = selectedVersion.name.takeIf { name -> name.isNotBlank() },
+                imageUrl =
+                    detail.item.imageRefs.primaryTag?.let { tag ->
+                        imageUrlBuilder.build(
+                            serverUrl = session.serverUrl,
+                            itemId = itemId,
+                            type = JellyfinImageType.Primary,
+                            tag = tag,
+                            maxWidth = 500,
+                        )
+                    },
+            )
+
+        logPersistence(
+            event = PlaybackDiagnosticEvent.Read,
+            target = PlaybackPersistenceTarget.PlaybackSelection,
+            result = launchContext.playbackSelectionOutcome.toPersistenceResult(),
+        )
+        val durableSelection = launchContext.playbackSelection
+        val rememberedSelection =
+            resolvePlaybackSelection(
+                durableSelection = durableSelection,
+                sourceSelection = playbackSelectionMemory.sourceSelectionFor(accountIdentity, itemId, selectedVersion.id),
+                legacyItemSelection = playbackSelectionMemory.selectionFor(accountIdentity, itemId),
+                durableStoreAvailable = launchContext.playbackSelectionOutcome != PlaybackLaunchReadOutcome.Unavailable,
+            )
+        val audioTrackOptions = audioOptions(mediaStreams)
+        val subtitleTrackOptions = subtitleOptions(mediaStreams)
+        requestedLocalSubtitleAsset = null
+        val rememberedAudioStreamIndex =
+            rememberedSelection?.audioStreamIndex?.takeIf { index ->
+                audioTrackOptions.any { option -> option.streamIndex == index }
+            }
+        val durableExplicitAudioStreamIndex =
+            durableSelection?.audioStreamIndex?.takeIf { index ->
+                audioTrackOptions.any { option -> option.streamIndex == index }
+            }
+        // Null delegates launch selection to Player resolution.
+        val launchAudioStreamIndex = requestedAudioStreamIndex
+        val explicitLaunchAudioPick =
+            launchAudioStreamIndex?.takeIf { index ->
+                audioTrackOptions.any { option -> option.streamIndex == index }
+            }
+        val effectiveAudioStreamIndex =
+            explicitLaunchAudioPick
+                ?: rememberedAudioStreamIndex
+                ?: audioTrackOptions.preferredAudioStreamIndex(playbackPreferences.preferredAudioLanguage)
+        // Explicit launch audio is durable title intent.
+        explicitAudioStreamIndex = explicitLaunchAudioPick ?: durableExplicitAudioStreamIndex
+        val subtitleSelectionKey = subtitleSelectionKey(itemId = itemId, mediaSourceId = selectedVersion.id)
+        val effectiveSubtitleSelection =
+            resolveSubtitleSelection(
+                explicit = requestedSubtitleSelection,
+                stored = launchContext.subtitleSelection,
+                key = subtitleSelectionKey,
+                options = subtitleTrackOptions,
+                playbackPreferences = playbackPreferences,
+            )
+        val effectiveSubtitleStreamIndex = (effectiveSubtitleSelection as? SubtitleSelectionIntent.Track)?.streamIndex
+        this.requestedAudioStreamIndex =
+            effectiveAudioStreamIndex
+                ?: audioTrackOptions.firstOrNull { option -> option.isDefault }?.streamIndex
+                ?: audioTrackOptions.firstOrNull()?.streamIndex
+        installedAudioStreamIndex = null
+        audioRecoveryTarget = null
+        this.requestedSubtitleStreamIndex = effectiveSubtitleStreamIndex
+        this.requestedSubtitleSelection = effectiveSubtitleSelection
+        if (requestedSubtitleSelection.isValidFor(subtitleTrackOptions)) {
+            saveSubtitleSelectionAction?.save(subtitleSelectionKey, effectiveSubtitleSelection)
+        }
+        val inheritedQualityPolicy = playbackPreferences.effectiveDefaultQualityPolicy(backend)
+        selectedQualityPolicy = inheritedQualityPolicy
+        qualityExplicitlyChosen = false
+        selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
+        selectedQualityCapOrigin = PlaybackQualityCapOrigin.SettingsDefault.takeIf { selectedQualityMaxBitrate != null }
+        playerViewModelLogger.i {
+            val source =
+                if (playbackPreferences.usesVlcDefaultQuality(backend)) {
+                    "vlcSettingsDefault"
+                } else {
+                    "settingsDefault"
+                }
+            "Quality resolved maxStreamingBitrate=$selectedQualityMaxBitrate source=$source " +
+                "settingsDefault=${playbackPreferences.effectiveDefaultQualityPolicy().maxBitrateBps} " +
+                "vlcDefault=${playbackPreferences.vlcTranscodeMaxBitrateBps}"
+        }
+
+        val selectedSubtitle = selectedSubtitleMediaStream()
+        val activationRequestId = nextSubtitleActivationRequestId()
+        val initialRequestPolicy =
+            PlaybackInfoRequestPolicy(
+                backend = backend,
+                diagnosticSessionSequence = launchGeneration,
+            )
+        val playbackPlan =
+            try {
+                withContext(workDispatcher) {
+                    playbackInfoPlanner.plan(
+                        session = session,
+                        itemId = itemId,
+                        mediaSourceId = selectedVersion.id,
+                        startPositionTicks = effectiveStartPositionTicks,
+                        audioStreamIndex = this@PlayerViewModel.requestedAudioStreamIndex,
+                        detailMediaStreams = mediaStreams,
+                        subtitleSelection = effectiveSubtitleSelection,
+                        localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset(),
+                        maxStreamingBitrate = selectedQualityMaxBitrate,
+                        qualityPolicy = selectedQualityPolicy,
+                        qualityCapOrigin = selectedQualityCapOrigin,
+                        requestPolicy = initialRequestPolicy,
+                        sourceContainer = selectedVersion.container,
+                    )
+                }
+            } catch (exception: CancellationException) {
+                segmentsDeferred.cancel()
+                clearPlaybackLaunch(launchGeneration)
+                throw exception
+            } catch (exception: Throwable) {
+                segmentsDeferred.cancel()
+                clearPlaybackLaunch(launchGeneration)
+                logPlannerAttemptFailure(
+                    exception = exception,
+                    requestPolicy = initialRequestPolicy,
+                    qualityPolicy = selectedQualityPolicy,
+                    qualityCapOrigin = selectedQualityCapOrigin,
+                    requestCapBitrateBps = selectedQualityMaxBitrate,
+                )
+                val startupError = startupPlanningError(exception)
+                _state.update { startupError }
+                logPlaybackTerminalOutcome(PlaybackTerminalOutcome.Failed, startupError.error)
+                return false
+            }
+        if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+            segmentsDeferred.cancel()
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
+        mediaSegments = segmentsDeferred.await()
+        currentCoroutineContext().ensureActive()
+        if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
+        val playbackPlanWithMetadata =
+            enrichPlaybackPlan(
+                playbackPlan = playbackPlan,
+                requestedMediaSourceId = selectedVersion.id,
+                generation = launchGeneration,
+                itemId = itemId,
+                activationRequestId = activationRequestId,
+                selectedSubtitle = selectedSubtitle,
+            ) ?: return false
+        // Reject superseded work before the non-suspending prepare call.
+        currentCoroutineContext().ensureActive()
+        if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
+        installPlan(playbackPlanWithMetadata, resetReporting = resetReporting, stabilizesQueueSwitch = true)
+        if (explicitLaunchAudioPick != null) {
+            // Persist the explicit launch choice, not a later runtime substitution.
+            rememberSelection()
+        }
+        publishContent(
+            playbackState =
+                PlaybackState(
+                    status = PlaybackStatus.Loading,
+                    positionMs = 0L,
+                    durationMs = resolvePlaybackDurationMs(playbackPlanWithMetadata.contentTimeline, null),
+                    bufferedPositionMs = 0L,
+                ).withPlaybackMetadata(),
+            pickerVisible = PlayerPicker.None,
+        )
+        // Load timing offsets before native prepare.
+        loadTimingOffsets()
+        markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
+        logPrepareRequested()
+        playerController.prepare(playbackPlanWithMetadata)
+        playerController.runtimeDiagnostics.value.prepareEpoch
+            ?.let(playbackHealthCoordinator::expectVideoOutput)
+        armFirstVideoOutputDebugState()
+        logPrepareDispatched()
+        bindPlaybackLaunchToPrepare(launchGeneration, playerController)
+        applyInitialEmbeddedSelections(playbackPlanWithMetadata)
+        desiredPlayWhenReady = true
+        playerController.play()
+        publishContent()
+        maybeStartInstalledAudioUnavailableFallback(playbackPlanWithMetadata)
+        maybeStartInstalledUnavailableFallback(playbackPlanWithMetadata)
+        deriveEpisodeQueueIfNeeded(detail.item)
+        return true
+    }
+
+    /** Local-only launch that fails without remote planning or fallback. */
+    private suspend fun startOfflinePlaybackForItem(
+        itemId: String,
+        startPositionTicks: Long,
+        launchGeneration: Long,
+        resetReporting: Boolean,
+    ): Boolean {
+        val downloadId = offlineDownloadId ?: return false
+        val useCase =
+            getOfflinePlaybackPlanUseCase
+                ?: return failOfflineLaunch(launchGeneration, PlaybackError.OfflineArtifactUnavailable)
+        val record =
+            try {
+                useCase(accountIdentity, downloadId)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Throwable) {
+                null
+            }
+        if (
+            record == null ||
+            record.businessKey.accountIdentity != accountIdentity ||
+            record.businessKey.itemId != itemId
+        ) {
+            return failOfflineLaunch(launchGeneration, PlaybackError.OfflineArtifactUnavailable)
+        }
+        val snapshot = record.request.snapshot
+        val sourceId = record.businessKey.mediaSourceId
+        // Offline presentation remains entirely snapshot-backed.
+        metadata =
+            PlayerMediaMetadata(
+                title = snapshot.title,
+                seriesName = snapshot.seriesName,
+                episodeLabel = snapshot.episodeLabel,
+                runtimeMs = snapshot.durationMs,
+                qualityBadge = snapshot.sourcePresentation?.takeIf { value -> value.isNotBlank() },
+                imageUrl = null,
+            )
+        val launchContext =
+            withContext(workDispatcher) {
+                getPlaybackLaunchContextUseCase(session = session, itemId = itemId, mediaSourceId = sourceId)
+            }
+        activePlaybackPreferences = launchContext.playbackPreferences
+        currentItemId = itemId
+        currentStartPositionTicks = startPositionTicks
+        queueIds = listOf(itemId)
+        currentQueueIndex = 0
+        activePlaybackTimelineFacts =
+            ActivePlaybackTimelineFacts(
+                generation = launchGeneration,
+                itemId = itemId,
+                kind = snapshot.itemKind,
+                isLive = false,
+                itemRuntimeMs = snapshot.durationMs,
+                sourcesById =
+                    mapOf(
+                        sourceId to
+                            ActivePlaybackTimelineSourceFacts(
+                                runtimeMs = snapshot.durationMs,
+                                isInfiniteStream = false,
+                            ),
+                    ),
+            )
+        chapters = snapshot.chapters.map { chapter -> Chapter(chapter.name, chapter.startTicks) }
+        trickplay = null
+        mediaSegments = emptyList()
+        selectedMediaSourceId = sourceId
+        selectedSourceContainer = snapshot.backendSource.container
+        mediaStreams = snapshot.embeddedTracks.map { track -> track.toPlaybackMediaStream() }
+        requestedAudioStreamIndex = snapshot.selectedAudioTrack?.streamIndex
+        installedAudioStreamIndex = requestedAudioStreamIndex
+        requestedSubtitleStreamIndex = snapshot.selectedSubtitleTrack?.streamIndex
+        requestedSubtitleSelection =
+            snapshot.selectedSubtitleTrack?.streamIndex?.let(SubtitleSelectionIntent::Track)
+                ?: SubtitleSelectionIntent.Off
+        requestedLocalSubtitleAsset = null
+        selectedQualityPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend)
+        selectedQualityMaxBitrate = null
+        selectedQualityCapOrigin = null
+        qualityExplicitlyChosen = false
+        explicitAudioStreamIndex = snapshot.selectedAudioTrack?.streamIndex
+        backendResolvedForSession = false
+
+        val resolvedBackend =
+            try {
+                resolveOfflineBackendForSession(
+                    source = snapshot.backendSource,
+                    artifactKind = record.request.artifactKind,
+                )
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Throwable) {
+                return failOfflineLaunch(
+                    launchGeneration,
+                    PlaybackError.OfflinePlayerUnavailable(
+                        requiredBackend =
+                            backend.takeUnless { it == PlayerBackend.Auto } ?: PlayerBackend.AVPlayer,
+                    ),
+                )
+            }
+        backend = resolvedBackend
+        val selectedSubtitle = snapshot.selectedSubtitleTrack?.toPlannedEmbeddedTrack(0)
+        val offlinePlan =
+            PlaybackPlan(
+                itemId = itemId,
+                mediaSourceId = sourceId,
+                startPositionMs =
+                    if (startPositionTicks > 0L) {
+                        ticksToMilliseconds(startPositionTicks)
+                    } else {
+                        record.localResumePositionMs
+                    },
+                streamMode = StreamMode.Offline,
+                streamUrl = "",
+                progressReportingPolicy =
+                    com.jellyscope.core.domain.playback.ProgressReportingPolicy(
+                        reportIntervalMs = DEFAULT_PLAYBACK_REPORT_INTERVAL_MS,
+                    ),
+                selectedAudioStreamIndex = snapshot.selectedAudioTrack?.streamIndex,
+                embeddedAudioTracks =
+                    snapshot.embeddedTracks
+                        .filter { track -> track.kind == OfflineTrackKind.Audio && !track.isExternal }
+                        .mapIndexed { ordinal, track -> track.toPlannedEmbeddedTrack(ordinal) },
+                embeddedSubtitleTracks =
+                    snapshot.embeddedTracks
+                        .filter { track -> track.kind == OfflineTrackKind.Subtitle && !track.isExternal }
+                        .mapIndexed { ordinal, track -> track.toPlannedEmbeddedTrack(ordinal) },
+                selectedSubtitleStreamIndex = snapshot.selectedSubtitleTrack?.streamIndex,
+                plannedSubtitle =
+                    selectedSubtitle?.let { descriptor ->
+                        PlannedSubtitle.Track(
+                            streamIndex = descriptor.jellyfinStreamIndex,
+                            embeddedTrack = descriptor.takeUnless { snapshot.selectedSubtitleTrack?.isExternal == true },
+                            deliveryMethod =
+                                if (snapshot.selectedSubtitleTrack?.isExternal == true) {
+                                    SubtitleDeliveryMethod.External
+                                } else {
+                                    SubtitleDeliveryMethod.Embed
+                                },
+                            kind = SubtitleKind.Text,
+                        )
+                    } ?: PlannedSubtitle.Off,
+                chapters = chapters,
+                contentTimeline =
+                    snapshot.durationMs?.takeIf { duration -> duration > 0L }?.let { duration ->
+                        PlaybackContentTimeline.BoundedVod(
+                            durationMs = duration,
+                            source = PlaybackContentTimelineSource.SelectedMediaSource,
+                        )
+                    } ?: PlaybackContentTimeline.UnknownOrUnbounded,
+                videoExpected = true,
+                container = snapshot.backendSource.container,
+                offlineArtifactRef =
+                    com.jellyscope.core.domain.model.OfflineArtifactRef(
+                        record.downloadId,
+                        record.attemptGeneration,
+                    ),
+                offlineArtifactKind = record.request.artifactKind,
+                offlineAccountIdentity = accountIdentity,
+            )
+        if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) return false
+        val exactOfflineBackendRequired =
+            !offlineControllerFallbackAllowed(
+                artifactKind = record.request.artifactKind,
+                resolvedBackend = resolvedBackend,
+            )
+        val activeBackend =
+            try {
+                installController(
+                    resolvedBackend = resolvedBackend,
+                    requestedBackend = resolvedBackend,
+                    allowFallback = !exactOfflineBackendRequired,
+                )
+            } catch (exception: OfflineControllerUnavailableException) {
+                return failOfflineLaunch(
+                    launchGeneration,
+                    PlaybackError.OfflinePlayerUnavailable(exception.requiredBackend),
+                )
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Throwable) {
+                return failOfflineLaunch(
+                    launchGeneration,
+                    PlaybackError.OfflinePlayerUnavailable(resolvedBackend),
+                )
+            }
+        logBackendSelection(
+            requestedBackend = resolvedBackend,
+            activeBackend = activeBackend,
+            fallbackResult =
+                if (activeBackend != resolvedBackend) {
+                    PlaybackBackendFallbackResult.Applied
+                } else {
+                    PlaybackBackendFallbackResult.NotRequired
+                },
+        )
+        installPlan(offlinePlan, resetReporting = resetReporting, stabilizesQueueSwitch = true)
+        publishContent(
+            playbackState =
+                PlaybackState(
+                    status = PlaybackStatus.Loading,
+                    positionMs = offlinePlan.startPositionMs,
+                    durationMs = resolvePlaybackDurationMs(offlinePlan.contentTimeline, null),
+                    bufferedPositionMs = 0L,
+                ).withPlaybackMetadata(),
+            pickerVisible = PlayerPicker.None,
+        )
+        loadTimingOffsets()
+        markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
+        logPrepareRequested()
+        try {
+            when (val result = playerController.prepareOffline(offlinePlan)) {
+                com.jellyscope.core.domain.playback.OfflinePrepareResult.Started -> Unit
+                is com.jellyscope.core.domain.playback.OfflinePrepareResult.Unavailable -> {
+                    playerController.release()
+                    return failOfflineLaunch(launchGeneration, result.error)
+                }
+            }
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Throwable) {
+            playerController.release()
+            return failOfflineLaunch(
+                launchGeneration,
+                PlaybackError.OfflinePlayerUnavailable(
+                    requiredBackend =
+                        if (exactOfflineBackendRequired) {
+                            resolvedBackend
+                        } else {
+                            activeBackend
+                        },
+                ),
+            )
+        }
+        playerController.runtimeDiagnostics.value.prepareEpoch
+            ?.let(playbackHealthCoordinator::expectVideoOutput)
+        armFirstVideoOutputDebugState()
+        logPrepareDispatched()
+        bindPlaybackLaunchToPrepare(launchGeneration, playerController)
+        applyInitialEmbeddedSelections(offlinePlan)
+        desiredPlayWhenReady = true
+        playerController.play()
+        publishContent()
+        return true
+    }
+
+    private fun failOfflineLaunch(
+        launchGeneration: Long,
+        error: PlaybackError,
+    ): Boolean {
+        clearPlaybackLaunch(launchGeneration)
+        _state.update { PlayerUiState.Error(error = error) }
+        logPlaybackTerminalOutcome(PlaybackTerminalOutcome.Failed, error)
+        return false
+    }
+
+    private suspend fun resolveOfflineBackendForSession(
+        source: BackendSourceDescriptor,
+        artifactKind: DownloadArtifactKind,
+    ): PlayerBackend {
+        val provider = deviceProfileProvider
+        val resolved =
+            if (provider == null) {
+                backend.takeUnless { candidate -> candidate == PlayerBackend.Auto }
+                    ?: PlayerBackend.AVPlayer
+            } else {
+                val itemOverride =
+                    getPlayerBackendOverrideUseCase?.let { getOverride ->
+                        withContext(workDispatcher) { getOverride(session.serverId, currentItemId) }
+                    }
+                val requested =
+                    withContext(workDispatcher) {
+                        resolvePlayerBackend(
+                            defaultBackend = activePlaybackPreferences.defaultPlayerBackend,
+                            itemOverride = itemOverride,
+                            source = source,
+                            avPlayerCapabilities = provider.capabilities(PlayerBackend.AVPlayer),
+                            backendPolicy = provider.backendPolicy,
+                        )
+                    }
+                val availableBackends = withContext(workDispatcher) { provider.availableBackends }
+                requested.takeIf { candidate -> candidate in availableBackends } ?: provider.backendPolicy.defaultBackend
+            }
+        val platform =
+            provider?.backendPolicy?.platform
+                ?: when (resolved) {
+                    PlayerBackend.AVPlayer,
+                    PlayerBackend.VlcKit,
+                    -> PlayerBackendPlatform.Apple
+                    PlayerBackend.ExoPlayer -> PlayerBackendPlatform.Android
+                    PlayerBackend.Mpv,
+                    PlayerBackend.LibVlc,
+                    -> PlayerBackendPlatform.Desktop
+                    PlayerBackend.Auto -> PlayerBackendPlatform.Desktop
+                }
+        return resolveOfflinePlaybackBackend(platform, artifactKind, resolved)
+    }
+
+    private fun OfflineTrackSnapshot.toPlaybackMediaStream(): PlaybackMediaStream =
+        PlaybackMediaStream(
+            index = streamIndex,
+            type = if (kind == OfflineTrackKind.Audio) "Audio" else "Subtitle",
+            displayTitle = label,
+            title = label,
+            language = language,
+            codec = codec,
+            channelLayout = null,
+            bitRate = null,
+            height = null,
+            isDefault = isDefault,
+            isExternal = isExternal,
+            deliveryMethod = if (isExternal) "External" else "Embedded",
+            deliveryUrl = null,
+        )
+
+    private fun OfflineTrackSnapshot.toPlannedEmbeddedTrack(ordinal: Int): com.jellyscope.core.domain.playback.PlannedEmbeddedTrack =
+        com.jellyscope.core.domain.playback.PlannedEmbeddedTrack(
+            jellyfinStreamIndex = streamIndex ?: ordinal,
+            filteredContainerOrdinal = ordinal,
+            codec = codec,
+            normalizedLanguage = language,
+            label = label,
+            directPlayAdmissible = true,
+            responseAuthoritativeCohortSize = null,
+        )
+
+    private suspend fun resolveSubtitleSelection(
+        explicit: SubtitleSelectionIntent,
+        stored: SubtitleSelectionIntent?,
+        key: SubtitleSelectionKey,
+        options: List<SubtitleTrackOption>,
+        playbackPreferences: PlaybackPreferences,
+    ): SubtitleSelectionIntent {
+        resolveLocalSelection(explicit, key, options, preferConfirmedServer = false, deleteInvalid = false)?.let { return it }
+        if (explicit.isValidFor(options)) {
+            return explicit
+        }
+
+        resolveLocalSelection(stored, key, options, preferConfirmedServer = true, deleteInvalid = true)?.let { return it }
+        if (stored.isValidFor(options)) {
+            return requireNotNull(stored)
+        }
+
+        return options
+            .preferredSubtitleStreamIndex(playbackPreferences.preferredSubtitleLanguage)
+            ?.let(SubtitleSelectionIntent::Track)
+            ?: options.defaultSubtitleStreamIndex()?.let(SubtitleSelectionIntent::Track)
+            ?: SubtitleSelectionIntent.Off
+    }
+
+    private suspend fun resolveLocalSelection(
+        selection: SubtitleSelectionIntent?,
+        key: SubtitleSelectionKey,
+        options: List<SubtitleTrackOption>,
+        preferConfirmedServer: Boolean,
+        deleteInvalid: Boolean,
+    ): SubtitleSelectionIntent? {
+        val local = selection as? SubtitleSelectionIntent.LocalAsset ?: return null
+        val asset =
+            getLocalSubtitleAssetUseCase?.invoke(
+                local.assetId,
+                LocalSubtitleContext(key.serverId, key.userId, key.itemId, key.mediaSourceId),
+            )
+        if (asset == null) {
+            if (deleteInvalid) saveSubtitleSelectionAction?.delete(key)
+            return null
+        }
+        val confirmed = asset.confirmedStreamIndex
+        if (preferConfirmedServer && confirmed != null && options.any { option -> option.streamIndex == confirmed }) {
+            requestedLocalSubtitleAsset = null
+            return SubtitleSelectionIntent.Track(confirmed)
+        }
+        requestedLocalSubtitleAsset = asset
+        return local
+    }
+
+    private fun LocalSubtitleAsset.toPlaybackAsset(): SubtitleAsset.LocalFile =
+        SubtitleAsset.LocalFile(
+            assetId = id,
+            fileId = fileId,
+            mimeType = mimeType,
+            label = label,
+            language = language,
+        )
+
+    private fun SubtitleSelectionIntent?.isValidFor(options: List<SubtitleTrackOption>): Boolean =
+        when (this) {
+            SubtitleSelectionIntent.Off -> true
+            is SubtitleSelectionIntent.Track -> options.any { option -> option.streamIndex == streamIndex }
+            is SubtitleSelectionIntent.LocalAsset -> false
+            SubtitleSelectionIntent.Unspecified,
+            null,
+            -> false
+        }
+
+    private fun Int?.toSubtitleSelectionIntent(): SubtitleSelectionIntent =
+        this?.let(SubtitleSelectionIntent::Track) ?: SubtitleSelectionIntent.Off
+
+    private fun subtitleSelectionKey(
+        itemId: String = currentItemId,
+        mediaSourceId: String = selectedMediaSourceId.orEmpty(),
+    ): SubtitleSelectionKey =
+        SubtitleSelectionKey(
+            serverId = session.serverId,
+            userId = session.userId,
+            itemId = itemId,
+            mediaSourceId = mediaSourceId,
+        )
+
+    private fun persistSubtitleSelection(selection: SubtitleSelectionIntent) {
+        val sourceId = selectedMediaSourceId?.takeIf { id -> id.isNotBlank() } ?: return
+        saveSubtitleSelectionAction?.save(
+            key = subtitleSelectionKey(mediaSourceId = sourceId),
+            selection = selection,
+        )
+    }
+
+    private fun com.jellyscope.core.domain.model.MediaItemDetail.selectedVersion(requestedMediaSourceId: String?): MediaVersion? =
+        requestedMediaSourceId
+            ?.takeIf { id -> id.isNotBlank() }
+            ?.let { id -> versions.firstOrNull { version -> version.id == id } }
+            ?: versions.firstOrNull { version -> version.id.isNotBlank() }
+
+    private fun MediaItemDetail.toActivePlaybackTimelineFacts(generation: Long): ActivePlaybackTimelineFacts =
+        ActivePlaybackTimelineFacts(
+            generation = generation,
+            itemId = item.id,
+            kind = item.kind,
+            isLive = item.isLive,
+            itemRuntimeMs = item.runtime?.inWholeMilliseconds,
+            sourcesById =
+                versions
+                    .filter { version -> version.id.isNotBlank() }
+                    .associate { version ->
+                        version.id to
+                            ActivePlaybackTimelineSourceFacts(
+                                runtimeMs = version.runtime?.inWholeMilliseconds,
+                                isInfiniteStream = version.isInfiniteStream,
+                            )
+                    },
+        )
+
+    private fun isCurrentPlaybackLaunch(
+        generation: Long,
+        itemId: String,
+    ): Boolean = playbackLaunchGeneration == generation && currentItemId == itemId
+
+    private fun enrichPlaybackPlan(
+        playbackPlan: PlaybackPlan,
+        requestedMediaSourceId: String,
+        generation: Long,
+        itemId: String,
+        activationRequestId: Long,
+        selectedSubtitle: PlaybackMediaStream?,
+    ): PlaybackPlan? {
+        if (!isCurrentPlaybackLaunch(generation, itemId)) return null
+        val contentTimeline =
+            resolvePlaybackContentTimeline(
+                playbackPlan = playbackPlan,
+                requestedMediaSourceId = requestedMediaSourceId,
+                generation = generation,
+                itemId = itemId,
+            )
+        if (!isCurrentPlaybackLaunch(generation, itemId)) return null
+        return playbackPlan
+            .withAudioActivationTarget()
+            .withSubtitleActivationTarget(
+                requestId = activationRequestId,
+                selectedSubtitle = selectedSubtitle,
+            ).copy(
+                chapters = chapters,
+                trickplay = trickplay,
+                mediaSegments = mediaSegments,
+                playbackSpeed = playbackSpeed,
+                subtitleStyle = subtitleStyle,
+                contentTimeline = contentTimeline,
+            )
+    }
+
+    private fun resolvePlaybackContentTimeline(
+        playbackPlan: PlaybackPlan,
+        requestedMediaSourceId: String,
+        generation: Long,
+        itemId: String,
+    ): PlaybackContentTimeline {
+        val facts =
+            activePlaybackTimelineFacts
+                ?.takeIf { active -> active.generation == generation && active.itemId == itemId }
+                ?: return PlaybackContentTimeline.UnknownOrUnbounded
+        if (facts.kind != MediaKind.Movie && facts.kind != MediaKind.Episode) {
+            return PlaybackContentTimeline.UnknownOrUnbounded
+        }
+        if (facts.isLive == true) return PlaybackContentTimeline.UnknownOrUnbounded
+        val sourceFacts =
+            facts.sourcesById[playbackPlan.mediaSourceId]
+                ?: return PlaybackContentTimeline.UnknownOrUnbounded
+        if (sourceFacts.isInfiniteStream == true) return PlaybackContentTimeline.UnknownOrUnbounded
+        sourceFacts.runtimeMs?.takeIf { durationMs -> durationMs > 0L }?.let { durationMs ->
+            return PlaybackContentTimeline.BoundedVod(
+                durationMs = durationMs,
+                source = PlaybackContentTimelineSource.SelectedMediaSource,
+            )
+        }
+        if (playbackPlan.mediaSourceId != requestedMediaSourceId) {
+            return PlaybackContentTimeline.UnknownOrUnbounded
+        }
+        return facts.itemRuntimeMs
+            ?.takeIf { durationMs -> durationMs > 0L }
+            ?.let { durationMs ->
+                PlaybackContentTimeline.BoundedVod(
+                    durationMs = durationMs,
+                    source = PlaybackContentTimelineSource.ItemFallback,
+                )
+            } ?: PlaybackContentTimeline.UnknownOrUnbounded
+    }
+
+    private fun observePlaybackState() {
+        if (reportingJob != null) {
+            return
+        }
+
+        reportingJob =
+            viewModelScope.launch {
+                // Edge handling is fast and idempotent; avoid child jobs per emission.
+                playerController.playbackState.collect { playbackState ->
+                    handlePlaybackState(playbackState)
+                }
+            }
+    }
+
+    private fun observeRuntimeDiagnostics() {
+        runtimeDiagnosticsJob?.cancel()
+        droppedFrameMeasurementsJob?.cancel()
+        videoOutputObservationsJob?.cancel()
+        playbackTransitionObservationsJob?.cancel()
+        val controller = playerController
+        _runtimeDiagnostics.value = controller.runtimeDiagnostics.value
+        runtimeDiagnosticsJob =
+            viewModelScope.launch {
+                controller.runtimeDiagnostics.collect { diagnostics ->
+                    _runtimeDiagnostics.value = diagnostics
+                    maybeCompletePlaybackLaunch(controller, diagnostics)
+                }
+            }
+        droppedFrameMeasurementsJob =
+            viewModelScope.launch {
+                controller.droppedFrameMeasurements.collect { measurement ->
+                    playbackHealthCoordinator.recordDroppedFrameMeasurement(measurement)
+                }
+            }
+        videoOutputObservationsJob =
+            viewModelScope.launch {
+                controller.videoOutputObservations.collect { observation ->
+                    playbackHealthCoordinator.observeVideoOutput(observation)
+                    if (
+                        observation.presented &&
+                        observation.observedAtMs >= 0L &&
+                        observation.generation == expectedVideoOutputPrepareEpoch
+                    ) {
+                        val wasObserved = firstVideoOutputDebug.state == PlaybackFirstVideoOutputState.Observed
+                        firstVideoOutputDebug =
+                            firstVideoOutputDebug.copy(state = PlaybackFirstVideoOutputState.Observed)
+                        if (!wasObserved) {
+                            logFirstVideoOutput(observed = true)
+                        }
+                        if (state.value is PlayerUiState.Content) {
+                            publishContent(playbackState = playbackState.value)
+                        }
+                    }
+                }
+            }
+        playbackTransitionObservationsJob =
+            viewModelScope.launch {
+                controller.playbackTransitionObservations.collect { observation ->
+                    playbackHealthCoordinator.observePlaybackTransition(observation)
+                }
+            }
+    }
+
+    private fun armFirstVideoOutputDebugState() {
+        val capabilities = playerController.videoOutputMeasurementCapabilities
+        expectedVideoOutputPrepareEpoch = playerController.runtimeDiagnostics.value.prepareEpoch
+        firstVideoOutputDebug =
+            PlayerFirstVideoOutputDebug(
+                state =
+                    if (capabilities.isSupported) {
+                        PlaybackFirstVideoOutputState.Awaiting
+                    } else {
+                        PlaybackFirstVideoOutputState.Unsupported
+                    },
+                evidence = capabilities.evidence,
+            )
+        logFirstVideoOutput(observed = false)
+    }
+
+    private fun observeVolumeState() {
+        volumeStateJob?.cancel()
+        val volumeController = playerController as? PlayerVolumeController
+        volumeControl = volumeController?.volumeState?.value
+        if (volumeController == null) {
+            return
+        }
+        volumeStateJob =
+            viewModelScope.launch {
+                volumeController.volumeState.collect { state ->
+                    volumeControl = state
+                    if (this@PlayerViewModel.state.value is PlayerUiState.Content) {
+                        publishContent(playbackState = this@PlayerViewModel.playbackState.value)
+                    }
+                }
+            }
+    }
+
+    private fun restartPlaybackStateObservation() {
+        if (reportingJob == null) {
+            return
+        }
+        reportingJob?.cancel()
+        reportingJob = null
+        observePlaybackState()
+    }
+
+    private suspend fun resolveBackendForSession(selectedVersion: MediaVersion) {
+        if (backendResolvedForSession) {
+            return
+        }
+        backendResolvedForSession = true
+        val profileProvider = deviceProfileProvider ?: return
+        val itemOverride =
+            getPlayerBackendOverrideUseCase?.let { getOverride ->
+                try {
+                    withContext(workDispatcher) {
+                        getOverride(session.serverId, currentItemId)
+                    }.also { override ->
+                        logPersistence(
+                            event = PlaybackDiagnosticEvent.Read,
+                            target = PlaybackPersistenceTarget.BackendOverride,
+                            result =
+                                if (override == null) {
+                                    PlaybackPersistenceResult.Missing
+                                } else {
+                                    PlaybackPersistenceResult.Present
+                                },
+                        )
+                    }
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Throwable) {
+                    logPersistence(
+                        event = PlaybackDiagnosticEvent.Read,
+                        target = PlaybackPersistenceTarget.BackendOverride,
+                        result = PlaybackPersistenceResult.Failed,
+                        exception = exception,
+                    )
+                    null
+                }
+            } ?: run {
+                logPersistence(
+                    event = PlaybackDiagnosticEvent.Read,
+                    target = PlaybackPersistenceTarget.BackendOverride,
+                    result = PlaybackPersistenceResult.Unavailable,
+                )
+                null
+            }
+        val requestedBackend =
+            withContext(workDispatcher) {
+                resolvePlayerBackend(
+                    defaultBackend = activePlaybackPreferences.defaultPlayerBackend,
+                    itemOverride = itemOverride,
+                    source = selectedVersion.backendSourceDescriptor(),
+                    avPlayerCapabilities = profileProvider.capabilities(PlayerBackend.AVPlayer),
+                    backendPolicy = profileProvider.backendPolicy,
+                )
+            }
+        // Android may lazily construct LibVLC while resolving backends.
+        val availableBackends = withContext(workDispatcher) { profileProvider.availableBackends }
+        val resolvedBackend =
+            requestedBackend.takeIf { candidate -> candidate in availableBackends }
+                ?: profileProvider.backendPolicy.defaultBackend
+        val backendFallback = requestedBackend != resolvedBackend
+        if (
+            activeControllerSatisfiesBackend(
+                resolvedBackend = resolvedBackend,
+                trackedBackend = backend,
+                activeBackend = playerController.activeBackend,
+            )
+        ) {
+            if (backendFallback && profileProvider.backendPolicy.visibleBackends.isNotEmpty()) {
+                backendNotice =
+                    PlayerBackendNotice(
+                        token = ++backendNoticeToken,
+                        requested = requestedBackend,
+                        active = backend,
+                    )
+            }
+            logBackendSelection(
+                requestedBackend = requestedBackend,
+                activeBackend = backend,
+                fallbackResult =
+                    if (backendFallback) {
+                        PlaybackBackendFallbackResult.Applied
+                    } else {
+                        PlaybackBackendFallbackResult.NotRequired
+                    },
+            )
+            return
+        }
+
+        val activeBackend = installController(resolvedBackend = resolvedBackend, requestedBackend = requestedBackend)
+        if (consumeStopCompletedDuringControllerInstall()) return
+        logBackendSelection(
+            requestedBackend = requestedBackend,
+            activeBackend = activeBackend,
+            fallbackResult =
+                if (requestedBackend != activeBackend) {
+                    PlaybackBackendFallbackResult.Applied
+                } else {
+                    PlaybackBackendFallbackResult.NotRequired
+                },
+        )
+    }
+
+    /** Replaces the controller and rebinds every observer. */
+    private suspend fun installController(
+        resolvedBackend: PlayerBackend,
+        requestedBackend: PlayerBackend,
+        allowFallback: Boolean = true,
+    ): PlayerBackend {
+        if (controllerInstallInFlight) return backend
+        controllerInstallInFlight = true
+        stopCompletedDuringControllerInstall = false
+        val previousReportingJob = reportingJob
+        val currentJob = currentCoroutineContext()[Job]
+        reportingJob = null
+        if (previousReportingJob != null && previousReportingJob != currentJob) {
+            previousReportingJob.cancel()
+        }
+        runtimeDiagnosticsJob?.cancel()
+        runtimeDiagnosticsJob = null
+        droppedFrameMeasurementsJob?.cancel()
+        droppedFrameMeasurementsJob = null
+        videoOutputObservationsJob?.cancel()
+        videoOutputObservationsJob = null
+        playbackTransitionObservationsJob?.cancel()
+        playbackTransitionObservationsJob = null
+        volumeStateJob?.cancel()
+        volumeStateJob = null
+        try {
+            markPlaybackHealthExclusion(PlaybackHealthExclusionReason.BackendReplacement)
+            _state.value = PlayerUiState.Loading
+            _playbackState.update { current -> current.copy(status = PlaybackStatus.Loading, error = null) }
+            playerController.release()
+            val replacementController =
+                try {
+                    withContext(workDispatcher) { playerControllerFactory(resolvedBackend) }
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Throwable) {
+                    if (!allowFallback || resolvedBackend == PlayerBackend.ExoPlayer) {
+                        if (!allowFallback) {
+                            logOfflineBackendConstructionFailure(
+                                requiredBackend = resolvedBackend,
+                                availability = PlaybackBackendAvailability.Unavailable,
+                                exception = exception,
+                            )
+                            throw OfflineControllerUnavailableException(resolvedBackend, exception)
+                        }
+                        throw exception
+                    }
+                    withContext(workDispatcher) { playerControllerFactory(PlayerBackend.ExoPlayer) }
+                }
+            val candidateBackend = replacementController.activeBackend
+            val activeBackend =
+                candidateBackend
+                    .takeUnless { candidate -> candidate == PlayerBackend.Auto }
+                    ?: resolvedBackend
+            if (!allowFallback && candidateBackend != resolvedBackend) {
+                replacementController.release()
+                logOfflineBackendConstructionFailure(
+                    requiredBackend = resolvedBackend,
+                    availability = PlaybackBackendAvailability.Bundled,
+                )
+                throw OfflineControllerUnavailableException(resolvedBackend, null)
+            }
+            if (requestedBackend != activeBackend) {
+                backendNotice =
+                    PlayerBackendNotice(
+                        token = ++backendNoticeToken,
+                        requested = requestedBackend,
+                        active = activeBackend,
+                    )
+            }
+            playerController = replacementController
+            backend = activeBackend
+            if (!qualityExplicitlyChosen) {
+                selectedQualityPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend)
+                selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
+                selectedQualityCapOrigin =
+                    PlaybackQualityCapOrigin.SettingsDefault.takeIf { selectedQualityMaxBitrate != null }
+            }
+            autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
+            _playbackState.value = playerController.playbackState.value
+            controllerInstallInFlight = false
+            observeRuntimeDiagnostics()
+            observeVolumeState()
+            observeTimingState()
+            observePlaybackState()
+            previousReportingJob?.cancel()
+            drainStopRequestedDuringControllerInstall(stopController = true)
+            return activeBackend
+        } catch (exception: Throwable) {
+            previousReportingJob?.cancel()
+            controllerInstallInFlight = false
+            drainStopRequestedDuringControllerInstall(stopController = false)
+            throw exception
+        }
+    }
+
+    private fun drainStopRequestedDuringControllerInstall(stopController: Boolean) {
+        if (!stopRequestedDuringControllerInstall) return
+        stopRequestedDuringControllerInstall = false
+        performStop(stopController)
+        stopCompletedDuringControllerInstall = true
+    }
+
+    private fun consumeStopCompletedDuringControllerInstall(): Boolean =
+        stopCompletedDuringControllerInstall.also { stopCompletedDuringControllerInstall = false }
+
+    private fun MediaVersion.backendSourceDescriptor(): BackendSourceDescriptor {
+        val videoStream = mediaStreams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
+        val audioStream = mediaStreams.firstOrNull { stream -> stream.type.equals("Audio", ignoreCase = true) }
+        return BackendSourceDescriptor(
+            container = container,
+            videoCodec = videoStream?.codec,
+            audioCodec = audioStream?.codec,
+            isHdrOrDolbyVision = videoStream?.videoRangeType.isHdrOrDolbyVision(),
+        )
+    }
+
+    private fun String?.isHdrOrDolbyVision(): Boolean {
+        val rangeType = this?.trim()?.uppercase() ?: return false
+        return rangeType.contains("HDR") ||
+            rangeType.contains("DOLBY") ||
+            rangeType == "DOVI" ||
+            rangeType == "DV" ||
+            rangeType == "HLG"
+    }
+
+    private suspend fun handlePlaybackState(playbackState: PlaybackState) {
+        if (controllerInstallInFlight) return
+        val enrichedPlaybackState = playbackState.withPlaybackMetadata()
+        _playbackState.value = enrichedPlaybackState
+        val installedAudioChanged = updateInstalledAudio(enrichedPlaybackState)
+        emitTrackDiagnostics(enrichedPlaybackState)
+        playbackHealthCoordinator.observePlaybackState(enrichedPlaybackState)
+        if (enrichedPlaybackState.status == PlaybackStatus.Failed) {
+            captureControllerFailure()
+        }
+
+        val completed = enrichedPlaybackState.status == PlaybackStatus.Completed
+        val hasNextQueueItem = currentQueueIndex < queueIds.lastIndex
+        if (completed && hasNextQueueItem) {
+            playbackReportingCoordinator.onPlaybackState(enrichedPlaybackState, lastStatus)
+            if (lastStatus != PlaybackStatus.Completed) {
+                playbackReportingCoordinator.stop(enrichedPlaybackState.positionMs, completed = true)
+            }
+            // Keep the completed item installed while Up Next owns the countdown.
+            publishContent(playbackState = enrichedPlaybackState)
+            lastStatus = enrichedPlaybackState.status
+            return
+        }
+
+        val currentContent = state.value as? PlayerUiState.Content
+        val currentPlaybackState = currentContent?.playbackState
+        val currentAudioUnavailable = currentContent?.audioUnavailable
+        val currentUpNext = currentContent?.upNext
+        val upNext = upNextFor(enrichedPlaybackState)
+        val shouldPublishPlaybackState =
+            currentPlaybackState == null ||
+                currentPlaybackState.status != enrichedPlaybackState.status ||
+                currentPlaybackState.currentSegment != enrichedPlaybackState.currentSegment ||
+                currentPlaybackState.audioActivation != enrichedPlaybackState.audioActivation ||
+                currentPlaybackState.subtitleActivation != enrichedPlaybackState.subtitleActivation ||
+                currentAudioUnavailable != enrichedPlaybackState.audioUnavailable ||
+                currentUpNext != upNext
+        val terminalRecovery = maybeHandlePlaybackSessionRecovery(enrichedPlaybackState)
+        if (terminalRecovery != null) {
+            terminalRecovery.outcome?.let { outcome ->
+                logPlaybackTerminalOutcome(
+                    outcome = outcome,
+                    error = enrichedPlaybackState.error,
+                    autoRecoveryTrigger = terminalRecovery.autoRecoveryTrigger,
+                    recoveryDecision = terminalRecovery.recoveryDecision,
+                )
+            }
+            lastStatus = enrichedPlaybackState.status
+            return
+        }
+        if (enrichedPlaybackState.status == PlaybackStatus.Playing) {
+            maybeCompleteRecoveredPlaybackGuidance()
+        }
+
+        if (enrichedPlaybackState.status == PlaybackStatus.Failed) {
+            _state.update { PlayerUiState.Error(error = enrichedPlaybackState.error) }
+        } else if (shouldPublishPlaybackState || installedAudioChanged) {
+            publishContent(playbackState = enrichedPlaybackState)
+        }
+
+        playbackReportingCoordinator.onPlaybackState(enrichedPlaybackState, lastStatus)
+        // Report Start before an auto-skip TimeUpdate.
+        maybeAutoSkipSegment(enrichedPlaybackState)
+
+        if (completed) {
+            playbackReportingCoordinator.stop(enrichedPlaybackState.positionMs, completed = true)
+            if (lastStatus != PlaybackStatus.Completed) {
+                playbackEndedEvents.send(Unit)
+            }
+        }
+        if (enrichedPlaybackState.status == PlaybackStatus.Failed) {
+            logPlaybackTerminalOutcome(
+                outcome = PlaybackTerminalOutcome.Failed,
+                error = enrichedPlaybackState.error,
+            )
+            playbackReportingCoordinator.stop(enrichedPlaybackState.positionMs)
+        }
+
+        lastStatus = enrichedPlaybackState.status
+    }
+
+    private suspend fun captureControllerFailure() {
+        val diagnosticsContext = playbackDiagnosticsContext ?: return
+        val capabilities =
+            try {
+                withContext(workDispatcher) {
+                    deviceProfileProvider?.capabilities(backend)
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Throwable) {
+                null
+            }
+        diagnosticsContext.recordFailure(
+            backend = backend,
+            capabilities = capabilities,
+            source =
+                mediaStreams.toDiagnosticsSourceDescriptor(
+                    container = selectedSourceContainer ?: plan?.container,
+                    selectedAudioStreamIndex = installedAudioStreamIndex ?: requestedAudioStreamIndex,
+                ),
+        )
+    }
+
+    private fun maybeCompleteRecoveredPlaybackGuidance() {
+        pendingRecoveredPlaybackGuidanceItemId?.let { pendingItemId ->
+            pendingRecoveredPlaybackGuidanceItemId = null
+            if (pendingItemId == currentItemId) {
+                playbackHealthCoordinator.recordRecoveredPlaybackFailure()
+            }
+        }
+        val recoveredQuality = pendingRecoveredAutoQualityBps ?: return
+        pendingRecoveredAutoQualityBps = null
+        setPlaybackActionNotice(
+            PlaybackActionNotice(
+                reason = PlaybackActionNoticeReason.QualityRecoveryApplied,
+                runtimeQualityCapBps = recoveredQuality,
+                actions =
+                    setOf(
+                        PlaybackAction.KeepCurrentQuality,
+                        PlaybackAction.TryHigherQuality,
+                        PlaybackAction.ChooseLowerQuality,
+                        PlaybackAction.Dismiss,
+                    ),
+            ),
+        )
+        publishContent()
+    }
+
+    private fun resetPlaybackHealthSession(
+        generation: Long = playbackLaunchGeneration,
+        launchAtMs: Long = monotonicTimeMs(),
+    ) {
+        playbackHealthCoordinator.start(
+            generation = generation,
+            context = playbackHealthSessionContext(),
+            startedAtMs = launchAtMs,
+        )
+        lastHealthSignal = null
+        lastHealthThresholdClass = null
+    }
+
+    private fun endPlaybackHealthSession() {
+        playbackLaunchGeneration += 1L
+        playbackHealthCoordinator.end()
+    }
+
+    private fun markPlaybackHealthExclusion(reason: PlaybackHealthExclusionReason) {
+        playbackHealthCoordinator.markExclusion(reason)
+    }
+
+    private fun restartPlaybackHealthEvidence(reason: PlaybackHealthExclusionReason = PlaybackHealthExclusionReason.Resume) {
+        playbackHealthCoordinator.restartEvidenceWindow(reason)
+    }
+
+    private fun emitPlaybackHealthSummary() {
+        playbackHealthCoordinator.end()
+    }
+
+    private fun playbackHealthSessionContext(): PlaybackHealthSessionContext =
+        PlaybackHealthSessionContext(
+            sessionToken = playbackLaunchGeneration,
+            streamMode = plan?.streamMode,
+            guidancePolicy =
+                if (activePlaybackPreferences.playbackWarningsEnabled) {
+                    playbackHealthGuidancePolicy
+                } else {
+                    PlaybackHealthGuidancePolicy.Disabled
+                },
+            nextLowerQualityRungBps = nextLowerQualityRung(),
+            isOffline = plan?.streamMode == StreamMode.Offline,
+            videoExpected = plan?.videoExpected ?: false,
+            backend = backend,
+        )
+
+    private fun handleAutomaticRecoverySignal(signal: PlaybackHealthSignal) {
+        val trigger =
+            when (signal.kind) {
+                PlaybackHealthSignalKind.NoVideoOutput -> AutoPlaybackRecoveryTrigger.NoVideoOutput
+                PlaybackHealthSignalKind.CumulativeBuffering -> AutoPlaybackRecoveryTrigger.CumulativeBuffering
+                PlaybackHealthSignalKind.RepeatedStalls -> AutoPlaybackRecoveryTrigger.RepeatedStalls
+                PlaybackHealthSignalKind.DroppedFrames -> AutoPlaybackRecoveryTrigger.DroppedFrames
+                PlaybackHealthSignalKind.SlowStartup,
+                PlaybackHealthSignalKind.LongBuffering,
+                -> return
+            }
+        handleAutomaticRecoveryTrigger(trigger)
+    }
+
+    private fun handleAutomaticRecoveryTrigger(trigger: AutoPlaybackRecoveryTrigger): AutomaticRecoveryDiagnostic? {
+        if (plan?.streamMode == StreamMode.Offline) return null
+        if (pictureInPictureMode) {
+            if (pendingPictureInPictureRecoveryTrigger == null) {
+                pendingPictureInPictureRecoveryTrigger = trigger
+            }
+            return null
+        }
+        val currentPlan = plan ?: return null
+        val previousState = autoRecoveryState
+        val result =
+            autoRecoveryCoordinator.decide(
+                AutoPlaybackRecoveryInput(
+                    generation = playbackLaunchGeneration,
+                    policy = selectedQualityPolicy,
+                    qualityRecoveryAuthorization = autoQualityRecoveryAuthorization(),
+                    backend = backend,
+                    plan = currentPlan,
+                    sourceBitrateBps = currentSourceBitrate(),
+                    lowerQualityRungsBps = qualityOptions(currentSourceBitrate()).mapNotNull { option -> option.maxBitrateBps },
+                    state = autoRecoveryState,
+                    trigger = trigger,
+                ),
+            )
+        autoRecoveryState = result.state
+        logAutomaticRecoveryDecision(
+            trigger = trigger,
+            previousState = previousState,
+            result = result,
+            currentPlan = currentPlan,
+        )
+        val recoveryDecision = result.decision.toPlaybackRecoveryDecision()
+        val scheduled = applyAutomaticRecoveryDecision(result.decision)
+        return AutomaticRecoveryDiagnostic(
+            trigger = trigger,
+            decision = recoveryDecision,
+            scheduled = scheduled,
+        )
+    }
+
+    private fun applyAutomaticRecoveryDecision(decision: AutoPlaybackRecoveryDecision): Boolean {
+        if (plan?.streamMode == StreamMode.Offline) return false
+        when (decision) {
+            AutoPlaybackRecoveryDecision.NoAction -> return false
+            is AutoPlaybackRecoveryDecision.CompatibilityReplan -> {
+                playbackHealthCoordinator.dismissGuidance()
+                pendingRecoveredPlaybackGuidanceItemId = currentItemId
+                replanAtPosition(
+                    targetPositionMs = playerController.playbackState.value.positionMs,
+                    requestPolicy =
+                        PlaybackInfoRequestPolicy(
+                            enableDirectPlay = false,
+                            enableDirectStream = false,
+                            allowVideoStreamCopy = false,
+                            clientTrigger = PlaybackClientTrigger.PlayerFailureFallback,
+                            bitrateConstraint = activePlaybackBitrateConstraint(),
+                            recoveryIntent = com.jellyscope.core.domain.playback.PlaybackRecoveryIntent.Compatibility,
+                        ),
+                    forcePlay = true,
+                )
+                return true
+            }
+            is AutoPlaybackRecoveryDecision.LowerTo -> {
+                playbackHealthCoordinator.dismissGuidance()
+                selectedQualityPolicy = PlaybackQualityPolicy.Auto
+                selectedQualityMaxBitrate = decision.maxBitrateBps
+                selectedQualityCapOrigin = PlaybackQualityCapOrigin.AutoSessionRecovery
+                pendingRecoveredAutoQualityBps = decision.maxBitrateBps
+                replanAtPosition(
+                    targetPositionMs = playerController.playbackState.value.positionMs,
+                    requestPolicy =
+                        PlaybackInfoRequestPolicy(
+                            clientTrigger = PlaybackClientTrigger.PlayerFailureFallback,
+                            bitrateConstraint = PlaybackBitrateConstraint.AutoSessionLimit(decision.maxBitrateBps),
+                            recoveryIntent = com.jellyscope.core.domain.playback.PlaybackRecoveryIntent.Quality,
+                        ),
+                    forcePlay = true,
+                )
+                return true
+            }
+            is AutoPlaybackRecoveryDecision.PromptUser -> {
+                playbackHealthCoordinator.dismissGuidance()
+                // Recovery exhaustion invalidates the lower-quality replan.
+                pendingRecoveredAutoQualityBps = null
+                setPlaybackActionNotice(
+                    PlaybackActionNotice(
+                        reason = decision.reason.toNoticeReason(),
+                        actions = decision.actions,
+                        runtimeQualityCapBps = autoRecoveryState.runtimeQualityCapBps,
+                    ),
+                )
+                publishContent()
+                return false
+            }
+        }
+    }
+
+    private fun AutoPlaybackRecoveryDecision.toPlaybackRecoveryDecision(): PlaybackRecoveryDecision =
+        when (this) {
+            AutoPlaybackRecoveryDecision.NoAction -> PlaybackRecoveryDecision.NoAction
+            is AutoPlaybackRecoveryDecision.CompatibilityReplan -> PlaybackRecoveryDecision.CompatibilityReplan
+            is AutoPlaybackRecoveryDecision.LowerTo -> PlaybackRecoveryDecision.LowerQuality
+            is AutoPlaybackRecoveryDecision.PromptUser -> PlaybackRecoveryDecision.PromptUser
+        }
+
+    private fun AutoPlaybackRecoveryPromptReason.toNoticeReason(): PlaybackActionNoticeReason =
+        when (this) {
+            AutoPlaybackRecoveryPromptReason.OriginalPlaybackFailed ->
+                PlaybackActionNoticeReason.OriginalPlaybackFailed
+            AutoPlaybackRecoveryPromptReason.FixedQualityFailed ->
+                PlaybackActionNoticeReason.FixedQualityFailed
+            AutoPlaybackRecoveryPromptReason.CompatibilityRecoveryExhausted ->
+                PlaybackActionNoticeReason.CompatibilityRecoveryExhausted
+            AutoPlaybackRecoveryPromptReason.QualityRecoveryExhausted,
+            AutoPlaybackRecoveryPromptReason.NoLowerQualityAvailable,
+            AutoPlaybackRecoveryPromptReason.AutoQualityRecoveryRequiresExplicitSessionChoice,
+            -> PlaybackActionNoticeReason.NoLowerQualityAvailable
+        }
+
+    private fun autoQualityRecoveryAuthorization(): AutoPlaybackQualityRecoveryAuthorization =
+        if (qualityExplicitlyChosen && selectedQualityPolicy.mode == PlaybackQualityMode.Auto) {
+            AutoPlaybackQualityRecoveryAuthorization.ExplicitSessionAuto
+        } else {
+            AutoPlaybackQualityRecoveryAuthorization.NotAuthorized
+        }
+
+    private fun updatePlaybackHealthSessionContext() {
+        playbackHealthCoordinator.updateContext(playbackHealthSessionContext())
+    }
+
+    private fun activePlaybackBitrateConstraint(): PlaybackBitrateConstraint =
+        if (selectedQualityPolicy.mode == PlaybackQualityMode.Auto) {
+            autoRecoveryState.runtimeQualityCapBps
+                ?.let(PlaybackBitrateConstraint.AutoSessionLimit::of)
+                ?: PlaybackBitrateConstraint.NoClientLimit
+        } else {
+            selectedQualityPolicy.toBitrateConstraint()
+        }
+
+    // A lower rung must reduce both the active cap and the source bitrate.
+    private fun nextLowerQualityRung(): Long? {
+        val sourceBitrate = currentSourceBitrate()
+        val currentCap = selectedQualityMaxBitrate ?: Long.MAX_VALUE
+        return qualityOptions(sourceBitrate)
+            .mapNotNull { option -> option.maxBitrateBps }
+            .filter { rungBps ->
+                rungBps < currentCap && (sourceBitrate == null || rungBps < sourceBitrate)
+            }.maxOrNull()
+    }
+
+    private suspend fun maybeHandlePlaybackSessionRecovery(playbackState: PlaybackState): PlaybackTerminalRecovery? {
+        // Offline failures never enter remote or alternate-backend recovery.
+        if (plan?.streamMode == StreamMode.Offline) return null
+        val decision = nextPlaybackSessionRecoveryDecision(playbackState)
+        if (decision is PlaybackSessionRecoveryDecision.AutomaticRecovery) {
+            if (
+                (backend == PlayerBackend.LibVlc || backend == PlayerBackend.Mpv) &&
+                !alternateBackendFallbackAttempted
+            ) {
+                val recovered = fallbackFromAndroidAlternateBackend(playbackState.positionMs)
+                if (recovered) {
+                    pendingRecoveredPlaybackGuidanceItemId = currentItemId
+                }
+                return PlaybackTerminalRecovery(PlaybackTerminalOutcome.RetryScheduled).takeIf { recovered }
+            }
+            val automaticRecovery = handleAutomaticRecoveryTrigger(decision.trigger)
+            return PlaybackTerminalRecovery(
+                outcome =
+                    if (automaticRecovery?.scheduled == true) {
+                        PlaybackTerminalOutcome.RetryScheduled
+                    } else {
+                        PlaybackTerminalOutcome.Failed
+                    },
+                autoRecoveryTrigger = automaticRecovery?.trigger,
+                recoveryDecision = automaticRecovery?.decision,
+            )
+        }
+        if (decision is PlaybackSessionRecoveryDecision.SubtitleUnavailable) {
+            executePlaybackSessionRecovery(decision, playbackState)
+            return PlaybackTerminalRecovery(outcome = null)
+        }
+        return PlaybackTerminalRecovery(PlaybackTerminalOutcome.RetryScheduled).takeIf {
+            executePlaybackSessionRecovery(decision, playbackState)
+        }
+    }
+
+    private fun maybeHandleImmediatePlaybackSessionRecovery(playbackState: PlaybackState): Boolean {
+        if (plan?.streamMode == StreamMode.Offline) return false
+        return executePlaybackSessionRecovery(nextPlaybackSessionRecoveryDecision(playbackState), playbackState)
+    }
+
+    private fun nextPlaybackSessionRecoveryDecision(playbackState: PlaybackState): PlaybackSessionRecoveryDecision {
+        val result =
+            playbackSessionRecoveryPolicy.decide(
+                PlaybackSessionRecoveryInput(
+                    generation = playbackLaunchGeneration,
+                    itemId = currentItemId,
+                    plan = plan,
+                    playbackState = playbackState,
+                    state = playbackSessionRecoveryState,
+                ),
+            )
+        playbackSessionRecoveryState = result.state
+        return result.decision
+    }
+
+    private fun executePlaybackSessionRecovery(
+        decision: PlaybackSessionRecoveryDecision,
+        playbackState: PlaybackState,
+    ): Boolean =
+        when (decision) {
+            PlaybackSessionRecoveryDecision.NoAction,
+            is PlaybackSessionRecoveryDecision.AutomaticRecovery,
+            -> false
+
+            is PlaybackSessionRecoveryDecision.NetworkRetry -> {
+                logPlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.Fallback,
+                    streamMode = plan?.streamMode,
+                )
+                replanAtPosition(
+                    targetPositionMs = playbackState.positionMs,
+                    requestPolicy = decision.requestPolicy,
+                    forcePlay = true,
+                )
+                true
+            }
+
+            is PlaybackSessionRecoveryDecision.AudioActivationRecovery -> {
+                audioRecoveryTarget = decision.target
+                replanAtPosition(
+                    targetPositionMs = playbackState.positionMs,
+                    requestPolicy = decision.requestPolicy,
+                    audioRecovery = decision.target,
+                )
+                true
+            }
+
+            is PlaybackSessionRecoveryDecision.SubtitleEncodeRecovery -> {
+                subtitleFallbackTarget = decision.target
+                val fallbackGeneration = subtitleFallbackGeneration
+                playerController.selectEmbeddedSubtitle(null)
+                subtitleNotice =
+                    PlayerNotice(
+                        token = ++subtitleNoticeToken,
+                        message = "Local subtitles unavailable; switching to server-rendered subtitles.",
+                    )
+                publishContent(playbackState = playbackState)
+                replanAtPosition(
+                    targetPositionMs = playbackState.positionMs,
+                    requestPolicy = decision.requestPolicy,
+                    nonFatalSubtitleFallback = decision.target,
+                    subtitleFallbackGeneration = fallbackGeneration,
+                )
+                true
+            }
+
+            is PlaybackSessionRecoveryDecision.SubtitleUnavailable -> {
+                if (plan?.plannedSubtitle is PlannedSubtitle.LocalAsset) {
+                    logPlaybackDiagnostic(
+                        stage = PlaybackDiagnosticStage.Mapping,
+                        event = PlaybackDiagnosticEvent.Failed,
+                        trackKind = PlaybackDiagnosticTrackKind.Subtitle,
+                    )
+                    playerController.selectEmbeddedSubtitle(null)
+                    subtitleNotice =
+                        PlayerNotice(
+                            token = ++subtitleNoticeToken,
+                            message = "Local subtitle unavailable.",
+                        )
+                    publishContent(playbackState = playbackState)
+                } else {
+                    markSubtitleFallbackUnavailable(decision.target)
+                }
+                true
+            }
+        }
+
+    private suspend fun fallbackFromAndroidAlternateBackend(positionMs: Long): Boolean {
+        if (plan?.streamMode == StreamMode.Offline) return false
+        val profileProvider = deviceProfileProvider ?: return false
+        if (profileProvider.backendPolicy.platform != PlayerBackendPlatform.Android) return false
+        if (PlayerBackend.ExoPlayer !in profileProvider.availableBackends) return false
+        alternateBackendFallbackAttempted = true
+        val lastConfirmedPositionMs = positionMs.coerceAtLeast(0L)
+        val requestedBackend = backend
+        logPlaybackDiagnostic(
+            stage = PlaybackDiagnosticStage.NativePlayer,
+            event = PlaybackDiagnosticEvent.Fallback,
+            streamMode = plan?.streamMode,
+            requestPolicy =
+                PlaybackInfoRequestPolicy(
+                    backend = PlayerBackend.ExoPlayer,
+                    clientTrigger = PlaybackClientTrigger.BackendFallback,
+                ),
+        )
+        val activeBackend =
+            installController(
+                resolvedBackend = PlayerBackend.ExoPlayer,
+                requestedBackend = requestedBackend,
+            )
+        if (consumeStopCompletedDuringControllerInstall()) return false
+        replanAtPosition(
+            targetPositionMs = lastConfirmedPositionMs,
+            requestPolicy =
+                PlaybackInfoRequestPolicy(
+                    backend = PlayerBackend.ExoPlayer,
+                    clientTrigger = PlaybackClientTrigger.BackendFallback,
+                ),
+            forcePlay = true,
+        )
+        logBackendSelection(
+            requestedBackend = requestedBackend,
+            activeBackend = activeBackend,
+            fallbackResult = PlaybackBackendFallbackResult.Applied,
+        )
+        return true
+    }
+
+    private fun updateInstalledAudio(playbackState: PlaybackState): Boolean {
+        val activeTarget = (playbackState.audioActivation as? AudioActivationState.Active)?.target ?: return false
+        val currentPlan = plan ?: return false
+        if (currentPlan.audioActivationTarget != activeTarget || activeTarget.itemId != currentItemId) return false
+        if (installedAudioStreamIndex == activeTarget.streamIndex) return false
+        installedAudioStreamIndex = activeTarget.streamIndex
+        audioRecoveryTarget = null
+        if (currentPlan.audioSelectionAuthoritative && requestedAudioStreamIndex != activeTarget.streamIndex) {
+            requestedAudioStreamIndex = activeTarget.streamIndex
+            // Runtime substitutions never replace durable audio intent.
+            rememberSelection(persistDurable = false)
+        }
+        return true
+    }
+
+    private fun applyInitialEmbeddedSelections(playbackPlan: PlaybackPlan) {
+        if (playbackPlan.streamMode == StreamMode.DirectPlay) {
+            val target = playbackPlan.audioActivationTarget
+            val descriptor =
+                playbackPlan.embeddedAudioTracks.firstOrNull { track ->
+                    track.jellyfinStreamIndex == playbackPlan.selectedAudioStreamIndex
+                }
+            if (target != null && descriptor != null) {
+                playerController.selectEmbeddedAudio(
+                    EmbeddedAudioSelection(target = target, descriptor = descriptor),
+                )
+            }
+        }
+
+        val plannedSubtitle = playbackPlan.plannedSubtitle
+        if (plannedSubtitle is PlannedSubtitle.Off || plannedSubtitle is PlannedSubtitle.Unavailable) {
+            playerController.selectEmbeddedSubtitle(null)
+            return
+        }
+        if (plannedSubtitle is PlannedSubtitle.LocalAsset) {
+            return
+        }
+        plannedSubtitle as PlannedSubtitle.Track
+        if (plannedSubtitle.deliveryMethod in localEmbeddedDeliveryMethods) {
+            val target = plannedSubtitle.activationTarget ?: return
+            playerController.selectEmbeddedSubtitle(
+                EmbeddedSubtitleSelection(
+                    target = target,
+                    descriptor = plannedSubtitle.embeddedTrack ?: return,
+                ),
+            )
+        }
+    }
+
+    private fun replanAtCurrentPosition() {
+        replanAtPosition(playerController.playbackState.value.positionMs)
+    }
+
+    // Fetch fresh PlaybackInfo and re-prepare at the target position.
+    private fun replanAtPosition(
+        targetPositionMs: Long,
+        requestPolicy: PlaybackInfoRequestPolicy = PlaybackInfoRequestPolicy(),
+        forcePlay: Boolean = false,
+        nonFatalSubtitleFallback: SubtitleActivationTarget? = null,
+        subtitleFallbackGeneration: Long? = null,
+        audioRecovery: AudioActivationTarget? = null,
+    ) {
+        if (controllerInstallInFlight) return
+        // Offline plans never enter the remote replan path.
+        if (plan?.streamMode == StreamMode.Offline) return
+        val mediaSource = selectedMediaSourceId ?: return
+        autoplayGeneration += 1
+        val target = targetPositionMs.coerceAtLeast(0L)
+        val effectiveRequestPolicy =
+            requestPolicy.copy(
+                backend = backend,
+                bitrateConstraint =
+                    requestPolicy.bitrateConstraint.takeUnless { constraint ->
+                        constraint == PlaybackBitrateConstraint.NoClientLimit
+                    } ?: activePlaybackBitrateConstraint(),
+            )
+        val selectedSubtitle = selectedSubtitleMediaStream()
+        val replanItemId = currentItemId
+        val replanGeneration = playbackLaunchGeneration
+        markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Replan)
+        if (nonFatalSubtitleFallback == null) {
+            invalidateSubtitleFallback()
+        }
+        val activationRequestId = nextSubtitleActivationRequestId()
+        replanJob?.cancel()
+        replanJob =
+            viewModelScope.launch {
+                if (controllerInstallInFlight) return@launch
+                val playbackState = playerController.playbackState.value
+                val wasPaused = playbackState.status == PlaybackStatus.Paused
+                if (forcePlay) {
+                    _state.value = PlayerUiState.Loading
+                }
+                val correlatedRequestPolicy =
+                    effectiveRequestPolicy.copy(
+                        diagnosticSessionSequence = replanGeneration,
+                    )
+
+                val playbackPlan =
+                    try {
+                        withContext(workDispatcher) {
+                            playbackInfoPlanner.plan(
+                                session = session,
+                                itemId = replanItemId,
+                                mediaSourceId = mediaSource,
+                                startPositionTicks = millisecondsToTicks(target),
+                                audioStreamIndex = requestedAudioStreamIndex,
+                                detailMediaStreams = mediaStreams,
+                                subtitleSelection = requestedSubtitleSelection,
+                                localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset(),
+                                maxStreamingBitrate = selectedQualityMaxBitrate,
+                                qualityPolicy = selectedQualityPolicy,
+                                qualityCapOrigin = selectedQualityCapOrigin,
+                                requestPolicy = correlatedRequestPolicy,
+                                // Preserve the known container in fallback diagnostics.
+                                sourceContainer = selectedSourceContainer,
+                            )
+                        }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (exception: Throwable) {
+                        if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
+                        logPlannerAttemptFailure(
+                            exception = exception,
+                            requestPolicy = correlatedRequestPolicy,
+                            qualityPolicy = selectedQualityPolicy,
+                            qualityCapOrigin = selectedQualityCapOrigin,
+                            requestCapBitrateBps = selectedQualityMaxBitrate,
+                        )
+                        if (nonFatalSubtitleFallback != null) {
+                            if (
+                                isCurrentSubtitleFallback(
+                                    target = nonFatalSubtitleFallback,
+                                    generation = subtitleFallbackGeneration,
+                                    itemId = replanItemId,
+                                )
+                            ) {
+                                markSubtitleFallbackUnavailable(nonFatalSubtitleFallback)
+                            }
+                        } else if (audioRecovery != null) {
+                            if (audioRecoveryTarget == audioRecovery) {
+                                _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
+                            }
+                        } else {
+                            _state.update { PlayerUiState.Error(error = PlaybackError.Network) }
+                        }
+                        logPlaybackTerminalOutcome(
+                            outcome = PlaybackTerminalOutcome.Failed,
+                            error =
+                                if (audioRecovery != null) {
+                                    PlaybackError.UnsupportedMedia
+                                } else {
+                                    PlaybackError.Network
+                                },
+                        )
+                        return@launch
+                    }
+
+                if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
+
+                if (controllerInstallInFlight) return@launch
+
+                if (nonFatalSubtitleFallback != null) {
+                    if (
+                        !isCurrentSubtitleFallback(
+                            target = nonFatalSubtitleFallback,
+                            generation = subtitleFallbackGeneration,
+                            itemId = replanItemId,
+                        )
+                    ) {
+                        return@launch
+                    }
+                    val fallbackTrack = playbackPlan.plannedSubtitle as? PlannedSubtitle.Track
+                    if (
+                        fallbackTrack?.deliveryMethod != SubtitleDeliveryMethod.Encode ||
+                        fallbackTrack.streamIndex != nonFatalSubtitleFallback.streamIndex
+                    ) {
+                        logPlaybackDiagnostic(
+                            stage = PlaybackDiagnosticStage.Mapping,
+                            event = PlaybackDiagnosticEvent.Failed,
+                            trackKind = PlaybackDiagnosticTrackKind.Subtitle,
+                        )
+                        markSubtitleFallbackUnavailable(nonFatalSubtitleFallback)
+                        return@launch
+                    }
+                }
+                if (audioRecovery != null) {
+                    if (audioRecoveryTarget != audioRecovery || plan?.audioActivationTarget != audioRecovery) {
+                        return@launch
+                    }
+                    if (playbackPlan.streamMode == StreamMode.DirectPlay) {
+                        _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
+                        return@launch
+                    }
+                }
+
+                val playbackPlanWithMetadata =
+                    enrichPlaybackPlan(
+                        playbackPlan = playbackPlan,
+                        requestedMediaSourceId = mediaSource,
+                        generation = replanGeneration,
+                        itemId = replanItemId,
+                        activationRequestId = activationRequestId,
+                        selectedSubtitle = selectedSubtitle,
+                    ) ?: return@launch
+                if (
+                    nonFatalSubtitleFallback != null &&
+                    !isCurrentSubtitleFallback(
+                        target = nonFatalSubtitleFallback,
+                        generation = subtitleFallbackGeneration,
+                        itemId = replanItemId,
+                    )
+                ) {
+                    return@launch
+                }
+                if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
+                playbackReportingCoordinator.stopNow(positionMs = target)
+                currentCoroutineContext().ensureActive()
+                if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
+                if (
+                    nonFatalSubtitleFallback != null &&
+                    !isCurrentSubtitleFallback(
+                        target = nonFatalSubtitleFallback,
+                        generation = subtitleFallbackGeneration,
+                        itemId = replanItemId,
+                    )
+                ) {
+                    return@launch
+                }
+                // A same-item replan cannot stabilize a queue switch.
+                if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
+                installPlan(playbackPlanWithMetadata, resetReporting = true, stabilizesQueueSwitch = false)
+                if (nonFatalSubtitleFallback != null) {
+                    subtitleFallbackTarget = null
+                }
+                loadTimingOffsets()
+                playbackLaunchMarker = null
+                markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
+                logPrepareRequested()
+                playerController.prepare(playbackPlanWithMetadata)
+                playerController.runtimeDiagnostics.value.prepareEpoch
+                    ?.let(playbackHealthCoordinator::expectVideoOutput)
+                armFirstVideoOutputDebugState()
+                logPrepareDispatched()
+                applyInitialEmbeddedSelections(playbackPlanWithMetadata)
+                if (forcePlay) {
+                    playerController.play()
+                } else if (wasPaused || !desiredPlayWhenReady) {
+                    playerController.pause()
+                } else {
+                    playerController.play()
+                }
+                publishContent(pickerVisible = PlayerPicker.None)
+                maybeStartInstalledAudioUnavailableFallback(playbackPlanWithMetadata)
+                maybeStartInstalledUnavailableFallback(playbackPlanWithMetadata)
+            }
+    }
+
+    private fun maybeStartInstalledUnavailableFallback(playbackPlan: PlaybackPlan) {
+        val unavailable = playbackPlan.plannedSubtitle as? PlannedSubtitle.Unavailable ?: return
+        val target = unavailable.activationTarget ?: return
+        logPlaybackDiagnostic(
+            stage = PlaybackDiagnosticStage.Mapping,
+            event = PlaybackDiagnosticEvent.Failed,
+            trackKind = PlaybackDiagnosticTrackKind.Subtitle,
+        )
+        if (!unavailable.allowEncodeFallback) return
+        maybeHandleImmediatePlaybackSessionRecovery(
+            playerController.playbackState.value.copy(
+                subtitleActivation =
+                    com.jellyscope.core.domain.playback.SubtitleActivationState
+                        .Unavailable(target),
+            ),
+        )
+    }
+
+    private fun maybeStartInstalledAudioUnavailableFallback(playbackPlan: PlaybackPlan) {
+        if (playbackPlan.streamMode != StreamMode.DirectPlay) return
+        val target = playbackPlan.audioActivationTarget ?: return
+        val descriptor =
+            playbackPlan.embeddedAudioTracks.firstOrNull { track ->
+                track.jellyfinStreamIndex == target.streamIndex
+            }
+        if (descriptor != null) return
+        maybeHandleImmediatePlaybackSessionRecovery(
+            playerController.playbackState.value.copy(
+                audioActivation = AudioActivationState.Unavailable(target),
+            ),
+        )
+    }
+
+    private fun markSubtitleFallbackUnavailable(target: SubtitleActivationTarget) {
+        val currentPlan = plan ?: return
+        if (currentPlan.subtitleActivationTarget != target) return
+        val unavailable =
+            when (val plannedSubtitle = currentPlan.plannedSubtitle) {
+                is PlannedSubtitle.Track ->
+                    PlannedSubtitle.Unavailable(
+                        streamIndex = plannedSubtitle.streamIndex,
+                        kind = plannedSubtitle.kind,
+                        normalizedFormat = plannedSubtitle.normalizedFormat,
+                        reason = "Server-rendered subtitle fallback failed",
+                    )
+                is PlannedSubtitle.Unavailable ->
+                    plannedSubtitle.copy(
+                        allowEncodeFallback = false,
+                        activationTarget = null,
+                    )
+                PlannedSubtitle.Off,
+                is PlannedSubtitle.LocalAsset,
+                -> return
+            }
+        logPlaybackDiagnostic(
+            stage = PlaybackDiagnosticStage.Mapping,
+            event = PlaybackDiagnosticEvent.Failed,
+            trackKind = PlaybackDiagnosticTrackKind.Subtitle,
+        )
+        plan =
+            currentPlan.copy(
+                selectedSubtitleStreamIndex = null,
+                subtitleAsset = null,
+                subtitleActivationTarget = null,
+                plannedSubtitle = unavailable,
+            )
+        subtitleFallbackTarget = null
+        publishContent()
+    }
+
+    private fun installPlan(
+        playbackPlan: PlaybackPlan,
+        resetReporting: Boolean,
+        stabilizesQueueSwitch: Boolean,
+    ) {
+        plan = playbackPlan
+        updatePlaybackHealthSessionContext()
+        if (stabilizesQueueSwitch) {
+            // The replacement plan makes item identity stable again.
+            queueSwitchInFlight = false
+        }
+        val authoritativeAudio = playbackPlan.selectedAudioStreamIndex.takeIf { playbackPlan.audioSelectionAuthoritative }
+        if (authoritativeAudio != null && requestedAudioStreamIndex != authoritativeAudio) {
+            requestedAudioStreamIndex = authoritativeAudio
+            // Response-authoritative audio changes runtime truth, not durable intent.
+            rememberSelection(persistDurable = false)
+        }
+        if (playbackPlan.streamMode != StreamMode.DirectPlay) {
+            installedAudioStreamIndex = playbackPlan.selectedAudioStreamIndex
+            audioRecoveryTarget = null
+        }
+        metadata =
+            metadata.copy(
+                qualityBadge =
+                    playbackPlan.videoStreamLabel
+                        ?.takeIf { label -> label.isNotBlank() }
+                        ?: metadata.qualityBadge,
+            )
+        if (resetReporting) {
+            playSessionId = deviceInfoProvider.newDeviceId()
+            lastStatus = PlaybackStatus.Idle
+        }
+        playbackReportingCoordinator.install(
+            session = session,
+            plan = playbackPlan,
+            playSessionId = playbackPlan.effectivePlaySessionId(),
+        )
+    }
+
+    private fun publishContent(
+        playbackState: PlaybackState = playerController.playbackState.value,
+        pickerVisible: PlayerPicker = currentPicker(),
+    ) {
+        val enrichedPlaybackState = playbackState.withPlaybackMetadata()
+        val subtitleRenderInfo = currentSubtitleRenderInfo(enrichedPlaybackState)
+        val subtitleStyleable = subtitleRenderInfo.styleable && playerController.appliesSubtitleStyle
+        val upNext = upNextFor(enrichedPlaybackState)
+        _playbackState.value = enrichedPlaybackState
+        emitTrackDiagnostics(enrichedPlaybackState, subtitleRenderInfo)
+        _state.update {
+            PlayerUiState.Content(
+                playbackState = enrichedPlaybackState,
+                volumeControl = volumeControl,
+                audioUnavailable = enrichedPlaybackState.audioUnavailable,
+                metadata = metadata,
+                // Stable list identity preserves Compose strong skipping.
+                audioOptions = projections.audioTrackOptions(currentItemId, mediaStreams),
+                subtitleOptions = projections.subtitleTrackOptions(currentItemId, mediaStreams),
+                localSubtitleOptions = localSubtitleAssets.takeUnless { plan?.streamMode == StreamMode.Offline }.orEmpty(),
+                qualityOptions =
+                    if (plan?.streamMode == StreamMode.Offline) {
+                        emptyList()
+                    } else {
+                        playerQualityOptions(currentSourceBitrate(), selectedQualityPolicy)
+                    },
+                selectedAudioStreamIndex = installedAudioStreamIndex,
+                selectedSubtitleStreamIndex = subtitleRenderInfo.activeStreamIndex,
+                selectedSubtitleAssetId = requestedLocalSubtitleAsset?.id,
+                selectedQualityMaxBitrate = selectedQualityMaxBitrate,
+                selectedQualityPolicy = selectedQualityPolicy,
+                qualityOverrideExplicit = qualityExplicitlyChosen,
+                inheritedQualityPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend),
+                inheritedQualityUsesVlcSetting = activePlaybackPreferences.usesVlcDefaultQuality(backend),
+                pickerVisible = pickerVisible,
+                playlist = playlist,
+                chapters = chapters,
+                mediaSegments = mediaSegments,
+                currentSegment = enrichedPlaybackState.currentSegment,
+                skipPromptSegment =
+                    enrichedPlaybackState.currentSegment?.takeIf { segment ->
+                        activePlaybackPreferences.policyFor(segment.type) == SegmentSkipPolicy.Ask
+                    },
+                trickplay = trickplay,
+                trickplayTileUrls = trickplayTileUrls(),
+                playbackSpeed = playbackSpeed,
+                subtitleStyle = subtitleStyle,
+                subtitleRenderInfo = subtitleRenderInfo,
+                subtitleStyleable = subtitleStyleable,
+                subtitleNotice = subtitleNotice,
+                backendNotice = backendNotice,
+                playbackGuidance = playbackGuidance,
+                playbackActionNotice = playbackActionNotice,
+                resizeMode = resizeMode,
+                upNext = upNext,
+                autoplayPolicy = autoplayPolicyFor(upNext),
+                stillWatchingPrompt = stillWatchingPrompt,
+                timingState = timingCoordinator.timingState,
+                debugInfo = buildDebugInfo(subtitleRenderInfo, subtitleStyleable),
+                videoPresentation = plan?.videoPresentation,
+                playbackItemId = currentItemId.takeUnless { queueSwitchInFlight },
+            )
+        }
+    }
+
+    private fun autoplayPolicyFor(upNext: UpNextInfo?): AutoplayPolicySnapshot =
+        AutoplayPolicySnapshot(
+            enabled = activePlaybackPreferences.autoPlayNext,
+            delayMs = activePlaybackPreferences.autoPlayNextDelaySeconds * 1_000L,
+            queueIdentity = queueIdentity,
+            itemId = upNext?.itemId.orEmpty(),
+            playbackGeneration = autoplayGeneration,
+        )
+
+    private fun buildDebugInfo(
+        subtitleRenderInfo: SubtitleRenderInfo = currentSubtitleRenderInfo(),
+        subtitleStyleable: Boolean = subtitleRenderInfo.styleable && playerController.appliesSubtitleStyle,
+    ): PlayerDebugInfo? {
+        val plan = plan ?: return null
+        val videoStream = mediaStreams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
+        val audioStream =
+            installedAudioStreamIndex
+                ?.let { index -> mediaStreams.firstOrNull { stream -> stream.index == index } }
+                ?: mediaStreams.firstOrNull { stream -> stream.type.equals("Audio", ignoreCase = true) }
+        val playMethod =
+            when (plan.streamMode) {
+                StreamMode.DirectPlay -> "Direct Play"
+                StreamMode.DirectStream -> "Direct Stream"
+                StreamMode.Transcode -> "Transcode"
+                StreamMode.Offline -> "Offline"
+            }
+        return PlayerDebugInfo(
+            backend = backend,
+            playMethod = playMethod,
+            transcodeReasons = plan.transcodeReasons,
+            container = plan.container,
+            videoCodec = videoStream?.codec,
+            videoResolution = videoStream?.height?.let { height -> "${height}p" },
+            videoPresentation = plan.videoPresentation,
+            videoBitrateBps = videoStream?.bitRate,
+            audioCodec = audioStream?.codec,
+            audioChannels = audioStream?.channelLayout,
+            audioLanguage = audioStream?.language,
+            sourceBitrateBps = plan.sourceBitrateBps ?: videoStream?.bitRate,
+            requestCapBitrateBps = plan.maxStreamingBitrate,
+            qualityCapOrigin = plan.qualityCapOrigin,
+            clientTrigger = plan.clientTrigger,
+            effectiveTranscodeCapBitrateBps = plan.effectiveTranscodeMaxStreamingBitrate,
+            launchToFirstFrameMs = launchToFirstFrameMs,
+            healthSignal = lastHealthSignal,
+            healthThresholdClass = lastHealthThresholdClass,
+            subtitleStreamIndex = subtitleRenderInfo.streamIndex,
+            subtitleLabel = subtitleRenderInfo.label,
+            subtitleLanguage = subtitleRenderInfo.language,
+            subtitleRenderMode = subtitleRenderInfo.mode,
+            subtitleRenderStatus = subtitleRenderInfo.status,
+            subtitleStyleable = subtitleStyleable,
+            subtitleRenderReason = subtitleRenderInfo.reason,
+            playSessionId = plan.playSessionId ?: playSessionId,
+            qualityPolicyMode = plan.qualityPolicy.mode.name,
+            qualityPolicyOrigin = qualityPolicyOriginForDebug(),
+            clientLimiter = plan.bitrateConstraint.debugClientLimiterLabel(),
+            capabilityResult = plan.capabilityResultForDebug(),
+            capabilityReason = plan.capabilityReasonForDebug(),
+            configuredVlcTranscodeBudgetBps = activePlaybackPreferences.vlcTranscodeMaxBitrateBps,
+            effectiveTranscodeCap = plan.effectiveTranscodeCapForDebug(),
+            recoveryKind = plan.recoveryIntent.debugLabel(),
+            recoveryReason = plan.recoveryReasonForDebug(),
+            remainingRecoveryBudget = plan.remainingRecoveryBudgetForDebug(),
+            firstVideoOutput = firstVideoOutputDebug,
+        )
+    }
+
+    private fun qualityPolicyOriginForDebug(): PlaybackQualityPolicyOrigin =
+        when {
+            selectedQualityPolicy.mode == PlaybackQualityMode.Auto &&
+                autoRecoveryState.runtimeQualityCapBps != null -> PlaybackQualityPolicyOrigin.SessionAutoRecovery
+            qualityExplicitlyChosen -> PlaybackQualityPolicyOrigin.SessionOverride
+            else -> PlaybackQualityPolicyOrigin.SettingsDefault
+        }
+
+    private fun PlaybackPlan.capabilityResultForDebug(): PlaybackCapabilityResult =
+        when (clientTrigger) {
+            PlaybackClientTrigger.DecodeCapabilityCap,
+            PlaybackClientTrigger.UserResolutionLimit,
+            -> PlaybackCapabilityResult.SourceCopyRejected
+
+            else ->
+                if (resolutionPolicy == com.jellyscope.core.domain.playback.PlaybackResolutionPolicy.NoCap) {
+                    PlaybackCapabilityResult.NoFiniteCapabilityCap
+                } else {
+                    PlaybackCapabilityResult.SourceCopyAllowed
+                }
+        }
+
+    private fun PlaybackPlan.capabilityReasonForDebug(): String =
+        when (clientTrigger) {
+            PlaybackClientTrigger.DecodeCapabilityCap -> "Decoder capability profile rejected source copy"
+            PlaybackClientTrigger.UserResolutionLimit -> "User video-resolution setting rejected source copy"
+            else -> resolutionPolicy.debugCapabilityReason()
+        }
+
+    private fun PlaybackPlan.effectiveTranscodeCapForDebug(): String =
+        when {
+            streamMode != StreamMode.Transcode -> "None (not transcoding)"
+            else ->
+                effectiveTranscodeMaxStreamingBitrate?.let { bitrate ->
+                    bitrate.debugMbpsLabel()
+                } ?: when (bitrateConstraint) {
+                    PlaybackBitrateConstraint.NoClientLimit ->
+                        "Protocol maximum (no app transcode cap)"
+                    else -> "Disabled"
+                }
+        }
+
+    private fun PlaybackPlan.recoveryReasonForDebug(): String =
+        listOfNotNull(
+            clientTrigger?.debugLabel(),
+            lastHealthSignal?.debugLabel(),
+        ).joinToString(" · ").ifEmpty { "None" }
+
+    private fun PlaybackPlan.remainingRecoveryBudgetForDebug(): String =
+        when (qualityPolicy.mode) {
+            PlaybackQualityMode.Auto ->
+                "Compatibility: ${if (autoRecoveryState.compatibilityAttempted) 0 else 1} remaining · " +
+                    if (qualityExplicitlyChosen) {
+                        "Quality: ${if (autoRecoveryState.qualityAttempted) 0 else 1} remaining"
+                    } else {
+                        "Quality: unavailable (requires explicit Auto)"
+                    }
+            PlaybackQualityMode.Original -> "Compatibility: 0 remaining (Original) · Quality: 0 remaining (Original)"
+            PlaybackQualityMode.Fixed ->
+                "Compatibility: ${if (autoRecoveryState.compatibilityAttempted) 0 else 1} remaining (Fixed quality) · " +
+                    "Quality: 0 remaining (Fixed quality)"
+        }
+
+    private fun bindPlaybackLaunchToPrepare(
+        generation: Long,
+        controller: PlayerController,
+    ) {
+        val marker = playbackLaunchMarker ?: return
+        if (marker.generation != generation) return
+        val prepareEpoch = controller.runtimeDiagnostics.value.prepareEpoch ?: return
+        playbackLaunchMarker =
+            marker.copy(
+                controller = controller,
+                prepareEpoch = prepareEpoch,
+            )
+        maybeCompletePlaybackLaunch(controller, controller.runtimeDiagnostics.value)
+    }
+
+    private fun maybeCompletePlaybackLaunch(
+        controller: PlayerController,
+        diagnostics: PlaybackRuntimeDiagnostics,
+    ) {
+        val marker = playbackLaunchMarker ?: return
+        if (!playbackLaunchMarkerMatches(marker.controller, marker.prepareEpoch, controller, diagnostics.prepareEpoch)) return
+        if (diagnostics.nativePrepareToFirstFrameMs == null) return
+        val durationMs = (monotonicTimeMs() - marker.startedAtMs).coerceAtLeast(0L)
+        launchToFirstFrameMs = durationMs
+        controller.recordLaunchToFirstFrame(
+            prepareEpoch = marker.prepareEpoch ?: return,
+            durationMs = durationMs,
+        )
+        playbackLaunchMarker = null
+        if (_state.value is PlayerUiState.Content) {
+            publishContent()
+        }
+    }
+
+    private fun clearPlaybackLaunch(generation: Long) {
+        if (playbackLaunchMarker?.generation == generation) {
+            playbackLaunchMarker = null
+        }
+        if (activePlaybackTimelineFacts?.generation == generation) {
+            activePlaybackTimelineFacts = null
+        }
+    }
+
+    private fun currentSubtitleRenderInfo(playbackState: PlaybackState = playerController.playbackState.value): SubtitleRenderInfo {
+        val info =
+            subtitleRenderInfo(
+                options = subtitleOptions(mediaStreams),
+                plannedSubtitle = plan?.plannedSubtitle ?: PlannedSubtitle.Off,
+                activationState = playbackState.subtitleActivation,
+            )
+        val local = requestedLocalSubtitleAsset
+        return if (local != null && plan?.plannedSubtitle is PlannedSubtitle.LocalAsset) {
+            info.copy(label = local.label, language = local.language)
+        } else {
+            info
+        }
+    }
+
+    private fun observeLocalSubtitleAssets(
+        itemId: String,
+        mediaSourceId: String,
+    ) {
+        localSubtitleAssetsJob?.cancel()
+        localSubtitleAssets = emptyList()
+        val observe = observeLocalSubtitleAssetsUseCase ?: return
+        localSubtitleAssetsJob =
+            viewModelScope.launch {
+                observe(LocalSubtitleContext(session.serverId, session.userId, itemId, mediaSourceId))
+                    .collectLatest { assets ->
+                        localSubtitleAssets = assets
+                        if (state.value is PlayerUiState.Content) publishContent()
+                    }
+            }
+    }
+
+    private fun PlaybackState.withPlaybackMetadata(): PlaybackState =
+        copy(
+            currentSegment = mediaSegments.currentSegment(positionMs),
+            playbackSpeed = playbackSpeed,
+            subtitleStyle = subtitleStyle,
+        )
+
+    private fun currentSourceBitrate(): Long? =
+        plan?.sourceBitrateBps
+            ?: mediaStreams
+                .firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
+                ?.bitRate
+
+    private fun selectedSubtitleMediaStream(): PlaybackMediaStream? {
+        val streamIndex = requestedSubtitleStreamIndex ?: return null
+        val option =
+            subtitleOptions(mediaStreams)
+                .firstOrNull { track -> track.streamIndex == streamIndex }
+                ?: return null
+        val stream =
+            mediaStreams
+                .filter { mediaStream -> mediaStream.type.equals("Subtitle", ignoreCase = true) }
+                .getOrNull(option.ordinal)
+                ?: return null
+        return if (stream.index == option.streamIndex) {
+            stream
+        } else {
+            stream.copy(index = option.streamIndex)
+        }
+    }
+
+    private fun nextSubtitleActivationRequestId(): Long {
+        subtitleActivationRequestId += 1L
+        return subtitleActivationRequestId
+    }
+
+    private fun invalidateSubtitleFallback() {
+        subtitleFallbackGeneration += 1L
+        subtitleFallbackTarget = null
+    }
+
+    private fun cancelAndInvalidateSubtitleFallback() {
+        invalidateSubtitleFallback()
+        replanJob?.cancel()
+        replanJob = null
+    }
+
+    private fun isCurrentSubtitleFallback(
+        target: SubtitleActivationTarget,
+        generation: Long?,
+        itemId: String,
+    ): Boolean =
+        generation == subtitleFallbackGeneration &&
+            subtitleFallbackTarget == target &&
+            target.itemId == itemId &&
+            currentItemId == itemId &&
+            plan?.subtitleActivationTarget == target &&
+            (requestedSubtitleSelection as? SubtitleSelectionIntent.Track)?.streamIndex == target.streamIndex
+
+    private fun newAudioActivationTarget(streamIndex: Int): AudioActivationTarget =
+        AudioActivationTarget(
+            requestId = ++audioActivationRequestId,
+            itemId = currentItemId,
+            streamIndex = streamIndex,
+        )
+
+    private fun PlaybackPlan.withAudioActivationTarget(): PlaybackPlan {
+        val streamIndex = selectedAudioStreamIndex ?: return copy(audioActivationTarget = null)
+        return copy(audioActivationTarget = newAudioActivationTarget(streamIndex))
+    }
+
+    private fun newSubtitleActivationTarget(
+        streamIndex: Int,
+        kind: LocalSubtitleKind,
+    ): SubtitleActivationTarget =
+        SubtitleActivationTarget(
+            requestId = nextSubtitleActivationRequestId(),
+            itemId = currentItemId,
+            identity = SubtitleActivationIdentity.JellyfinTrack(streamIndex),
+            kind = kind,
+        )
+
+    private fun PlaybackPlan.withSubtitleActivationTarget(
+        requestId: Long,
+        selectedSubtitle: PlaybackMediaStream?,
+    ): PlaybackPlan {
+        val plannedTrack = plannedSubtitle as? PlannedSubtitle.Track
+        val plannedLocalAsset = plannedSubtitle as? PlannedSubtitle.LocalAsset
+        val unavailable = plannedSubtitle as? PlannedSubtitle.Unavailable
+        val streamIndex = plannedTrack?.streamIndex ?: unavailable?.streamIndex
+        val kind =
+            plannedTrack?.localKind()
+                ?: unavailable
+                    ?.takeIf { it.allowEncodeFallback }
+                    ?.let {
+                        when {
+                            selectedSubtitle?.isExternalSubtitle() == true -> LocalSubtitleKind.ExternalText
+                            it.kind == SubtitleKind.Bitmap -> LocalSubtitleKind.EmbeddedBitmap
+                            else -> LocalSubtitleKind.EmbeddedText
+                        }
+                    }
+        val target =
+            if (plannedLocalAsset != null) {
+                SubtitleActivationTarget(
+                    requestId = requestId,
+                    itemId = currentItemId,
+                    identity = SubtitleActivationIdentity.LocalAsset(plannedLocalAsset.assetId),
+                    kind = LocalSubtitleKind.ExternalText,
+                )
+            } else if (streamIndex != null && kind != null) {
+                SubtitleActivationTarget(
+                    requestId = requestId,
+                    itemId = currentItemId,
+                    identity = SubtitleActivationIdentity.JellyfinTrack(streamIndex),
+                    kind = kind,
+                )
+            } else {
+                null
+            }
+        return copy(
+            selectedSubtitleStreamIndex = streamIndex,
+            subtitleAsset =
+                plannedTrack?.externalResource
+                    ?: subtitleAsset.takeIf { plannedLocalAsset != null },
+            subtitleActivationTarget = target,
+            plannedSubtitle =
+                when {
+                    plannedTrack != null -> plannedTrack.copy(activationTarget = target)
+                    plannedLocalAsset != null -> plannedLocalAsset.copy(activationTarget = target)
+                    unavailable != null -> unavailable.copy(activationTarget = target)
+                    else -> plannedSubtitle
+                },
+        )
+    }
+
+    private fun PlannedSubtitle.Track.localKind(): LocalSubtitleKind? =
+        when (deliveryMethod) {
+            SubtitleDeliveryMethod.External -> LocalSubtitleKind.ExternalText
+            SubtitleDeliveryMethod.Hls -> LocalSubtitleKind.HlsText
+            SubtitleDeliveryMethod.Embed ->
+                if (kind == SubtitleKind.Bitmap) LocalSubtitleKind.EmbeddedBitmap else LocalSubtitleKind.EmbeddedText
+            else -> null
+        }
+
+    private fun currentPicker(): PlayerPicker = (state.value as? PlayerUiState.Content)?.pickerVisible ?: PlayerPicker.None
+
+    /** Emits sanitized track facts only when their closed snapshot changes. */
+    private fun emitTrackDiagnostics(
+        playbackState: PlaybackState,
+        subtitleRenderInfo: SubtitleRenderInfo = currentSubtitleRenderInfo(playbackState),
+    ) {
+        val currentPlan = plan ?: return
+        val sessionSequence = currentPlan.diagnosticSessionSequence ?: playbackLaunchGeneration
+        val prepareSequence = playerController.runtimeDiagnostics.value.prepareEpoch
+        // Installed audio participates in equality but never enters diagnostics.
+        val confirmedAudio = installedAudioStreamIndex
+        val requestedAudio = requestedAudioStreamIndex
+        val audioSnapshot =
+            PlayerTrackDiagnosticSnapshot(
+                kind = PlaybackDiagnosticTrackKind.Audio,
+                requestedState = requestedAudio.toDiagnosticTrackState(),
+                confirmedState = confirmedAudio.toDiagnosticTrackState(),
+                matchesRequest = requestedAudio == confirmedAudio,
+                activation = playbackState.audioActivation.toDiagnosticTrackActivation(),
+            )
+        logTrackDiagnosticIfChanged(
+            snapshot = audioSnapshot,
+            sessionSequence = sessionSequence,
+            prepareSequence = prepareSequence,
+            streamMode = currentPlan.streamMode,
+        )
+
+        val requestedSubtitle =
+            when (requestedSubtitleSelection) {
+                SubtitleSelectionIntent.Off,
+                SubtitleSelectionIntent.Unspecified,
+                -> requestedLocalSubtitleAsset != null
+
+                is SubtitleSelectionIntent.Track,
+                is SubtitleSelectionIntent.LocalAsset,
+                -> true
+            }
+        val confirmedSubtitle =
+            (playbackState.subtitleActivation as? SubtitleActivationState.Active)
+                ?.target
+                ?.streamIndex
+        val confirmedSubtitleSelected =
+            confirmedSubtitle != null ||
+                subtitleRenderInfo.status == com.jellyscope.core.domain.playback.SubtitleRenderStatus.Active
+        val subtitleMatches =
+            when {
+                !requestedSubtitle && !confirmedSubtitleSelected -> true
+                !requestedSubtitle || !confirmedSubtitleSelected -> false
+                requestedSubtitleStreamIndex != null && confirmedSubtitle != null ->
+                    requestedSubtitleStreamIndex == confirmedSubtitle
+
+                else -> subtitleRenderInfo.status == com.jellyscope.core.domain.playback.SubtitleRenderStatus.Active
+            }
+        val subtitleSnapshot =
+            PlayerTrackDiagnosticSnapshot(
+                kind = PlaybackDiagnosticTrackKind.Subtitle,
+                requestedState = requestedSubtitle.toDiagnosticTrackState(),
+                confirmedState = confirmedSubtitleSelected.toDiagnosticTrackState(),
+                matchesRequest = subtitleMatches,
+                activation = playbackState.subtitleActivation.toDiagnosticTrackActivation(),
+                subtitleRenderMode = subtitleRenderInfo.mode,
+                subtitleRenderStatus = subtitleRenderInfo.status,
+                subtitleStyleable = subtitleRenderInfo.styleable && playerController.appliesSubtitleStyle,
+            )
+        logTrackDiagnosticIfChanged(
+            snapshot = subtitleSnapshot,
+            sessionSequence = sessionSequence,
+            prepareSequence = prepareSequence,
+            streamMode = currentPlan.streamMode,
+        )
+    }
+
+    private fun logTrackDiagnosticIfChanged(
+        snapshot: PlayerTrackDiagnosticSnapshot,
+        sessionSequence: Long,
+        prepareSequence: Long?,
+        streamMode: StreamMode,
+    ) {
+        val correlatedSnapshot =
+            snapshot.copy(
+                sessionSequence = sessionSequence,
+                prepareSequence = prepareSequence,
+            )
+        val previous =
+            when (correlatedSnapshot.kind) {
+                PlaybackDiagnosticTrackKind.Audio -> lastAudioTrackDiagnostic
+                PlaybackDiagnosticTrackKind.Subtitle -> lastSubtitleTrackDiagnostic
+            }
+        if (previous == correlatedSnapshot) return
+        when (correlatedSnapshot.kind) {
+            PlaybackDiagnosticTrackKind.Audio -> lastAudioTrackDiagnostic = correlatedSnapshot
+            PlaybackDiagnosticTrackKind.Subtitle -> lastSubtitleTrackDiagnostic = correlatedSnapshot
+        }
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.Render,
+                    event = PlaybackDiagnosticEvent.TrackState,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    prepareSequence = prepareSequence,
+                    sessionSequence = sessionSequence,
+                    streamMode = streamMode,
+                    trackKind = correlatedSnapshot.kind,
+                    trackRequestedState = correlatedSnapshot.requestedState,
+                    trackConfirmedState = correlatedSnapshot.confirmedState,
+                    trackMatchesRequest = correlatedSnapshot.matchesRequest,
+                    trackActivation = correlatedSnapshot.activation,
+                    subtitleRenderMode = correlatedSnapshot.subtitleRenderMode,
+                    subtitleRenderStatus = correlatedSnapshot.subtitleRenderStatus,
+                    subtitleStyleable = correlatedSnapshot.subtitleStyleable,
+                ),
+            )
+        }
+    }
+
+    private fun logPlaybackTerminalOutcome(
+        outcome: PlaybackTerminalOutcome,
+        error: PlaybackError? = null,
+        autoRecoveryTrigger: AutoPlaybackRecoveryTrigger? = null,
+        recoveryDecision: PlaybackRecoveryDecision? = null,
+    ) {
+        val currentPlan = plan
+        val sessionSequence = currentPlan?.diagnosticSessionSequence ?: playbackLaunchGeneration
+        val prepareSequence = playerController.runtimeDiagnostics.value.prepareEpoch
+        val snapshot =
+            PlayerTerminalDiagnosticSnapshot(
+                sessionSequence = sessionSequence,
+                prepareSequence = prepareSequence,
+                outcome = outcome,
+                errorName = error?.diagnosticName(),
+                autoRecoveryTrigger = autoRecoveryTrigger,
+                recoveryDecision = recoveryDecision,
+            )
+        if (lastTerminalDiagnostic == snapshot) return
+        lastTerminalDiagnostic = snapshot
+        val diagnostics = _runtimeDiagnostics.value
+        playerViewModelLogger.w {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.TerminalError,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    prepareSequence = prepareSequence,
+                    sessionSequence = sessionSequence,
+                    streamMode = currentPlan?.streamMode,
+                    errorCategory = error,
+                    terminalOutcome = outcome,
+                    autoRecoveryTrigger = autoRecoveryTrigger,
+                    recoveryDecision = recoveryDecision,
+                    allocatedBufferBytes = diagnostics.allocatedBufferBytes,
+                    bufferedAheadMs = diagnostics.bufferedAheadMs,
+                    libVlcCachePercent = diagnostics.libVlcCachePercent,
+                    videoDecoderName = diagnostics.videoDecoderName,
+                    runtimeVideoWidth = diagnostics.videoWidth,
+                    runtimeVideoHeight = diagnostics.videoHeight,
+                    runtimeVideoFrameRate = diagnostics.videoFrameRate,
+                ),
+            )
+        }
+    }
+
+    private fun logPlaybackDiagnostic(
+        stage: PlaybackDiagnosticStage,
+        event: PlaybackDiagnosticEvent,
+        exception: Throwable? = null,
+        streamMode: StreamMode? = null,
+        requestPolicy: PlaybackInfoRequestPolicy? = null,
+        trackKind: PlaybackDiagnosticTrackKind? = null,
+    ) {
+        val currentPlan = plan
+        playerViewModelLogger.w {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = stage,
+                    event = event,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    sessionSequence = currentPlan?.diagnosticSessionSequence ?: playbackLaunchGeneration,
+                    exceptionType = exception?.playbackExceptionType(),
+                    streamMode = streamMode,
+                    requestPolicy = requestPolicy?.diagnosticClass(),
+                    clientTrigger = requestPolicy?.clientTrigger,
+                    qualityCapOrigin = currentPlan?.qualityCapOrigin,
+                    qualityPolicyMode = currentPlan?.qualityPolicy?.mode,
+                    qualityPolicyOrigin = qualityPolicyOriginForDebug(),
+                    requestCapBitrateBps = currentPlan?.maxStreamingBitrate,
+                    effectiveTranscodeCapBitrateBps = currentPlan?.effectiveTranscodeMaxStreamingBitrate,
+                    trackKind = trackKind,
+                ),
+            )
+        }
+    }
+
+    private fun logPlannerAttemptFailure(
+        exception: Throwable,
+        requestPolicy: PlaybackInfoRequestPolicy,
+        qualityPolicy: PlaybackQualityPolicy,
+        qualityCapOrigin: PlaybackQualityCapOrigin?,
+        requestCapBitrateBps: Long?,
+    ) {
+        val attributedFailure = exception as? PlaybackPlanningException.SourceVideoCopyUnsupported
+        val attemptedRequestPolicy = attributedFailure?.attemptedRequestPolicy ?: requestPolicy
+        val attemptedQualityPolicy = attributedFailure?.attemptedQualityPolicy ?: qualityPolicy
+        val attemptedQualityCapOrigin = attributedFailure?.attemptedQualityCapOrigin ?: qualityCapOrigin
+        val attemptedRequestCap = attributedFailure?.attemptedMaxStreamingBitrate ?: requestCapBitrateBps
+        val diagnosticException = attributedFailure?.cause ?: exception
+        playerViewModelLogger.w {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.Planner,
+                    event = PlaybackDiagnosticEvent.Failed,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = attemptedRequestPolicy.backend,
+                    sessionSequence = attemptedRequestPolicy.diagnosticSessionSequence,
+                    exceptionType = diagnosticException.playbackExceptionType(),
+                    requestPolicy = attemptedRequestPolicy.diagnosticClass(),
+                    clientTrigger = attemptedRequestPolicy.clientTrigger,
+                    qualityCapOrigin = attemptedQualityCapOrigin,
+                    qualityPolicyMode = attemptedQualityPolicy.mode,
+                    qualityPolicyOrigin = qualityPolicyOriginForDebug(),
+                    requestCapBitrateBps = attemptedRequestCap,
+                    recoveryIntent = attemptedRequestPolicy.recoveryIntent,
+                ),
+            )
+        }
+    }
+
+    private fun startupPlanningError(exception: Throwable): PlayerUiState.Error {
+        val copyFailure = exception as? PlaybackPlanningException.SourceVideoCopyUnsupported
+        val isDeterministicCapabilityFailure =
+            when (copyFailure?.cause) {
+                null -> copyFailure != null
+                PlaybackPlanningException.SourceVideoCopyRejected,
+                PlaybackPlanningException.NoSupportedStream,
+                -> true
+
+                else -> false
+            }
+        val rootFailure = copyFailure?.cause ?: exception
+        return when {
+            isDeterministicCapabilityFailure ->
+                PlayerUiState.Error(
+                    retryable = false,
+                    error = PlaybackError.UnsupportedMedia,
+                )
+            rootFailure is JellyfinApiException && rootFailure !is JellyfinApiException.Unexpected ->
+                PlayerUiState.Error(error = PlaybackError.Network)
+            else -> PlayerUiState.Error(error = PlaybackError.Unknown)
+        }
+    }
+
+    private fun logPersistence(
+        event: PlaybackDiagnosticEvent,
+        target: PlaybackPersistenceTarget,
+        result: PlaybackPersistenceResult,
+        exception: Throwable? = null,
+        policyOrigin: PlaybackQualityPolicyOrigin? = null,
+        sessionSequence: Long? = playbackLaunchGeneration,
+    ) {
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.Persistence,
+                    event = event,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    sessionSequence = sessionSequence,
+                    exceptionType = exception?.playbackExceptionType(),
+                    qualityPolicyOrigin = policyOrigin,
+                    persistenceTarget = target,
+                    persistenceResult = result,
+                ),
+            )
+        }
+    }
+
+    private fun PlaybackLaunchReadOutcome.toPersistenceResult(): PlaybackPersistenceResult =
+        when (this) {
+            PlaybackLaunchReadOutcome.Present -> PlaybackPersistenceResult.Present
+            PlaybackLaunchReadOutcome.Missing -> PlaybackPersistenceResult.Missing
+            PlaybackLaunchReadOutcome.Failed -> PlaybackPersistenceResult.Failed
+            PlaybackLaunchReadOutcome.Unavailable -> PlaybackPersistenceResult.Unavailable
+        }
+
+    private fun logPrepareDispatched() {
+        val currentPlan = plan
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.Prepare,
+                    event = PlaybackDiagnosticEvent.PrepareDispatched,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    prepareSequence = playerController.runtimeDiagnostics.value.prepareEpoch,
+                    sessionSequence = currentPlan?.diagnosticSessionSequence ?: playbackLaunchGeneration,
+                    streamMode = currentPlan?.streamMode,
+                    qualityPolicyMode = currentPlan?.qualityPolicy?.mode,
+                    qualityPolicyOrigin = qualityPolicyOriginForDebug(),
+                    requestCapBitrateBps = currentPlan?.maxStreamingBitrate,
+                    effectiveTranscodeCapBitrateBps = currentPlan?.effectiveTranscodeMaxStreamingBitrate,
+                ),
+            )
+        }
+    }
+
+    private fun logPrepareRequested() {
+        val currentPlan = plan
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.Prepare,
+                    event = PlaybackDiagnosticEvent.PrepareRequested,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    sessionSequence = currentPlan?.diagnosticSessionSequence ?: playbackLaunchGeneration,
+                    streamMode = currentPlan?.streamMode,
+                    qualityPolicyMode = currentPlan?.qualityPolicy?.mode,
+                    qualityPolicyOrigin = qualityPolicyOriginForDebug(),
+                    requestCapBitrateBps = currentPlan?.maxStreamingBitrate,
+                    effectiveTranscodeCapBitrateBps = currentPlan?.effectiveTranscodeMaxStreamingBitrate,
+                ),
+            )
+        }
+    }
+
+    private fun logBackendSelection(
+        requestedBackend: PlayerBackend,
+        activeBackend: PlayerBackend,
+        fallbackResult: PlaybackBackendFallbackResult,
+    ) {
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.BackendSelection,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = activeBackend,
+                    requestedBackend = requestedBackend,
+                    backendFallbackResult = fallbackResult,
+                    sessionSequence = plan?.diagnosticSessionSequence ?: playbackLaunchGeneration,
+                ),
+            )
+        }
+    }
+
+    private fun logOfflineBackendConstructionFailure(
+        requiredBackend: PlayerBackend,
+        availability: PlaybackBackendAvailability,
+        exception: Throwable? = null,
+    ) {
+        playerViewModelLogger.w {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.BackendConstruction,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = requiredBackend,
+                    requestedBackend = requiredBackend,
+                    backendAvailability = availability,
+                    backendConstructionStage = PlaybackBackendConstructionStage.CreateController,
+                    backendConstructionResult = PlaybackBackendConstructionResult.Failed,
+                    exceptionType = exception?.playbackExceptionType(),
+                    streamMode = StreamMode.Offline,
+                    sessionSequence = plan?.diagnosticSessionSequence ?: playbackLaunchGeneration,
+                ),
+            )
+        }
+    }
+
+    private fun logAutomaticRecoveryDecision(
+        trigger: AutoPlaybackRecoveryTrigger,
+        previousState: AutoPlaybackRecoveryState,
+        result: AutoPlaybackRecoveryResult,
+        currentPlan: PlaybackPlan,
+    ) {
+        val decision = result.decision
+        val decisionType =
+            when (decision) {
+                AutoPlaybackRecoveryDecision.NoAction -> PlaybackRecoveryDecision.NoAction
+                is AutoPlaybackRecoveryDecision.CompatibilityReplan -> PlaybackRecoveryDecision.CompatibilityReplan
+                is AutoPlaybackRecoveryDecision.LowerTo -> PlaybackRecoveryDecision.LowerQuality
+                is AutoPlaybackRecoveryDecision.PromptUser -> PlaybackRecoveryDecision.PromptUser
+            }
+        val budgetExhausted =
+            decision is AutoPlaybackRecoveryDecision.PromptUser &&
+                decision.reason in
+                setOf(
+                    AutoPlaybackRecoveryPromptReason.CompatibilityRecoveryExhausted,
+                    AutoPlaybackRecoveryPromptReason.QualityRecoveryExhausted,
+                    AutoPlaybackRecoveryPromptReason.NoLowerQualityAvailable,
+                )
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.RecoveryDecision,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    sessionSequence = currentPlan.diagnosticSessionSequence ?: playbackLaunchGeneration,
+                    streamMode = currentPlan.streamMode,
+                    qualityCapOrigin = currentPlan.qualityCapOrigin,
+                    qualityPolicyMode = currentPlan.qualityPolicy.mode,
+                    qualityPolicyOrigin = qualityPolicyOriginForDebug(),
+                    requestCapBitrateBps = currentPlan.maxStreamingBitrate,
+                    effectiveTranscodeCapBitrateBps = currentPlan.effectiveTranscodeMaxStreamingBitrate,
+                    autoRecoveryTrigger = trigger,
+                    recoveryDecision = decisionType,
+                    recoveryPromptReason = (decision as? AutoPlaybackRecoveryDecision.PromptUser)?.reason,
+                    recoveryCompatibilityAttempted = result.state.compatibilityAttempted,
+                    recoveryQualityAttempted = result.state.qualityAttempted,
+                    recoveryBudgetExhausted = budgetExhausted,
+                    recoveryFromQualityBudgetBps =
+                        previousState.runtimeQualityCapBps ?: currentPlan.maxStreamingBitrate,
+                    recoveryToQualityBudgetBps =
+                        (decision as? AutoPlaybackRecoveryDecision.LowerTo)?.maxBitrateBps,
+                ),
+            )
+        }
+    }
+
+    private fun logFirstVideoOutput(observed: Boolean) {
+        val currentPlan = plan
+        val diagnostics = _runtimeDiagnostics.value
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.VideoOutput,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    prepareSequence = expectedVideoOutputPrepareEpoch,
+                    sessionSequence = currentPlan?.diagnosticSessionSequence ?: playbackLaunchGeneration,
+                    streamMode = currentPlan?.streamMode,
+                    qualityPolicyMode = currentPlan?.qualityPolicy?.mode,
+                    qualityPolicyOrigin = qualityPolicyOriginForDebug(),
+                    sourceBitrateBps = currentPlan?.sourceBitrateBps,
+                    videoDecoderName = diagnostics.videoDecoderName,
+                    runtimeVideoWidth = diagnostics.videoWidth,
+                    runtimeVideoHeight = diagnostics.videoHeight,
+                    runtimeVideoFrameRate = diagnostics.videoFrameRate,
+                    bandwidthEstimateBps = diagnostics.bandwidthEstimateBps,
+                    recentVideoRenderP95Ms = diagnostics.recentVideoRenderP95Ms,
+                    recentPresentedFrameRate = diagnostics.recentPresentedFrameRate,
+                    presentationGapCount = diagnostics.presentationGapCount,
+                    firstVideoOutputAvailable = firstVideoOutputDebug.state != PlaybackFirstVideoOutputState.Unsupported,
+                    firstVideoOutputObserved = observed,
+                    firstVideoOutputEvidence = firstVideoOutputDebug.evidence,
+                ),
+            )
+        }
+    }
+
+    private fun logPlaybackHealthSignal(signal: PlaybackHealthSignal) {
+        val currentPlan = plan
+        playerViewModelLogger.w {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.HealthSignal,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    sessionSequence = currentPlan?.diagnosticSessionSequence ?: playbackLaunchGeneration,
+                    streamMode = currentPlan?.streamMode,
+                    qualityCapOrigin = currentPlan?.qualityCapOrigin,
+                    qualityPolicyMode = currentPlan?.qualityPolicy?.mode,
+                    qualityPolicyOrigin = qualityPolicyOriginForDebug(),
+                    requestCapBitrateBps = currentPlan?.maxStreamingBitrate,
+                    effectiveTranscodeCapBitrateBps = currentPlan?.effectiveTranscodeMaxStreamingBitrate,
+                    allocatedBufferBytes = _runtimeDiagnostics.value.allocatedBufferBytes,
+                    bufferedAheadMs = _runtimeDiagnostics.value.bufferedAheadMs,
+                    libVlcCachePercent = _runtimeDiagnostics.value.libVlcCachePercent,
+                    healthSignal = signal.kind,
+                    healthThresholdClass = signal.thresholdClass(),
+                    healthDurationMs = signal.durationMs,
+                    healthCount = signal.count,
+                ),
+            )
+        }
+    }
+
+    private fun logPlaybackHealthSummary(summary: PlaybackHealthSummary) {
+        val currentPlan = plan
+        val diagnostics = _runtimeDiagnostics.value
+        playerViewModelLogger.w {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.HealthSummary,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = backend,
+                    sessionSequence = currentPlan?.diagnosticSessionSequence ?: playbackLaunchGeneration,
+                    streamMode = currentPlan?.streamMode,
+                    qualityCapOrigin = currentPlan?.qualityCapOrigin,
+                    qualityPolicyMode = currentPlan?.qualityPolicy?.mode,
+                    qualityPolicyOrigin = qualityPolicyOriginForDebug(),
+                    requestCapBitrateBps = currentPlan?.maxStreamingBitrate,
+                    effectiveTranscodeCapBitrateBps = currentPlan?.effectiveTranscodeMaxStreamingBitrate,
+                    sourceBitrateBps = currentPlan?.sourceBitrateBps,
+                    allocatedBufferBytes = diagnostics.allocatedBufferBytes,
+                    bufferedAheadMs = diagnostics.bufferedAheadMs,
+                    libVlcCachePercent = diagnostics.libVlcCachePercent,
+                    videoDecoderName = diagnostics.videoDecoderName,
+                    runtimeVideoWidth = diagnostics.videoWidth,
+                    runtimeVideoHeight = diagnostics.videoHeight,
+                    runtimeVideoFrameRate = diagnostics.videoFrameRate,
+                    bandwidthEstimateBps = diagnostics.bandwidthEstimateBps,
+                    recentVideoRenderP95Ms = diagnostics.recentVideoRenderP95Ms,
+                    recentPresentedFrameRate = diagnostics.recentPresentedFrameRate,
+                    presentationGapCount = diagnostics.presentationGapCount,
+                    nativePrepareToFirstFrameMs = diagnostics.nativePrepareToFirstFrameMs,
+                    launchToFirstFrameMs = launchToFirstFrameMs,
+                    rebufferCount = diagnostics.rebufferCount,
+                    totalRebufferMs = diagnostics.totalRebufferMs,
+                    maxRebufferMs = diagnostics.maxRebufferMs,
+                    audioUnderrunCount = diagnostics.audioUnderrunCount,
+                    maxAudioFeedGapMs = diagnostics.maxAudioFeedGapMs,
+                    healthFirstPlayingObserved = summary.firstPlayingObserved,
+                    healthBufferingDurationMs = summary.bufferingDurationMs,
+                    healthBufferingIntervalCount = summary.bufferingIntervalCount,
+                    healthStallCount = summary.stallCount,
+                    healthDroppedFrameDurationMs = summary.droppedFrameDurationMs,
+                    healthDroppedFrameSampleCount = summary.droppedFrameSampleCount,
+                    healthPostStartGuidanceShown = summary.postStartGuidanceShown,
+                    healthNoVideoOutputGuidanceShown = summary.noVideoOutputGuidanceShown,
+                    healthGuidancePolicy = summary.guidancePolicy,
+                    healthGuidancePublishable = summary.guidancePublishable,
+                    healthBufferingIntervalOpenedSinceEvidenceRestart =
+                        summary.bufferingIntervalOpenedSinceEvidenceRestart,
+                    backendDroppedVideoFrames = diagnostics.droppedVideoFrames,
+                    backendDroppedVideoFramesPerSecond = diagnostics.droppedVideoFramesPerSecond,
+                    decoderDroppedVideoFrames = diagnostics.decoderDroppedVideoFrames,
+                    outputDroppedVideoFrames = diagnostics.outputDroppedVideoFrames,
+                    healthEmittedSignalCount = summary.emittedSignals.size,
+                    firstVideoOutputAvailable = summary.firstVideoOutputMeasurementAvailable,
+                    firstVideoOutputObserved = summary.firstVideoOutputObserved,
+                    firstVideoOutputEvidence = firstVideoOutputDebug.evidence,
+                ),
+            )
+        }
+    }
+
+    // Memoize tile URLs to preserve list identity across publications.
+    private fun trickplayTileUrls(): List<String> {
+        val trickplay = trickplay
+        return projections.trickplayTileUrls(
+            itemId = currentItemId,
+            serverUrl = session.serverUrl,
+            tileWidth = trickplay?.width,
+            tileCount = trickplay?.tileCount,
+        ) {
+            if (trickplay == null) {
+                emptyList()
+            } else {
+                List(trickplay.tileCount) { index ->
+                    imageUrlBuilder.trickplayTileUrl(
+                        serverUrl = session.serverUrl,
+                        itemId = currentItemId,
+                        width = trickplay.width,
+                        index = index,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun upNextFor(playbackState: PlaybackState): UpNextInfo? {
+        if (!playbackState.isInUpNextWindow()) {
+            return null
+        }
+
+        val playlist = playlist ?: return null
+        val nextIndex = playlist.currentIndex + 1
+        val nextItem = playlist.items.getOrNull(nextIndex) ?: return null
+        return UpNextInfo(
+            itemId = nextItem.id,
+            title = nextItem.title,
+            imageUrl = nextItem.imageUrl,
+            index = nextIndex,
+            seasonNumber = nextItem.seasonNumber,
+            episodeNumber = nextItem.episodeNumber,
+        )
+    }
+
+    private fun PlaybackState.isInUpNextWindow(): Boolean {
+        if (status == PlaybackStatus.Completed) {
+            return true
+        }
+        if (status != PlaybackStatus.Playing) {
+            return false
+        }
+
+        val positionMs = positionMs.coerceAtLeast(0L)
+        val durationMs = durationMs?.coerceAtLeast(0L)
+        val outroSegment = mediaSegments.firstOrNull { segment -> segment.type == MediaSegmentType.Outro }
+        if (outroSegment != null) {
+            val beforeDurationEnd = durationMs == null || positionMs < durationMs
+            return positionMs >= outroSegment.startMs && beforeDurationEnd
+        }
+
+        val thresholdStartMs =
+            durationMs
+                ?.minus(UP_NEXT_THRESHOLD_MS)
+                ?.coerceAtLeast(0L)
+                ?: return false
+        return positionMs >= thresholdStartMs && positionMs < durationMs
+    }
+
+    /** [persistDurable] is true only for explicit audio actions. */
+    private fun rememberSelection(persistDurable: Boolean = true) {
+        val selection =
+            PlaybackSelection(
+                audioStreamIndex = requestedAudioStreamIndex,
+            )
+        val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank)
+        if (sourceId == null) {
+            playbackSelectionMemory.remember(accountIdentity, currentItemId, selection)
+            return
+        }
+        // The source-keyed entry remains authoritative over item-only memory.
+        playbackSelectionMemory.remember(accountIdentity, currentItemId, selection)
+        playbackSelectionMemory.remember(
+            accountIdentity = accountIdentity,
+            itemId = currentItemId,
+            mediaSourceId = sourceId,
+            selection = selection,
+        )
+        if (persistDurable) {
+            val durableSelection =
+                selection.copy(
+                    audioStreamIndex = explicitAudioStreamIndex,
+                )
+            val writeAction = savePlaybackSelectionAction
+            if (writeAction == null) {
+                logPersistence(
+                    event = PlaybackDiagnosticEvent.Write,
+                    target = PlaybackPersistenceTarget.PlaybackSelection,
+                    result = PlaybackPersistenceResult.Unavailable,
+                )
+            } else {
+                val sessionSequenceSnapshot = plan?.diagnosticSessionSequence ?: playbackLaunchGeneration
+                writeAction
+                    .save(
+                        key = PlaybackSelectionKey(session.serverId, session.userId, currentItemId, sourceId),
+                        selection = durableSelection,
+                    ).invokeOnCompletion { exception ->
+                        logPersistence(
+                            event = PlaybackDiagnosticEvent.Write,
+                            target = PlaybackPersistenceTarget.PlaybackSelection,
+                            result =
+                                when (exception) {
+                                    null -> PlaybackPersistenceResult.Applied
+                                    is CancellationException -> PlaybackPersistenceResult.Cancelled
+                                    else -> PlaybackPersistenceResult.Failed
+                                },
+                            exception = exception,
+                            sessionSequence = sessionSequenceSnapshot,
+                        )
+                    }
+            }
+        }
+    }
+
+    private fun MediaVersion.sourceBitrateBps(): Long? =
+        mediaStreams
+            .firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
+            ?.bitRate
+
+    private fun PlaybackPlan.effectivePlaySessionId(): String = this.playSessionId ?: this@PlayerViewModel.playSessionId
+
+    private fun playNext(
+        auto: Boolean,
+        stopPositionMs: Long,
+        expectedGeneration: Long? = null,
+    ): Boolean {
+        // Ignore countdowns from an older queue generation.
+        if (expectedGeneration != null && expectedGeneration != autoplayGeneration) {
+            return false
+        }
+        val nextIndex = nextQueueIndex() ?: return false
+
+        if (auto) {
+            // Disabling the prompt also resets its run counter.
+            if (!activePlaybackPreferences.stillWatchingPrompt) {
+                consecutiveAutoPlayCount = 0
+            } else {
+                if (stillWatchingPrompt) {
+                    pendingStillWatchingQueueIndex = nextIndex
+                    if (state.value is PlayerUiState.Content) {
+                        publishContent()
+                    }
+                    return false
+                }
+
+                consecutiveAutoPlayCount += 1
+                if (consecutiveAutoPlayCount >= STILL_WATCHING_THRESHOLD) {
+                    stillWatchingPrompt = true
+                    pendingStillWatchingQueueIndex = nextIndex
+                    if (state.value is PlayerUiState.Content) {
+                        publishContent()
+                    }
+                    return false
+                }
+            }
+        } else {
+            consecutiveAutoPlayCount = 0
+            stillWatchingPrompt = false
+            pendingStillWatchingQueueIndex = null
+        }
+
+        invalidateSubtitleFallback()
+        startQueueSwitch(
+            index = nextIndex,
+            stopPositionMs = stopPositionMs,
+        )
+        return true
+    }
+
+    private fun nextQueueIndex(): Int? =
+        (currentQueueIndex + 1)
+            .takeIf { index -> queueIds.size > 1 && index in queueIds.indices }
+
+    private fun startQueueSwitch(
+        index: Int,
+        stopPositionMs: Long,
+    ) {
+        if (queueIds.size <= 1 || index !in queueIds.indices) {
+            return
+        }
+        autoplayGeneration += 1
+        // Invalidate identity before async planning so held seeks cancel now.
+        queueSwitchInFlight = true
+        _state.update { current ->
+            if (current is PlayerUiState.Content) current.copy(playbackItemId = null) else current
+        }
+        derivedEpisodeQueueJob?.cancel()
+        // Cancel any replan targeting the outgoing item.
+        replanJob?.cancel()
+        replanJob = null
+        queueSwitchJob?.cancel()
+        queueSwitchJob =
+            viewModelScope.launch {
+                switchToQueueItem(
+                    index = index,
+                    stopPositionMs = stopPositionMs,
+                )
+            }
+    }
+
+    private suspend fun switchToQueueItem(
+        index: Int,
+        stopPositionMs: Long,
+    ) {
+        // Stop immediately while the next item is planned.
+        playerController.stop()
+        playbackReportingCoordinator.stopNow(positionMs = stopPositionMs)
+        currentQueueIndex = index
+        playlist = playlist?.copy(currentIndex = index)
+        startPlaybackForItem(
+            itemId = queueIds[index],
+            requestedMediaSourceId = null,
+            requestedAudioStreamIndex = null,
+            requestedSubtitleSelection = SubtitleSelectionIntent.Unspecified,
+            startPositionTicks = 0L,
+            resetReporting = true,
+        )
+    }
+
+    private fun deriveEpisodeQueueIfNeeded(item: MediaItem) {
+        val getChronologicalEpisodeQueue = getChronologicalEpisodeQueueUseCase ?: return
+        if (item.kind != MediaKind.Episode) {
+            return
+        }
+        if (queueIds.isNotEmpty()) {
+            return
+        }
+
+        val sourceItemId = item.id
+        derivedEpisodeQueueJob =
+            viewModelScope.launch {
+                val derivedQueue =
+                    try {
+                        withContext(workDispatcher) {
+                            getChronologicalEpisodeQueue(item)
+                                .getOrDefault(emptyList())
+                        }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (exception: Throwable) {
+                        emptyList()
+                    }
+                val derivedIds =
+                    normalizedQueue(
+                        initialItemId = sourceItemId,
+                        queue = derivedQueue.map { episode -> episode.id },
+                    )
+                if (currentItemId != sourceItemId || queueIds.isNotEmpty() || derivedIds.isEmpty()) {
+                    return@launch
+                }
+
+                // Build full-series queue projections off Main.
+                val resolvedItems =
+                    withContext(workDispatcher) {
+                        val itemsById = derivedQueue.associateBy { episode -> episode.id }
+                        derivedIds.map { id ->
+                            itemsById[id]?.toQueueItemUi() ?: unresolvedQueueItem(id)
+                        }
+                    }
+                // Do not overwrite a queue installed during the off-Main build.
+                if (currentItemId != sourceItemId || queueIds.isNotEmpty()) {
+                    return@launch
+                }
+                queueIds = derivedIds
+                currentQueueIndex = 0
+                playlist = PlaylistUi(items = resolvedItems, currentIndex = currentQueueIndex)
+                publishContent()
+            }
+    }
+
+    private fun fetchPlaylistMetadata() {
+        if (queueIds.size <= 1) {
+            return
+        }
+        if (playlistMetadataJob?.isActive == true) {
+            return
+        }
+
+        playlistMetadataJob =
+            viewModelScope.launch {
+                try {
+                    val resolvedItemsById = resolveQueueItems(queueIds)
+                    val existingItemsById = playlist?.items.orEmpty().associateBy { item -> item.id }
+                    val appliedQueueIds = queueIds
+                    playlist =
+                        PlaylistUi(
+                            items =
+                                appliedQueueIds.map { id ->
+                                    resolvedItemsById[id]
+                                        ?: existingItemsById[id]
+                                        ?: unresolvedQueueItem(id)
+                                },
+                            currentIndex =
+                                currentQueueIndex.takeIf { index -> index in appliedQueueIds.indices }
+                                    ?: 0,
+                        )
+                    publishContent()
+                } finally {
+                    playlistMetadataJob = null
+                }
+            }
+    }
+
+    private suspend fun resolveQueueItems(queueIds: List<String>): Map<String, QueueItemUi> =
+        // Queue projection can build hundreds of image URLs.
+        withContext(workDispatcher) {
+            // Batch IDs to avoid request-line limits.
+            val itemsById =
+                queueIds
+                    .chunked(QUEUE_METADATA_BATCH_SIZE)
+                    .flatMap { batch ->
+                        getItemsByIdsUseCase(batch).getOrDefault(emptyList())
+                    }.associateBy { item -> item.id }
+                    .toMutableMap()
+
+            queueIds
+                .filterNot { id -> id in itemsById }
+                .forEach { id ->
+                    getItemDetailUseCase(id, includePlaybackFields = false)
+                        .getOrNull()
+                        ?.item
+                        ?.let { item -> itemsById[id] = item }
+                }
+
+            itemsById.mapValues { entry -> entry.value.toQueueItemUi() }
+        }
+
+    private fun MediaItem.toQueueItemUi(): QueueItemUi =
+        QueueItemUi(
+            id = id,
+            title = name,
+            imageUrl =
+                imageRefs.primaryTag?.let { tag ->
+                    imageUrlBuilder.build(
+                        serverUrl = session.serverUrl,
+                        itemId = id,
+                        type = JellyfinImageType.Primary,
+                        tag = tag,
+                        maxWidth = 300,
+                    )
+                },
+            seasonNumber = parentIndexNumber,
+            episodeNumber = indexNumber,
+        )
+
+    private fun unresolvedQueueItem(id: String): QueueItemUi =
+        QueueItemUi(
+            id = id,
+            title = "",
+            imageUrl = null,
+        )
+}
+
+private data class ActivePlaybackTimelineFacts(
+    val generation: Long,
+    val itemId: String,
+    val kind: MediaKind,
+    val isLive: Boolean?,
+    val itemRuntimeMs: Long?,
+    val sourcesById: Map<String, ActivePlaybackTimelineSourceFacts>,
+)
+
+private data class ActivePlaybackTimelineSourceFacts(
+    val runtimeMs: Long?,
+    val isInfiniteStream: Boolean?,
+)
+
+private data class PlaybackLaunchMarker(
+    val generation: Long,
+    val startedAtMs: Long,
+    val healthStartedAtMs: Long,
+    val controller: PlayerController? = null,
+    val prepareEpoch: Long? = null,
+)
+
+internal fun playbackLaunchMarkerMatches(
+    markerController: PlayerController?,
+    markerPrepareEpoch: Long?,
+    callbackController: PlayerController,
+    callbackPrepareEpoch: Long?,
+): Boolean = markerController === callbackController && markerPrepareEpoch == callbackPrepareEpoch
+
+private val playerMonotonicOrigin = TimeSource.Monotonic.markNow()
+
+private fun playerMonotonicTimeMs(): Long = playerMonotonicOrigin.elapsedNow().inWholeMilliseconds
+
+private data class PlaybackTerminalRecovery(
+    val outcome: PlaybackTerminalOutcome?,
+    val autoRecoveryTrigger: AutoPlaybackRecoveryTrigger? = null,
+    val recoveryDecision: PlaybackRecoveryDecision? = null,
+)
+
+private data class AutomaticRecoveryDiagnostic(
+    val trigger: AutoPlaybackRecoveryTrigger,
+    val decision: PlaybackRecoveryDecision,
+    val scheduled: Boolean,
+)
+
+private data class PlayerTrackDiagnosticSnapshot(
+    val kind: PlaybackDiagnosticTrackKind,
+    val requestedState: PlaybackDiagnosticTrackState,
+    val confirmedState: PlaybackDiagnosticTrackState,
+    val matchesRequest: Boolean,
+    val activation: PlaybackDiagnosticTrackActivation,
+    val subtitleRenderMode: com.jellyscope.core.domain.playback.SubtitleRenderMode? = null,
+    val subtitleRenderStatus: com.jellyscope.core.domain.playback.SubtitleRenderStatus? = null,
+    val subtitleStyleable: Boolean? = null,
+    val sessionSequence: Long = 0L,
+    val prepareSequence: Long? = null,
+)
+
+private data class PlayerTerminalDiagnosticSnapshot(
+    val sessionSequence: Long,
+    val prepareSequence: Long?,
+    val outcome: PlaybackTerminalOutcome,
+    val errorName: String?,
+    val autoRecoveryTrigger: AutoPlaybackRecoveryTrigger?,
+    val recoveryDecision: PlaybackRecoveryDecision?,
+)
+
+private fun Int?.toDiagnosticTrackState(): PlaybackDiagnosticTrackState =
+    if (this == null) PlaybackDiagnosticTrackState.Off else PlaybackDiagnosticTrackState.Selected
+
+private fun Boolean.toDiagnosticTrackState(): PlaybackDiagnosticTrackState =
+    if (this) PlaybackDiagnosticTrackState.Selected else PlaybackDiagnosticTrackState.Off
+
+private fun AudioActivationState.toDiagnosticTrackActivation(): PlaybackDiagnosticTrackActivation =
+    when (this) {
+        AudioActivationState.None -> PlaybackDiagnosticTrackActivation.None
+        is AudioActivationState.Pending -> PlaybackDiagnosticTrackActivation.Pending
+        is AudioActivationState.Active -> PlaybackDiagnosticTrackActivation.Active
+        is AudioActivationState.Unavailable -> PlaybackDiagnosticTrackActivation.Unavailable
+    }
+
+private fun com.jellyscope.core.domain.playback.SubtitleActivationState.toDiagnosticTrackActivation(): PlaybackDiagnosticTrackActivation =
+    when (this) {
+        com.jellyscope.core.domain.playback.SubtitleActivationState.None -> PlaybackDiagnosticTrackActivation.None
+        is com.jellyscope.core.domain.playback.SubtitleActivationState.Pending -> PlaybackDiagnosticTrackActivation.Pending
+        is com.jellyscope.core.domain.playback.SubtitleActivationState.Active -> PlaybackDiagnosticTrackActivation.Active
+        is com.jellyscope.core.domain.playback.SubtitleActivationState.Unavailable ->
+            PlaybackDiagnosticTrackActivation.Unavailable
+    }
+
+private val localEmbeddedDeliveryMethods =
+    setOf(SubtitleDeliveryMethod.Embed, SubtitleDeliveryMethod.Hls)
+
+private class OfflineControllerUnavailableException(
+    val requiredBackend: PlayerBackend,
+    cause: Throwable?,
+) : IllegalStateException("Offline controller backend unavailable.", cause)

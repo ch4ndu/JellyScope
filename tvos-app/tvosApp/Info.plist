@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>JellyScope</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>JellyScope connects to media servers on your local network.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Self-hosted Jellyfin servers are typically plain HTTP on the LAN. ATS
+		     blocks HTTP by default for both Ktor API calls and AVPlayer media loads.
+		     Allow cleartext to local-network hosts (RFC1918 / .local) only. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

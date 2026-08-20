@@ -1,0 +1,107 @@
+name: Playback bug
+description: Report a reproducible playback failure with diagnostics
+title: "[Playback]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing:
+
+        1. Enable **Settings → Diagnostics → Collect diagnostic logs**, then reproduce the playback problem.
+        2. Return to Diagnostics, select **Send diagnostics to server**, and paste the returned filename below.
+
+        Log collection starts only after the toggle is enabled.
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      placeholder: 0.1.0-alpha28
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Android mobile
+        - Android TV or Fire TV
+        - iOS
+        - Desktop
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: device-model
+    attributes:
+      label: Device model
+      placeholder: Fire TV Cube (1st generation)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: player-backend
+    attributes:
+      label: Selected player backend
+      options:
+        - Auto
+        - ExoPlayer
+        - LibVLC
+        - AVPlayer
+        - VLCKit
+        - mpv
+        - I don't know
+    validations:
+      required: true
+
+  - type: dropdown
+    id: collection-enabled
+    attributes:
+      label: Was Collect diagnostic logs enabled before reproducing?
+      options:
+        - "Yes"
+        - "No"
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: diagnostics-filename
+    attributes:
+      label: Diagnostics filename returned by Send diagnostics
+      description: Leave blank only if the upload did not succeed.
+      placeholder: Paste the exact filename shown after upload
+
+  - type: input
+    id: video-codec
+    attributes:
+      label: Item video codec, if known
+      placeholder: H.264, HEVC, AV1, or VP9
+
+  - type: input
+    id: resolution
+    attributes:
+      label: Item resolution, if known
+      placeholder: 3840 × 2160
+
+  - type: input
+    id: frame-rate
+    attributes:
+      label: Item frame rate, if known
+      placeholder: 23.976 fps
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction narrative
+      description: Describe what you played, the steps you took, what happened, and what you expected.
+      placeholder: |
+        1. Opened…
+        2. Selected…
+        3. Playback…
+    validations:
+      required: true

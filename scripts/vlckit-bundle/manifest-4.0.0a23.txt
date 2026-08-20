@@ -1,0 +1,27 @@
+# VLCKit 4.0.0a23 artifact and source manifest
+
+artifact.name=VLCKit-4.0-20260805-1123.zip
+artifact.url=https://download.videolan.org/cocoapods/unstable/VLCKit-4.0-20260805-1123.zip
+artifact.upstream-copying-path=COPYING.txt
+artifact.linkage=dynamic XCFramework
+artifact.ios-device-slice=ios-arm64/VLCKit.framework
+artifact.ios-simulator-slice=ios-arm64_x86_64-simulator/VLCKit.framework
+
+release.version=4.0.0a23
+release.publication-commit=e3774eb25c62c902e9066ba267e6416d82e83382
+release.publication-url=https://code.videolan.org/videolan/VLCKit/-/commit/e3774eb25c62c902e9066ba267e6416d82e83382
+release.declared-license=LGPL-2.1
+
+build.vlckit-commit=004e31246861f18de9cdb10e92988e678e7b5307
+build.vlckit-source=https://code.videolan.org/videolan/VLCKit/-/archive/004e31246861f18de9cdb10e92988e678e7b5307/VLCKit-004e31246861f18de9cdb10e92988e678e7b5307.tar.gz
+build.pipeline=https://code.videolan.org/videolan/VLCKit/-/pipelines/733017
+build.job=https://code.videolan.org/videolan/VLCKit/-/jobs/2758575
+build.libvlc-base-commit=2cd8705589d3b125f236d1af695c3961fdcf6ca4
+build.libvlc-base-source=https://code.videolan.org/videolan/vlc/-/archive/2cd8705589d3b125f236d1af695c3961fdcf6ca4/vlc-2cd8705589d3b125f236d1af695c3961fdcf6ca4.tar.gz
+build.libvlc-patches=https://code.videolan.org/videolan/VLCKit/-/tree/004e31246861f18de9cdb10e92988e678e7b5307/libvlc/patches
+build.libvlc-patch-count=27
+build.embedded-version-string=4.0.0-dev-38452-gaf547fb85f
+
+# Preserve the pinned artifact URL, source snapshots, and upstream COPYING.txt with
+# each distributed release. Re-audit this manifest whenever the artifact URL,
+# architecture set, source revision, patch set, or linkage changes.
