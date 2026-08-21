@@ -43,8 +43,8 @@
 # playback time. Names are already preserved by the Compose Desktop default
 # release config; these rules keep the shrinker from deleting runtime-loaded
 # entry points.
--keep class com.jellyscope.core.data.local.JellyfinStoreDatabase_Impl { *; }
--keep class com.jellyscope.core.data.local.JellyfinStoreDatabaseConstructor { *; }
+-keep class com.jellyscope.core.data.local.*Database_Impl { *; }
+-keep class com.jellyscope.core.data.local.*DatabaseConstructor { *; }
 -keep class androidx.sqlite.driver.bundled.** { *; }
 -keep class com.jellyscope.core.playback.LibMpv { *; }
 -keep class com.jellyscope.core.playback.LibMpv$* { *; }
