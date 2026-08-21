@@ -1,10 +1,8 @@
 # JellyScope Android native bundle manifest
 # Audited provenance and package inventory for scripts/verify-android-native-bundle.sh.
-# The pinned Maven AAR is a build input only; the distributed wrapper is compiled
-# by android-libmpv and is not the AAR's original bridge.
-# Change this file only after re-auditing the source, patch, toolchain, ABI, library,
-# license, and corresponding-source records.
-manifest-version=1
+# The libmpv AAR is a build input; android-libmpv compiles the shipped wrapper.
+# Review this record whenever the native graph changes.
+manifest-version=2
 artifact-coordinate=dev.jdtech.mpv:libmpv:1.0.0
 artifact-role=pinned-build-input-only
 project-module=android-libmpv
@@ -16,6 +14,17 @@ wrapper-libraries=libplayer.so
 source-repository=https://github.com/jarnedemeulemeester/libmpv-android
 source-tag=v1.0.0
 source-commit=fcf6745703dc1265bca88f12fee8fc355ddf251e
+media3-ffmpeg-artifact-coordinate=org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1
+media3-ffmpeg-source-repository=https://github.com/jellyfin/jellyfin-androidx-media
+media3-ffmpeg-source-tag=v1.9.0+1
+media3-ffmpeg-source-commit=af9ee4e26b2045e3ea6f2ebf4a18ac8ebfeae396
+media3-ffmpeg-declared-license=GPL-3.0
+libvlc-artifact-coordinate=org.videolan.android:libvlc-all:3.7.5
+libvlc-source-repository=https://code.videolan.org/videolan/libvlcjni
+libvlc-source-branch=libvlcjni-3.x
+libvlc-embedded-version=3.0.23-2-850-gac1101d2c5
+libvlc-embedded-source=https://code.videolan.org/videolan/vlc/-/tree/ac1101d2c5
+libvlc-declared-license=LGPL-2.1
 native-android-platform=android-36
 native-ndk=29.0.14206865
 native-cmake=4.1.2
@@ -35,5 +44,6 @@ native-lua=5.2.4
 shipped-abis=arm64-v8a,armeabi-v7a,x86_64
 excluded-abis=x86
 mpv-libraries=libavcodec.so,libavdevice.so,libavfilter.so,libavformat.so,libavutil.so,libmpv.so,libswresample.so,libswscale.so
+media3-ffmpeg-libraries=libffmpegJNI.so
 libvlc-libraries=libvlc.so,libvlcjni.so
-license-assets=GPL-2.0-or-later.txt,GPL-3.0-or-later.txt,LGPL-2.1-or-later.txt,MIT.txt,BSD-2-Clause.txt,ISC.txt,Zlib.txt,Apache-2.0.txt,FreeType.txt,LLVM-exception.txt
+license-assets=GPL-2.0-or-later.txt,GPL-3.0-only.txt,GPL-3.0-or-later.txt,LGPL-2.1-or-later.txt,MIT.txt,BSD-2-Clause.txt,ISC.txt,Zlib.txt,Apache-2.0.txt,FreeType.txt,LLVM-exception.txt

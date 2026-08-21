@@ -26,7 +26,7 @@ require_manifest_value() {
 }
 
 manifest_version="$(require_manifest_value manifest-version)"
-[[ "$manifest_version" == "1" ]] || die "Unsupported Android native manifest version: $manifest_version"
+[[ "$manifest_version" == "2" ]] || die "Unsupported Android native manifest version: $manifest_version"
 
 [[ "$(require_manifest_value artifact-role)" == "pinned-build-input-only" ]] \
     || die "Android mpv artifact must be recorded as a build input, not a runtime dependency"
@@ -38,10 +38,21 @@ manifest_version="$(require_manifest_value manifest-version)"
     || die "APK manifest wrapper patch list differs from the reviewed source"
 [[ "$(require_manifest_value wrapper-upstream-commit)" == "$(require_manifest_value source-commit)" ]] \
     || die "Wrapper and native source commits differ"
+for key in \
+    media3-ffmpeg-artifact-coordinate \
+    media3-ffmpeg-source-commit \
+    media3-ffmpeg-declared-license \
+    libvlc-artifact-coordinate \
+    libvlc-embedded-version \
+    libvlc-embedded-source \
+    libvlc-declared-license; do
+    require_manifest_value "$key" >/dev/null
+done
 IFS=',' read -r -a shipped_abis <<< "$(require_manifest_value shipped-abis)"
 IFS=',' read -r -a excluded_abis <<< "$(require_manifest_value excluded-abis)"
 IFS=',' read -r -a mpv_libraries <<< "$(require_manifest_value mpv-libraries)"
 IFS=',' read -r -a wrapper_libraries <<< "$(require_manifest_value wrapper-libraries)"
+IFS=',' read -r -a media3_ffmpeg_libraries <<< "$(require_manifest_value media3-ffmpeg-libraries)"
 IFS=',' read -r -a libvlc_libraries <<< "$(require_manifest_value libvlc-libraries)"
 IFS=',' read -r -a license_assets <<< "$(require_manifest_value license-assets)"
 
@@ -106,6 +117,10 @@ verify_apk() {
             entry="lib/$abi/$library"
             require_entry "$listing" "$entry"
         done
+        for library in "${media3_ffmpeg_libraries[@]}"; do
+            entry="lib/$abi/$library"
+            require_entry "$listing" "$entry"
+        done
         for library in "${libvlc_libraries[@]}"; do
             entry="lib/$abi/$library"
             require_entry "$listing" "$entry"
@@ -120,7 +135,7 @@ verify_apk() {
     done
     for asset_name in \
         SOURCE_REVISION.txt SOURCE_URL.txt BUILD_STATE.txt PROJECT_FILES.git-tree LICENSE \
-        OPEN_SOURCE_NOTICES.md THIRD_PARTY_COMPONENTS.tsv; do
+        OPEN_SOURCE_NOTICES.md THIRD_PARTY_COMPONENTS.tsv MOBILE_RUNTIME_NOTICES.md; do
         require_entry "$listing" "assets/license-metadata/$asset_name"
     done
     for asset_path in \
@@ -146,7 +161,7 @@ verify_apk() {
     bash "$repo_root/scripts/verify-release-license-metadata.sh" \
         "$metadata_root/assets/license-metadata" >/dev/null
 
-    echo "PASS: $apk_name contains the project wrapper, pinned mpv/LibVLC native payload, and complete license metadata"
+    echo "PASS: $apk_name contains the pinned mpv, Media3 FFmpeg, and LibVLC payloads with complete license metadata"
 }
 
 for apk in "${apk_paths[@]}"; do

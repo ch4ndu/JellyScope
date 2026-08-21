@@ -157,6 +157,18 @@ by the script.
 
 ## iOS release artifacts
 
+Before archiving, fetch the pinned official framework and run the scoped
+license-metadata gate from a clean release commit:
+
+```sh
+./scripts/fetch-vlckit.sh
+./gradlew verifyIosBinaryLicenseMetadataReadiness
+```
+
+To use a locally rebuilt VLCKit, build the recorded revision with VideoLAN's
+upstream tools and replace `ios-app/Frameworks/VLCKit.xcframework`. JellyScope
+does not maintain a separate VLCKit build script.
+
 Archive the iOS application through Xcode using a generic iOS device, then use
 the Organizer's **Distribute App** flow.
 
@@ -251,8 +263,9 @@ prepared from the repository candidate. It records the full Git revision and
 matching source URL, tracked project tree, current top-level license, open-source
 notice, third-party inventory, dependency inputs, and the available Android,
 iOS, and macOS native notice/source manifests. The set also contains the
-reviewed desktop JVM runtime-family inventory and its notices; each required
-record is compared with its repository owner during verification.
+Android/iOS managed-runtime notice and the reviewed desktop JVM runtime-family
+inventory; each required record is compared with its repository owner during
+verification.
 
 Verify the generated set during ordinary development work:
 
@@ -275,29 +288,28 @@ clearance. It records the exact source revision and metadata that a
 package carries, while the separate readiness gate below remains required for
 an actual binary release.
 
-The global binary license-metadata readiness check is:
+Use the scoped gate for the platform being released:
+
+```sh
+./gradlew verifyAndroidBinaryLicenseMetadataReadiness
+./gradlew verifyIosBinaryLicenseMetadataReadiness
+./gradlew verifyMacosArm64BinaryLicenseMetadataReadiness
+```
+
+Android release builds and the iOS Release metadata phase run their matching
+gate automatically. macOS DMG packaging does the same. A gate requires a clean
+candidate and fails on a `review-required` entry for that platform.
+
+The all-target audit remains available:
 
 ```sh
 ./gradlew verifyBinaryLicenseMetadataReadiness
 ```
 
-That command remains blocked while any release target has a `review-required`
-entry in `distribution/THIRD_PARTY_COMPONENTS.tsv`. The macOS arm64 release
-path instead runs its scoped gate automatically before DMG packaging; its
-equivalent explicit command is:
-
-```sh
-./gradlew verifyMacosArm64BinaryLicenseMetadataReadiness
-```
-
-The scoped command requires a clean candidate and rejects a resolved desktop
-JVM group, module, or version outside the reviewed macOS arm64 inventory. It
-does not claim readiness for Android, iOS, tvOS, Intel macOS, Windows, or Linux,
-and neither command substitutes for the ownership and legal-review requirements
-in
-[`operations/licensing-and-distribution.md`](operations/licensing-and-distribution.md).
-Do not remove or relabel an unresolved inventory entry merely to make the task
-green.
+It stays blocked while tvOS or another target has an unresolved entry. This does
+not block a scoped Android, iOS, or macOS arm64 release. The macOS gate also
+rejects a resolved JVM group, module, or version outside its reviewed inventory.
+Do not relabel an unresolved entry merely to make a task green.
 
 ## Android release checklist
 
@@ -309,6 +321,8 @@ the pair.
 ### Automated gate and artifacts
 
 - Run `./scripts/verify.sh` and require it to pass.
+- Require `verifyAndroidBinaryLicenseMetadataReadiness`; release builds invoke
+  it automatically.
 - Require the packaged release-license metadata and source binding to pass as
   part of the Android native-bundle verifier.
 - Confirm the minified release artifacts exist:

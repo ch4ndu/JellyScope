@@ -617,7 +617,8 @@
     <string name="settings_license">MPL-2.0</string>
     <string name="settings_source_notices">Source &amp; open-source notices</string>
     <string name="settings_open_source_title">Source &amp; open-source notices</string>
-    <string name="settings_open_source_detail">JellyScope-owned source is licensed under MPL-2.0.\n\nSource revision for this build:\n%1$s\nRevision: %2$s\n\nDevelopment builds may include uncommitted changes not represented by that revision. Distributed release candidates must be built from a clean tree.\n\nJellyScope uses separately licensed third-party software, including mpv, FFmpeg, LibVLC, VLCKit, Compose Multiplatform, Media3, Ktor, Koin, Coil, and their transitive dependencies. Release packages include the applicable project/native notices, license texts, component manifests, and source routes. Third-party licenses remain unchanged.</string>
+    <string name="settings_open_source_detail">JellyScope-owned source is licensed under MPL-2.0.\n\nSource revision for this build:\n%1$s\nRevision: %2$s\n\nDevelopment builds may include uncommitted changes not represented by that revision. Distributed release candidates must be built from a clean tree.\n\nJellyScope uses separately licensed third-party software, including mpv, FFmpeg, LibVLC, VLCKit, Compose Multiplatform, Media3, Ktor, Koin, Coil, and their transitive dependencies. Release packages include the applicable project/native notices, license texts, component manifests, and source routes. Third-party licenses remain unchanged.\n\nJellyScope is provided without warranty. View notices for the license details that apply to this build.</string>
+    <string name="settings_open_source_view_notices">View notices</string>
     <string name="settings_open_source_view_source">View source revision</string>
     <string name="settings_open_source_close">Close</string>
     <string name="settings_coming_later">Coming later</string>

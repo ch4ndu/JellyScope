@@ -1,11 +1,9 @@
-# Android libmpv native attribution
+# Android Native Attribution
 
 JellyScope's Android applications package the project-owned `android-libmpv`
-module. Its Kotlin/JNI bridge is based on the MIT-licensed
-`dev.jdtech.mpv:libmpv:1.0.0` wrapper source, while the pinned Maven AAR is a
-build input for the unchanged mpv 0.41.0 native graph with
-FFmpeg 8.1 and the dependencies listed below. The AAR is not packaged directly
-and its original `libplayer.so` is excluded.
+module, Jellyfin's Media3 FFmpeg decoder, and VideoLAN LibVLC. The mpv bridge is
+based on the MIT-licensed `dev.jdtech.mpv:libmpv:1.0.0` wrapper source. Its AAR
+is only a build input; the original `libplayer.so` is excluded.
 
 The source/build route, selected NDK-29 `libc++_shared.so`, required ABIs and
 libraries, and license/source records are in `manifest-1.0.0.txt`. The same
@@ -32,7 +30,10 @@ checks the release APK package contents.
 | libmpv-android wrapper base | 1.0.0 | MIT | https://github.com/jarnedemeulemeester/libmpv-android/tree/v1.0.0 |
 | JellyScope Android wrapper patch | in-repository `android-libmpv` | Upstream MIT wrapper with MPL-2.0 project integration | [`android-libmpv/UPSTREAM.md`](../../android-libmpv/UPSTREAM.md) |
 | Android NDK libc++ runtime | 29.0.14206865 | Apache-2.0 with LLVM exception | https://android.googlesource.com/toolchain/llvm-project/ |
-| LibVLC runtime already shipped | 3.7.5 | LGPL-2.1 | https://code.videolan.org/videolan/vlc-android |
+| Jellyfin Media3 FFmpeg decoder | 1.9.0+1 | GPL-3.0 | https://github.com/jellyfin/jellyfin-androidx-media/tree/af9ee4e26b2045e3ea6f2ebf4a18ac8ebfeae396 |
+| LibVLC Android | 3.7.5; embedded VLC `3.0.23-2-850-gac1101d2c5` | LGPL-2.1 | https://code.videolan.org/videolan/libvlcjni/-/tree/libvlcjni-3.x and https://code.videolan.org/videolan/vlc/-/tree/ac1101d2c5 |
 
-JellyScope-owned source is MPL-2.0. This notice does not replace the native
-license texts or the corresponding-source route in `SOURCE_MANIFEST.md`.
+The combined Android application is distributed under GPL-3.0 terms. Its
+JellyScope-owned files remain available under MPL-2.0 and are additionally
+distributed under GPL-3.0 for this Larger Work through MPL-2.0 Section 3.3.
+This notice does not replace the license texts or `SOURCE_MANIFEST.md`.

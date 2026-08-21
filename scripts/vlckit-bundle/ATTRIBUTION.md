@@ -13,16 +13,16 @@ VLCKit 4.0.0a23 dynamic XCFramework downloaded by
   LGPL-2.1 text is also packaged from `scripts/vlc-bundle/LGPL-2.1.txt`.
 - Artifact and source evidence: `manifest-4.0.0a23.txt`.
 
-Corresponding source and build material for this binary are available from the
-official VLCKit revision recorded in the manifest. That revision identifies the
-libVLC base revision, carries the complete VLCKit wrapper source and build
-scripts, and carries the 27 libVLC patches used by the build. A release that
-distributes this framework must retain that source snapshot and the upstream
-binary archive with the release records rather than relying only on a moving
-branch or package-manager entry.
+Corresponding source and build material are available from the exact official
+VLCKit revision recorded in the manifest. It identifies the libVLC base
+revision, wrapper build tools, and 27 applied patches.
 
-The XCFramework is dynamically linked by the iOS application. Dynamic linkage
-is an artifact fact, not by itself a conclusion that App Store terms, signing,
-DRM, source availability, replacement, or relinking obligations are satisfied.
-Those conclusions remain part of the qualified legal review required by
-`docs/operations/licensing-and-distribution.md`.
+To replace the downloaded binary, build that revision with VideoLAN's upstream
+tools and place a compatible `VLCKit.xcframework` in `ios-app/Frameworks/`.
+The local Swift package and Kotlin cinterop use that path. JellyScope does not
+duplicate VideoLAN's build scripts.
+
+The XCFramework is dynamically linked by the iOS application. The project owner
+accepts VideoLAN's LGPL declaration, exact source route, and replace-and-rebuild
+path for this pinned input. A new version, source revision, patch set, or linkage
+mode requires a fresh review.

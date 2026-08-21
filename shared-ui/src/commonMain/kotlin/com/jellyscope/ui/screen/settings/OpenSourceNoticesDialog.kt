@@ -3,6 +3,7 @@
 package com.jellyscope.ui.screen.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
@@ -18,6 +19,7 @@ import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.settings_open_source_close
 import com.jellyscope.ui.generated.resources.settings_open_source_detail
 import com.jellyscope.ui.generated.resources.settings_open_source_title
+import com.jellyscope.ui.generated.resources.settings_open_source_view_notices
 import com.jellyscope.ui.generated.resources.settings_open_source_view_source
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
@@ -26,12 +28,16 @@ internal const val JELLYSCOPE_SOURCE_REPOSITORY = "https://github.com/ch4ndu/Jel
 
 internal fun jellyScopeSourceUrl(sourceRevision: String): String = "$JELLYSCOPE_SOURCE_REPOSITORY/tree/$sourceRevision"
 
+internal fun jellyScopeNoticesUrl(sourceRevision: String): String =
+    "$JELLYSCOPE_SOURCE_REPOSITORY/blob/$sourceRevision/distribution/OPEN_SOURCE_NOTICES.md"
+
 @Composable
 internal fun OpenSourceNoticesDialog(
     sourceRevision: String,
     onDismiss: () -> Unit,
 ) {
     val sourceUrl = jellyScopeSourceUrl(sourceRevision)
+    val noticesUrl = jellyScopeNoticesUrl(sourceRevision)
     val uriHandler = LocalUriHandler.current
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -57,8 +63,13 @@ internal fun OpenSourceNoticesDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = { runCatching { uriHandler.openUri(sourceUrl) } }) {
-                Text(stringResource(Res.string.settings_open_source_view_source))
+            Row {
+                TextButton(onClick = { runCatching { uriHandler.openUri(noticesUrl) } }) {
+                    Text(stringResource(Res.string.settings_open_source_view_notices))
+                }
+                TextButton(onClick = { runCatching { uriHandler.openUri(sourceUrl) } }) {
+                    Text(stringResource(Res.string.settings_open_source_view_source))
+                }
             }
         },
     )

@@ -147,7 +147,7 @@ tasks.named("preBuild").configure {
 
 tasks.configureEach {
     if (name == "preReleaseBuild") {
-        dependsOn(rootProject.tasks.named("verifyCleanSourceReleaseBinding"))
+        dependsOn(rootProject.tasks.named("verifyAndroidBinaryLicenseMetadataReadiness"))
     }
 }
 

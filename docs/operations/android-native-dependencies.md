@@ -1,8 +1,8 @@
 # Android Native Dependency and License Runbook
 
-This runbook owns the Android native payload introduced by the Android mpv
-backend. It is a release-candidate checklist, not proof that a candidate has
-passed the physical playback gate. Both Android applications install on API 25
+This runbook owns the Android mpv, Media3 FFmpeg, and LibVLC playback payloads.
+It is a release-candidate checklist, not proof that a candidate has passed the
+physical playback gate. Both Android applications install on API 25
 (Android 7.1), including Fire OS 6; only the bundled mpv backend requires API
 26 (Android 8.0) and is reported unavailable below that floor. ExoPlayer
 remains the default on API-25 devices.
@@ -47,17 +47,19 @@ mpv/FFmpeg and LibVLC library, and the project bridge.
 The wrapper base is MIT-licensed, but the project-owned bridge and the native
 graph still require the complete license record. The distributed graph
 includes mpv, FFmpeg with GPL and version-3 code enabled, dav1d, libplacebo,
-libass, font/subtitle libraries, mbedTLS, Lua, and the NDK C++ runtime. The
-exact component, version, license, source URL, wrapper patch, and
+libass, font/subtitle libraries, mbedTLS, Lua, and the NDK C++ runtime. The apps
+also package the GPL-3.0 Jellyfin Media3 FFmpeg decoder `1.9.0+1` and LGPL-2.1
+LibVLC `3.7.5`. Their records stay in the same Android manifest so the release
+has one native notice set. The exact component, version, license, source URL, wrapper patch, and
 corresponding-source route are listed in
 [`ATTRIBUTION.md`](../../scripts/android-mpv-bundle/ATTRIBUTION.md) and
 [`android-libmpv/UPSTREAM.md`](../../android-libmpv/UPSTREAM.md).
 The audited license texts are under
 [`scripts/android-mpv-bundle/licenses/`](../../scripts/android-mpv-bundle/licenses/).
 
-For every release candidate, retain or publish the exact corresponding source
-inputs, build scripts, patches, native configuration, and build instructions
-described by [`SOURCE_MANIFEST.md`](../../scripts/android-mpv-bundle/SOURCE_MANIFEST.md).
+For every release candidate, publish the exact corresponding-source routes,
+patches, native configuration, and upstream build instructions described by
+[`SOURCE_MANIFEST.md`](../../scripts/android-mpv-bundle/SOURCE_MANIFEST.md).
 Do not treat the Maven POM, a library name, or the top-level project
 license as a substitute for the native bill of materials and source offer.
 
@@ -76,8 +78,8 @@ The verifier must pass for both APKs and must prove all of the following:
 
 - API-26-compatible packaging retains exactly the three shipped mpv ABIs and
   no x86 entry.
-- Every required mpv/FFmpeg and LibVLC library is present for every shipped
-  ABI.
+- Every required mpv/FFmpeg, Media3 FFmpeg, and LibVLC library is present for
+  every shipped ABI.
 - The APK identifies `android-libmpv` and contains the patched `libplayer.so`;
   the original AAR bridge remains excluded.
 - `libc++_shared.so` is present for each shipped ABI.

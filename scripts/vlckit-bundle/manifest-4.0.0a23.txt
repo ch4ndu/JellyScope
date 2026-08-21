@@ -22,6 +22,5 @@ build.libvlc-patches=https://code.videolan.org/videolan/VLCKit/-/tree/004e312468
 build.libvlc-patch-count=27
 build.embedded-version-string=4.0.0-dev-38452-gaf547fb85f
 
-# Preserve the pinned artifact URL, source snapshots, and upstream COPYING.txt with
-# each distributed release. Re-audit this manifest whenever the artifact URL,
-# architecture set, source revision, patch set, or linkage changes.
+# Keep these exact upstream routes and the LGPL text with each release. Review
+# this manifest again if the artifact, source, patches, slices, or linkage change.

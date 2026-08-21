@@ -32,6 +32,7 @@ assert_success_output() {
     grep -Fx "tracked-worktree-dirty=$dirty" "$output_dir/BUILD_STATE.txt" >/dev/null
     cmp -s "$repo_root/LICENSE" "$output_dir/LICENSE"
     cmp -s "$repo_root/distribution/OPEN_SOURCE_NOTICES.md" "$output_dir/OPEN_SOURCE_NOTICES.md"
+    cmp -s "$repo_root/distribution/MOBILE_RUNTIME_NOTICES.md" "$output_dir/MOBILE_RUNTIME_NOTICES.md"
     cmp -s \
         "$repo_root/distribution/DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv" \
         "$output_dir/DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv"

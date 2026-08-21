@@ -367,7 +367,7 @@ the repository root, the effective home directory, and `/`.
 `scripts/verify.sh`.
 
 Package-producing paths bind source metadata to a clean Git candidate. Binary
-readiness remains a separate check for third-party inventory and legal review.
+readiness remains a separate, platform-scoped third-party inventory check.
 
 ### Version Properties
 
@@ -420,7 +420,7 @@ its rule changes.
   problem, but cannot select a native-player candidate or close physical
   validation because its runtime behavior differs, especially for LibVLC.
 - **Release metadata has separate source and binary gates.** A clean source
-  binding does not prove third-party inventory or legal readiness, and neither
+  binding does not prove third-party inventory readiness, and neither
   gate is weakened merely to make packaging pass.
 - **Regression coverage follows business risk.** Authentication, deletion,
   persistence, isolation, concurrency, and external request shape keep focused

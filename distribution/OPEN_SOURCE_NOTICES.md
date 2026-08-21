@@ -10,20 +10,26 @@ Each release metadata set records the exact source revision in
 `PROJECT_FILES.git-tree`. The repository's `LICENSE` file contains the project
 license text.
 
-This source-only license status does not legally clear any Android, Apple, or
-desktop binary distribution. Each binary retains the separate obligations of
-its third-party dependency and native-artifact graph.
+Each binary also carries the licenses and obligations of its third-party
+dependency and native-artifact graph.
 
 JellyScope also uses separately licensed third-party software. The generated
-release metadata includes `THIRD_PARTY_COMPONENTS.tsv`, the reviewed desktop JVM
-runtime-family inventory and notices, the Gradle version catalog, and any
-platform-native manifests, notices, license texts, and source routes currently
-available in the repository.
+release metadata includes `THIRD_PARTY_COMPONENTS.tsv`, the Android/iOS managed
+runtime notices, the reviewed desktop JVM inventory, the Gradle version catalog,
+and the platform-native manifests, license texts, and source routes.
 
-The Android packages include the recorded mpv/FFmpeg and LibVLC native notice
-set from `scripts/android-mpv-bundle/`. iOS packages include the exact pinned
-VLCKit 4.0.0a23 artifact, LGPL-2.1 notice, build revision, patch-set, and source
-routes from `scripts/vlckit-bundle/`. Apple Silicon macOS packages include the
+Android packages include the recorded mpv/FFmpeg, Media3 FFmpeg, and LibVLC
+notice/source set from `scripts/android-mpv-bundle/`. The combined Android
+application is distributed under GPL-3.0 terms. JellyScope-owned files remain
+available under MPL-2.0 and are additionally distributed under GPL-3.0 for this
+Larger Work through MPL-2.0 Section 3.3.
+
+iOS packages include the exact pinned VLCKit 4.0.0a23 artifact, LGPL-2.1
+notice, build revision, patch set, and source routes from
+`scripts/vlckit-bundle/`. A compatible framework built with VideoLAN's upstream
+tools can replace the downloaded framework at the documented local path.
+
+Apple Silicon macOS packages include the
 recorded VLC 3.0.23 notice set from `scripts/vlc-bundle/` and the IINA 1.4.0
 arm64 mpv dylib manifest, GPL texts, and source routes from
 `scripts/desktop-mpv-bundle/`. The IINA/upstream declarations were not
@@ -35,5 +41,11 @@ routes; release verification rejects any family or version outside that record.
 macOS release output also retains the exact JellyScope commit archive and the
 VLC 3.0.23 source archive beside the DMG.
 
+Android and iOS managed runtime families, their published licenses, and their
+upstream source routes are recorded in `MOBILE_RUNTIME_NOTICES.md`. Exact direct
+versions are recorded in the packaged Gradle version catalog.
+
 This notice supplements rather than replaces any third-party license text.
-Third-party licenses and notices must be preserved unchanged.
+JellyScope is provided without warranty. Third-party licenses and notices must
+be preserved unchanged. The Android GPL-3.0 text is available at
+[`scripts/android-mpv-bundle/licenses/GPL-3.0-only.txt`](../scripts/android-mpv-bundle/licenses/GPL-3.0-only.txt).

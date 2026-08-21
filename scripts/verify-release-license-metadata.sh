@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-metadata_dir="${1:?Usage: verify-release-license-metadata.sh <metadata-dir> [--require-clean|--require-binary-ready|--require-macos-arm64-ready]}"
+metadata_dir="${1:?Usage: verify-release-license-metadata.sh <metadata-dir> [--require-clean|--require-binary-ready|--require-android-ready|--require-ios-ready|--require-macos-arm64-ready]}"
 verification_mode="${2:-}"
 
 die() {
@@ -19,6 +19,7 @@ required_files=(
     LICENSE
     OPEN_SOURCE_NOTICES.md
     THIRD_PARTY_COMPONENTS.tsv
+    MOBILE_RUNTIME_NOTICES.md
     DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv
     DESKTOP_JVM_RUNTIME_NOTICES.md
     dependency-inputs/libs.versions.toml
@@ -58,6 +59,8 @@ cmp -s "$repo_root/distribution/OPEN_SOURCE_NOTICES.md" "$metadata_dir/OPEN_SOUR
     || die "Packaged open-source notice differs from the repository notice"
 cmp -s "$repo_root/distribution/THIRD_PARTY_COMPONENTS.tsv" "$metadata_dir/THIRD_PARTY_COMPONENTS.tsv" \
     || die "Packaged third-party inventory differs from the repository inventory"
+cmp -s "$repo_root/distribution/MOBILE_RUNTIME_NOTICES.md" "$metadata_dir/MOBILE_RUNTIME_NOTICES.md" \
+    || die "Packaged mobile runtime notices differ from the repository notices"
 cmp -s "$repo_root/distribution/DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv" \
     "$metadata_dir/DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv" \
     || die "Packaged desktop JVM runtime inventory differs from the repository inventory"
@@ -86,20 +89,36 @@ grep -F "JellyScope-owned source is licensed under MPL-2.0" "$metadata_dir/OPEN_
 
 if [[ "$verification_mode" == "--require-clean" ||
     "$verification_mode" == "--require-binary-ready" ||
+    "$verification_mode" == "--require-android-ready" ||
+    "$verification_mode" == "--require-ios-ready" ||
     "$verification_mode" == "--require-macos-arm64-ready" ]]; then
     grep -Fx "tracked-worktree-dirty=false" "$metadata_dir/BUILD_STATE.txt" >/dev/null \
         || die "Release source binding requires a clean candidate"
 fi
 
+require_platform_ready() {
+    local platform="$1"
+
+    awk -F '\t' -v platform="$platform" '$1 == platform { found = 1 } END { exit !found }' \
+        "$metadata_dir/THIRD_PARTY_COMPONENTS.tsv" \
+        || die "$platform license inventory has no platform entries"
+    if awk -F '\t' -v platform="$platform" \
+        '$1 == platform && $5 == "review-required" { found = 1 } END { exit !found }' \
+        "$metadata_dir/THIRD_PARTY_COMPONENTS.tsv"; then
+        die "$platform license-metadata readiness is blocked by a review-required inventory entry"
+    fi
+}
+
 if [[ "$verification_mode" == "--require-binary-ready" ]]; then
     if grep -F $'\treview-required\t' "$metadata_dir/THIRD_PARTY_COMPONENTS.tsv" >/dev/null; then
         die "Binary license-metadata readiness is blocked by review-required third-party inventory entries"
     fi
+elif [[ "$verification_mode" == "--require-android-ready" ]]; then
+    require_platform_ready android
+elif [[ "$verification_mode" == "--require-ios-ready" ]]; then
+    require_platform_ready ios
 elif [[ "$verification_mode" == "--require-macos-arm64-ready" ]]; then
-    if awk -F '\t' '$1 == "macos-arm64" && $5 == "review-required" { found = 1 } END { exit !found }' \
-        "$metadata_dir/THIRD_PARTY_COMPONENTS.tsv"; then
-        die "macOS arm64 license-metadata readiness is blocked by a review-required inventory entry"
-    fi
+    require_platform_ready macos-arm64
 elif [[ -n "$verification_mode" && "$verification_mode" != "--require-clean" ]]; then
     die "Unknown option: $verification_mode"
 fi

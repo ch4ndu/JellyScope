@@ -7,15 +7,12 @@ compliance gates.
 Exact Android native inputs and corresponding-source packaging remain owned by
 [`android-native-dependencies.md`](android-native-dependencies.md).
 
-This is an engineering and release policy, not legal advice. The source-only
-MPL-2.0 cutover was explicitly authorized by the project owner without legal
-review. Android and Apple binary-compliance conclusions still require qualified
-review against the exact artifacts being distributed. The desktop technical
-inventory and source-availability gates below are recorded engineering evidence,
-not legal advice or a general binary-clearance claim. The exact IINA-built macOS
-mpv runtime below is the owner-approved exception: its published GPL/source
-declarations are accepted as ordinary OSS provenance without an additional
-legal-review release blocker.
+This is an owner-approved engineering and release policy, not legal advice. It
+uses the practical FOSS approach followed by comparable media clients: pin the
+distributed inputs, preserve their notices, record upstream source routes, and
+inspect the final package. The recorded Android, iOS, and macOS arm64 inputs use
+their publishers' license and source declarations without a separate legal-
+review blocker. A changed artifact or dependency graph requires a new review.
 
 ## Current Source-License Status
 
@@ -35,28 +32,27 @@ No per-file copyright line was added as part of the cutover. Copyright notices,
 when present, must remain accurate for generated, imported, adapted, and
 third-party files and must not be added or rewritten mechanically.
 
-The source-license change is not a binary-distribution clearance. Android,
-Apple, and desktop applications combine JellyScope source with separately
-licensed dependencies and native artifacts. No APK, app bundle, Apple app, or
-desktop package may be described as legally reviewed or cleared merely because
-JellyScope-owned source now uses MPL-2.0.
+The source license alone does not establish binary readiness. Android, Apple,
+and desktop applications combine JellyScope source with separately licensed
+dependencies and native artifacts, so each release target has its own gate.
 
 Recipients of earlier GPL-3.0-only copies retain the rights already conveyed to
 them. The current source-license cutover does not revoke those rights.
 
-The repository prepares release-license metadata independently of
-binary legal clearance. [`distribution/OPEN_SOURCE_NOTICES.md`](../../distribution/OPEN_SOURCE_NOTICES.md)
+The repository prepares release-license metadata for each release target.
+[`distribution/OPEN_SOURCE_NOTICES.md`](../../distribution/OPEN_SOURCE_NOTICES.md)
 and [`distribution/THIRD_PARTY_COMPONENTS.tsv`](../../distribution/THIRD_PARTY_COMPONENTS.tsv)
 are packaged with release artifacts together with the exact source revision,
-project tree, dependency inputs, native notices, source manifests, and the
-reviewed macOS arm64 JVM runtime-family inventory and notices in
+project tree, dependency inputs, native notices, source manifests, the Android
+and iOS runtime notice in
+[`distribution/MOBILE_RUNTIME_NOTICES.md`](../../distribution/MOBILE_RUNTIME_NOTICES.md),
+and the macOS arm64 JVM inventory and notices in
 [`distribution/DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv`](../../distribution/DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv)
 and [`distribution/DESKTOP_JVM_RUNTIME_NOTICES.md`](../../distribution/DESKTOP_JVM_RUNTIME_NOTICES.md).
 Existing settings surfaces identify the source revision and route users to the
-matching repository tree. Entries marked `review-required`, and any desktop JVM
-group, module, or version outside the reviewed inventory, remain explicit
-blockers for relevant binary-distribution claims. Passing the metadata checks
-is technical evidence, not legal clearance.
+matching repository tree. A `review-required` entry blocks only its named
+platform. Passing a scoped gate records technical readiness under this policy;
+it is not a legal opinion.
 
 MPL-2.0 provides file-level reciprocity rather than whole-program copyleft. A
 distributor must make MPL-covered source available as the license requires;
@@ -74,21 +70,18 @@ license does not establish the packaged native graph.
 ### Android
 
 The Android apps package the project-owned `android-libmpv` bridge over a
-pinned AAR input. Its current audited graph includes GPL-2.0-or-later
-mpv and FFmpeg with GPL and version-3 code enabled. The apps also package the
-separate LibVLC runtime. Exact component versions, ABIs, required libraries, license texts,
-patches, and source routes are owned by
+pinned AAR input, Jellyfin's GPL-3.0 Media3 FFmpeg decoder, and VideoLAN's
+LGPL-2.1 LibVLC runtime. Exact versions, ABIs, libraries, license texts, patches,
+and source routes are owned by
 [`android-native-dependencies.md`](android-native-dependencies.md) and its
 linked manifests.
 
-MPL-2.0 covers eligible JellyScope-owned files, but it does not replace the
-GPL/LGPL obligations of the packaged graph. Android binary compliance remains
-unreviewed and is not legally cleared. Before distribution, qualified review
-must determine the applicable combined-work treatment, MPL Secondary Licenses
-handling, and the notices and corresponding source required by the final APKs.
-JellyScope files must not be marked `Incompatible With Secondary Licenses`
-unless counsel and the final dependency design establish that doing so is
-valid.
+The combined Android application is distributed under GPL-3.0 terms.
+JellyScope-owned files remain available under MPL-2.0 and are additionally
+distributed under GPL-3.0 for this Larger Work through MPL-2.0 Section 3.3.
+The project owner accepts the pinned upstream GPL/LGPL declarations and source
+routes. The scoped gate checks the inventory, and the Android bundle verifier
+checks the final APKs for the recorded native libraries and release metadata.
 
 ### iOS And tvOS
 
@@ -96,29 +89,27 @@ The iOS build currently uses the pinned VLCKit 4 pre-release
 XCFramework fetched by [`scripts/fetch-vlckit.sh`](../../scripts/fetch-vlckit.sh)
 and linked through the local binary Swift package in
 [`ios-app/VLCKitLocal/Package.swift`](../../ios-app/VLCKitLocal/Package.swift).
-The current device slice is a dynamically linked framework. The exact archive,
+The device slice is a dynamically linked framework. The exact archive,
 upstream LGPL-2.1 declaration and license text, official build revision,
 libVLC base revision, patch set, and source routes are recorded in
 [`scripts/vlckit-bundle/manifest-4.0.0a23.txt`](../../scripts/vlckit-bundle/manifest-4.0.0a23.txt).
-This closes the technical-provenance inventory for the pinned input; it does not
-resolve the legal review of the framework's complete contributed-code graph or
-Apple distribution terms. Do not infer those obligations from historical
-MobileVLCKit packaging or from the VLCKit name alone.
+The project owner accepts that published provenance for this pinned input.
 
-Apple binary compliance remains unreviewed and is not legally cleared for iOS
-or tvOS.
+A developer may build the recorded VLCKit revision with VideoLAN's upstream
+tools and place the resulting compatible `VLCKit.xcframework` at
+`ios-app/Frameworks/`. The existing local Swift package and Kotlin cinterop use
+that path. JellyScope does not mirror VLCKit or maintain a duplicate build
+script.
 
 The current tvOS target uses the Apple player path and does not consume the iOS
-VLCKit cinterop. It still needs a final application and dependency audit before
-distribution. If VLCKit or another native player is later added to tvOS, that
-new graph must be reviewed independently.
+VLCKit cinterop. Its managed dependency graph is still `review-required`. If a
+native player is later added to tvOS, that graph must be reviewed separately.
 
-Before an Apple App Store submission, the release must also provide an in-app
-source and open-source-notices route tied to the exact released revision and
-native artifacts; preserve all required license rights in the EULA; verify the
-effect of signing, DRM, and store terms; and retain any required source, offer,
-build, replacement, or relinking material for the applicable period. Dynamic
-linkage is a fact to audit, not proof that every LGPL or other obligation is met.
+The iOS release gate requires the exact source/notices record and a clean source
+revision. App signing, App Store metadata, privacy declarations, and final
+archive inspection remain ordinary release tasks in [`../RELEASE.md`](../RELEASE.md).
+Distribution terms must not restrict rights granted by the included FOSS
+licenses.
 
 ### Desktop
 
@@ -179,55 +170,36 @@ source-only cutover. It does not claim ownership of imported code, generated
 third-party wrappers, fonts, media, native binaries, or other third-party
 material, and it does not change their existing licenses or notices.
 
-Adopt an explicit contributor policy for work accepted after this cutover. If
-the project wants authority to dual-license or relicense later, use a counsel-
-reviewed contributor agreement that actually grants that authority; a provenance
-attestation must not be described as a copyright assignment.
+Adopt a contributor policy before accepting outside contributions. A future
+dual-license or relicensing plan may need a contributor agreement; a provenance
+attestation is not a copyright assignment.
 
 The code license does not grant a fork the right to impersonate the official
-JellyScope product. Before claiming official distribution clearance, add a
-separately reviewed trademark policy covering the name, logo, app icon,
-official screenshots and store artwork, bundle identifiers, domains, and
-endorsement claims. It may require public forks to use distinct branding while
-allowing accurate compatibility statements, but it must not condition MPL
-rights on displaying official marks
-or claim registration that has not been confirmed. JellyScope must also follow
-Jellyfin's then-current third-party branding rules and avoid implying official
-Jellyfin status.
+JellyScope product. A future trademark policy may cover the name, logo, app
+icon, store artwork, bundle identifiers, domains, and endorsement claims, but
+it must not restrict MPL rights. JellyScope must also follow Jellyfin's current
+third-party branding rules and avoid implying official Jellyfin status.
 
 Trademark and store enforcement can address confusing impersonation; they
 cannot prohibit a properly rebranded commercial fork that complies with MPL and
 all dependency licenses. That limitation is accepted.
 
-## Binary Distribution Legal And Compliance Gate
+## Binary Distribution Technical Gate
 
-The source-only MPL-2.0 cutover is active. It was deliberately completed without
-legal review and does not satisfy the remaining binary gate. Before claiming an
-Android, Apple, or desktop artifact is compliant or store-ready:
+Before publishing a platform artifact:
 
-1. Inventory every dependency, native binary, plugin, codec, linkage mode, and
-   transitive license in each final platform and architecture artifact.
-2. Obtain qualified legal review of the Android GPL graph and MPL Secondary
-   Licenses treatment, Apple EULA/store terms, exact VLCKit obligations,
-   replacement or relinking requirements, contributor policy, and trademark
-   policy. The pinned IINA macOS mpv runtime uses the owner-approved
-   GPL-compatible route above and is not itself a remaining qualified-review
-   blocker; the desktop JVM inventory and retained source archives are technical
-   evidence rather than a substitute for artifact-specific advice.
-3. Add reviewed contributor and trademark policies without embedding trademark
-   restrictions in the MPL-covered source license.
-4. Verify that each released binary's in-app source/notices route identifies
-   the exact source revision and native inputs used by that binary.
-5. Make release verification fail when required license texts, notices,
-   corresponding source, replacement or relinking material, and exact artifact
-   manifests are absent. A clean candidate and reviewed technical inventory are
-   evidence inputs; neither is legal clearance.
-6. Inspect the final Android, iOS, tvOS, and desktop artifacts. Do not infer
-   compliance from source declarations, build files, or metadata checks.
+1. Keep the exact source revision, dependency inputs, native manifests, license
+   texts, notices, and upstream source routes in its release metadata.
+2. Run the platform-scoped readiness gate. Android and iOS may pass while tvOS
+   or unsupported desktop targets remain blocked.
+3. Verify the final APK, app archive, or desktop package rather than relying on
+   dependency names alone.
+4. Repeat the review when a pinned artifact, version, license, source route,
+   linkage mode, runtime family, platform, or architecture changes.
 
-The active root license and SPDX identifiers establish only the license for
-eligible JellyScope-owned source. They must not be cited as proof that any
-distributed binary has passed this gate.
+Contributor and trademark policies are separate governance work. Signing,
+notarization, store terms, privacy declarations, and device smoke tests remain
+release operations; they are not third-party license-inventory entries.
 
 ## Rejected Alternatives
 
@@ -258,16 +230,14 @@ distributed binary has passed this gate.
 - **Brand protection is separate from source licensing.** Trademark, bundle
   identity, and store copycat rules address impersonation without taking away
   MPL rights.
-- **Source licensing and binary clearance are separate decisions.** The owner
-  authorized the source-only MPL-2.0 cutover based on the confirmed ownership
-  and provenance record. Exact native-artifact, platform-distribution, legal,
-  contributor-policy, and trademark work remains open, so no released product
-  is represented as legally cleared by the source change.
-- **The pinned IINA macOS mpv graph uses accepted upstream GPL provenance.**
-  Rebuilding an LGPL-targeted graph or requiring separate legal review for this
-  exact runtime was rejected after the owner accepted IINA's published binary,
-  source, and license route. That acceptance is narrow: changed bytes or a new
-  graph require a new inventory and decision.
+- **Source licensing and binary readiness are separate decisions.** MPL-2.0
+  governs JellyScope-owned files. Each release gate records the additional
+  platform graph and its licenses.
+- **Pinned native graphs use accepted upstream FOSS provenance.** The project
+  records official artifacts, license texts, source routes, and final package
+  contents. Mirroring third-party projects, duplicating their build systems, or
+  maintaining a second checksum database was rejected as unnecessary upkeep.
+  A changed graph still requires a new recorded decision.
 - **Desktop runtime approval is exact and source artifacts stay beside the
   binary.** A generated dependency report was rejected because it records what
   resolved without recording which families, versions, licenses, and source

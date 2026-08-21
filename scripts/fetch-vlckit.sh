@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MPL-2.0
-# Fetches the vendored VLCKit xcframework for the iOS dual-player backend.
-# The binary is NOT committed; this script downloads the official VideoLAN
-# release and extracts it to a stable gitignored path that both
-# the shared-core Kotlin/Native cinterop (-F) and the app's local SPM
-# .binaryTarget(path:) reference. Idempotent: skips if already present + valid.
+# Downloads the pinned VideoLAN VLCKit XCFramework to the gitignored path used
+# by Kotlin/Native and the local Swift package. Skips a valid existing copy.
 set -euo pipefail
 
 VERSION="4.0.0a23"

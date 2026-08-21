@@ -150,6 +150,8 @@ git -C "$repo_root" ls-tree -r --full-tree HEAD > "$output_dir/PROJECT_FILES.git
 cp "$repo_root/LICENSE" "$output_dir/LICENSE"
 cp "$repo_root/distribution/OPEN_SOURCE_NOTICES.md" "$output_dir/OPEN_SOURCE_NOTICES.md"
 cp "$repo_root/distribution/THIRD_PARTY_COMPONENTS.tsv" "$output_dir/THIRD_PARTY_COMPONENTS.tsv"
+cp "$repo_root/distribution/MOBILE_RUNTIME_NOTICES.md" \
+    "$output_dir/MOBILE_RUNTIME_NOTICES.md"
 cp "$repo_root/distribution/DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv" \
     "$output_dir/DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv"
 cp "$repo_root/distribution/DESKTOP_JVM_RUNTIME_NOTICES.md" \

@@ -100,6 +100,10 @@ class SettingsRowPolicyTest {
             "https://github.com/ch4ndu/JellyScope/tree/0123456789abcdef",
             jellyScopeSourceUrl("0123456789abcdef"),
         )
+        assertEquals(
+            "https://github.com/ch4ndu/JellyScope/blob/0123456789abcdef/distribution/OPEN_SOURCE_NOTICES.md",
+            jellyScopeNoticesUrl("0123456789abcdef"),
+        )
     }
 
     // ComingLater renders planned-feature badge rows, which are not settings and so

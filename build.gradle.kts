@@ -70,6 +70,34 @@ tasks.register<Exec>("verifyBinaryLicenseMetadataReadiness") {
     )
 }
 
+tasks.register<Exec>("verifyAndroidBinaryLicenseMetadataReadiness") {
+    group = "verification"
+    description = "Verifies a clean Android candidate and its platform dependency inventory."
+    dependsOn("prepareReleaseLicenseMetadata")
+    commandLine(
+        rootProject.layout.projectDirectory
+            .file("scripts/verify-release-license-metadata.sh")
+            .asFile
+            .absolutePath,
+        releaseLicenseMetadataDir.get().asFile.absolutePath,
+        "--require-android-ready",
+    )
+}
+
+tasks.register<Exec>("verifyIosBinaryLicenseMetadataReadiness") {
+    group = "verification"
+    description = "Verifies a clean iOS candidate and its platform dependency inventory."
+    dependsOn("prepareReleaseLicenseMetadata")
+    commandLine(
+        rootProject.layout.projectDirectory
+            .file("scripts/verify-release-license-metadata.sh")
+            .asFile
+            .absolutePath,
+        releaseLicenseMetadataDir.get().asFile.absolutePath,
+        "--require-ios-ready",
+    )
+}
+
 tasks.register<Exec>("verifyMacosArm64BinaryLicenseMetadataReadiness") {
     group = "verification"
     description = "Verifies a clean macOS arm64 candidate and its platform-specific dependency inventory."
