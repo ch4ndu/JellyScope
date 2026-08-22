@@ -26,10 +26,7 @@ import org.koin.dsl.module
 import platform.Foundation.NSBundle
 import platform.UIKit.UIViewController
 
-// Server-entry prefill on first launch. For local dev builds this comes from
-// untracked .local/dev-server.properties (via :shared-ui generateDevServerConfig);
-// on release builds (and when that file is absent) it is blank, so the field
-// starts empty — matching Android. No demo/public server is ever prefilled.
+// Local Debug builds may prefill the first server entry; Release stays empty.
 private val DEFAULT_SERVER_URL = DevServerConfig.SERVER_URL.ifBlank { null }
 
 private var koinStarted = false

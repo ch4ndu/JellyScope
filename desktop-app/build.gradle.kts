@@ -18,7 +18,8 @@ plugins {
 
 val desktopVersion = providers.gradleProperty("jellyscope.desktop.version").orElse("0.1.0")
 val desktopPackageVersion = providers.gradleProperty("jellyscope.desktop.packageVersion").orElse("1.0.0")
-val macosSigningPropertiesFile = rootProject.file(".local/macos-signing.properties")
+val macosSigningDirectory = File(System.getProperty("user.home"), "Private/Keystores")
+val macosSigningPropertiesFile = macosSigningDirectory.resolve("macos-signing.properties")
 val macosSigningProperties =
     Properties().apply {
         if (macosSigningPropertiesFile.isFile) {
@@ -638,9 +639,8 @@ val macosReleaseDmgOutputDir = layout.buildDirectory.dir("compose/binaries/main-
 val stageMacosReleaseSourceArtifacts =
     tasks.register<Exec>("stageMacosReleaseSourceArtifacts") {
         group = "distribution"
-        description = "Stages the exact JellyScope and pinned VLC sources beside the macOS release DMG."
+        description = "Stages the HEAD JellyScope and pinned VLC sources beside the macOS release DMG."
         onlyIf { isAppleSiliconMacDesktopBuild }
-        dependsOn(rootProject.tasks.named("verifyCleanSourceReleaseBinding"))
         inputs.files(
             rootProject.layout.projectDirectory.file("scripts/prepare-macos-release-sources.sh"),
             rootProject.layout.projectDirectory.file("scripts/macos-source-bundle/manifest-macos-arm64.txt"),
@@ -683,6 +683,13 @@ val notarizeReleaseDmgWithApiKey =
             if (dmg == null) {
                 throw GradleException("No macOS DMG was found for API-key notarization.")
             }
+            val configuredPrivateKey = File(macosNotaryPrivateKeyPath)
+            val privateKey =
+                if (configuredPrivateKey.isAbsolute) {
+                    configuredPrivateKey
+                } else {
+                    macosSigningDirectory.resolve(macosNotaryPrivateKeyPath)
+                }
             commandLine(
                 "xcrun",
                 "notarytool",
@@ -690,7 +697,7 @@ val notarizeReleaseDmgWithApiKey =
                 dmg.absolutePath,
                 "--wait",
                 "--key",
-                rootProject.file(macosNotaryPrivateKeyPath).absolutePath,
+                privateKey.absolutePath,
                 "--key-id",
                 macosNotaryKeyId,
                 "--issuer",
@@ -779,9 +786,6 @@ tasks.configureEach {
             dependsOn(prepareDesktopVlcBundle)
         }
     }
-    if (name in desktopReleasePackageTaskNamesRequiringCleanSource) {
-        dependsOn(rootProject.tasks.named("verifyCleanSourceReleaseBinding"))
-    }
     if (name == "packageReleaseDmg") {
         dependsOn(rootProject.tasks.named("verifyMacosArm64BinaryLicenseMetadataReadiness"))
         doLast {
@@ -860,12 +864,5 @@ private val desktopPackageTaskNamesRequiringMpv =
         "packageDistributionForCurrentOS",
         "packageReleaseDistributionForCurrentOS",
         "packageDmg",
-        "packageReleaseDmg",
-    )
-
-private val desktopReleasePackageTaskNamesRequiringCleanSource =
-    setOf(
-        "createReleaseDistributable",
-        "packageReleaseDistributionForCurrentOS",
         "packageReleaseDmg",
     )

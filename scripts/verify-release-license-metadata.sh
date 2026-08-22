@@ -87,11 +87,7 @@ diff -qr "$repo_root/scripts/vlc-bundle" "$metadata_dir/platform-notices/macos-v
 grep -F "JellyScope-owned source is licensed under MPL-2.0" "$metadata_dir/OPEN_SOURCE_NOTICES.md" >/dev/null \
     || die "Open-source notice does not preserve the active MPL-2.0 source status"
 
-if [[ "$verification_mode" == "--require-clean" ||
-    "$verification_mode" == "--require-binary-ready" ||
-    "$verification_mode" == "--require-android-ready" ||
-    "$verification_mode" == "--require-ios-ready" ||
-    "$verification_mode" == "--require-macos-arm64-ready" ]]; then
+if [[ "$verification_mode" == "--require-clean" ]]; then
     grep -Fx "tracked-worktree-dirty=false" "$metadata_dir/BUILD_STATE.txt" >/dev/null \
         || die "Release source binding requires a clean candidate"
 fi

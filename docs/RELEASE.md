@@ -3,20 +3,21 @@
 The release runbook: signing setup, release builds, and the release checklist.
 
 Release credentials stay local. Ordinary Android `assembleRelease` builds use
-the release signing config only when `.local/keystore.properties` exists and
-otherwise retain the debug-signing fallback needed by credential-free CI. The
-maintained release-artifact script is stricter: it requires Android release
-signing plus macOS signing and notarization credentials before it builds.
+the release signing config only when `~/Private/Keystores/keystore.properties`
+contains all required values and otherwise retain the debug-signing fallback
+needed by credential-free CI. The maintained release-artifact script is
+stricter: it requires Android release signing plus macOS signing and
+notarization credentials before it builds.
 
 Never commit `.local/`, keystores, passwords, Apple private keys, or generated
 signing output.
 
 ## Android release keystore
 
-1. Install a JDK with `keytool` and create the ignored credentials directory:
+1. Install a JDK with `keytool` and create the private credentials directory:
 
    ```sh
-   mkdir -p .local
+   mkdir -p "$HOME/Private/Keystores"
    ```
 
 2. Generate a release key. Let `keytool` prompt for the store and key
@@ -25,7 +26,7 @@ signing output.
    ```sh
    keytool -genkeypair \
      -v \
-     -keystore .local/release-keystore.jks \
+     -keystore "$HOME/Private/Keystores/jellyscope-android-key.jks" \
      -storetype JKS \
      -alias jellyscope-release \
      -keyalg RSA \
@@ -33,19 +34,21 @@ signing output.
      -validity 10000
    ```
 
-3. Create `.local/keystore.properties` with the exact keys read by both
-   Android application modules:
+3. Create `~/Private/Keystores/keystore.properties` with the exact keys read by
+   both Android application modules:
 
    ```properties
-   storeFile=.local/release-keystore.jks
+   storeFile=jellyscope-android-key.jks
    storePassword=the-keystore-password
    keyAlias=jellyscope-release
    keyPassword=the-key-password
    ```
 
-   A relative `storeFile` is resolved from the repository. The file's
-   presence selects `signingConfigs.release`; when it is absent, both release
-   build types retain their existing debug-signing fallback.
+   Android mobile and Android TV use this same keystore and key alias.
+
+   A relative `storeFile` is resolved from `~/Private/Keystores`. Complete
+   values select `signingConfigs.release`; missing or blank values retain the
+   debug-signing fallback.
 
 4. Keep a secure backup of the keystore and passwords. Losing the release key
    prevents updates to an already published Android application.
@@ -53,7 +56,11 @@ signing output.
 5. Run the Android release verification gate when credentials are available:
 
    ```sh
-   ./gradlew :android-app:assembleRelease :android-tv-app:assembleRelease
+   ./gradlew \
+     :android-app:assembleRelease \
+     :android-app:bundleRelease \
+     :android-tv-app:assembleRelease \
+     :android-tv-app:bundleRelease
    ```
 
 ## iOS and tvOS development signing
@@ -110,11 +117,11 @@ prerelease or change the current project values.
      for JellyScope, and keep it private. Use the Apple ID email as `appleId`.
    - App Store Connect API key: in App Store Connect open `Users and Access` →
      `Integrations` → `Keys`, create a key, record its Key ID and Issuer ID,
-     download the `.p8` private key once, and store it under `.local/`. Use its
-     path as `notaryPrivateKeyPath`.
+     download the `.p8` private key once, and store it under
+     `~/Private/Keystores`. Use its path as `notaryPrivateKeyPath`.
 
-6. Create `.local/macos-signing.properties`. The exact property keys read by
-   `desktop-app/build.gradle.kts` are:
+6. Create `~/Private/Keystores/macos-signing.properties`. The exact property
+   keys read by `desktop-app/build.gradle.kts` are:
 
    ```properties
    signingIdentity=Developer ID Application: Your Name (TEAMID)
@@ -127,14 +134,15 @@ prerelease or change the current project values.
    # Or use these three for an App Store Connect API-key flow.
    notaryKeyId=KEYID12345
    notaryIssuerId=issuer-uuid
-   notaryPrivateKeyPath=.local/AuthKey_KEYID12345.p8
+   notaryPrivateKeyPath=AuthKey_KEYID12345.p8
    ```
 
    Remove the unused credential block. The equivalent environment variable
    names are `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`, `APPLE_ID`,
    `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_NOTARY_KEY_ID`,
    `APPLE_NOTARY_ISSUER_ID`, and `APPLE_NOTARY_PRIVATE_KEY_PATH`. A property
-   file value takes precedence over its environment variable.
+   file value takes precedence over its environment variable. A relative
+   private-key path is resolved from `~/Private/Keystores`.
 
 Once the Android and macOS credentials are configured, the maintained
 repository command for all Gradle-owned release artifacts is:
@@ -144,16 +152,33 @@ repository command for all Gradle-owned release artifacts is:
 ```
 
 It runs the repository preflight, builds Android mobile and Android TV with the
-configured release key, then signs, notarizes, staples, and validates the macOS
-Release DMG and its corresponding-source artifacts. It fails before building
-when Android release signing is absent or incomplete. iOS and tvOS archives
-remain Xcode-owned. The individual commands below remain useful when running or
-troubleshooting one stage in isolation.
+configured release key, verifies their APK and AAB signatures, then signs,
+notarizes, staples, and validates the macOS Release DMG and its
+corresponding-source artifacts. It fails before building when the Git tree is
+dirty or Android release signing is absent or incomplete, and rechecks the tree
+after building. On success, it moves the publishable files into the ignored
+`release-artifacts/` directory at the repository root and renames them with
+`jellyscope.versionName` for Android and `jellyscope.desktop.version` for macOS:
 
-The script does not create a tag, GitHub Release, or remote upload. After the
-remaining smoke-test, binary-compliance, and release checks pass, manually
-publish the two APKs, the DMG, and the macOS corresponding-source files printed
-by the script.
+```text
+JellyScope-<version>-android.apk
+JellyScope-<version>-android.aab
+JellyScope-<version>-android-tv.apk
+JellyScope-<version>-android-tv.aab
+JellyScope-<version>-macos-arm64.dmg
+JellyScope-<version>-source-<revision>.tar.gz
+JellyScope-<version>-vlc-3.0.23-source.tar.xz
+JellyScope-<version>-source-manifest.txt
+```
+
+iOS and tvOS archives remain Xcode-owned. The individual commands below allow
+local edits and remain useful for testing or troubleshooting one stage in
+isolation.
+
+The script does not create a tag, GitHub Release, Play release, or remote upload.
+After the remaining smoke-test, binary-compliance, and release checks pass,
+publish the APKs for direct downloads and the AABs through Google Play. Publish
+the DMG and macOS corresponding-source files from the same output directory.
 
 ## iOS release artifacts
 
@@ -162,7 +187,7 @@ license-metadata gate from a clean release commit:
 
 ```sh
 ./scripts/fetch-vlckit.sh
-./gradlew verifyIosBinaryLicenseMetadataReadiness
+./gradlew verifyCleanSourceReleaseBinding verifyIosBinaryLicenseMetadataReadiness
 ```
 
 To use a locally rebuilt VLCKit, build the recorded revision with VideoLAN's
@@ -221,8 +246,11 @@ and the [TestFlight overview](https://developer.apple.com/help/app-store-connect
    Release-DMG production stages `JellyScope-source-<revision>.tar.gz`,
    `vlc-3.0.23.tar.xz`, and `SOURCE_MANIFEST.txt` in
    `desktop-app/build/compose/binaries/main-release/dmg/` beside the DMG. The
-   JellyScope archive is generated from the exact clean release commit. The VLC
-   source is structurally validated on every use against
+   maintained release script moves and version-renames those files after final
+   validation. The JellyScope archive is generated from `HEAD`; the script
+   requires that revision to be the exact clean release candidate. A direct
+   dirty-tree package records that state and is only a local test artifact. The
+   VLC source is structurally validated on every use against
    `scripts/macos-source-bundle/manifest-macos-arm64.txt` and cached at
    `~/Library/Caches/JellyScope/release-sources/vlc-3.0.23.tar.xz`; a valid warm
    cache is offline-capable, while a cold or invalid cache is downloaded and
@@ -273,11 +301,11 @@ Verify the generated set during ordinary development work:
 ./gradlew verifyReleaseLicenseMetadata
 ```
 
-Release-producing tasks bind the source metadata to a clean Git candidate
-automatically. Android `preReleaseBuild`, the desktop release distribution
-and DMG tasks, and the iOS/tvOS `Package License Metadata` phase use the strict
-source-binding check; debug/development paths continue to record metadata
-without requiring a clean worktree. The equivalent explicit check is:
+Release build tasks record whether the worktree is dirty but do not reject it,
+so release variants remain available for local testing. The maintained
+`build-release-artifacts.sh` command runs the strict source-binding check before
+and after building Gradle-owned publishable artifacts. iOS and tvOS publication
+remains manual, so run the equivalent check before archiving:
 
 ```sh
 ./gradlew verifyCleanSourceReleaseBinding
@@ -297,8 +325,9 @@ Use the scoped gate for the platform being released:
 ```
 
 Android release builds and the iOS Release metadata phase run their matching
-gate automatically. macOS DMG packaging does the same. A gate requires a clean
-candidate and fails on a `review-required` entry for that platform.
+gate automatically. macOS DMG packaging does the same. These readiness gates
+fail on a `review-required` entry for that platform; clean-source verification
+is the separate publication gate above.
 
 The all-target audit remains available:
 
@@ -314,20 +343,24 @@ Do not relabel an unresolved entry merely to make a task green.
 ## Android release checklist
 
 An Android release is one coordinated mobile and TV release from the same
-commit. Both applications read `jellyscope.versionCode` and
-`jellyscope.versionName` from `gradle.properties`; bump those values once for
-the pair.
+commit. Both applications use the `com.jellyscope` application ID and share
+`jellyscope.versionName`. `jellyscope.versionCode` is the mobile code; TV uses
+the next code. Advance the property by two for the next coordinated release.
 
 ### Automated gate and artifacts
 
 - Run `./scripts/verify.sh` and require it to pass.
+- Use `./scripts/build-release-artifacts.sh` for publishable artifacts so the
+  clean-source gate runs before and after the build.
 - Require `verifyAndroidBinaryLicenseMetadataReadiness`; release builds invoke
   it automatically.
-- Require the packaged release-license metadata and source binding to pass as
-  part of the Android native-bundle verifier.
+- Require the packaged release-license metadata and Android native-bundle
+  verifier to pass.
 - Confirm the minified release artifacts exist:
-  - Mobile: `android-app/build/outputs/apk/release/android-app-release.apk`
-  - TV: `android-tv-app/build/outputs/apk/release/android-tv-app-release.apk`
+  - Mobile: `release-artifacts/JellyScope-<versionName>-android.apk`
+  - Mobile Play bundle: `release-artifacts/JellyScope-<versionName>-android.aab`
+  - TV: `release-artifacts/JellyScope-<versionName>-android-tv.apk`
+  - TV Play bundle: `release-artifacts/JellyScope-<versionName>-android-tv.aab`
 - Hosted CI verifies pull requests but does not publish releases. Run the local
   release verification gate and retain its output before distributing builds.
 - Without a configured release keystore (above), release variants are

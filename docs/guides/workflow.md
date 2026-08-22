@@ -366,8 +366,9 @@ the repository root, the effective home directory, and `/`.
 `scripts/test-prepare-release-license-metadata.sh` runs first from
 `scripts/verify.sh`.
 
-Package-producing paths bind source metadata to a clean Git candidate. Binary
-readiness remains a separate, platform-scoped third-party inventory check.
+Package-producing paths record the source revision and dirty state without
+blocking local Release builds. The release-artifact script requires a clean Git
+candidate; binary readiness remains a separate, platform-scoped inventory check.
 
 ### Version Properties
 
@@ -377,7 +378,7 @@ the properties in its scope.
 | Property | Owns | Constraint |
 | --- | --- | --- |
 | `jellyscope.versionName` | Product version shown to Android | SemVer; prerelease suffixes are allowed |
-| `jellyscope.versionCode` | Android installable identity | Increment when the release needs distinct Android packages |
+| `jellyscope.versionCode` | Android mobile build number | TV uses the next code; advance by two for a coordinated release |
 | `jellyscope.desktop.version` | Desktop displayed version | SemVer; independent of Android and may include a prerelease suffix |
 | `jellyscope.desktop.packageVersion` | Native desktop package version | macOS `jpackage` requires one to three integers with a positive first component |
 
@@ -419,9 +420,10 @@ its rule changes.
 - **Release builds select playback candidates.** Debug playback can diagnose a
   problem, but cannot select a native-player candidate or close physical
   validation because its runtime behavior differs, especially for LibVLC.
-- **Release metadata has separate source and binary gates.** A clean source
-  binding does not prove third-party inventory readiness, and neither
-  gate is weakened merely to make packaging pass.
+- **Release metadata has separate source and binary gates.** Platform inventory
+  checks stay active for local Release builds, while the publication script owns
+  the clean-source requirement. A clean binding does not prove third-party
+  readiness, and a dirty local test package is never a publishable artifact.
 - **Regression coverage follows business risk.** Authentication, deletion,
   persistence, isolation, concurrency, and external request shape keep focused
   tests. UI presentation uses source tracing, platform compilation, and relevant

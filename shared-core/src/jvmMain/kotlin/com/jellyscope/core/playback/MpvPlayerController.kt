@@ -2903,6 +2903,11 @@ class MpvPlayerController private constructor(
         context: Pointer,
         style: SubtitleStyle,
     ) {
+        lib.mpv_set_property_string(
+            context,
+            "sub-font-size",
+            MPV_SUBTITLE_BASE_FONT_SIZE_PX.toString(),
+        )
         style
             .toMpvSubtitleProperties(
                 scaledPixelMargin = resolveMpvSubtitleBottomMargin(subtitleClearanceActive),

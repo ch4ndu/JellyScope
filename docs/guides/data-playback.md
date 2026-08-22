@@ -2293,9 +2293,10 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   compatible legible asset and unsupported sidecars remain non-fatal.
 - **[Android]** Media3 confirms the selected embedded group or request-specific
   external configuration id before reporting active.
-- **[desktop]** mpv maps shared style properties, resolves non-external
-  `track-list` entries to actual selector ids, confirms embedded selection by
-  `aid`/`sid`, and confirms external selection by request-specific track title.
+- **[desktop]** mpv pins its base subtitle font size to `38` scaled pixels,
+  then applies the shared style scale. It resolves non-external `track-list`
+  entries to actual selector ids, confirms embedded selection by `aid`/`sid`,
+  and confirms external selection by request-specific track title.
 - **[desktop]** `loadfile replace` acceptance is not subtitle readiness.
   External/local `sub-add` waits for the matching lifetime-unique playlist
   entry's start-file then file-loaded events. One background event consumer
@@ -3192,6 +3193,8 @@ operative text lives in the body sections above, never here.
   native/default `34` scaled-pixel margin is the correct hidden-controls and PiP
   baseline, while the existing accepted controls-visible position is retained by
   adding a fixed `146` offset when normal controls or a bottom picker is active.
+  The base font size stays pinned at `38` so mpv runtime updates cannot redefine
+  the desktop Normal size.
   One Boolean from the already-owned controls, picker, and PiP state is sufficient;
   a preference, timer, measured geometry, media heuristic, animation, or shared
   player abstraction would create state or ownership beyond this transient

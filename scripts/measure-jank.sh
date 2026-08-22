@@ -22,7 +22,7 @@ CONFIG="$PERF_DIR/config.env"
 
 MOBILE_PKG="com.jellyscope"
 MOBILE_ACTIVITY="com.jellyscope/.android.MainActivity"
-TV_PKG="com.jellyscope.tv"
+TV_PKG="com.jellyscope"
 
 RUNS=5
 PHASE="${PHASE:-baseline}"

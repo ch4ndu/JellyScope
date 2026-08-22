@@ -30,13 +30,13 @@
 .gradle/
 build/
 **/build/
+/release-artifacts/
 # AGP external-native-build (CMake) working directories
 .cxx/
 local.properties
 .kotlin/
 
-# Release credentials and signing material (defense in depth; `.local/` is the
-# documented location for JellyScope signing configuration).
+# Release credentials and signing material must never enter the repository.
 *.jks
 *.keystore
 *.p8
@@ -45,6 +45,7 @@ local.properties
 *.mobileprovision
 keystore.properties
 macos-signing.properties
+dev-server.properties
 
 # IDE
 .idea/

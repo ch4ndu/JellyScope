@@ -166,7 +166,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nmetadata_dir=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/license-metadata\"\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  \"$SRCROOT/../scripts/prepare-release-license-metadata.sh\" \"$metadata_dir\" --require-clean\n  \"$SRCROOT/../scripts/verify-release-license-metadata.sh\" \"$metadata_dir\" --require-ios-ready\nelse\n  \"$SRCROOT/../scripts/prepare-release-license-metadata.sh\" \"$metadata_dir\"\n  \"$SRCROOT/../scripts/verify-release-license-metadata.sh\" \"$metadata_dir\"\nfi\n";
+			shellScript = "set -e\nmetadata_dir=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/license-metadata\"\n\"$SRCROOT/../scripts/prepare-release-license-metadata.sh\" \"$metadata_dir\"\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  \"$SRCROOT/../scripts/verify-release-license-metadata.sh\" \"$metadata_dir\" --require-ios-ready\nelse\n  \"$SRCROOT/../scripts/verify-release-license-metadata.sh\" \"$metadata_dir\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

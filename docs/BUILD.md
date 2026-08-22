@@ -6,6 +6,12 @@ including the broad verification baseline for wide changes.
 
 All commands run from the repository root.
 
+Release variants may be built from a dirty worktree for local testing. Their
+packaged metadata records that state. Only `scripts/build-release-artifacts.sh`
+automatically requires a clean tree for Gradle-owned publishable artifacts. On
+success, that script collects the versioned files in the ignored
+`release-artifacts/` directory at the repository root.
+
 ## Toolchain
 
 - **JDK 21, installed locally.** Modules target it through `jvmToolchain`, and
@@ -33,6 +39,7 @@ does not change the desktop libmpv path. The AAR is extracted during the
 ```bash
 ./gradlew :android-app:assembleDebug
 ./gradlew :android-app:assembleRelease
+./gradlew :android-app:bundleRelease
 ```
 
 ## Android TV
@@ -40,10 +47,11 @@ does not change the desktop libmpv path. The AAR is extracted during the
 ```bash
 ./gradlew :android-tv-app:assembleDebug
 ./gradlew :android-tv-app:assembleRelease
+./gradlew :android-tv-app:bundleRelease
 ```
 
-Debug Android builds can read optional developer server prefill values from the
-untracked `.local/dev-server.properties` file. Release builds always compile
+Debug builds can read optional developer server prefill values from the private
+`~/Private/Keystores/dev-server.properties` file. Release builds always compile
 empty prefill values and fall back to debug signing when no release keystore is
 configured; see [`RELEASE.md`](RELEASE.md).
 
@@ -68,6 +76,9 @@ Release package (macOS only today):
 ```bash
 ./gradlew :desktop-app:packageReleaseDistributionForCurrentOS
 ```
+
+This direct command also works with local edits; a dirty package is for testing,
+not publication.
 
 That task produces a DMG and depends on `:desktop-app:verifyDesktopMpvBundle`,
 which fetches or reuses the IINA 1.4.0 arm64 dylib set under

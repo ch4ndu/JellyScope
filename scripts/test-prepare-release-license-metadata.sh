@@ -4,8 +4,13 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 prepare_script="$repo_root/scripts/prepare-release-license-metadata.sh"
+verify_script="$repo_root/scripts/verify-release-license-metadata.sh"
 temporary_root="$(mktemp -d)"
 trap 'rm -rf -- "$temporary_root"' EXIT
+repo_dirty=false
+if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=normal)" ]]; then
+    repo_dirty=true
+fi
 
 expect_success() {
     "$prepare_script" "$1" >/dev/null
@@ -21,15 +26,11 @@ expect_failure() {
 assert_success_output() {
     local output_dir="$1"
     local revision
-    local dirty=false
     revision="$(git -C "$repo_root" rev-parse HEAD)"
-    if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=normal)" ]]; then
-        dirty=true
-    fi
 
     [[ -f "$output_dir/.jellyscope-license-metadata" && ! -L "$output_dir/.jellyscope-license-metadata" ]]
     [[ "$(tr -d '\r\n' < "$output_dir/SOURCE_REVISION.txt")" == "$revision" ]]
-    grep -Fx "tracked-worktree-dirty=$dirty" "$output_dir/BUILD_STATE.txt" >/dev/null
+    grep -Fx "tracked-worktree-dirty=$repo_dirty" "$output_dir/BUILD_STATE.txt" >/dev/null
     cmp -s "$repo_root/LICENSE" "$output_dir/LICENSE"
     cmp -s "$repo_root/distribution/OPEN_SOURCE_NOTICES.md" "$output_dir/OPEN_SOURCE_NOTICES.md"
     cmp -s "$repo_root/distribution/MOBILE_RUNTIME_NOTICES.md" "$output_dir/MOBILE_RUNTIME_NOTICES.md"
@@ -47,6 +48,15 @@ mkdir "$empty_output"
 expect_success "$empty_output"
 [[ -f "$empty_output/.jellyscope-license-metadata" ]]
 assert_success_output "$empty_output"
+"$verify_script" "$empty_output" --require-android-ready >/dev/null
+if [[ "$repo_dirty" == true ]]; then
+    if "$verify_script" "$empty_output" --require-clean >/dev/null 2>&1; then
+        echo "ERROR: expected strict source binding to reject a dirty worktree" >&2
+        exit 1
+    fi
+else
+    "$verify_script" "$empty_output" --require-clean >/dev/null
+fi
 expect_success "$empty_output"
 assert_success_output "$empty_output"
 

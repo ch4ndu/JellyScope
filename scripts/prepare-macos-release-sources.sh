@@ -24,8 +24,6 @@ done
 [[ -f "$manifest" ]] || die "macOS source manifest is missing: $manifest"
 [[ "$cache_root" == /* && "$cache_root" != "/" ]] \
     || die "macOS source cache root must be an absolute directory below the filesystem root"
-[[ -z "$(git -C "$repo_root" status --porcelain --untracked-files=normal)" ]] \
-    || die "macOS release sources must be prepared from a clean Git candidate"
 
 bundle_id="$(manifest_value bundle-id)"
 vlc_version="$(manifest_value vlc-version)"

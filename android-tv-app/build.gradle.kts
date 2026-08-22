@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -7,13 +8,12 @@ plugins {
     alias(libs.plugins.kotlin.plugin.compose)
 }
 
-// Debug-only developer prefill sourced from untracked .local/dev-server.properties.
-// Release builds always compile empty strings, so credentials cannot ship.
+// Debug-only developer prefill. Release builds always compile empty strings.
+val devServerPropertiesFile = File(System.getProperty("user.home"), "Private/Keystores/dev-server.properties")
 val devServerProperties =
     Properties().apply {
-        val file = rootProject.file(".local/dev-server.properties")
-        if (file.exists()) {
-            file.inputStream().use { load(it) }
+        if (devServerPropertiesFile.isFile) {
+            devServerPropertiesFile.inputStream().use { load(it) }
         }
     }
 
@@ -33,9 +33,9 @@ fun escapeJavaStringLiteral(value: String): String =
         }
     }
 
-// Local-only release signing. With no properties file, release remains
-// debug-signed so the credential-free assembleRelease gate stays usable.
-val releaseKeystorePropertiesFile = rootProject.file(".local/keystore.properties")
+// Local-only release signing. Incomplete credentials retain the debug fallback.
+val releaseSigningDirectory = File(System.getProperty("user.home"), "Private/Keystores")
+val releaseKeystorePropertiesFile = releaseSigningDirectory.resolve("keystore.properties")
 val releaseKeystoreProperties =
     Properties().apply {
         if (releaseKeystorePropertiesFile.isFile) {
@@ -44,6 +44,11 @@ val releaseKeystoreProperties =
     }
 
 fun releaseKeystoreProperty(key: String): String = releaseKeystoreProperties.getProperty(key, "")
+
+val releaseKeystoreConfigured =
+    releaseKeystorePropertiesFile.isFile &&
+        listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+            .all { key -> releaseKeystoreProperty(key).isNotBlank() }
 
 val jellyScopeVersionCode = providers.gradleProperty("jellyscope.versionCode").get().toInt()
 val jellyScopeVersionName = providers.gradleProperty("jellyscope.versionName").get()
@@ -56,7 +61,7 @@ android {
             .toInt()
 
     defaultConfig {
-        applicationId = "com.jellyscope.tv"
+        applicationId = "com.jellyscope"
         minSdk =
             libs.versions.minSdk
                 .get()
@@ -65,7 +70,7 @@ android {
             libs.versions.targetSdk
                 .get()
                 .toInt()
-        versionCode = jellyScopeVersionCode
+        versionCode = jellyScopeVersionCode + 1
         versionName = jellyScopeVersionName
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
@@ -97,11 +102,15 @@ android {
 
     signingConfigs {
         create("release") {
-            if (releaseKeystorePropertiesFile.isFile) {
+            if (releaseKeystoreConfigured) {
                 val storeFilePath = releaseKeystoreProperty("storeFile")
-                if (storeFilePath.isNotBlank()) {
-                    storeFile = rootProject.file(storeFilePath)
-                }
+                val configuredStoreFile = File(storeFilePath)
+                storeFile =
+                    if (configuredStoreFile.isAbsolute) {
+                        configuredStoreFile
+                    } else {
+                        releaseSigningDirectory.resolve(storeFilePath)
+                    }
                 storePassword = releaseKeystoreProperty("storePassword")
                 keyAlias = releaseKeystoreProperty("keyAlias")
                 keyPassword = releaseKeystoreProperty("keyPassword")
@@ -126,7 +135,7 @@ android {
                 "proguard-rules.pro",
             )
             signingConfig =
-                if (releaseKeystorePropertiesFile.isFile) {
+                if (releaseKeystoreConfigured) {
                     signingConfigs.getByName("release")
                 } else {
                     signingConfigs.getByName("debug")

@@ -58,7 +58,7 @@ tasks.register<Exec>("verifyCleanSourceReleaseBinding") {
 
 tasks.register<Exec>("verifyBinaryLicenseMetadataReadiness") {
     group = "verification"
-    description = "Fails until a clean binary candidate has no unresolved license-inventory entries."
+    description = "Fails until the binary candidate has no unresolved license-inventory entries."
     dependsOn("prepareReleaseLicenseMetadata")
     commandLine(
         rootProject.layout.projectDirectory
@@ -72,7 +72,7 @@ tasks.register<Exec>("verifyBinaryLicenseMetadataReadiness") {
 
 tasks.register<Exec>("verifyAndroidBinaryLicenseMetadataReadiness") {
     group = "verification"
-    description = "Verifies a clean Android candidate and its platform dependency inventory."
+    description = "Verifies the Android platform dependency inventory."
     dependsOn("prepareReleaseLicenseMetadata")
     commandLine(
         rootProject.layout.projectDirectory
@@ -86,7 +86,7 @@ tasks.register<Exec>("verifyAndroidBinaryLicenseMetadataReadiness") {
 
 tasks.register<Exec>("verifyIosBinaryLicenseMetadataReadiness") {
     group = "verification"
-    description = "Verifies a clean iOS candidate and its platform dependency inventory."
+    description = "Verifies the iOS platform dependency inventory."
     dependsOn("prepareReleaseLicenseMetadata")
     commandLine(
         rootProject.layout.projectDirectory
@@ -100,7 +100,7 @@ tasks.register<Exec>("verifyIosBinaryLicenseMetadataReadiness") {
 
 tasks.register<Exec>("verifyMacosArm64BinaryLicenseMetadataReadiness") {
     group = "verification"
-    description = "Verifies a clean macOS arm64 candidate and its platform-specific dependency inventory."
+    description = "Verifies the macOS arm64 platform dependency inventory."
     dependsOn(":desktop-app:verifyDesktopJvmRuntimeLicenseInventory")
     dependsOn("prepareReleaseLicenseMetadata")
     commandLine(
