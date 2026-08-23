@@ -22,6 +22,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -1060,36 +1061,46 @@ internal fun TvLoggedInApp(
                             }
                             else -> {
                                 // Home owns full-bleed background and saveable row state.
+                                val homePresentationEpoch = focusCoordinator.presentationEpoch
                                 homeStateHolder.SaveableStateProvider(
-                                    tvPresentationStateKey("home", renderKey, focusCoordinator.presentationEpoch),
+                                    tvPresentationStateKey("home", renderKey, homePresentationEpoch),
                                 ) {
                                     val pendingHomeRestore =
                                         focusCoordinator.readyRestore
                                             ?.takeIf { restore -> restore.routeEntryId == renderKey.entryId }
                                             ?.takeIf { restore -> restore.path.scopes.firstOrNull() == "home" }
-                                    val pendingHomePath = pendingHomeRestore?.path
-                                    val rememberedHomePath =
-                                        pendingHomePath
-                                            ?: focusCoordinator.activePath
-                                                ?.takeIf { path -> path.scopes.firstOrNull() == "home" }
+                                    val entryHomePath =
+                                        remember(
+                                            renderKey.entryId,
+                                            homePresentationEpoch,
+                                            pendingHomeRestore?.token,
+                                        ) {
+                                            pendingHomeRestore?.path
+                                                ?: Snapshot.withoutReadObservation {
+                                                    focusCoordinator.activePath
+                                                        ?.takeIf {
+                                                            focusCoordinator.activeRouteEntryId == renderKey.entryId
+                                                        }?.takeIf { path -> path.scopes.firstOrNull() == "home" }
+                                                }
+                                        }
                                     val pendingHomeRow =
-                                        rememberedHomePath
+                                        entryHomePath
                                             ?.scopes
                                             ?.firstOrNull { scope -> scope.startsWith("row:") }
                                             ?.removePrefix("row:")
                                     TvHomeScreen(
                                         session = session,
                                         restoredFocusItemId =
-                                            rememberedHomePath
+                                            entryHomePath
                                                 ?.targetKey
                                                 ?.takeIf {
-                                                    rememberedHomePath.targetKind ==
+                                                    entryHomePath.targetKind ==
                                                         com.jellyscope.tv.ui.focus.TvFocusTargetKind.Item
                                                 }?.removePrefix("item:"),
                                         restoredFocusRow = pendingHomeRow,
-                                        restoredFocusIndex = rememberedHomePath?.fallbackIndex ?: 0,
+                                        restoredFocusIndex = entryHomePath?.fallbackIndex ?: 0,
                                         restoredFocusViewAll =
-                                            rememberedHomePath?.targetKind ==
+                                            entryHomePath?.targetKind ==
                                                 com.jellyscope.tv.ui.focus.TvFocusTargetKind.ViewAll,
                                         onViewAllSelected = { row ->
                                             pushCurrentRoute()

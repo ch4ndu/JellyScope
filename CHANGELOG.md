@@ -2,6 +2,13 @@
 
 Notable JellyScope changes, newest first.
 
+## 0.1.0-alpha89 — harden playback capability and startup ownership · week 6 · 2026-08-23
+
+- Android LibVLC now retains every independently measured finite decoder limit instead of discarding useful evidence when another probe field is unavailable, while Android mpv keeps its stricter complete-probe policy.
+- Shared Compose players construct only the selected native backend off Main after playback preferences are known, serialize overlapping launch ownership, and release stale or failed candidates exactly once; Apple TV now follows the same delayed-construction and explicit-readiness boundary.
+- Desktop mpv retains software HDR tone mapping while desktop LibVLC asks Jellyfin for SDR conversion, Android warms its cached codec probe before playback, PiP keeps the strongest deferred recovery trigger, and Android TV Home no longer observes route-wide focus movement on every D-pad press.
+- Automated lint, focused host tests, Android mobile/TV minified release builds, R8/lint, native-payload and license checks, Apple framework linkage, and compile-only Apple TV app assembly passed. Not device-validated — the representative-hardware playback, HDR, PiP, remote, focus, and startup checklist remains open.
+
 ## 0.1.0-alpha88 — simplify pinned dependency and native packaging maintenance · week 6 · 2026-08-17
 
 - AndroidX Core, JNA, AtomicFU, Kotlin, Ktor, SQLite, and KSP are updated to their reviewed stable versions while the existing SDK, Media3, native-player, and platform compatibility holdbacks remain unchanged.

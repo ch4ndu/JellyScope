@@ -52,17 +52,19 @@ class AndroidMpvCapabilityMatrixTest {
             )
         val projected =
             declared.narrowedToProbedVideoResolutions(
-                DeviceDecodingCapabilities(
-                    videoCodecs = listOf("h264", "mpeg4", "not-declared"),
-                    audioCodecs = emptyList(),
-                    supportsDolbyVision = false,
-                    videoResolutionsByCodec =
-                        mapOf(
-                            "h264" to complete,
-                            "mpeg4" to incomplete,
-                            "not-declared" to complete,
-                        ),
-                ),
+                probed =
+                    DeviceDecodingCapabilities(
+                        videoCodecs = listOf("h264", "mpeg4", "not-declared"),
+                        audioCodecs = emptyList(),
+                        supportsDolbyVision = false,
+                        videoResolutionsByCodec =
+                            mapOf(
+                                "h264" to complete,
+                                "mpeg4" to incomplete,
+                                "not-declared" to complete,
+                            ),
+                    ),
+                allowPartialProbeLimits = false,
             )
 
         assertEquals(complete, projected.videoResolutionsByCodec.getValue("h264"))

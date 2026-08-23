@@ -31,29 +31,41 @@ fun androidLibVlcCapabilityMatrix(): LibVlcCapabilityMatrix =
     )
 
 /**
- * Applies only complete MediaCodec bounds for codecs declared by LibVLC.
+ * Applies finite MediaCodec bounds for codecs declared by LibVLC.
  *
  * Android LibVLC may delegate an intersecting codec to the platform hardware
  * path, so the active decoder probe is useful for preventing an oversized
- * source from reaching that path. It does not describe LibVLC's software
- * decoders; codecs such as AV1 with no corresponding probe fact retain the
- * engine declaration and its unknown bounds. All other LibVLC capability facts
- * remain owned by the engine declaration.
+ * source from reaching that path. Each reported bound remains independent: a
+ * missing probe field stays unknown. The probe does not describe LibVLC's
+ * software decoders; codecs such as AV1 with no corresponding probe fact
+ * retain the engine declaration and its unknown bounds. All other LibVLC
+ * capability facts remain owned by the engine declaration.
  */
-internal fun DeviceDecodingCapabilities.narrowedToProbedVideoResolutions(probed: DeviceDecodingCapabilities): DeviceDecodingCapabilities {
+internal fun DeviceDecodingCapabilities.narrowedToProbedVideoResolutions(
+    probed: DeviceDecodingCapabilities,
+    allowPartialProbeLimits: Boolean,
+): DeviceDecodingCapabilities {
     val projectedResolutions =
         videoResolutionsByCodec.mapValues { (codec, declaredResolution) ->
             if (codec !in probed.videoCodecs || !declaredResolution.isUnknown()) {
                 declaredResolution
             } else {
                 probed.videoResolutionsByCodec[codec]
-                    ?.takeIf { resolution -> resolution.isComplete() }
+                    ?.takeIf { resolution ->
+                        if (allowPartialProbeLimits) resolution.hasAnyFiniteLimit() else resolution.isComplete()
+                    }
                     ?: declaredResolution
             }
         }
     val projectedEvidence =
         videoCodecEvidence.mapValues { (codec, declaredEvidence) ->
-            if (projectedResolutions[codec]?.isComplete() == true && videoResolutionsByCodec[codec]?.isUnknown() == true) {
+            if (
+                codec in probed.videoCodecs &&
+                videoResolutionsByCodec[codec]?.isUnknown() == true &&
+                probed.videoResolutionsByCodec[codec]?.let { resolution ->
+                    if (allowPartialProbeLimits) resolution.hasAnyFiniteLimit() else resolution.isComplete()
+                } == true
+            ) {
                 declaredEvidence.copy(
                     finiteLimitSources =
                         probed.videoCodecEvidence[codec]
@@ -73,6 +85,9 @@ internal fun DeviceDecodingCapabilities.narrowedToProbedVideoResolutions(probed:
 
 private fun VideoCodecResolution.isUnknown(): Boolean =
     maxWidth == null && maxHeight == null && maxFrameArea == null && maxFrameAreaPerSecond == null
+
+private fun VideoCodecResolution.hasAnyFiniteLimit(): Boolean =
+    maxWidth != null || maxHeight != null || maxFrameArea != null || maxFrameAreaPerSecond != null
 
 private fun VideoCodecResolution.isComplete(): Boolean =
     maxWidth != null && maxHeight != null && maxFrameArea != null && maxFrameAreaPerSecond != null

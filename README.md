@@ -7,6 +7,7 @@
 JellyScope is a Jellyfin client written in Kotlin with Compose Multiplatform.
 It runs on Android phones and tablets, Android TV, Google TV, Fire TV, iPhone,
 iPad, and Apple Silicon Macs. There's also an experimental Apple TV preview.
+The current alpha release is **0.1.0-alpha89**.
 
 ## Features
 
@@ -76,7 +77,7 @@ packaged releases yet.
 | **AVPlayer** — iOS default, Apple TV | Efficient, best system integration | Narrowest format range; only WebVTT subtitles render without server help |
 | **VLCKit** — iOS | Wide format range including MKV oddities and Windows Media | No TrueHD; no HDR |
 | **mpv** — macOS default | Wide format range including TrueHD | HDR is tone-mapped in software, so colours differ from a true HDR display; very-high-resolution playback can stutter during continuous pointer movement (LibVLC avoids that specific bottleneck) |
-| **LibVLC (beta)** — macOS | Same wide format range, bundled with the app | HDR is tone-mapped in software; it has an independent very-high-resolution output ceiling and is not a universal fallback |
+| **LibVLC (beta)** — macOS | Same wide format range, bundled with the app | Requests server-side HDR-to-SDR conversion; it has an independent very-high-resolution output ceiling and is not a universal fallback |
 
 mpv and the VLC players accept more formats than the system players, sometimes
 through software decoding. A listed codec does not guarantee that every device

@@ -123,6 +123,7 @@ enum class TvPlaybackPhase {
 }
 
 data class TvPlaybackUiState(
+    val playerInstalled: Boolean = false,
     val phase: TvPlaybackPhase = TvPlaybackPhase.Loading,
     val status: PlaybackStatus = PlaybackStatus.Idle,
     val positionMs: Long = 0L,
@@ -171,7 +172,7 @@ class TvPlaybackSessionPresenter(
     initialItemId: String,
     private val requestedMediaSourceId: String?,
     private val initialStartPositionTicks: Long,
-    private val playerController: PlayerController,
+    private val playerControllerFactory: () -> PlayerController,
     private val playbackInfoPlanner: PlaybackInfoPlanner,
     private val reportingQueue: PlaybackReportingQueue,
     private val getItemDetail: GetItemDetailUseCase,
@@ -193,12 +194,23 @@ class TvPlaybackSessionPresenter(
     val state: StateFlow<TvPlaybackUiState> = _state.asStateFlow()
 
     /** The AVPlayer for the Swift host; cast with `as? AVPlayer`, never trap. */
-    val platformPlayer: Any? get() = playerController.platformPlayer
+    val platformPlayer: Any? get() = installedPlayerController?.platformPlayer
+
+    private var installedPlayerController: PlayerController? = null
+    private val playerController: PlayerController
+        get() = checkNotNull(installedPlayerController) { "Player controller is not installed." }
+    private var installedPlaybackReportingCoordinator: PlaybackReportingCoordinator? = null
+    private val playbackReportingCoordinator: PlaybackReportingCoordinator
+        get() =
+            checkNotNull(installedPlaybackReportingCoordinator) {
+                "Playback reporting coordinator is not installed."
+            }
 
     private var currentItemId: String = initialItemId
     private var plan: PlaybackPlan? = null
     private var planEpoch = 0L
     private var selectedMediaSourceId: String? = null
+    private var selectedSourceContainer: String? = null
     private var mediaStreams: List<PlaybackMediaStream> = emptyList()
     private var detailItem: MediaItem? = null
     private var title: String? = null
@@ -252,7 +264,10 @@ class TvPlaybackSessionPresenter(
         PlaybackHealthSessionCoordinator(
             scope = scope,
             monotonicTimeMs = monotonicTimeMs,
-            measurementCapabilities = { playerController.playbackHealthMeasurementCapabilities },
+            measurementCapabilities = {
+                installedPlayerController?.playbackHealthMeasurementCapabilities
+                    ?: com.jellyscope.core.domain.playback.PlaybackHealthMeasurementCapabilities.None
+            },
             onSignal = { signal ->
                 logTvHealthSignal(signal.kind)
                 // The warnings preference suppresses PRESENTATION only. Automatic
@@ -276,24 +291,73 @@ class TvPlaybackSessionPresenter(
     private var started = false
     private var startInFlight = false
     private var closed = false
+    private var startupGeneration = 0L
+    private var startupJob: Job? = null
     private var observeJob: Job? = null
     private var videoOutputJob: Job? = null
     private var replanJob: Job? = null
     private var queueJob: Job? = null
-    private val playbackReportingCoordinator =
-        PlaybackReportingCoordinator(
-            queue = reportingQueue,
-            scope = scope,
-            playbackState = playerController.playbackState,
-        )
 
     fun watchState(onChange: (TvPlaybackUiState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
     fun start() {
-        if (started) {
+        if (started || closed) {
             return
         }
         started = true
+        val expectedGeneration = ++startupGeneration
+        startupJob =
+            scope.launch {
+                val candidateOwner = TvControllerCandidateOwner()
+                try {
+                    withContext(dispatchers.work) {
+                        playerControllerFactory().also(candidateOwner::acquire)
+                    }
+                    currentCoroutineContext().ensureActive()
+                    if (closed || expectedGeneration != startupGeneration) {
+                        return@launch
+                    }
+                    candidateOwner.transferTo { installed ->
+                        installedPlayerController = installed
+                        try {
+                            installedPlaybackReportingCoordinator =
+                                PlaybackReportingCoordinator(
+                                    queue = reportingQueue,
+                                    scope = scope,
+                                    playbackState = installed.playbackState,
+                                )
+                            observeControllerOutput()
+                            _state.update { current -> current.copy(playerInstalled = true) }
+                        } catch (exception: Throwable) {
+                            videoOutputJob?.cancel()
+                            videoOutputJob = null
+                            installedPlaybackReportingCoordinator = null
+                            installedPlayerController = null
+                            throw exception
+                        }
+                    }
+                    if (startItem(currentItemId, requestedMediaSourceId, initialStartPositionTicks, resetReporting = false)) {
+                        observePlaybackState()
+                    }
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (_: Throwable) {
+                    if (!closed && expectedGeneration == startupGeneration) {
+                        _state.update { current ->
+                            current.copy(
+                                playerInstalled = installedPlayerController != null,
+                                phase = TvPlaybackPhase.Failed,
+                                error = PlaybackError.Unknown,
+                            )
+                        }
+                    }
+                } finally {
+                    candidateOwner.releaseUntransferred()
+                }
+            }
+    }
+
+    private fun observeControllerOutput() {
         videoOutputJob =
             scope.launch {
                 playerController.videoOutputObservations.collect { observation ->
@@ -304,11 +368,6 @@ class TvPlaybackSessionPresenter(
                     }
                 }
             }
-        scope.launch {
-            if (startItem(currentItemId, requestedMediaSourceId, initialStartPositionTicks, resetReporting = false)) {
-                observePlaybackState()
-            }
-        }
     }
 
     fun play() {
@@ -600,17 +659,32 @@ class TvPlaybackSessionPresenter(
 
     override fun close() {
         if (closed) {
+            reportingQueue.closeAfterDrain()
             return
         }
         closed = true
+        startupGeneration += 1L
+        startupJob?.cancel()
+        startupJob = null
+        val reportingCoordinator = installedPlaybackReportingCoordinator
+        installedPlaybackReportingCoordinator = null
+        val controller = installedPlayerController
+        installedPlayerController = null
         cancelAndInvalidateSubtitleFallback()
+        observeJob?.cancel()
+        observeJob = null
         videoOutputJob?.cancel()
         videoOutputJob = null
+        queueJob?.cancel()
+        queueJob = null
         playbackHealthCoordinator.end()
         // The final Stop drains on the queue's own scope, so it survives this
         // presenter's cancellation. A never-started session enqueues nothing.
-        playbackReportingCoordinator.dispose(playerController.playbackState.value.positionMs)
-        playerController.release()
+        if (reportingCoordinator != null && controller != null) {
+            reportingCoordinator.dispose(controller.playbackState.value.positionMs)
+            controller.release()
+        }
+        reportingQueue.closeAfterDrain()
         super.close()
     }
 
@@ -719,6 +793,7 @@ class TvPlaybackSessionPresenter(
                 )
             }
         selectedMediaSourceId = version.id
+        selectedSourceContainer = version.container
         mediaStreams = version.mediaStreams
 
         val launchContext =
@@ -781,6 +856,7 @@ class TvPlaybackSessionPresenter(
                         maxStreamingBitrate = selectedQualityMaxBitrate,
                         qualityPolicy = selectedQualityPolicy,
                         qualityCapOrigin = selectedQualityCapOrigin,
+                        sourceContainer = selectedSourceContainer,
                         requestPolicy =
                             PlaybackInfoRequestPolicy(
                                 diagnosticSessionSequence = playbackHealthGeneration,
@@ -1115,6 +1191,7 @@ class TvPlaybackSessionPresenter(
                                 maxStreamingBitrate = selectedQualityMaxBitrate,
                                 qualityPolicy = selectedQualityPolicy,
                                 qualityCapOrigin = selectedQualityCapOrigin,
+                                sourceContainer = selectedSourceContainer,
                                 requestPolicy =
                                     requestPolicy.copy(
                                         diagnosticSessionSequence = playbackHealthGeneration,
@@ -1702,7 +1779,8 @@ class TvPlaybackSessionPresenter(
         error: PlaybackError? = null,
         terminalOutcome: PlaybackTerminalOutcome? = null,
     ) {
-        val runtime = playerController.runtimeDiagnostics.value
+        val controller = installedPlayerController ?: return
+        val runtime = controller.runtimeDiagnostics.value
         val terminalSnapshot =
             terminalOutcome?.let {
                 TvTerminalDiagnosticSnapshot(
@@ -1720,7 +1798,7 @@ class TvPlaybackSessionPresenter(
                     stage = stage,
                     event = event,
                     platform = PlaybackDiagnosticPlatform.TvOs,
-                    backend = playerController.activeBackend,
+                    backend = controller.activeBackend,
                     prepareSequence = runtime.prepareEpoch,
                     sessionSequence = playbackHealthGeneration,
                     streamMode = plan?.streamMode,
@@ -1741,14 +1819,15 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun logTvHealthSignal(signal: PlaybackHealthSignalKind) {
-        val runtime = playerController.runtimeDiagnostics.value
+        val controller = installedPlayerController ?: return
+        val runtime = controller.runtimeDiagnostics.value
         tvPlaybackDiagnosticLogger.w {
             formatPlaybackDiagnostic(
                 PlaybackDiagnostic(
                     stage = PlaybackDiagnosticStage.NativePlayer,
                     event = PlaybackDiagnosticEvent.HealthSignal,
                     platform = PlaybackDiagnosticPlatform.TvOs,
-                    backend = playerController.activeBackend,
+                    backend = controller.activeBackend,
                     prepareSequence = runtime.prepareEpoch,
                     sessionSequence = playbackHealthGeneration,
                     streamMode = plan?.streamMode,
@@ -1762,14 +1841,15 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun logTvHealthSummary(summary: PlaybackHealthSummary) {
-        val runtime = playerController.runtimeDiagnostics.value
+        val controller = installedPlayerController ?: return
+        val runtime = controller.runtimeDiagnostics.value
         tvPlaybackDiagnosticLogger.i {
             formatPlaybackDiagnostic(
                 PlaybackDiagnostic(
                     stage = PlaybackDiagnosticStage.NativePlayer,
                     event = PlaybackDiagnosticEvent.HealthSummary,
                     platform = PlaybackDiagnosticPlatform.TvOs,
-                    backend = playerController.activeBackend,
+                    backend = controller.activeBackend,
                     prepareSequence = runtime.prepareEpoch,
                     sessionSequence = playbackHealthGeneration,
                     streamMode = plan?.streamMode,
@@ -1803,14 +1883,15 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun logTvVideoOutput(observed: Boolean) {
-        val runtime = playerController.runtimeDiagnostics.value
+        val controller = installedPlayerController ?: return
+        val runtime = controller.runtimeDiagnostics.value
         tvPlaybackDiagnosticLogger.i {
             formatPlaybackDiagnostic(
                 PlaybackDiagnostic(
                     stage = PlaybackDiagnosticStage.NativePlayer,
                     event = PlaybackDiagnosticEvent.VideoOutput,
                     platform = PlaybackDiagnosticPlatform.TvOs,
-                    backend = playerController.activeBackend,
+                    backend = controller.activeBackend,
                     prepareSequence = runtime.prepareEpoch,
                     sessionSequence = playbackHealthGeneration,
                     streamMode = plan?.streamMode,
@@ -1959,6 +2040,7 @@ class TvPlaybackSessionPresenter(
         val inheritedQualityPolicy = preferences.effectiveDefaultQualityPolicy(playerController.activeBackend)
         _state.update {
             TvPlaybackUiState(
+                playerInstalled = installedPlayerController != null,
                 phase =
                     when (playbackState.status) {
                         PlaybackStatus.Failed -> TvPlaybackPhase.Failed
@@ -2086,6 +2168,28 @@ private data class TvControllerFailureKey(
     val sessionSequence: Long,
     val prepareSequence: Long?,
 )
+
+private class TvControllerCandidateOwner {
+    private var controller: PlayerController? = null
+
+    fun acquire(candidate: PlayerController): PlayerController {
+        check(controller == null) { "Controller candidate is already owned." }
+        controller = candidate
+        return candidate
+    }
+
+    fun transferTo(block: (PlayerController) -> Unit) {
+        val candidate = checkNotNull(controller) { "Controller candidate is not owned." }
+        block(candidate)
+        controller = null
+    }
+
+    fun releaseUntransferred() {
+        val candidate = controller
+        controller = null
+        candidate?.release()
+    }
+}
 
 private enum class TvSessionRecoveryResult {
     NotHandled,

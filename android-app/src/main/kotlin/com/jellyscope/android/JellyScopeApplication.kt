@@ -10,6 +10,7 @@ import com.jellyscope.core.di.androidCoreModule
 import com.jellyscope.core.di.coreModule
 import com.jellyscope.core.di.downloadsModule
 import com.jellyscope.core.domain.platform.NativeDiagnosticLogSource
+import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.download.DownloadLifecycleHost
 import com.jellyscope.core.playback.androidPlaybackModule
 import com.jellyscope.core.util.LogBufferStore
@@ -42,6 +43,9 @@ class JellyScopeApplication : Application() {
         val koin = GlobalContext.get()
         koin.get<DownloadLifecycleHost>().start()
         val applicationScope = koin.get<CoroutineScope>()
+        applicationScope.launch {
+            runCatching { koin.get<DeviceProfileProvider>().capabilities() }
+        }
         val preferenceStore = koin.get<LogCollectionPreferenceStore>()
         val nativeDiagnosticLogSource = koin.get<NativeDiagnosticLogSource>()
         configureApplicationLogWriters(

@@ -224,6 +224,40 @@ and storage roots. The project does not use MockK or Turbine. Common tests use
 `kotlin.test` and `kotlinx-coroutines-test` (`runTest`); Android host tests use
 JUnit 4 and Robolectric only when Android APIs are required.
 
+### Playback And Device-Test Scope
+
+For playback, player, and device-integration changes, light coverage is the
+default, not comprehensive fake coverage. New host or fake tests are justified
+only for deterministic app-owned contracts: pure policy or reducers, Jellyfin
+request/profile encoding, persistence, reporting state, or one small
+exactly-once resource-ownership or causal-concurrency seam.
+
+Host and fake tests do not validate native decoder selection or fallback,
+rendered audio or video, HDR or tone mapping, A/V sync or frame pacing,
+hardware capability, native PiP or remote behavior, engine startup/teardown
+performance, or real TV focus and input. Those claims require minified-release
+manual validation on representative hardware and remain explicit pending device
+validation until observed.
+
+Do not add exhaustive permutation matrices, duplicate fake-player or app
+bootstraps, scheduler-hop choreography, or assertions about internal logger
+strings or call order merely to approximate native confidence. One causal case
+is enough when it protects the app-owned contract.
+
+Stop and reduce scope when fixture, mock, or scheduler setup is longer or more
+complex than its behavioral assertions, when a small rule needs production hooks
+solely for testing, or when several tests prove the same contract. Prefer the
+smallest pure or causal test with a source trace, affected-platform compilation,
+and manual device validation. Record coverage debt only for a still-uncovered
+app-owned contract, never as a substitute for ordinary device validation.
+
+Comprehensive playback matrices, new native-player proxy coverage, permanent
+integration or device harnesses, and broader fixtures require explicit
+maintainer approval before implementation. A plan, reviewer, or test-checklist
+recommendation is not that approval. Extend an existing focused test only when
+the smallest added case would fail before the change and catch a meaningful
+app-owned regression; coverage quantity or percentage is never a goal.
+
 Use Android instrumented tests only for behavior that needs the runtime or a
 device. Apple/native and desktop tests cover bridge mapping and lifecycle
 behavior that shared fakes cannot prove; desktop persistence tests cover
@@ -248,12 +282,13 @@ coverage. If a business path resists focused testing, record one line in the
 Coverage debt section of `.local/KNOWN-ISSUES.md` using
 `path | why hard | escape plan`, then remove it when the path gains coverage.
 
-Playback tests keep shared planning separate from platform mapping. Cover the
-relevant stream mode, invalid source, server failure, track and subtitle
-selection, resume and reporting, fallback, stale subtitle activation, external
-request, and re-plan semantics. Security tests use values resembling URLs,
-tokens, usernames, titles, paths, and headers to prove that scrubbers and
-cleanup boundaries do not leak them.
+Playback coverage keeps shared planning separate from platform mapping and
+protects only app-owned planning or reporting contracts, such as stream mode,
+invalid source, server failure, track and subtitle selection, resume and
+reporting, fallback policy, stale subtitle activation, external request shape,
+and re-plan semantics. Security tests use values resembling URLs, tokens,
+usernames, titles, paths, and headers to prove that scrubbers and cleanup
+boundaries do not leak them.
 
 ## 6. Review Your Own Diff
 

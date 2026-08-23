@@ -358,16 +358,15 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   `dev.jdtech.mpv:libmpv:1.0.0` AAR is a verified build input for the unchanged
   native graph, not the runtime wrapper dependency.
 - Android LibVLC keeps its pinned-engine declaration as the base profile. The
-  Android provider projects only a **complete coupled resolution tuple** from
-  the cached active MediaCodec probe when the codec is declared by both LibVLC
-  and the platform mapping. The tuple includes width, height, padded frame
-  area, and frame-area-per-second; it is copied wholesale, never rebuilt from
-  independent maxima. The projection changes no LibVLC container, codec,
-  subtitle, HDR, audio, passthrough, or software-decoder declaration, and a
-  missing or incomplete probe fact retains the declared unknown bound. This is
-  a narrow hardware-delegation safety input, not proof that LibVLC can render
-  the source. In particular, unprobed AV1 remains eligible for the pinned
-  LibVLC software/dav1d path.
+  Android provider preserves each finite width, height, padded frame-area, or
+  frame-area-per-second fact from the cached active MediaCodec probe only when
+  the codec is declared by both LibVLC and the platform mapping and LibVLC's
+  declared tuple is all Unknown. Missing fields stay Unknown; no maxima are
+  rebuilt or synthesized. The projection changes no LibVLC container, codec,
+  subtitle, HDR, audio, passthrough, or software-decoder declaration. This is a
+  narrow hardware-delegation safety input, not proof that LibVLC can render the
+  source. In particular, unprobed AV1 remains eligible for the pinned LibVLC
+  software/dav1d path.
 - When a projected bound rejects a source, the shared planner owns the normal
   compatibility path before native prepare: it records the capability-driven
   retry and `SourceCopyRejected`/`VerifiedDeviceCap` rather than handing the
@@ -376,7 +375,7 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   and the server-scoped VLC default remains a separate Fixed policy. The
   decoder enumeration is cached for both Android backends and explicit refresh
   re-enumerates it before applying the LibVLC projection.
-- A projected tuple is not visual-output acceptance. A native backend can
+- A projected probe limit is not visual-output acceptance. A native backend can
   select a track without producing a picture or can accumulate output drops;
   sources subject to an unresolved decoder-safety gate stay outside acceptance.
   LibVLC's positive displayed-picture counter supplies first-video-output
@@ -586,15 +585,16 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   authoritative hardware-probe claim. Media3 then adds only runtime-confirmed
   bundled-FFmpeg E-AC-3 audio decode support. Android mpv uses its pinned
   capability declaration plus only the explicitly delegated complete bounds,
-  and Android LibVLC uses its engine facts plus only the intersecting complete
-  resolution tuple described above. Media3 FFmpeg support never leaks into
+  and Android LibVLC uses its engine facts plus only the intersecting finite
+  probe limits described above. Media3 FFmpeg support never leaks into
   either VLC-family backend. iOS additionally intersects both AVPlayer and
   VLCKit with the same conservative 4K30 frame-area/throughput input envelope
   when playback compatibility is **Standard**. On macOS only, Standard
   intersects LibVLC with a separate 3840x2160, 8,294,400-pixel,
-  497,664,000-pixels-per-second input envelope. The server profile receives the
-  width/height box; frame area and proportional throughput remain local
-  source-copy facts because the wire contract cannot encode them.
+  497,664,000-pixels-per-second input envelope. The server profile receives
+  only finite width/height conditions; finite frame area and proportional
+  throughput remain local source-copy facts because the wire contract cannot
+  encode them.
   **Unrestricted (experimental)** removes only the active backend's marked
   app-owned envelope from the device profile and source-copy preflight; it does
   not remove backend codec, container, range, explicit-quality, or
@@ -605,8 +605,10 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   `Unknown`, and a static fallback or legacy name classification is never
   promoted to a platform hardware/software probe. Desktop mpv and LibVLC use
   separate immutable declarations and snapshots: mpv owns pinned-engine
-  evidence, while LibVLC's base declaration remains static with unknown limits.
-  The macOS product envelope does not affect mpv or non-macOS LibVLC.
+  evidence and its HDR10 ranges for software tone mapping, while LibVLC's base
+  declaration remains static with unknown limits and SDR-only ranges so the
+  server converts HDR to SDR. The macOS product envelope does not affect mpv or
+  non-macOS LibVLC.
   Measurements from JellyScope's limited device/server/content combinations may
   guide validation and a deliberately conservative product envelope, but they
   never become universal platform decoder evidence or codec/range/bit-depth
@@ -2639,7 +2641,8 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   (`tone-mapping=bt.2390`, `target-peak=auto` for the software render path;
   rejected options log one sanitized diagnostic and continue). A desktop-only
   Settings caption under the HDR picker (`isDesktopHdrToneMapNoticeVisible()`)
-  explains that desktop HDR is software-tone-mapped.
+  explains mpv's software tone mapping and LibVLC's server HDR-to-SDR
+  conversion; neither necessarily matches native HDR presentation.
 - `DesktopDisplaySleep` (jvmMain, JNA → IOKit `IOPMAssertionCreateWithName`
   PreventUserIdleDisplaySleep) holds one idempotent assertion while status is
   Playing or Buffering, released on pause/stop and always on dispose; no-op off
@@ -3026,8 +3029,9 @@ operative text lives in the body sections above, never here.
   declaration, documented limit, or explicit unknown independently. Sending
   that metadata to Jellyfin was also rejected: it is diagnostic context, not a
   server negotiation field. Separate desktop snapshots prevent a later mpv or
-  LibVLC correction from leaking across engines while the alpha75 wire profiles
-  remain exactly unchanged.
+  LibVLC correction from leaking across engines: mpv retains HDR10 wire ranges
+  for its software tone mapping, while LibVLC intentionally advertises SDR-only
+  ranges for server HDR-to-SDR conversion.
 - **The iOS 4K30 envelope is product policy, not a per-model decoder table.**
   AVPlayer already rejects sources outside that frame box and throughput. iOS
   VLCKit now intersects its separately owned codec declaration with the same

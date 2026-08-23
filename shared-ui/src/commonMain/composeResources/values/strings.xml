@@ -566,7 +566,7 @@
     <string name="settings_picker_hdr_subtitle">Choose how HDR content is handled.</string>
     <string name="settings_player_hdr_auto">Auto HDR</string>
     <string name="settings_player_hdr_sdr">Prefer SDR</string>
-    <string name="settings_player_hdr_desktop_notice">Desktop tone-maps HDR video in software; colors may differ from a native HDR display.</string>
+    <string name="settings_player_hdr_desktop_notice">Desktop mpv tone-maps HDR in software; VLC asks the server to convert HDR to SDR. Either may differ from native HDR.</string>
     <string name="settings_player_resolution_unlimited">No limit - prefer DirectPlay</string>
     <string name="settings_player_ios_compatibility_standard">Standard - compatible limits (recommended)</string>
     <string name="settings_player_ios_compatibility_unrestricted">Unrestricted (experimental)</string>

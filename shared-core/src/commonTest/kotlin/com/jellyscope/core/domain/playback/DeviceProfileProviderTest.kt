@@ -20,7 +20,6 @@ class DeviceProfileProviderTest {
         val vlcKitExpected = vlcKitCapabilities()
         val vlcKitActual =
             vlcKitDeviceCapabilities(
-                supportsAv1HardwareDecode = false,
                 videoResolutionsByCodec = mapOf("h264" to VideoCodecResolution()),
             )
 

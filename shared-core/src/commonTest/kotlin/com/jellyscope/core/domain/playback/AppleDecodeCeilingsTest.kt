@@ -72,7 +72,6 @@ class AppleDecodeCeilingsTest {
 
         val capabilities =
             vlcKitDeviceCapabilities(
-                supportsAv1HardwareDecode = true,
                 videoResolutionsByCodec = vlcKit,
             )
         codecs.forEach { codec ->
@@ -104,7 +103,6 @@ class AppleDecodeCeilingsTest {
         val vlcKitCodecs = vlcKitDeviceProfileDeclaration.videoCodecs
         val vlcKit =
             vlcKitDeviceCapabilities(
-                supportsAv1HardwareDecode = true,
                 videoResolutionsByCodec =
                     resolveAppleDecodeCeilings(
                         deviceModelIdentifier = "FuturePhone99,1",
@@ -116,7 +114,7 @@ class AppleDecodeCeilingsTest {
         assertTrue("vp9" in vlcKit.videoCodecs)
         assertTrue("vp9" in vlcKit.directPlayProfiles.single().videoCodecs)
 
-        val completeVlcKit = vlcKitDeviceCapabilities(supportsAv1HardwareDecode = true)
+        val completeVlcKit = vlcKitDeviceCapabilities()
         assertEquals(vlcKitDeviceProfileDeclaration.videoCodecs, completeVlcKit.videoCodecs)
         assertEquals(
             vlcKitDeviceProfileDeclaration.videoCodecs.toSet(),

@@ -115,10 +115,11 @@ val tvosPresentationModule =
                 initialItemId = request.itemId,
                 requestedMediaSourceId = request.mediaSourceId,
                 initialStartPositionTicks = request.startPositionTicks,
-                playerController =
+                playerControllerFactory = {
                     get<PlayerController> {
                         parametersOf(request.session, PlayerBackend.AVPlayer)
-                    },
+                    }
+                },
                 playbackInfoPlanner = get(),
                 reportingQueue =
                     PlaybackReportingQueue(

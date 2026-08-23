@@ -26,12 +26,14 @@ import com.jellyscope.core.domain.playback.PlaybackHealthGuidancePolicy
 import com.jellyscope.core.domain.playback.PlaybackHealthGuidanceReason
 import com.jellyscope.core.domain.playback.PlaybackHealthMeasurementCapabilities
 import com.jellyscope.core.domain.playback.PlaybackInfoPlanner
+import com.jellyscope.core.domain.playback.PlaybackPlan
 import com.jellyscope.core.domain.playback.PlaybackProgressEvent
 import com.jellyscope.core.domain.playback.PlaybackQualityCapOrigin
 import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackStatus
+import com.jellyscope.core.domain.playback.ProgressReportingPolicy
 import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
@@ -48,6 +50,7 @@ import com.jellyscope.core.domain.usecase.GetSeriesSeasonsUseCase
 import com.jellyscope.core.domain.usecase.GetSubtitleSelectionUseCase
 import com.jellyscope.core.playback.PlaybackDiagnosticsContext
 import com.jellyscope.core.playback.PlaybackReportingQueue
+import com.jellyscope.core.playback.PlaybackReportingSession
 import com.jellyscope.core.playback.PlaybackStopSettlementRegistry
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.LogScrubber
@@ -67,6 +70,123 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TvPlaybackSessionPresenterTest {
+    @Test
+    fun factoryIsDeferredUntilStartAndConstructsOnceOnWork() =
+        runTest {
+            val workDispatcher = TvRecordingDispatcher(StandardTestDispatcher(testScheduler))
+            val installedController = FakeTvPlayerController()
+            var factoryCount = 0
+            val fixture =
+                fixture(
+                    workDispatcher = workDispatcher,
+                    playerControllerFactory = {
+                        check(workDispatcher.running)
+                        factoryCount += 1
+                        installedController
+                    },
+                )
+
+            assertEquals(0, factoryCount)
+            assertNull(fixture.presenter.platformPlayer)
+            assertFalse(fixture.presenter.state.value.playerInstalled)
+            assertTrue(fixture.repository.planRequests.isEmpty())
+
+            fixture.presenter.start()
+            runCurrent()
+
+            assertEquals(1, factoryCount)
+            assertTrue(fixture.presenter.state.value.playerInstalled)
+            assertEquals(1, installedController.preparedPlans.size)
+            fixture.presenter.start()
+            runCurrent()
+            assertEquals(1, factoryCount)
+            fixture.presenter.close()
+        }
+
+    @Test
+    fun factoryFailurePublishesCreationFailureWithoutPlanningOrReporting() =
+        runTest {
+            var factoryCount = 0
+            val fixture =
+                fixture(
+                    playerControllerFactory = {
+                        factoryCount += 1
+                        error("factory failure")
+                    },
+                )
+
+            fixture.presenter.start()
+            runCurrent()
+
+            assertEquals(1, factoryCount)
+            assertFalse(fixture.presenter.state.value.playerInstalled)
+            assertEquals(TvPlaybackPhase.Failed, fixture.presenter.state.value.phase)
+            assertEquals(PlaybackError.Unknown, fixture.presenter.state.value.error)
+            assertTrue(fixture.repository.planRequests.isEmpty())
+            assertTrue(fixture.reporter.reports.isEmpty())
+            fixture.presenter.start()
+            runCurrent()
+            assertEquals(1, factoryCount)
+            fixture.presenter.close()
+        }
+
+    @Test
+    fun closeLosingLateCandidateIsReleasedOnceWithoutReporting() =
+        runTest {
+            val workerScheduler = kotlinx.coroutines.test.TestCoroutineScheduler()
+            val lateCandidate = FakeTvPlayerController()
+            val fixture =
+                fixture(
+                    workDispatcher = StandardTestDispatcher(workerScheduler),
+                    playerControllerFactory = { lateCandidate },
+                )
+
+            fixture.presenter.start()
+            runCurrent()
+            workerScheduler.runCurrent()
+            fixture.presenter.close()
+            runCurrent()
+
+            assertFalse(fixture.presenter.state.value.playerInstalled)
+            assertEquals(1, lateCandidate.releaseCount)
+            assertTrue(lateCandidate.preparedPlans.isEmpty())
+            assertEquals(0, lateCandidate.playCount)
+            assertTrue(fixture.repository.planRequests.isEmpty())
+            assertTrue(fixture.reporter.reports.isEmpty())
+            fixture.presenter.close()
+            assertEquals(1, lateCandidate.releaseCount)
+            val rejectedStart = fixture.reportingQueue.enqueueStart(postCloseReportingSession(), positionMs = 0L)
+            assertTrue(rejectedStart.isCompleted)
+            assertFalse(rejectedStart.await())
+            runCurrent()
+            assertTrue(fixture.reporter.reports.isEmpty())
+        }
+
+    @Test
+    fun prepareFailureAfterTransferRetainsInstalledControllerForClose() =
+        runTest {
+            val installedController =
+                FakeTvPlayerController().apply {
+                    prepareFailure = IllegalStateException("prepare failure")
+                }
+            val fixture = fixture(playerControllerFactory = { installedController })
+
+            fixture.presenter.start()
+            runCurrent()
+
+            assertTrue(fixture.presenter.state.value.playerInstalled)
+            assertEquals(TvPlaybackPhase.Failed, fixture.presenter.state.value.phase)
+            assertEquals(PlaybackError.Unknown, fixture.presenter.state.value.error)
+            assertEquals(0, installedController.releaseCount)
+            assertEquals(1, installedController.preparedPlans.size)
+
+            fixture.presenter.close()
+            runCurrent()
+
+            assertEquals(1, installedController.releaseCount)
+            assertTrue(fixture.reporter.reports.isEmpty())
+        }
+
     @Test
     fun diagnosticsProducerIsAdmittedCorrelatedAndRecordsControllerFailure() =
         runTest {
@@ -402,70 +522,78 @@ class TvPlaybackSessionPresenterTest {
             val fixture =
                 fixture(
                     playbackInfos = List(2) { Result.success(directPlayInfo()) },
+                    preferences =
+                        com.jellyscope.core.domain.model.PlaybackPreferences(
+                            playbackWarningsEnabled = true,
+                        ),
                     playbackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Actionable,
                 )
-            fixture.controller.playbackHealthMeasurementCapabilities =
-                PlaybackHealthMeasurementCapabilities.BufferingOnly
-            fixture.presenter.start()
-            runCurrent()
-            fixture.presenter.selectQuality(PlaybackQualityPolicy.Auto)
-            runCurrent()
-            // An explicit selection replans. Recovery evidence begins only after
-            // that plan's short lifecycle exclusion window.
-            advanceTimeBy(2_000L)
-            runCurrent()
-            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
-            runCurrent()
-            val requestCountBeforeRecovery = fixture.repository.planRequests.size
-
-            repeat(3) { index ->
-                fixture.controller.playbackStateFlow.value =
-                    playbackState(PlaybackStatus.Buffering, positionMs = 2_000L + index)
+            try {
+                fixture.controller.playbackHealthMeasurementCapabilities =
+                    PlaybackHealthMeasurementCapabilities.BufferingOnly
+                fixture.presenter.start()
                 runCurrent()
-                if (index < 2) {
+                fixture.presenter.selectQuality(PlaybackQualityPolicy.Auto)
+                runCurrent()
+                // An explicit selection replans. Recovery evidence begins only after
+                // that plan's short lifecycle exclusion window.
+                advanceTimeBy(2_000L)
+                runCurrent()
+                fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
+                runCurrent()
+                val requestCountBeforeRecovery = fixture.repository.planRequests.size
+
+                repeat(3) { index ->
                     fixture.controller.playbackStateFlow.value =
-                        playbackState(PlaybackStatus.Playing, positionMs = 2_000L + index)
+                        playbackState(PlaybackStatus.Buffering, positionMs = 2_000L + index)
                     runCurrent()
+                    if (index < 2) {
+                        fixture.controller.playbackStateFlow.value =
+                            playbackState(PlaybackStatus.Playing, positionMs = 2_000L + index)
+                        runCurrent()
+                    }
                 }
+
+                // The explicit Auto rung replan performs the normal bounded second
+                // request when the first response still advertises the over-cap source.
+                assertEquals(requestCountBeforeRecovery + 2, fixture.repository.planRequests.size)
+                assertEquals(null, fixture.presenter.state.value.playbackActionNotice)
+
+                fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 3_000L)
+                runCurrent()
+
+                assertEquals(
+                    PlaybackActionNoticeReason.QualityRecoveryApplied,
+                    fixture.presenter.state.value.playbackActionNotice
+                        ?.reason,
+                )
+                assertEquals(
+                    setOf(
+                        PlaybackAction.KeepCurrentQuality,
+                        PlaybackAction.TryHigherQuality,
+                        PlaybackAction.ChooseLowerQuality,
+                        PlaybackAction.Dismiss,
+                    ),
+                    fixture.presenter.state.value.playbackActions
+                        .toSet(),
+                )
+                fixture.presenter.handlePlaybackAction(PlaybackAction.TryHigherQuality)
+                runCurrent()
+                assertTrue(
+                    fixture.presenter.state.value.qualityChoices
+                        .first { choice -> choice.mode == PlaybackQualityMode.Auto && !choice.inheritsPlaybackDefault }
+                        .selected,
+                )
+                assertEquals(
+                    false,
+                    fixture.presenter.state.value.qualityChoices
+                        .first { choice -> choice.inheritsPlaybackDefault }
+                        .selected,
+                )
+            } finally {
+                fixture.presenter.close()
+                runCurrent()
             }
-
-            // The explicit Auto rung replan performs the normal bounded second
-            // request when the first response still advertises the over-cap source.
-            assertEquals(requestCountBeforeRecovery + 2, fixture.repository.planRequests.size)
-            assertEquals(null, fixture.presenter.state.value.playbackActionNotice)
-
-            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 3_000L)
-            runCurrent()
-
-            assertEquals(
-                PlaybackActionNoticeReason.QualityRecoveryApplied,
-                fixture.presenter.state.value.playbackActionNotice
-                    ?.reason,
-            )
-            assertEquals(
-                setOf(
-                    PlaybackAction.KeepCurrentQuality,
-                    PlaybackAction.TryHigherQuality,
-                    PlaybackAction.ChooseLowerQuality,
-                    PlaybackAction.Dismiss,
-                ),
-                fixture.presenter.state.value.playbackActions
-                    .toSet(),
-            )
-            fixture.presenter.handlePlaybackAction(PlaybackAction.TryHigherQuality)
-            runCurrent()
-            assertTrue(
-                fixture.presenter.state.value.qualityChoices
-                    .first { choice -> choice.mode == PlaybackQualityMode.Auto && !choice.inheritsPlaybackDefault }
-                    .selected,
-            )
-            assertEquals(
-                false,
-                fixture.presenter.state.value.qualityChoices
-                    .first { choice -> choice.inheritsPlaybackDefault }
-                    .selected,
-            )
-            fixture.presenter.close()
         }
 
     @Test
@@ -609,9 +737,11 @@ class TvPlaybackSessionPresenterTest {
             val fixture = fixture()
             fixture.presenter.start()
             runCurrent()
+            assertTrue(fixture.presenter.state.value.playerInstalled)
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
             runCurrent()
 
+            fixture.presenter.close()
             fixture.presenter.close()
             advanceUntilIdle()
 
@@ -689,6 +819,10 @@ class TvPlaybackSessionPresenterTest {
                         listOf(
                             Result.success(directPlayInfo()),
                             Result.success(transcodeInfo()),
+                        ),
+                    preferences =
+                        com.jellyscope.core.domain.model.PlaybackPreferences(
+                            playbackWarningsEnabled = true,
                         ),
                 )
             fixture.presenter.start()
@@ -1488,6 +1622,7 @@ class TvPlaybackSessionPresenterTest {
         val repository: FakeTvMediaRepository,
         val preferencesStore: FakePlaybackPreferencesStore,
         val subtitleStore: FakeSubtitleSelectionStore,
+        val reportingQueue: PlaybackReportingQueue,
     )
 
     private fun TestScope.fixture(
@@ -1502,6 +1637,8 @@ class TvPlaybackSessionPresenterTest {
         playbackHealthGuidancePolicy: PlaybackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Advisory,
         selectionStore: FakeTvPlaybackSelectionStore? = null,
         playbackDiagnosticsContext: PlaybackDiagnosticsContext? = null,
+        playerControllerFactory: (() -> com.jellyscope.core.domain.playback.PlayerController)? = null,
+        workDispatcher: kotlinx.coroutines.CoroutineDispatcher? = null,
     ): Fixture {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository =
@@ -1511,6 +1648,7 @@ class TvPlaybackSessionPresenterTest {
             )
         val controller = FakeTvPlayerController()
         val reporter = RecordingProgressReporter()
+        val reportingQueue = PlaybackReportingQueue(reporter, dispatcher, PlaybackStopSettlementRegistry())
         val preferencesStore = FakePlaybackPreferencesStore(preferences)
         val subtitleStore = FakeSubtitleSelectionStore(storedSubtitle)
         val presenter =
@@ -1519,13 +1657,14 @@ class TvPlaybackSessionPresenterTest {
                 initialItemId = itemId,
                 requestedMediaSourceId = "source-1",
                 initialStartPositionTicks = startTicks,
-                playerController = controller,
+                playerControllerFactory = playerControllerFactory ?: { controller },
                 playbackInfoPlanner =
                     PlaybackInfoPlanner(
                         mediaRepository = repository,
                         directPlayPlanner = DirectPlayPlanner(),
+                        playbackDiagnosticsContext = playbackDiagnosticsContext,
                     ),
-                reportingQueue = PlaybackReportingQueue(reporter, dispatcher, PlaybackStopSettlementRegistry()),
+                reportingQueue = reportingQueue,
                 getItemDetail = GetItemDetailUseCase(repository),
                 getMediaSegments = GetMediaSegmentsUseCase(repository),
                 getChronologicalEpisodeQueue =
@@ -1546,13 +1685,29 @@ class TvPlaybackSessionPresenterTest {
                     },
                 imageUrlBuilder = JellyfinImageUrlBuilder(),
                 deviceInfoProvider = FakeTvDeviceInfoProvider(),
-                dispatchers = testDispatchers(dispatcher),
+                dispatchers = TvosDispatchers(main = dispatcher, work = workDispatcher ?: dispatcher),
                 playbackDiagnosticsContext = playbackDiagnosticsContext,
                 playbackHealthGuidancePolicy = playbackHealthGuidancePolicy,
                 monotonicTimeMs = { testScheduler.currentTime },
             )
-        return Fixture(presenter, controller, reporter, repository, preferencesStore, subtitleStore)
+        return Fixture(presenter, controller, reporter, repository, preferencesStore, subtitleStore, reportingQueue)
     }
+
+    private fun postCloseReportingSession() =
+        PlaybackReportingSession(
+            generation = 999L,
+            session = testSession(),
+            plan =
+                PlaybackPlan(
+                    itemId = "post-close-item",
+                    mediaSourceId = "post-close-source",
+                    startPositionMs = 0L,
+                    streamMode = StreamMode.DirectPlay,
+                    streamUrl = "",
+                    progressReportingPolicy = ProgressReportingPolicy(reportIntervalMs = 1_000L),
+                ),
+            playSessionId = "post-close-session",
+        )
 
     private class FakeTvPlaybackSelectionStore : PlaybackSelectionStore {
         val values = mutableMapOf<PlaybackSelectionKey, PlaybackSelection>()
@@ -1583,6 +1738,27 @@ class TvPlaybackSessionPresenterTest {
             userId: String,
         ) {
             values.keys.removeAll { key -> key.serverId == serverId && key.userId == userId }
+        }
+    }
+}
+
+private class TvRecordingDispatcher(
+    private val delegate: kotlinx.coroutines.CoroutineDispatcher,
+) : kotlinx.coroutines.CoroutineDispatcher() {
+    var running = false
+        private set
+
+    override fun dispatch(
+        context: kotlin.coroutines.CoroutineContext,
+        block: Runnable,
+    ) {
+        delegate.dispatch(context) {
+            running = true
+            try {
+                block.run()
+            } finally {
+                running = false
+            }
         }
     }
 }

@@ -5,8 +5,34 @@ package com.jellyscope.core.domain.playback
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 
 class AutoPlaybackRecoveryCoordinatorTest {
+    @Test
+    fun strongestPendingRecoveryTriggerKeepsTheLockedSeverityOrder() {
+        val strongestToWeakest =
+            listOf(
+                AutoPlaybackRecoveryTrigger.DecoderFailure,
+                AutoPlaybackRecoveryTrigger.UnsupportedMedia,
+                AutoPlaybackRecoveryTrigger.NoVideoOutput,
+                AutoPlaybackRecoveryTrigger.CumulativeBuffering,
+                AutoPlaybackRecoveryTrigger.RepeatedStalls,
+                AutoPlaybackRecoveryTrigger.DroppedFrames,
+            )
+
+        assertEquals(AutoPlaybackRecoveryTrigger.entries.toSet(), strongestToWeakest.toSet())
+        strongestToWeakest.forEach { candidate ->
+            assertEquals(candidate, strongestPendingRecoveryTrigger(current = null, candidate = candidate))
+        }
+        strongestToWeakest.zipWithNext().forEach { (higher, lower) ->
+            assertEquals(higher, strongestPendingRecoveryTrigger(current = lower, candidate = higher))
+            assertEquals(higher, strongestPendingRecoveryTrigger(current = higher, candidate = lower))
+        }
+        AutoPlaybackRecoveryTrigger.entries.forEach { trigger ->
+            assertSame(trigger, strongestPendingRecoveryTrigger(current = trigger, candidate = trigger))
+        }
+    }
+
     @Test
     fun clearRuntimeQualityCapPreservesOneShotRecoveryBudget() {
         val state =

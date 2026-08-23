@@ -135,7 +135,16 @@ general settings default + active VLC default + current-playback choice
 ```
 
 1. The ViewModel or tvOS presenter pins the concrete backend, then resolves the
-   current-playback choice over the matching backend default. A VLC-family
+   current-playback choice over the matching backend default. Compose production
+   starts with an inert pending controller and, after detail, preferences, and
+   any item override are known, constructs only the resolved backend on work
+   before Main installation; direct/test injection is concrete unless explicitly
+   marked pending. Compose retains release-first replacement and its existing
+   ExoPlayer fallback; tvOS performs one delayed AVPlayer
+   construction/installation after `start()` on work and before reporting,
+   observation, planning, or readiness publication. An arriving current Compose
+   launch waits for an earlier installer, then rechecks generation and item
+   authority before it can release or construct. A VLC-family
    default is a normal Fixed policy and therefore applies to the first request.
    It also retains whether Auto came from an explicit in-player choice, because
    effective Auto policy alone does not authorize an automatic quality downgrade.
@@ -252,9 +261,16 @@ a user prompt, a recovered notice, or no action. `LowerTo` requires the typed
 explicit-session-Auto authorization; inherited Auto receives the typed manual
 choice prompt without spending the quality budget. The ViewModel and
 `TvPlaybackSessionPresenter` own execution, position preservation, policy
-persistence, notice state, and stale-work cancellation. Recovery is deferred
-while PiP or another lifecycle state cannot safely present an interactive
-consequence; measurement remains lifecycle-safe.
+persistence, notice state, and stale-work cancellation. While the Compose
+ViewModel is in PiP, its one pending-recovery slot retains the strongest trigger
+in this locked order: DecoderFailure, UnsupportedMedia, NoVideoOutput,
+CumulativeBuffering, RepeatedStalls, then DroppedFrames. Equal severity keeps
+the first trigger. Leaving PiP clears and handles one retained trigger, while a
+new item or queue launch and retry clear stale pending work. Measurement remains
+lifecycle-safe while recovery presentation is deferred. The one retained trigger
+still enters `AutoPlaybackRecoveryCoordinator`; arbitration grants no new
+stream-change authority, so Original and inherited Auto keep their existing
+manual prompt contracts.
 
 `PlaybackSessionRecoveryPolicy` is the pure common-domain owner for recovery
 precedence around controller state. It checks exact audio/subtitle activation
@@ -272,8 +288,9 @@ Start readiness and retry, pause/unpause edges, periodic progress sampling, and
 Stop/disposal settlement. It composes the existing `PlaybackReportingQueue`,
 which remains the only executor and ordered settlement publisher. The Compose
 owner supplies its stable shared playback-state projection so controller
-replacement cannot strand reporting on an outgoing controller flow; tvOS may
-use its lifetime-owned controller flow. Both shells retain their general
+replacement cannot strand reporting on an outgoing controller flow. tvOS creates
+its reporting coordinator only after concrete installation and uses that
+installed controller flow for the session. Both shells retain their general
 previous-status, completion, queue, navigation, and native-command semantics.
 
 Diagnostics are allowlisted and backend-qualified. They state policy,
@@ -455,6 +472,14 @@ rebuilding transport menus on playback ticks or stealing Siri Remote focus;
 the presenter controls any replan. Simulator success is not Apple TV hardware
 decode, PiP, remote, or presentation evidence.
 
+tvOS publishes `playerInstalled` only after Main installs the concrete
+controller, creates reporting from that controller state flow, and attaches
+output observation. Swift re-reads `platformPlayer` from that readiness update
+instead of retaining an initialization snapshot. A close before installation
+reports nothing and leaves any late candidate to startup ownership for one
+release; a close after installation retains final reporting settlement and one
+native release.
+
 ## 6. Verification boundary
 
 Automated tests cover typed-policy normalization, schema migration, exact
@@ -534,24 +559,43 @@ rule the body above states; the body remains authoritative for the rule itself.
   capability differences behind one shared claim set, and duplicating policy
   orchestration in every platform shell.
 
-- **Session recovery shares decisions, not player execution.** Activation-first
-  precedence, exact-target eligibility, one-shot budgets, and typed causes are
-  identical across Compose and tvOS, so keeping shell-local booleans let the
-  paths drift. A pure immutable reducer gives those rules one owner while each
-  shell retains jobs, notices, diagnostics, stale-work cancellation, and native
-  commands. Rejected: a universal player base class or stateful mega-kernel,
-  which would move platform lifecycle and presentation ownership into common
-  code.
+- **Session recovery shares decisions, and PiP retains the decisive cause.**
+  Activation-first precedence, exact-target eligibility, one-shot budgets, and
+  typed causes are identical across Compose and tvOS, so keeping shell-local
+  booleans let the paths drift. Strongest-wins prevents a weak earlier signal
+  from hiding a later decoder or unsupported failure, while equal severity keeps
+  the first for deterministic stability. Latest-wins was rejected because a
+  later weak signal can erase stronger evidence; unconditional first-wins was
+  rejected because a weak early signal can hide stronger later evidence;
+  replaying or queueing all triggers was rejected because one PiP exit could
+  cause multiple prompts or replans. Clearing on launch or retry keeps stale
+  evidence from crossing item or session authority. Original and inherited Auto
+  remain manual because the winner still enters the existing coordinator. A pure
+  immutable reducer gives shared decisions one owner while each shell retains
+  jobs, notices, diagnostics, stale-work cancellation, and native commands.
+  Rejected: a universal player base class or stateful mega-kernel, which would
+  move platform lifecycle and presentation ownership into common code.
 
 - **Reporting coordination is shared above one ordered executor.** Start
   success/pending state, ready-state retry, progress eligibility, periodic
   sampling, edge mapping, and Stop suppression are identical across Compose
   and tvOS, so retaining them in both shells made ordering fixes incomplete by
-  construction. A per-owner coordinator consumes a lifetime-stable state flow
-  and delegates every request to `PlaybackReportingQueue`; a second queue or an
-  immutable event helper that left timer ownership in each shell was rejected.
+  construction. Compose supplies a projection stable across controller
+  replacement, while tvOS creates its coordinator after concrete installation
+  so that controller flow is stable for the coordinator lifetime; both delegate
+  every request to `PlaybackReportingQueue`. Eager native-controller or
+  coordinator allocation before `start()` was rejected because it performs
+  resource and callback work before presentation authority exists, and Swift's
+  former immutable player snapshot could not observe delayed installation. A
+  second queue or an immutable event helper that left timer ownership in each
+  shell was rejected.
   Completion, navigation, controller commands, and general previous-status
   state remain shell-owned because those semantics are not reporting policy.
+
+- **Compose serializes delayed controller installation.** A current launch
+  waits for an earlier installer and rechecks its generation and item authority
+  before replacement work. Drop-on-busy was rejected because a stale installer
+  could make the current launch terminate without an installed controller.
 
 - **Same-plan Retry shares selection validation, not capture or native replay.**
   Exact target matching and the three subtitle outcomes are identical across

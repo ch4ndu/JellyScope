@@ -250,6 +250,7 @@ internal fun transcodeInfo(
 internal fun testDetail(
     item: MediaItem = mediaItem(id = "item-1"),
     streams: List<PlaybackMediaStream> = testStreams,
+    container: String? = null,
 ): MediaItemDetail =
     MediaItemDetail(
         item = item,
@@ -258,6 +259,7 @@ internal fun testDetail(
                 MediaVersion(
                     id = "source-1",
                     name = "1080p",
+                    container = container,
                     mediaStreams = streams,
                 ),
             ),
@@ -452,6 +454,7 @@ internal class FakeTvPlayerController : PlayerController {
     var pauseCount = 0
     var stopCount = 0
     var releaseCount = 0
+    var prepareFailure: Throwable? = null
 
     // Mirrors the Apple controller: prepare pushes a fresh state synchronously,
     // so a stale sample from the previous item never survives a re-prepare.
@@ -460,6 +463,7 @@ internal class FakeTvPlayerController : PlayerController {
         subtitleAsset: SubtitleAsset?,
     ) {
         preparedPlans += plan
+        prepareFailure?.let { exception -> throw exception }
         playbackStateFlow.value =
             playbackStateFlow.value.copy(status = PlaybackStatus.Loading, positionMs = 0L, error = null)
     }

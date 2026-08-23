@@ -27,6 +27,7 @@ import com.jellyscope.ui.screen.library.LibraryTabViewModel
 import com.jellyscope.ui.screen.login.LoginViewModel
 import com.jellyscope.ui.screen.login.QuickConnectViewModel
 import com.jellyscope.ui.screen.person.PersonViewModel
+import com.jellyscope.ui.screen.player.PendingPlayerController
 import com.jellyscope.ui.screen.player.PlaybackSelectionMemory
 import com.jellyscope.ui.screen.player.PlayerLaunchOptions
 import com.jellyscope.ui.screen.player.PlayerViewModel
@@ -292,10 +293,11 @@ val sharedUiModule =
                 queue = launchOptions.queue,
                 offlineDownloadId = launchOptions.offlineDownloadId,
                 backend = backend,
-                playerController = get<PlayerController>(parameters = { parametersOf(session, backend) }),
+                playerController = PendingPlayerController,
                 playerControllerFactory = { resolvedBackend ->
                     get<PlayerController>(parameters = { parametersOf(session, resolvedBackend) })
                 },
+                initialControllerIsPending = true,
                 deviceProfileProvider = get(),
                 playbackDiagnosticsContext = get(),
                 getPlayerBackendOverrideUseCase = get(),

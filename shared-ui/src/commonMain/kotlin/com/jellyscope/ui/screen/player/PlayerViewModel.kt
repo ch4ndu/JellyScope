@@ -2,6 +2,9 @@
 
 package com.jellyscope.ui.screen.player
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.data.local.SubtitleSelectionKey
@@ -138,6 +141,7 @@ import com.jellyscope.core.domain.playback.preferredSubtitleStreamIndex
 import com.jellyscope.core.domain.playback.qualityOptions
 import com.jellyscope.core.domain.playback.resolveOfflinePlaybackBackend
 import com.jellyscope.core.domain.playback.resolvePlayerBackend
+import com.jellyscope.core.domain.playback.strongestPendingRecoveryTrigger
 import com.jellyscope.core.domain.playback.subtitleKind
 import com.jellyscope.core.domain.playback.subtitleOptions
 import com.jellyscope.core.domain.playback.subtitleRenderInfo
@@ -180,6 +184,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.time.TimeSource
 
@@ -192,6 +198,7 @@ class PlayerViewModel(
     private val initialSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified,
     queue: List<String> = emptyList(),
     playerController: PlayerController,
+    private val initialControllerIsPending: Boolean = false,
     private val playbackInfoPlanner: PlaybackInfoPlanner,
     private val progressReporter: PlaybackProgressReporter,
     private val playbackStopSettlementRegistry: PlaybackStopSettlementRegistry,
@@ -225,11 +232,14 @@ class PlayerViewModel(
     /** Diagnostics preference captured once per playback start. */
     val startWithPlaybackInfoOverlay: Boolean =
         getPlaybackInfoAtStartStateUseCase?.invoke()?.value ?: false
-    private var playerController: PlayerController = playerController
+    private var playerController: PlayerController by mutableStateOf(playerController)
     private var backend =
         playerController.activeBackend
             .takeUnless { candidate -> candidate == PlayerBackend.Auto }
             ?: backend
+    private var playerControllerFieldOwned = true
+    private var concreteControllerInstalled = !initialControllerIsPending
+    private var disposed = false
     val currentPlayerController: PlayerController
         get() = playerController
     private val accountIdentity = session.accountIdentity()
@@ -332,8 +342,8 @@ class PlayerViewModel(
     private var lastStatus: PlaybackStatus = PlaybackStatus.Idle
     private var alternateBackendFallbackAttempted = false
     private var controllerInstallInFlight = false
+    private val controllerInstallMutex = Mutex()
     private var stopRequestedDuringControllerInstall = false
-    private var stopCompletedDuringControllerInstall = false
     private var volumeControl: PlayerVolumeState? = (playerController as? PlayerVolumeController)?.volumeState?.value
 
     private var playbackGuidance: PlaybackHealthGuidance? = null
@@ -724,7 +734,7 @@ class PlayerViewModel(
     }
 
     fun stop() {
-        if (controllerInstallInFlight) {
+        if (controllerInstallInFlight || controllerInstallMutex.isLocked) {
             stopRequestedDuringControllerInstall = true
             return
         }
@@ -1252,6 +1262,8 @@ class PlayerViewModel(
     }
 
     fun dispose() {
+        if (disposed) return
+        disposed = true
         cancelAndInvalidateSubtitleFallback()
         emitPlaybackHealthSummary()
         endPlaybackHealthSession()
@@ -1276,7 +1288,7 @@ class PlayerViewModel(
         playlistMetadataJob?.cancel()
         derivedEpisodeQueueJob?.cancel()
         playbackReportingCoordinator.dispose(playerController.playbackState.value.positionMs)
-        playerController.release()
+        releaseOwnedPlayerController()
     }
 
     override fun onCleared() {
@@ -1333,6 +1345,7 @@ class PlayerViewModel(
         derivedEpisodeQueueJob = null
         currentItemId = itemId
         autoRecoveryState = autoRecoveryCoordinator.reset(launchGeneration, currentItemId, backend)
+        pendingPictureInPictureRecoveryTrigger = null
         autoSkippedSegmentKeys.clear()
         alternateBackendFallbackAttempted = false
         playbackSessionRecoveryState =
@@ -1394,7 +1407,30 @@ class PlayerViewModel(
         selectedSourceContainer = selectedVersion.container
         observeLocalSubtitleAssets(itemId, selectedVersion.id)
         mediaStreams = selectedVersion.mediaStreams
-        resolveBackendForSession(selectedVersion)
+        val backendResolved =
+            try {
+                resolveBackendForSession(
+                    selectedVersion = selectedVersion,
+                    expectedGeneration = launchGeneration,
+                    expectedItemId = itemId,
+                )
+            } catch (exception: CancellationException) {
+                segmentsDeferred.cancel()
+                clearPlaybackLaunch(launchGeneration)
+                throw exception
+            } catch (exception: Throwable) {
+                segmentsDeferred.cancel()
+                clearPlaybackLaunch(launchGeneration)
+                val startupError = startupPlanningError(exception)
+                _state.update { startupError }
+                logPlaybackTerminalOutcome(PlaybackTerminalOutcome.Failed, startupError.error)
+                return false
+            }
+        if (!backendResolved) {
+            segmentsDeferred.cancel()
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
         metadata =
             PlayerMediaMetadata(
                 title = detail.item.name,
@@ -1767,7 +1803,9 @@ class PlayerViewModel(
                     resolvedBackend = resolvedBackend,
                     requestedBackend = resolvedBackend,
                     allowFallback = !exactOfflineBackendRequired,
-                )
+                    expectedGeneration = launchGeneration,
+                    expectedItemId = itemId,
+                ) ?: return false
             } catch (exception: OfflineControllerUnavailableException) {
                 return failOfflineLaunch(
                     launchGeneration,
@@ -1809,14 +1847,14 @@ class PlayerViewModel(
             when (val result = playerController.prepareOffline(offlinePlan)) {
                 com.jellyscope.core.domain.playback.OfflinePrepareResult.Started -> Unit
                 is com.jellyscope.core.domain.playback.OfflinePrepareResult.Unavailable -> {
-                    playerController.release()
+                    releaseOwnedPlayerController()
                     return failOfflineLaunch(launchGeneration, result.error)
                 }
             }
         } catch (exception: CancellationException) {
             throw exception
         } catch (_: Throwable) {
-            playerController.release()
+            releaseOwnedPlayerController()
             return failOfflineLaunch(
                 launchGeneration,
                 PlaybackError.OfflinePlayerUnavailable(
@@ -2217,12 +2255,32 @@ class PlayerViewModel(
         observePlaybackState()
     }
 
-    private suspend fun resolveBackendForSession(selectedVersion: MediaVersion) {
-        if (backendResolvedForSession) {
-            return
+    private suspend fun resolveBackendForSession(
+        selectedVersion: MediaVersion,
+        expectedGeneration: Long,
+        expectedItemId: String,
+    ): Boolean {
+        if (backendResolvedForSession && concreteControllerInstalled && playerControllerFieldOwned) {
+            return !disposed && isCurrentPlaybackLaunch(expectedGeneration, expectedItemId)
         }
-        backendResolvedForSession = true
-        val profileProvider = deviceProfileProvider ?: return
+        val profileProvider =
+            deviceProfileProvider
+                ?: run {
+                    val directControllerSatisfiesBackend =
+                        concreteControllerInstalled &&
+                            playerControllerFieldOwned &&
+                            activeControllerSatisfiesBackend(
+                                resolvedBackend = backend,
+                                trackedBackend = backend,
+                                activeBackend = playerController.activeBackend,
+                            )
+                    if (directControllerSatisfiesBackend) {
+                        backendResolvedForSession = true
+                    }
+                    return directControllerSatisfiesBackend &&
+                        !disposed &&
+                        isCurrentPlaybackLaunch(expectedGeneration, expectedItemId)
+                }
         val itemOverride =
             getPlayerBackendOverrideUseCase?.let { getOverride ->
                 try {
@@ -2276,12 +2334,15 @@ class PlayerViewModel(
                 ?: profileProvider.backendPolicy.defaultBackend
         val backendFallback = requestedBackend != resolvedBackend
         if (
+            concreteControllerInstalled &&
+            playerControllerFieldOwned &&
             activeControllerSatisfiesBackend(
                 resolvedBackend = resolvedBackend,
                 trackedBackend = backend,
                 activeBackend = playerController.activeBackend,
             )
         ) {
+            backendResolvedForSession = true
             if (backendFallback && profileProvider.backendPolicy.visibleBackends.isNotEmpty()) {
                 backendNotice =
                     PlayerBackendNotice(
@@ -2300,11 +2361,16 @@ class PlayerViewModel(
                         PlaybackBackendFallbackResult.NotRequired
                     },
             )
-            return
+            return true
         }
 
-        val activeBackend = installController(resolvedBackend = resolvedBackend, requestedBackend = requestedBackend)
-        if (consumeStopCompletedDuringControllerInstall()) return
+        val activeBackend =
+            installController(
+                resolvedBackend = resolvedBackend,
+                requestedBackend = requestedBackend,
+                expectedGeneration = expectedGeneration,
+                expectedItemId = expectedItemId,
+            ) ?: return false
         logBackendSelection(
             requestedBackend = requestedBackend,
             activeBackend = activeBackend,
@@ -2315,6 +2381,7 @@ class PlayerViewModel(
                     PlaybackBackendFallbackResult.NotRequired
                 },
         )
+        return true
     }
 
     /** Replaces the controller and rebinds every observer. */
@@ -2322,106 +2389,159 @@ class PlayerViewModel(
         resolvedBackend: PlayerBackend,
         requestedBackend: PlayerBackend,
         allowFallback: Boolean = true,
-    ): PlayerBackend {
-        if (controllerInstallInFlight) return backend
-        controllerInstallInFlight = true
-        stopCompletedDuringControllerInstall = false
-        val previousReportingJob = reportingJob
-        val currentJob = currentCoroutineContext()[Job]
-        reportingJob = null
-        if (previousReportingJob != null && previousReportingJob != currentJob) {
-            previousReportingJob.cancel()
-        }
-        runtimeDiagnosticsJob?.cancel()
-        runtimeDiagnosticsJob = null
-        droppedFrameMeasurementsJob?.cancel()
-        droppedFrameMeasurementsJob = null
-        videoOutputObservationsJob?.cancel()
-        videoOutputObservationsJob = null
-        playbackTransitionObservationsJob?.cancel()
-        playbackTransitionObservationsJob = null
-        volumeStateJob?.cancel()
-        volumeStateJob = null
-        try {
-            markPlaybackHealthExclusion(PlaybackHealthExclusionReason.BackendReplacement)
-            _state.value = PlayerUiState.Loading
-            _playbackState.update { current -> current.copy(status = PlaybackStatus.Loading, error = null) }
-            playerController.release()
-            val replacementController =
-                try {
-                    withContext(workDispatcher) { playerControllerFactory(resolvedBackend) }
-                } catch (exception: CancellationException) {
-                    throw exception
-                } catch (exception: Throwable) {
-                    if (!allowFallback || resolvedBackend == PlayerBackend.ExoPlayer) {
-                        if (!allowFallback) {
-                            logOfflineBackendConstructionFailure(
-                                requiredBackend = resolvedBackend,
-                                availability = PlaybackBackendAvailability.Unavailable,
-                                exception = exception,
-                            )
-                            throw OfflineControllerUnavailableException(resolvedBackend, exception)
+        expectedGeneration: Long = playbackLaunchGeneration,
+        expectedItemId: String = currentItemId,
+    ): PlayerBackend? =
+        controllerInstallMutex.withLock {
+            currentCoroutineContext().ensureActive()
+            if (disposed) {
+                drainStopRequestedDuringControllerInstall(stopController = false)
+                return@withLock null
+            }
+            if (!isCurrentPlaybackLaunch(expectedGeneration, expectedItemId)) {
+                return@withLock null
+            }
+            if (stopRequestedDuringControllerInstall) {
+                drainStopRequestedDuringControllerInstall(stopController = playerControllerFieldOwned)
+                return@withLock null
+            }
+
+            controllerInstallInFlight = true
+            val previousReportingJob = reportingJob
+            val currentJob = currentCoroutineContext()[Job]
+            reportingJob = null
+            if (previousReportingJob != null && previousReportingJob != currentJob) {
+                previousReportingJob.cancel()
+            }
+            runtimeDiagnosticsJob?.cancel()
+            runtimeDiagnosticsJob = null
+            droppedFrameMeasurementsJob?.cancel()
+            droppedFrameMeasurementsJob = null
+            videoOutputObservationsJob?.cancel()
+            videoOutputObservationsJob = null
+            playbackTransitionObservationsJob?.cancel()
+            playbackTransitionObservationsJob = null
+            volumeStateJob?.cancel()
+            volumeStateJob = null
+            val candidateOwner = ControllerCandidateOwner()
+            try {
+                markPlaybackHealthExclusion(PlaybackHealthExclusionReason.BackendReplacement)
+                _state.value = PlayerUiState.Loading
+                _playbackState.update { current -> current.copy(status = PlaybackStatus.Loading, error = null) }
+                releaseOwnedPlayerController()
+                val replacementController =
+                    try {
+                        withContext(workDispatcher) {
+                            playerControllerFactory(resolvedBackend).also(candidateOwner::acquire)
                         }
+                    } catch (exception: CancellationException) {
                         throw exception
+                    } catch (exception: Throwable) {
+                        if (!allowFallback || resolvedBackend == PlayerBackend.ExoPlayer) {
+                            if (!allowFallback) {
+                                logOfflineBackendConstructionFailure(
+                                    requiredBackend = resolvedBackend,
+                                    availability = PlaybackBackendAvailability.Unavailable,
+                                    exception = exception,
+                                )
+                                throw OfflineControllerUnavailableException(resolvedBackend, exception)
+                            }
+                            throw exception
+                        }
+                        withContext(workDispatcher) {
+                            playerControllerFactory(PlayerBackend.ExoPlayer).also(candidateOwner::acquire)
+                        }
                     }
-                    withContext(workDispatcher) { playerControllerFactory(PlayerBackend.ExoPlayer) }
-                }
-            val candidateBackend = replacementController.activeBackend
-            val activeBackend =
-                candidateBackend
-                    .takeUnless { candidate -> candidate == PlayerBackend.Auto }
-                    ?: resolvedBackend
-            if (!allowFallback && candidateBackend != resolvedBackend) {
-                replacementController.release()
-                logOfflineBackendConstructionFailure(
-                    requiredBackend = resolvedBackend,
-                    availability = PlaybackBackendAvailability.Bundled,
-                )
-                throw OfflineControllerUnavailableException(resolvedBackend, null)
-            }
-            if (requestedBackend != activeBackend) {
-                backendNotice =
-                    PlayerBackendNotice(
-                        token = ++backendNoticeToken,
-                        requested = requestedBackend,
-                        active = activeBackend,
+                val candidateBackend = replacementController.activeBackend
+                val activeBackend =
+                    candidateBackend
+                        .takeUnless { candidate -> candidate == PlayerBackend.Auto }
+                        ?: resolvedBackend
+                if (!allowFallback && candidateBackend != resolvedBackend) {
+                    logOfflineBackendConstructionFailure(
+                        requiredBackend = resolvedBackend,
+                        availability = PlaybackBackendAvailability.Bundled,
                     )
+                    throw OfflineControllerUnavailableException(resolvedBackend, null)
+                }
+                val installedBackend =
+                    withContext(Dispatchers.Main.immediate) {
+                        currentCoroutineContext().ensureActive()
+                        when {
+                            disposed -> {
+                                drainStopRequestedDuringControllerInstall(stopController = false)
+                                null
+                            }
+                            !isCurrentPlaybackLaunch(expectedGeneration, expectedItemId) -> null
+                            stopRequestedDuringControllerInstall -> {
+                                drainStopRequestedDuringControllerInstall(stopController = false)
+                                null
+                            }
+                            else -> {
+                                candidateOwner.transferTo { installedController ->
+                                    playerController = installedController
+                                    playerControllerFieldOwned = true
+                                    backend = activeBackend
+                                    concreteControllerInstalled = true
+                                    if (requestedBackend != activeBackend) {
+                                        backendNotice =
+                                            PlayerBackendNotice(
+                                                token = ++backendNoticeToken,
+                                                requested = requestedBackend,
+                                                active = activeBackend,
+                                            )
+                                    }
+                                    if (!qualityExplicitlyChosen) {
+                                        selectedQualityPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend)
+                                        selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
+                                        selectedQualityCapOrigin =
+                                            PlaybackQualityCapOrigin.SettingsDefault.takeIf {
+                                                selectedQualityMaxBitrate != null
+                                            }
+                                    }
+                                    autoRecoveryState =
+                                        autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
+                                }
+                                activeBackend
+                            }
+                        }
+                    } ?: return@withLock null
+                backendResolvedForSession = true
+                _playbackState.value = playerController.playbackState.value
+                observeRuntimeDiagnostics()
+                observeVolumeState()
+                observeTimingState()
+                observePlaybackState()
+                previousReportingJob?.cancel()
+                drainStopRequestedDuringControllerInstall(stopController = true)
+                installedBackend
+            } catch (exception: Throwable) {
+                if (disposed || isCurrentPlaybackLaunch(expectedGeneration, expectedItemId)) {
+                    drainStopRequestedDuringControllerInstall(stopController = false)
+                }
+                throw exception
+            } finally {
+                candidateOwner.releaseUntransferred()
+                previousReportingJob?.cancel()
+                controllerInstallInFlight = false
             }
-            playerController = replacementController
-            backend = activeBackend
-            if (!qualityExplicitlyChosen) {
-                selectedQualityPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend)
-                selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
-                selectedQualityCapOrigin =
-                    PlaybackQualityCapOrigin.SettingsDefault.takeIf { selectedQualityMaxBitrate != null }
-            }
-            autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
-            _playbackState.value = playerController.playbackState.value
-            controllerInstallInFlight = false
-            observeRuntimeDiagnostics()
-            observeVolumeState()
-            observeTimingState()
-            observePlaybackState()
-            previousReportingJob?.cancel()
-            drainStopRequestedDuringControllerInstall(stopController = true)
-            return activeBackend
-        } catch (exception: Throwable) {
-            previousReportingJob?.cancel()
-            controllerInstallInFlight = false
-            drainStopRequestedDuringControllerInstall(stopController = false)
-            throw exception
         }
-    }
 
     private fun drainStopRequestedDuringControllerInstall(stopController: Boolean) {
         if (!stopRequestedDuringControllerInstall) return
         stopRequestedDuringControllerInstall = false
         performStop(stopController)
-        stopCompletedDuringControllerInstall = true
     }
 
-    private fun consumeStopCompletedDuringControllerInstall(): Boolean =
-        stopCompletedDuringControllerInstall.also { stopCompletedDuringControllerInstall = false }
+    private fun releaseOwnedPlayerController() {
+        if (!playerControllerFieldOwned) {
+            return
+        }
+        playerControllerFieldOwned = false
+        concreteControllerInstalled = false
+        backendResolvedForSession = false
+        playerController.release()
+    }
 
     private fun MediaVersion.backendSourceDescriptor(): BackendSourceDescriptor {
         val videoStream = mediaStreams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
@@ -2635,9 +2755,8 @@ class PlayerViewModel(
     private fun handleAutomaticRecoveryTrigger(trigger: AutoPlaybackRecoveryTrigger): AutomaticRecoveryDiagnostic? {
         if (plan?.streamMode == StreamMode.Offline) return null
         if (pictureInPictureMode) {
-            if (pendingPictureInPictureRecoveryTrigger == null) {
-                pendingPictureInPictureRecoveryTrigger = trigger
-            }
+            pendingPictureInPictureRecoveryTrigger =
+                strongestPendingRecoveryTrigger(pendingPictureInPictureRecoveryTrigger, trigger)
             return null
         }
         val currentPlan = plan ?: return null
@@ -2933,8 +3052,9 @@ class PlayerViewModel(
             installController(
                 resolvedBackend = PlayerBackend.ExoPlayer,
                 requestedBackend = requestedBackend,
-            )
-        if (consumeStopCompletedDuringControllerInstall()) return false
+                expectedGeneration = playbackLaunchGeneration,
+                expectedItemId = currentItemId,
+            ) ?: return false
         replanAtPosition(
             targetPositionMs = lastConfirmedPositionMs,
             requestPolicy =
@@ -4735,3 +4855,25 @@ private class OfflineControllerUnavailableException(
     val requiredBackend: PlayerBackend,
     cause: Throwable?,
 ) : IllegalStateException("Offline controller backend unavailable.", cause)
+
+private class ControllerCandidateOwner {
+    private var controller: PlayerController? = null
+
+    fun acquire(candidate: PlayerController): PlayerController {
+        check(controller == null) { "Controller candidate is already owned." }
+        controller = candidate
+        return candidate
+    }
+
+    fun transferTo(block: (PlayerController) -> Unit) {
+        val candidate = checkNotNull(controller) { "Controller candidate is not owned." }
+        block(candidate)
+        controller = null
+    }
+
+    fun releaseUntransferred() {
+        val candidate = controller
+        controller = null
+        candidate?.release()
+    }
+}

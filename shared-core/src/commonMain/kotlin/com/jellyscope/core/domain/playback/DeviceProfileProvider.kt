@@ -308,7 +308,6 @@ internal fun appleAvPlayerDeviceCapabilities(
 }
 
 internal fun vlcKitDeviceCapabilities(
-    supportsAv1HardwareDecode: Boolean,
     // The default exists for host tests and resolves the universal iOS safety
     // envelope. Real providers still pass their platform-family result so a
     // future tvOS VLCKit route cannot inherit the iOS policy accidentally.

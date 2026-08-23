@@ -51,15 +51,19 @@ struct PlayerScreen: View {
                                 .padding(.bottom, 54)
                         }
                     }
-            } else {
+            } else if model.state.phase == .failed {
                 errorView(message: String(localized: "The player could not be created."))
+            } else {
+                ProgressView()
             }
         }
         .overlay {
-            if model.state.phase == .loading {
-                ProgressView()
-            } else if model.state.phase == .failed && model.state.playbackActionNotice == nil {
-                errorView(message: model.state.error.playbackMessage)
+            if model.player != nil {
+                if model.state.phase == .loading {
+                    ProgressView()
+                } else if model.state.phase == .failed && model.state.playbackActionNotice == nil {
+                    errorView(message: model.state.error.playbackMessage)
+                }
             }
         }
         .onAppear { model.start() }
@@ -248,7 +252,7 @@ private extension TvQualityChoice {
 @MainActor
 final class PlaybackModel: ObservableObject {
     @Published private(set) var state: TvPlaybackUiState
-    let player: AVPlayer?
+    @Published private(set) var player: AVPlayer? = nil
 
     private let presenter: TvPlaybackSessionPresenter
     private var handle: WatchHandle?
@@ -262,11 +266,13 @@ final class PlaybackModel: ObservableObject {
             startPositionTicks: route.startPositionTicks
         )
         self.presenter = presenter
-        // Checked cast, never a trap: a nil player renders the error state.
-        self.player = presenter.platformPlayer as? AVPlayer
         self.state = presenter.state.value as! TvPlaybackUiState
         self.handle = presenter.watchState { [weak self] state in
-            self?.state = state
+            guard let self else { return }
+            self.state = state
+            if state.playerInstalled {
+                self.player = self.presenter.platformPlayer as? AVPlayer
+            }
         }
     }
 

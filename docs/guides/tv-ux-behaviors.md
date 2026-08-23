@@ -97,6 +97,12 @@ a behavior must change, update this file in the same commit.
 - The Home row's View All tile is also a first-class row-scoped restore target:
   opening a View All grid records `(row, viewAll)`, and BACK from the grid
   restores focus to that row's View All tile instead of the previous asset.
+- Home derives its initial restored row, item ID, fallback index, and View All
+  flag from a route-entry snapshot keyed by route-entry identity, presentation
+  epoch, and the matching ready-restore token. A matching ready restore wins;
+  otherwise Home reads the matching current-entry live path without observation.
+  Narrow consumers still record every D-pad movement, but those updates must
+  not invalidate the whole Home route lambda.
 - Returning from detail/player restores scroll AND focus to the exact card from
   the route snapshot and nested focus-memory map. A composed target receives
   focus in place without a manual row scroll; an uncomposed target is revealed
@@ -1073,17 +1079,24 @@ rejected alternatives.
   coordinator, chip row, or duplicate TV detail implementation was rejected;
   disappearing-source fallback is handled by closing the modal and targeting
   the surviving Version action or Play.
-- **TV focus identity is read only while focus is outside the grid, and the
-  remediation is recorded as mechanism-only.** Reading focus-memory snapshot
-  state at grid scope subscribed the whole grid to every D-pad move — each
-  move invalidated the grid, re-derived an entry index with a linear scan, and
-  restarted the entry-focus effect; the values are only consulted on entry, so
-  the read is skipped while focused and effects read the value in their body
-  where reads are untracked. Rejected: memoizing the index lookup (keeps the
-  per-move invalidation) and moving focus memory out of snapshot state
-  (composition legitimately reads it elsewhere). The mechanism fix does not
-  certify a performance result; traversal cost and focus-state invalidation are
-  separate questions.
+- **TV entry focus reads are scoped to a route entry, and the remediation is
+  recorded as mechanism-only.** Home captures its initial row, item, index, and
+  View All target once per route-entry identity, presentation epoch, and
+  matching ready-restore token. A matching ready restore is observed and wins;
+  otherwise the matching current-entry `activeRouteEntryId` and `activePath`
+  are read without observation. That allows a newly ready restore to replace
+  the entry snapshot while preventing `recordFocused` D-pad updates from
+  invalidating the whole Home route lambda. Grid focus-memory reads likewise
+  remain entry-time only: composition does not subscribe while focus is inside
+  the grid, and entry-focus effects read their values in their bodies where
+  reads are untracked. Rejected: a live route-level `activePath` subscription
+  (it keeps the per-move Home invalidation), memoizing the grid index lookup
+  (it keeps the per-move invalidation), copying focus state into a second owner
+  (composition legitimately reads the snapshot state elsewhere), or omitting
+  the ready-restore token from Home's entry identity (a newly ready restore
+  would not replace the snapshot). The mechanism fix does not certify a
+  performance result; traversal cost and focus-state invalidation are separate
+  questions.
 - **Library hub chrome hides at draw time because its footprint and focus
   contracts are persistent.** The hub can draw the tabs and Library actions only
   for chrome or first-row focus, while lower-row and hosted-rail focus gets an

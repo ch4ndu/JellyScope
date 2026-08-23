@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
  * recovery, before any native attempt is made.
  */
 class DirectPlayAudioAdmissibilityTest {
-    private val vlcKit = vlcKitDeviceCapabilities(supportsAv1HardwareDecode = false)
+    private val vlcKit = vlcKitDeviceCapabilities()
 
     @Test
     fun admitsCodecsTheBackendDeclaresItCanDirectPlay() {

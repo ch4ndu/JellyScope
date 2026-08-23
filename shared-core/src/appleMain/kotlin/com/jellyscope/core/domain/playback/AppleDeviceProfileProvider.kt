@@ -69,7 +69,6 @@ class AppleDeviceProfileProvider private constructor(
     private val cachedVlcKitCapabilities: DeviceDecodingCapabilities by lazy {
         val videoCodecs = vlcKitDeviceProfileDeclaration.videoCodecs
         vlcKitDeviceCapabilities(
-            supportsAv1HardwareDecode = true,
             videoResolutionsByCodec =
                 resolveAppleDecodeCeilings(
                     deviceModelIdentifier = deviceModelIdentifier,

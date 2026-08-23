@@ -66,7 +66,7 @@ class AppleStaticDeviceCapabilitiesTest {
 
     @Test
     fun vlcKitProfileAdvertisesValidatedCodecsContainersAndSubtitleMethods() {
-        val capabilities = vlcKitDeviceCapabilities(supportsAv1HardwareDecode = true)
+        val capabilities = vlcKitDeviceCapabilities()
 
         assertTrue("mkv" in capabilities.directPlayProfiles.single().containers)
         assertTrue("webm" in capabilities.directPlayProfiles.single().containers)
@@ -104,9 +104,9 @@ class AppleStaticDeviceCapabilitiesTest {
     }
 
     @Test
-    fun vlcKitDoesNotUseAvPlayerHardwareFactsAsItsCodecFilter() {
-        assertTrue("av1" in vlcKitDeviceCapabilities(supportsAv1HardwareDecode = false).videoCodecs)
-        assertTrue("av1" in vlcKitDeviceCapabilities(supportsAv1HardwareDecode = true).videoCodecs)
+    fun vlcKitPinnedDeclarationIncludesAv1() {
+        assertTrue("av1" in vlcKitDeviceProfileDeclaration.videoCodecs)
+        assertTrue("av1" in vlcKitDeviceCapabilities().videoCodecs)
     }
 
     @Test
@@ -143,7 +143,7 @@ class AppleStaticDeviceCapabilitiesTest {
 
         val vlcKitProfile =
             buildDeviceProfile(
-                vlcKitDeviceCapabilities(supportsAv1HardwareDecode = true),
+                vlcKitDeviceCapabilities(),
                 maxStreamingBitrate = null,
                 requestPolicy = PlaybackInfoRequestPolicy(backend = PlayerBackend.VlcKit),
             )

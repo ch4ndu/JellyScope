@@ -12,6 +12,29 @@ enum class AutoPlaybackRecoveryTrigger {
     DroppedFrames,
 }
 
+/** Selects the one recovery trigger retained while PiP defers recovery. */
+fun strongestPendingRecoveryTrigger(
+    current: AutoPlaybackRecoveryTrigger?,
+    candidate: AutoPlaybackRecoveryTrigger,
+): AutoPlaybackRecoveryTrigger {
+    val existing = current ?: return candidate
+    return if (pendingRecoveryTriggerPriority(candidate) < pendingRecoveryTriggerPriority(existing)) {
+        candidate
+    } else {
+        existing
+    }
+}
+
+private fun pendingRecoveryTriggerPriority(trigger: AutoPlaybackRecoveryTrigger): Int =
+    when (trigger) {
+        AutoPlaybackRecoveryTrigger.DecoderFailure -> 0
+        AutoPlaybackRecoveryTrigger.UnsupportedMedia -> 1
+        AutoPlaybackRecoveryTrigger.NoVideoOutput -> 2
+        AutoPlaybackRecoveryTrigger.CumulativeBuffering -> 3
+        AutoPlaybackRecoveryTrigger.RepeatedStalls -> 4
+        AutoPlaybackRecoveryTrigger.DroppedFrames -> 5
+    }
+
 enum class AutoPlaybackRecoveryPromptReason {
     OriginalPlaybackFailed,
     FixedQualityFailed,

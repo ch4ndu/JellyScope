@@ -615,6 +615,42 @@ class DeviceProfileDtoMapperTest {
     }
 
     @Test
+    fun buildDeviceProfileProjectsOnlyFiniteWidthAndHeightToTheWire() {
+        val area = 8_294_400L
+        val cases =
+            listOf(
+                VideoCodecResolution(maxWidth = 3_840) to mapOf("Width" to "3840"),
+                VideoCodecResolution(maxHeight = 2_160) to mapOf("Height" to "2160"),
+                VideoCodecResolution(maxFrameArea = area) to emptyMap(),
+                VideoCodecResolution(maxFrameAreaPerSecond = area * 60L) to emptyMap(),
+            )
+
+        cases.forEach { (resolution, expectedConditions) ->
+            val profile =
+                buildDeviceProfile(
+                    DeviceDecodingCapabilities(
+                        videoCodecs = listOf("h264"),
+                        audioCodecs = listOf("aac"),
+                        supportsDolbyVision = false,
+                        videoResolutionsByCodec = mapOf("h264" to resolution),
+                    ),
+                    maxStreamingBitrate = null,
+                )
+            val conditions = profile.codecProfiles.single { it.codec == "h264" }.conditions
+
+            assertEquals(
+                expectedConditions,
+                conditions
+                    .filter { condition -> condition.property in setOf("Width", "Height") }
+                    .associate { condition -> condition.property to condition.value },
+            )
+            assertTrue(
+                conditions.none { condition -> condition.property in setOf("FrameArea", "FrameAreaPerSecond") },
+            )
+        }
+    }
+
+    @Test
     fun unrestrictedIosCompatibilityOmitsOnlyTheAppOwnedResolutionConditions() {
         val profile =
             buildDeviceProfile(

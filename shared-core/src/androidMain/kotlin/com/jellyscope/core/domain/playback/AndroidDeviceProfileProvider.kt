@@ -80,7 +80,10 @@ class AndroidDeviceProfileProvider internal constructor(
             )
         return androidLibVlcCapabilityMatrix()
             .toDeviceDecodingCapabilities()
-            .narrowedToProbedVideoResolutions(probedCapabilities)
+            .narrowedToProbedVideoResolutions(
+                probed = probedCapabilities,
+                allowPartialProbeLimits = true,
+            )
     }
 
     private fun detectCapabilities(refreshDecoders: Boolean): DeviceDecodingCapabilities {
@@ -200,7 +203,10 @@ class AndroidDeviceProfileProvider internal constructor(
                         matrix.maxAudioChannels,
                         audioRoute.maxAudioChannels ?: matrix.maxAudioChannels,
                     ),
-            ).narrowedToProbedVideoResolutions(probedCapabilities)
+            ).narrowedToProbedVideoResolutions(
+                probed = probedCapabilities,
+                allowPartialProbeLimits = false,
+            )
     }
 
     private fun decoderCapabilities(refreshDecoders: Boolean): AndroidDecoderCapabilities =

@@ -502,7 +502,11 @@ class AndroidDeviceProfileProviderTest {
                     ),
             )
 
-        val projected = declared.narrowedToProbedVideoResolutions(probed)
+        val projected =
+            declared.narrowedToProbedVideoResolutions(
+                probed = probed,
+                allowPartialProbeLimits = true,
+            )
 
         assertEquals(cubeVp9, projected.videoResolutionsByCodec.getValue("vp9"))
         assertEquals(VideoCodecResolution(), projected.videoResolutionsByCodec.getValue("h264"))
@@ -515,39 +519,59 @@ class AndroidDeviceProfileProviderTest {
     }
 
     @Test
-    fun libVlcResolutionProjectionPreservesUnknownAndIncompleteProbeFacts() {
+    fun libVlcResolutionProjectionPreservesEachFiniteProbeLimitAndItsEvidence() {
         val declared = androidLibVlcCapabilityMatrix().toDeviceDecodingCapabilities()
-        val probed =
-            DeviceDecodingCapabilities(
-                videoCodecs = listOf("h264", "hevc", "vp9", "av1"),
-                audioCodecs = listOf("aac"),
-                supportsDolbyVision = false,
-                videoResolutionsByCodec =
-                    mapOf(
-                        "h264" to
-                            VideoCodecResolution(
-                                maxWidth = 1_920,
-                                maxHeight = 1_080,
-                                maxFrameArea = blockPaddedArea(1_920, 1_080),
-                            ),
-                        "hevc" to VideoCodecResolution(maxWidth = null, maxHeight = null),
-                        "vp9" to
-                            VideoCodecResolution(
-                                maxWidth = 3_840,
-                                maxHeight = 2_160,
-                                maxFrameArea = blockPaddedArea(3_840, 2_160),
-                                maxFrameAreaPerSecond = blockPaddedArea(3_840, 2_160) * 30L,
-                            ),
-                        "av1" to VideoCodecResolution(),
-                    ),
+        val evidenceSource = CapabilityEvidenceSource.PlatformHardwareProbe
+        val cases =
+            listOf(
+                "width only" to VideoCodecResolution(maxWidth = 1_920),
+                "height only" to VideoCodecResolution(maxHeight = 1_080),
+                "area only" to VideoCodecResolution(maxFrameArea = blockPaddedArea(1_920, 1_080)),
+                "throughput only" to VideoCodecResolution(maxFrameAreaPerSecond = blockPaddedArea(1_920, 1_080) * 30L),
+                "all null" to VideoCodecResolution(),
             )
 
-        val projected = declared.narrowedToProbedVideoResolutions(probed)
+        cases.forEach { (name, resolution) ->
+            val hasFiniteLimit = resolution != VideoCodecResolution()
+            val projected =
+                declared.narrowedToProbedVideoResolutions(
+                    probed =
+                        DeviceDecodingCapabilities(
+                            videoCodecs = listOf("h264"),
+                            audioCodecs = listOf("aac"),
+                            supportsDolbyVision = false,
+                            videoResolutionsByCodec = mapOf("h264" to resolution),
+                            videoCodecEvidence =
+                                mapOf(
+                                    "h264" to
+                                        CodecCapabilityEvidence(
+                                            finiteLimitSources = setOf(evidenceSource),
+                                        ),
+                                ),
+                        ),
+                    allowPartialProbeLimits = true,
+                )
 
-        assertEquals(VideoCodecResolution(), projected.videoResolutionsByCodec.getValue("h264"))
-        assertEquals(VideoCodecResolution(), projected.videoResolutionsByCodec.getValue("hevc"))
-        assertEquals(VideoCodecResolution(), projected.videoResolutionsByCodec.getValue("av1"))
-        assertEquals(probed.videoResolutionsByCodec.getValue("vp9"), projected.videoResolutionsByCodec.getValue("vp9"))
+            assertEquals(
+                if (hasFiniteLimit) resolution else VideoCodecResolution(),
+                projected.videoResolutionsByCodec.getValue("h264"),
+                name,
+            )
+            assertEquals(
+                setOf(CapabilityEvidenceSource.PinnedEngineDeclaration),
+                projected.videoCodecEvidence.getValue("h264").decodeSources,
+                name,
+            )
+            assertEquals(
+                if (hasFiniteLimit) {
+                    setOf(evidenceSource)
+                } else {
+                    setOf(CapabilityEvidenceSource.Unknown)
+                },
+                projected.videoCodecEvidence.getValue("h264").finiteLimitSources,
+                name,
+            )
+        }
     }
 
     @Test

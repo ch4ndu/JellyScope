@@ -3,14 +3,74 @@
 package com.jellyscope.ui.screen.player
 
 import com.jellyscope.core.domain.playback.AudioTrackOption
+import com.jellyscope.core.domain.playback.EmbeddedAudioSelection
+import com.jellyscope.core.domain.playback.EmbeddedSubtitleSelection
+import com.jellyscope.core.domain.playback.PlaybackHealthMeasurementCapabilities
 import com.jellyscope.core.domain.playback.PlaybackMediaStream
+import com.jellyscope.core.domain.playback.PlaybackPlan
+import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
+import com.jellyscope.core.domain.playback.PlaybackState
+import com.jellyscope.core.domain.playback.PlaybackStatus
+import com.jellyscope.core.domain.playback.PlayerBackend
+import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.domain.playback.QualityOption
+import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.core.domain.playback.SubtitleTrackOption
+import com.jellyscope.core.domain.playback.VideoOutputMeasurementCapabilities
 import com.jellyscope.core.domain.playback.audioOptions
 import com.jellyscope.core.domain.playback.qualityOptions
 import com.jellyscope.core.domain.playback.subtitleOptions
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+
+/** Inert production placeholder until the resolved native backend is installed. */
+internal object PendingPlayerController : PlayerController {
+    override val playbackState: StateFlow<PlaybackState> =
+        MutableStateFlow(
+            PlaybackState(
+                status = PlaybackStatus.Loading,
+                positionMs = 0L,
+                durationMs = null,
+                bufferedPositionMs = 0L,
+                error = null,
+            ),
+        )
+    override val runtimeDiagnostics: StateFlow<PlaybackRuntimeDiagnostics> =
+        MutableStateFlow(PlaybackRuntimeDiagnostics.EMPTY)
+    override val platformPlayer: Any? = null
+    override val activeBackend: PlayerBackend = PlayerBackend.Auto
+    override val playbackHealthMeasurementCapabilities: PlaybackHealthMeasurementCapabilities =
+        PlaybackHealthMeasurementCapabilities.None
+    override val videoOutputMeasurementCapabilities: VideoOutputMeasurementCapabilities =
+        VideoOutputMeasurementCapabilities.Unsupported
+
+    override fun prepare(
+        plan: PlaybackPlan,
+        subtitleAsset: com.jellyscope.core.domain.playback.SubtitleAsset?,
+    ) = Unit
+
+    override fun selectEmbeddedAudio(selection: EmbeddedAudioSelection) = Unit
+
+    override fun selectEmbeddedSubtitle(selection: EmbeddedSubtitleSelection?) = Unit
+
+    override fun setPlaybackSpeed(speed: Float) = Unit
+
+    override fun setSubtitleStyle(style: SubtitleStyle) = Unit
+
+    override fun play() = Unit
+
+    override fun pause() = Unit
+
+    override fun seekTo(positionMs: Long) = Unit
+
+    override fun stop() = Unit
+
+    override fun retry() = Unit
+
+    override fun release() = Unit
+}
 
 internal fun normalizedQueue(
     initialItemId: String,

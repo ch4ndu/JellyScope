@@ -22,6 +22,14 @@ class DesktopDeviceProfileProvider(
             decodeSource = CapabilityEvidenceSource.PinnedEngineDeclaration,
             audioLimitSource = CapabilityEvidenceSource.DocumentedLimit,
             videoInputEnvelope = null,
+            supportsHdr = true,
+            videoRangeCapabilitiesByCodec =
+                mapOf(
+                    "h264" to VideoRangeCapabilities(),
+                    "hevc" to VideoRangeCapabilities(supportsHdr10 = true),
+                    "vp9" to VideoRangeCapabilities(supportsHdr10 = true),
+                    "av1" to VideoRangeCapabilities(supportsHdr10 = true),
+                ),
         )
     }
     private val cachedLibVlcCapabilities: DeviceDecodingCapabilities by lazy {
@@ -30,6 +38,9 @@ class DesktopDeviceProfileProvider(
             decodeSource = CapabilityEvidenceSource.StaticDeclaration,
             audioLimitSource = CapabilityEvidenceSource.Unknown,
             videoInputEnvelope = MACOS_LIBVLC_STANDARD_INPUT_ENVELOPE.takeIf { hostOsName.isMacOs() },
+            supportsHdr = false,
+            videoRangeCapabilitiesByCodec =
+                desktopLibVlcDeviceProfileDeclaration.videoCodecs.associateWith { VideoRangeCapabilities() },
         )
     }
 
@@ -38,6 +49,8 @@ class DesktopDeviceProfileProvider(
         decodeSource: CapabilityEvidenceSource,
         audioLimitSource: CapabilityEvidenceSource,
         videoInputEnvelope: VideoCodecResolution?,
+        supportsHdr: Boolean,
+        videoRangeCapabilitiesByCodec: Map<String, VideoRangeCapabilities>,
     ): DeviceDecodingCapabilities =
         DeviceDecodingCapabilities(
             videoCodecs = declaration.videoCodecs,
@@ -48,17 +61,8 @@ class DesktopDeviceProfileProvider(
                 videoInputEnvelope
                     ?.let { envelope -> declaration.videoCodecs.associateWith { envelope } }
                     .orEmpty(),
-            supportsHdr = true,
-            // mpv exposes no stable display-specific HDR probe here. Keep the
-            // baseline conservative: HDR10 (and its safe HDR10+ fallback) on
-            // codecs it can decode, with no HLG or Dolby Vision claim.
-            videoRangeCapabilitiesByCodec =
-                mapOf(
-                    "h264" to VideoRangeCapabilities(),
-                    "hevc" to VideoRangeCapabilities(supportsHdr10 = true),
-                    "vp9" to VideoRangeCapabilities(supportsHdr10 = true),
-                    "av1" to VideoRangeCapabilities(supportsHdr10 = true),
-                ),
+            supportsHdr = supportsHdr,
+            videoRangeCapabilitiesByCodec = videoRangeCapabilitiesByCodec,
             directPlayProfiles =
                 listOf(
                     DeviceDirectPlayProfile(

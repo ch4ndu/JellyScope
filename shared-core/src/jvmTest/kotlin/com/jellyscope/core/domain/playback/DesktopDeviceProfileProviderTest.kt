@@ -11,20 +11,21 @@ import kotlin.test.assertTrue
 
 class DesktopDeviceProfileProviderTest {
     @Test
-    fun desktopCapabilitiesAndWireProfilesRemainStable() {
+    fun desktopMpvAndLibVlcAdvertiseIndependentHdrCapabilitiesAndWireProfiles() {
         val provider = DesktopDeviceProfileProvider(hostOsName = "Linux")
-        val expected = desktopCapabilities()
-        val expectedProfile = buildDeviceProfile(expected, maxStreamingBitrate = null)
+        val mpv = provider.capabilities(PlayerBackend.Mpv)
+        val libVlc = provider.capabilities(PlayerBackend.LibVlc)
 
-        listOf(PlayerBackend.Mpv, PlayerBackend.LibVlc).forEach { backend ->
-            val actual = provider.capabilities(backend)
+        assertTrue(mpv.supportsHdr)
+        assertEquals(VideoRangeCapabilities(supportsHdr10 = true), mpv.videoRangeCapabilitiesByCodec.getValue("hevc"))
 
-            assertEquals(
-                expected,
-                actual.copy(videoCodecEvidence = emptyMap(), audioCodecEvidence = emptyMap()),
-            )
-            assertEquals(expectedProfile, buildDeviceProfile(actual, maxStreamingBitrate = null))
-        }
+        assertFalse(libVlc.supportsHdr)
+        assertEquals(VideoRangeCapabilities(), libVlc.videoRangeCapabilitiesByCodec.getValue("hevc"))
+
+        assertEquals(
+            "SDR|HDR10|HDR10Plus|DOVIWithHDR10|DOVIWithHDR10Plus|DOVIWithSDR",
+            videoRangeConditions(buildDeviceProfile(mpv, maxStreamingBitrate = null)).getValue("hevc"),
+        )
     }
 
     @Test
@@ -119,51 +120,9 @@ class DesktopDeviceProfileProviderTest {
     }
 }
 
-private fun desktopCapabilities(): DeviceDecodingCapabilities {
-    val videoCodecs = listOf("h264", "hevc", "vp9", "av1")
-    val audioCodecs = listOf("aac", "mp3", "flac", "ac3", "eac3", "opus", "vorbis", "pcm", "dts", "dca", "truehd", "mp2")
-    return DeviceDecodingCapabilities(
-        videoCodecs = videoCodecs,
-        audioCodecs = audioCodecs,
-        supportsDolbyVision = false,
-        maxAudioChannels = 8,
-        videoResolutionsByCodec = emptyMap(),
-        supportsHdr = true,
-        videoRangeCapabilitiesByCodec =
-            mapOf(
-                "h264" to VideoRangeCapabilities(),
-                "hevc" to VideoRangeCapabilities(supportsHdr10 = true),
-                "vp9" to VideoRangeCapabilities(supportsHdr10 = true),
-                "av1" to VideoRangeCapabilities(supportsHdr10 = true),
-            ),
-        directPlayProfiles =
-            listOf(
-                DeviceDirectPlayProfile(
-                    containers = listOf("mp4", "m4v", "mov", "mkv", "webm", "mpegts", "ts", "avi"),
-                    videoCodecs = videoCodecs,
-                    audioCodecs = audioCodecs,
-                ),
-            ),
-        subtitleProfiles =
-            listOf("vtt", "webvtt", "ttml", "srt", "subrip", "ass", "ssa").map { format ->
-                DeviceSubtitleProfile(
-                    format = format,
-                    deliveryMethods =
-                        listOf(
-                            SubtitleDeliveryMethod.Embed,
-                            SubtitleDeliveryMethod.External,
-                            SubtitleDeliveryMethod.Hls,
-                            SubtitleDeliveryMethod.Encode,
-                        ),
-                    kind = SubtitleKind.Text,
-                )
-            } +
-                listOf("pgs", "pgssub", "vobsub", "dvdsub", "dvbsub", "dvb").map { format ->
-                    DeviceSubtitleProfile(
-                        format = format,
-                        deliveryMethods = listOf(SubtitleDeliveryMethod.Embed, SubtitleDeliveryMethod.Encode),
-                        kind = SubtitleKind.Bitmap,
-                    )
-                },
-    )
-}
+private fun videoRangeConditions(profile: com.jellyscope.core.data.remote.PlaybackDeviceProfileDto): Map<String, String> =
+    profile.codecProfiles
+        .filter { codecProfile -> codecProfile.type == "Video" }
+        .associate { codecProfile ->
+            codecProfile.codec to codecProfile.conditions.single { condition -> condition.property == "VideoRangeType" }.value
+        }

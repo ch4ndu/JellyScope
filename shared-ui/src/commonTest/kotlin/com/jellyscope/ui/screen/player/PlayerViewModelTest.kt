@@ -10,6 +10,7 @@ import com.jellyscope.core.data.local.LocalSubtitleFileStore
 import com.jellyscope.core.data.local.LogCollectionPreferenceStore
 import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlaybackSelectionStore
+import com.jellyscope.core.data.local.PlayerBackendOverrideStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.remote.JellyfinApiException
 import com.jellyscope.core.data.repository.DownloadCommandResult
@@ -124,6 +125,7 @@ import com.jellyscope.core.domain.usecase.GetPlaybackInfoAtStartStateUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackLaunchContextUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackPreferencesUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackSelectionUseCase
+import com.jellyscope.core.domain.usecase.GetPlayerBackendOverrideUseCase
 import com.jellyscope.core.domain.usecase.GetSeasonEpisodesUseCase
 import com.jellyscope.core.domain.usecase.GetSeriesSeasonsUseCase
 import com.jellyscope.core.domain.usecase.ObservePlayerDeviceSettingsUseCase
@@ -228,6 +230,234 @@ class PlayerViewModelTest {
             ),
         )
     }
+
+    @Test
+    fun pendingControllerConstructsResolvedDefaultOnceOnWorkAndPublishesConcreteController() =
+        runPlayerViewModelTest {
+            val workDispatcher = RecordingDispatcher(Dispatchers.Main)
+            val concreteController = FakePlayerController(confirmInitialAudio = true)
+            concreteController.activeBackend = PlayerBackend.AVPlayer
+            val requests = mutableListOf<PlayerBackend>()
+            val fixture =
+                playerFixture(
+                    initialControllerIsPending = true,
+                    deviceProfileProvider = appleOfflineProfileProvider(),
+                    workDispatcher = workDispatcher,
+                    playerControllerFactory = { backend ->
+                        check(workDispatcher.running)
+                        requests += backend
+                        concreteController
+                    },
+                )
+
+            runCurrent()
+
+            assertEquals(listOf(PlayerBackend.AVPlayer), requests)
+            assertEquals(1, fixture.controller.releaseCount)
+            assertEquals(concreteController, fixture.viewModel.currentPlayerController)
+            assertEquals(1, concreteController.prepareCount)
+            fixture.viewModel.dispose()
+        }
+
+    @Test
+    fun itemBackendOverrideConstructsOnlyTheOverriddenBackend() =
+        runPlayerViewModelTest {
+            val overriddenController = FakePlayerController(confirmInitialAudio = true)
+            overriddenController.activeBackend = PlayerBackend.VlcKit
+            val factoryRequests = mutableListOf<PlayerBackend>()
+            val fixture =
+                playerFixture(
+                    initialControllerIsPending = true,
+                    deviceProfileProvider = appleOfflineProfileProvider(),
+                    playerBackendOverrideStore = FakePlayerBackendOverrideStore(PlayerBackend.VlcKit),
+                    playerControllerFactory = { backend ->
+                        factoryRequests += backend
+                        overriddenController
+                    },
+                )
+
+            runCurrent()
+
+            assertEquals(listOf(PlayerBackend.VlcKit), factoryRequests)
+            assertEquals(overriddenController, fixture.viewModel.currentPlayerController)
+            assertEquals(1, overriddenController.prepareCount)
+            fixture.viewModel.dispose()
+        }
+
+    @Test
+    fun requestedConstructionFailureFallsBackOnlyAfterOutgoingReleaseAndRecordsActualBackend() =
+        runPlayerViewModelTest {
+            val fallbackController = FakePlayerController(confirmInitialAudio = true)
+            fallbackController.activeBackend = PlayerBackend.ExoPlayer
+            val factoryRequests = mutableListOf<PlayerBackend>()
+            lateinit var outgoingController: FakePlayerController
+            val fixture =
+                playerFixture(
+                    activeBackend = PlayerBackend.VlcKit,
+                    deviceProfileProvider = appleOfflineProfileProvider(),
+                    playerControllerFactory = { backend ->
+                        factoryRequests += backend
+                        when (backend) {
+                            PlayerBackend.AVPlayer -> {
+                                error("requested controller construction failed")
+                            }
+                            PlayerBackend.ExoPlayer -> fallbackController
+                            else -> error("unexpected backend: $backend")
+                        }
+                    },
+                )
+            outgoingController = fixture.controller
+
+            runCurrent()
+
+            assertEquals(listOf(PlayerBackend.AVPlayer, PlayerBackend.ExoPlayer), factoryRequests)
+            assertEquals(1, outgoingController.releaseCount)
+            assertEquals(fallbackController, fixture.viewModel.currentPlayerController)
+            assertEquals(1, fallbackController.prepareCount)
+            assertEquals(
+                PlayerBackend.ExoPlayer,
+                assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).debugInfo?.backend,
+            )
+            fixture.viewModel.dispose()
+        }
+
+    @Test
+    fun initialControllerFactoryFailureUsesStartupErrorThenRetryInstallsConcreteController() =
+        runPlayerViewModelTest {
+            val recoveredController = FakePlayerController(confirmInitialAudio = true)
+            recoveredController.activeBackend = PlayerBackend.AVPlayer
+            var factoryAttempts = 0
+            val fixture =
+                playerFixture(
+                    initialControllerIsPending = true,
+                    deviceProfileProvider = appleOfflineProfileProvider(),
+                    playerControllerFactory = {
+                        factoryAttempts += 1
+                        if (factoryAttempts <= 2) {
+                            error("controller construction failed")
+                        }
+                        recoveredController
+                    },
+                )
+
+            runCurrent()
+
+            assertEquals(PlayerUiState.Error(error = PlaybackError.Unknown), fixture.viewModel.state.value)
+            assertEquals(1, fixture.controller.releaseCount)
+            assertEquals(0, fixture.controller.prepareCount)
+            assertEquals(0, fixture.controller.playCount)
+
+            fixture.viewModel.retry()
+            runCurrent()
+
+            assertEquals(3, factoryAttempts)
+            assertEquals(recoveredController, fixture.viewModel.currentPlayerController)
+            assertEquals(1, recoveredController.prepareCount)
+            assertEquals(0, fixture.controller.prepareCount)
+            fixture.viewModel.dispose()
+        }
+
+    @Test
+    fun disposalBeforeInitialCandidateMainTransferReleasesOutgoingAndCandidateOnce() =
+        runTest {
+            val mainDispatcher = StandardTestDispatcher(testScheduler)
+            val workScheduler = TestCoroutineScheduler()
+            Dispatchers.setMain(mainDispatcher)
+            try {
+                val candidate = FakePlayerController(confirmInitialAudio = true)
+                candidate.activeBackend = PlayerBackend.AVPlayer
+                val candidateReturned = CompletableDeferred<Unit>()
+                val factoryRequests = mutableListOf<PlayerBackend>()
+                var factoryCount = 0
+                val workDispatcher = RecordingDispatcher(StandardTestDispatcher(workScheduler))
+                val fixture =
+                    playerFixture(
+                        initialControllerIsPending = true,
+                        deviceProfileProvider = appleOfflineProfileProvider(),
+                        workDispatcher = workDispatcher,
+                        playerControllerFactory = { backend ->
+                            assertTrue(workDispatcher.running)
+                            factoryRequests += backend
+                            factoryCount += 1
+                            candidateReturned.complete(Unit)
+                            candidate
+                        },
+                    )
+
+                var schedulerTurns = 0
+                while (!candidateReturned.isCompleted && schedulerTurns < 20) {
+                    runCurrent()
+                    if (!candidateReturned.isCompleted) {
+                        workScheduler.runCurrent()
+                    }
+                    schedulerTurns += 1
+                }
+
+                assertTrue(candidateReturned.isCompleted)
+                assertEquals(listOf(PlayerBackend.AVPlayer), factoryRequests)
+                assertEquals(1, factoryCount)
+                assertFalse(fixture.viewModel.currentPlayerController === candidate)
+
+                fixture.viewModel.dispose()
+                runCurrent()
+                fixture.viewModel.dispose()
+
+                assertEquals(1, fixture.controller.releaseCount)
+                assertEquals(1, candidate.releaseCount)
+                assertEquals(0, candidate.prepareCount)
+                assertEquals(0, candidate.playCount)
+                assertFalse(fixture.viewModel.currentPlayerController === candidate)
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
+
+    @Test
+    fun failedRequestedAndFallbackReplacementDoesNotRereleaseOutgoingOnDispose() =
+        runPlayerViewModelTest {
+            val factoryRequests = mutableListOf<PlayerBackend>()
+            val fixture =
+                playerFixture(
+                    activeBackend = PlayerBackend.VlcKit,
+                    deviceProfileProvider = appleOfflineProfileProvider(),
+                    playerControllerFactory = { backend ->
+                        factoryRequests += backend
+                        error("construction failure")
+                    },
+                )
+
+            runCurrent()
+
+            assertEquals(listOf(PlayerBackend.AVPlayer, PlayerBackend.ExoPlayer), factoryRequests)
+            assertEquals(PlayerUiState.Error(error = PlaybackError.Unknown), fixture.viewModel.state.value)
+            assertEquals(1, fixture.controller.releaseCount)
+
+            fixture.viewModel.dispose()
+            fixture.viewModel.dispose()
+
+            assertEquals(1, fixture.controller.releaseCount)
+        }
+
+    @Test
+    fun repeatedDisposeSettlesInstalledControllerAndStopReportingOnce() =
+        runPlayerViewModelTest {
+            val fixture = playerFixture()
+            runCurrent()
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 2_000L)
+            runCurrent()
+
+            fixture.viewModel.dispose()
+            fixture.viewModel.dispose()
+            runCurrent()
+
+            assertEquals(1, fixture.controller.releaseCount)
+            assertEquals(
+                1,
+                fixture.reporter.reports
+                    .filterIsInstance<Report.Stopped>()
+                    .size,
+            )
+        }
 
     @Test
     fun publishesVolumeControlAndDelegatesVolumeActions() =
@@ -2894,7 +3124,8 @@ class PlayerViewModelTest {
                     playbackState(PlaybackStatus.Failed, error = PlaybackError.Decoder, positionMs = 4_000L)
                 runCurrent()
 
-                assertEquals(1, replacementController.stopCount)
+                assertEquals(1, replacementController.releaseCount)
+                assertEquals(0, replacementController.stopCount)
                 assertEquals(0, replacementController.prepareCount)
                 assertEquals(
                     1,
@@ -6663,6 +6894,7 @@ private fun playerFixture(
     videoOutputMeasurementCapabilities: VideoOutputMeasurementCapabilities = VideoOutputMeasurementCapabilities.Unsupported,
     guidancePolicy: TestGuidancePolicy = TestGuidancePolicy.Actionable,
     activeBackend: PlayerBackend = PlayerBackend.Auto,
+    initialControllerIsPending: Boolean = false,
     playerControllerFactory: ((PlayerBackend) -> PlayerController)? = null,
     offlineDownloadId: DownloadId? = null,
     getOfflinePlaybackPlanUseCase: GetOfflinePlaybackPlanUseCase? = null,
@@ -6670,6 +6902,7 @@ private fun playerFixture(
     publishPrepareEpoch: Boolean = false,
     volumeController: FakeVolumePlayerController? = null,
     deviceProfileProvider: DeviceProfileProvider? = null,
+    playerBackendOverrideStore: PlayerBackendOverrideStore? = null,
     playbackDiagnosticsContext: PlaybackDiagnosticsContext? = null,
 ): PlayerFixture {
     val monotonicOrigin =
@@ -6717,6 +6950,7 @@ private fun playerFixture(
             initialSubtitleSelection = initialSubtitleSelection,
             queue = queue,
             playerController = controller,
+            initialControllerIsPending = initialControllerIsPending,
             playbackInfoPlanner =
                 PlaybackInfoPlanner(
                     mediaRepository = repository,
@@ -6751,6 +6985,8 @@ private fun playerFixture(
             playerControllerFactory = playerControllerFactory ?: { controller },
             deviceProfileProvider = deviceProfileProvider,
             playbackDiagnosticsContext = playbackDiagnosticsContext,
+            getPlayerBackendOverrideUseCase =
+                playerBackendOverrideStore?.let(::GetPlayerBackendOverrideUseCase),
             getLocalSubtitleAssetUseCase =
                 localSubtitleAsset?.let { asset ->
                     GetLocalSubtitleAssetUseCase(
@@ -6840,6 +7076,30 @@ private class FakePlaybackSelectionStore : PlaybackSelectionStore {
     ) {
         values.keys.removeAll { key -> key.serverId == serverId && key.userId == userId }
     }
+}
+
+private class FakePlayerBackendOverrideStore(
+    private val backend: PlayerBackend?,
+) : PlayerBackendOverrideStore {
+    override suspend fun get(
+        serverId: String,
+        itemId: String,
+    ): PlayerBackend? = backend
+
+    override suspend fun save(
+        serverId: String,
+        itemId: String,
+        backend: PlayerBackend?,
+    ) = Unit
+
+    override suspend fun delete(
+        serverId: String,
+        itemId: String,
+    ) = Unit
+
+    override suspend fun clearServerScoped() = Unit
+
+    override suspend fun clearServerScoped(serverId: String) = Unit
 }
 
 private class FakePlayerDeviceSettingsStore(
