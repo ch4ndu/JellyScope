@@ -13,6 +13,8 @@ import com.jellyscope.core.data.local.isCompleteOriginalArtifact
 import com.jellyscope.core.data.repository.DownloadActiveAttemptRegistration
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadArtifactKind
+import com.jellyscope.core.domain.model.DownloadCommandResult
+import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadEnqueueResult
 import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadId

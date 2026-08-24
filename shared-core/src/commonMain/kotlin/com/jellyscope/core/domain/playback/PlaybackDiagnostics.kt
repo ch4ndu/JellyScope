@@ -1226,7 +1226,8 @@ private fun PlaybackDiagnosticDisplayResult.diagnosticName(): String =
 private fun PlaybackDiagnosticDisplayTier.diagnosticName(): String =
     if (this == PlaybackDiagnosticDisplayTier.Unrecognized) "unrecognized" else name
 
-fun Throwable.playbackExceptionType(): String = safeDiagnosticType()
+fun Throwable.playbackExceptionType(): String =
+    (this as? PlaybackPlanningException.RemoteRequestFailed)?.sourceExceptionType ?: safeDiagnosticType()
 
 fun PlaybackInfoRequestPolicy.diagnosticClass(): PlaybackRequestPolicyClass =
     when {

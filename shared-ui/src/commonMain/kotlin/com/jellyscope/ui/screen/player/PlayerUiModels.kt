@@ -89,6 +89,7 @@ sealed interface PlayerUiState {
         val timingState: PlayerTimingState = PlayerTimingState.Unsupported,
         val debugInfo: PlayerDebugInfo? = null,
         val videoPresentation: PlannedVideoPresentation? = null,
+        val isSeekable: Boolean = false,
         // Null during a queue switch so held seeks cannot cross items.
         val playbackItemId: String? = null,
     ) : PlayerUiState

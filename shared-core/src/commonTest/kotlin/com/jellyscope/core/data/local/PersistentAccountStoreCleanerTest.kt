@@ -9,6 +9,7 @@ import com.jellyscope.core.domain.model.LibrarySortOrder
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
@@ -102,7 +103,7 @@ class PersistentAccountStoreCleanerTest {
         }
 
     @Test
-    fun credentialFailureRetainsDurableLogoutPendingMarker() =
+    fun legacyCredentialCleanupFailureRetainsPendingButEmptyEnvelopeStaysAuthoritative() =
         runTest {
             val secureStore = FakeSecureStore()
             val sessionStore = SessionStore(secureStore, Json)
@@ -124,7 +125,7 @@ class PersistentAccountStoreCleanerTest {
             }
 
             assertTrue(sessionStore.isLogoutPending())
-            assertEquals(session, sessionStore.readSession())
+            assertEquals(null, sessionStore.readSession())
         }
 
     @Test

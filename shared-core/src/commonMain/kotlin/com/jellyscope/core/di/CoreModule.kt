@@ -6,6 +6,8 @@ import com.jellyscope.core.data.discovery.KtorUdpServerDiscovery
 import com.jellyscope.core.data.local.DetailRelatedCache
 import com.jellyscope.core.data.local.DiagnosticBreadcrumbStore
 import com.jellyscope.core.data.local.DiscoveryCache
+import com.jellyscope.core.data.local.LocalSubtitleAssetStore
+import com.jellyscope.core.data.local.LocalSubtitleFileStore
 import com.jellyscope.core.data.local.LogCollectionPreferenceStore
 import com.jellyscope.core.data.local.NoOpPreviousRunFailureStore
 import com.jellyscope.core.data.local.OpenSubtitlesSettingsStore
@@ -16,6 +18,7 @@ import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.PreviousRunFailureStore
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.local.SessionStore
+import com.jellyscope.core.data.local.SubtitleSelectionStore
 import com.jellyscope.core.data.remote.AuthHeaderProvider
 import com.jellyscope.core.data.remote.ClientInfo
 import com.jellyscope.core.data.remote.DefaultImageAuthHeaderProvider
@@ -26,6 +29,7 @@ import com.jellyscope.core.data.remote.KtorJellyfinApi
 import com.jellyscope.core.data.remote.OpenSubtitlesApi
 import com.jellyscope.core.data.remote.SessionAuthHeaderProvider
 import com.jellyscope.core.data.repository.AuthRepository
+import com.jellyscope.core.data.repository.CoordinatedSubtitleSelectionStore
 import com.jellyscope.core.data.repository.DefaultAuthRepository
 import com.jellyscope.core.data.repository.DefaultLocalSubtitleSyncRepository
 import com.jellyscope.core.data.repository.DefaultMediaRepository
@@ -34,6 +38,7 @@ import com.jellyscope.core.data.repository.DefaultPlaybackProgressReporter
 import com.jellyscope.core.data.repository.DefaultSessionRepository
 import com.jellyscope.core.data.repository.DownloadRepository
 import com.jellyscope.core.data.repository.JellyfinLocalSubtitleSyncApi
+import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.data.repository.LocalSubtitleStorageReconciler
 import com.jellyscope.core.data.repository.LocalSubtitleSyncApi
 import com.jellyscope.core.data.repository.LocalSubtitleSyncCoordinator
@@ -158,11 +163,13 @@ import com.jellyscope.core.playback.PlaybackStopSettlementRegistry
 import com.jellyscope.core.util.LogBufferStore
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.Json
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 internal val downloadTransferClientQualifier = named("DownloadTransfer")
+internal val localSubtitleSelectionPersistenceQualifier = named("LocalSubtitleSelectionPersistence")
 
 val coreModule =
     module {
@@ -189,23 +196,36 @@ val coreModule =
             )
         }
         single<OpenSubtitlesRepository> { DefaultOpenSubtitlesRepository(api = get(), settings = get()) }
+        single(createdAtStart = true) {
+            LocalSubtitleMutationCoordinator(
+                assetStore = get<LocalSubtitleAssetStore>(),
+                fileStore = get<LocalSubtitleFileStore>(),
+                selectionStore = get(localSubtitleSelectionPersistenceQualifier),
+                scope = get(),
+            )
+        }
+        single<SubtitleSelectionStore> {
+            CoordinatedSubtitleSelectionStore(coordinator = get())
+        }
         single<LocalSubtitleSyncApi> { JellyfinLocalSubtitleSyncApi(api = get()) }
         single<LocalSubtitleSyncRepository> {
-            DefaultLocalSubtitleSyncRepository(api = get(), assetStore = get(), fileStore = get())
+            DefaultLocalSubtitleSyncRepository(
+                api = get(),
+                mutationCoordinator = get(),
+                workerDispatcher = Dispatchers.Default,
+            )
+        }
+        single {
+            LocalSubtitleStorageReconciler(
+                coordinator = get(),
+            )
         }
         single(createdAtStart = true) {
             LocalSubtitleSyncCoordinator(
                 sessionRepository = get(),
                 assetStore = get(),
+                storageReconciler = get(),
                 syncRepository = get(),
-                scope = get(),
-            )
-        }
-        single(createdAtStart = true) {
-            LocalSubtitleStorageReconciler(
-                assetStore = get(),
-                fileStore = get(),
-                selectionStore = get(),
                 scope = get(),
             )
         }
@@ -268,6 +288,8 @@ val coreModule =
                 sessionStore = get(),
                 sessionBoundaryParticipant =
                     getOrNull<SessionBoundaryParticipant>() ?: NoOpSessionBoundaryParticipant,
+                advanceLocalSubtitleAccountBarrier =
+                    get<LocalSubtitleMutationCoordinator>()::advanceAccountBarrier,
             )
         }
         single<SessionRepository> {
@@ -406,7 +428,7 @@ val coreModule =
         single { GetPlayerBackendOverrideUseCase(playerBackendOverrideStore = get()) }
         single { GetSubtitleSelectionUseCase(store = get()) }
         single { GetSubtitleSelectionsUseCase(store = get()) }
-        single { GetLocalSubtitleAssetUseCase(assetStore = get(), fileStore = get()) }
+        single { GetLocalSubtitleAssetUseCase(coordinator = get()) }
         single { ObserveLocalSubtitleAssetsUseCase(assetStore = get()) }
         single { GetGridSortUseCase(gridSortStore = get()) }
         single { GetLibrarySortUseCase(librarySortStore = get()) }
@@ -431,10 +453,15 @@ val coreModule =
         single { DeletePlayerBackendOverrideAction(store = get()) }
         single { SavePlayerBackendOverrideAction(store = get()) }
         single { SavePlaybackTimingOffsetAction(store = get(), scope = get()) }
-        single { SaveSubtitleSelectionAction(store = get(), scope = get()) }
-        single { InstallLocalSubtitleAction(assetStore = get(), fileStore = get(), saveSubtitleSelectionAction = get()) }
-        single { DeleteLocalSubtitleAction(assetStore = get(), fileStore = get(), saveSubtitleSelectionAction = get()) }
-        single { ClearLocalSubtitlesAction(assetStore = get(), fileStore = get(), subtitleSelectionStore = get()) }
+        single { SaveSubtitleSelectionAction(coordinator = get(), scope = get()) }
+        single {
+            InstallLocalSubtitleAction(
+                coordinator = get(),
+                workerDispatcher = Dispatchers.Default,
+            )
+        }
+        single { DeleteLocalSubtitleAction(coordinator = get()) }
+        single { ClearLocalSubtitlesAction(coordinator = get()) }
         single { RetryLocalSubtitleSyncAction(assetStore = get(), syncRepository = get()) }
         single { DownloadAndInstallOpenSubtitleAction(repository = get(), installLocalSubtitleAction = get()) }
         single { GetOpenSubtitlesApiKeyUseCase(store = get()) }

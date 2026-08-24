@@ -33,7 +33,11 @@ ViewModel state/events, platform integrations, or cross-layer behavior.
 - Data layer owns Jellyfin API clients, response models, local cache, settings,
   repositories, and platform data boundaries.
 - Domain layer owns read UseCases, write Actions, domain models, mappers, search
-  projections, and playback planning.
+  projections, playback planning, and every result/protocol that a ViewModel or
+  presenter uses to make a product decision. Session-removal authorization and
+  errors, download command outcomes, subtitle-selection identity, and the
+  visible-related projection therefore remain domain-owned even when a data
+  repository implements the operation.
 - Settings value models such as `AppColorThemeId` and `PlaybackPreferences` are
   domain models. Data-layer stores persist and expose those models; UI and
   ViewModels read/write them through UseCases and Actions.
@@ -53,9 +57,14 @@ ViewModel state/events, platform integrations, or cross-layer behavior.
 - Platform player implementations consume `PlaybackPlan`; they do not decide
   Jellyfin stream strategy themselves.
 - Persistent subtitle files use the platform `LocalSubtitleFileStore` boundary.
-  Room owns asset metadata and selection identity, an app-scoped coordinator
-  owns sequential session-cancelled Jellyfin reconciliation, and platform
-  players receive only the sealed remote/local `SubtitleAsset` plan contract.
+  Room owns asset metadata and selection persistence, while one app-scoped
+  coordinator is the only writer of local subtitle files, asset rows, and
+  selections. Its selection-store facade also routes account cleanup through
+  that owner. Platform players receive only the sealed remote/local
+  `SubtitleAsset` plan contract.
+- Transport-specific playback failures are mapped to project-owned domain
+  failures below playback planning and presentation. ViewModels and presenters
+  do not import data-client exception types to decide retryability or UI state.
 - Platform player implementations also expose project-owned player control,
   observable playback state, and progress-reporting contracts; UI and ViewModels
   must not talk directly to native player APIs.
@@ -79,16 +88,26 @@ ViewModel state/events, platform integrations, or cross-layer behavior.
 - The shared and Android TV logged-in composition roots are keyed by account
   identity plus boundary epoch. Re-authentication with a rotated token gets a
   fresh lifecycle even when server/user identity is unchanged.
-- `SessionRepository.accounts` is a derived projection of the persisted account
-  list and the live `SessionState.LoggedIn` session. Its `isActive` marker comes
-  only from that live session, so account tiles and account-switch surfaces
-  cannot observe independent active-account snapshots.
+- `SessionRepository.accounts` and `SessionState` are derived together from one
+  committed session snapshot. Account `isActive` markers use that snapshot's
+  active identity, so account tiles and account-switch surfaces cannot observe
+  an active-account generation independent of the published session.
+- Cold restoration reads one committed session snapshot. Login, account switch,
+  and same-identity reauthentication finish applicable precommit validation and
+  participant preparation, then explicitly check caller cancellation before
+  crossing the irreversible boundary. Their complete tail — authoritative
+  envelope persist/load, the applicable outgoing-account subtitle barrier,
+  boundary epoch and registry transition, and exact committed-snapshot
+  publication — runs in one `NonCancellable` phase. After that tail completes
+  successfully, caller cancellation is surfaced only after those durable and
+  observable facts agree. Account removal likewise carries its immutable
+  committed snapshot through publication. No observable account transition
+  rereads secure storage after its commit.
 - Account removal is atomic. Destructive cleanup runs outside cancellable
   caller context, per-phase failures aggregate instead of abandoning remaining
   stores at the first throw, any value needed after the first destructive write
   (such as the sibling-server answer) is computed before that write under the
-  store mutex, and the resulting state publication uses the removal
-  transition's own account snapshot, never a secure-store reread.
+  store mutex.
 - Runtime caches remain registry-managed. Persistent cleanup is owned by the
   explicitly resolved `PersistentAccountStoreCleaner`, which covers full,
   server, and account cleanup without depending on lazy feature-store
@@ -125,6 +144,10 @@ ViewModel state/events, platform integrations, or cross-layer behavior.
   to other settings (rules in `docs/guides/data-playback.md` → Desktop recovery).
 - Shared UI may use domain-level identifiers such as `MediaRibbon`; it must not
   import repository-owned enums or DTOs for screen decisions.
+- New values added to the compiler-declared stable domain-model package must be
+  structurally immutable. Raw mutable byte carriers stay data-owned, and opaque
+  protocols belong in their domain action/playback package instead of being
+  masked with stability annotations.
 - App-global settings stores, such as the selected app color theme, are not
   server-scoped and must not be registered with `ServerScopedStoreRegistry`.
 - ViewModels read settings through UseCases and write settings through Actions;
@@ -841,13 +864,27 @@ what was rejected. Delete an entry when its rule changes.
   invalidate intent. New diagnostic values implement the existing sealed
   reason/operation grammar with their existing wire strings rather than growing
   the grammar or rewriting log lines.
-- **Account-removal publication uses the transition snapshot, not a
-  secure-store reread.** Publication carries the remaining accounts from the
-  serialized removal transition, so the publish callback cannot retry the
-  account-index read after the first destructive write; the regression test
-  arms a throwing read gate on that write. Rejected: re-reading stored accounts
-  in the publish lambda, which makes a valid removal fail after its entry was
-  already deleted.
+- **Observable account transitions finish the committed boundary before
+  surfacing caller cancellation.** Login, switch, and same-identity
+  reauthentication validate while cancellable, then settle the exact durable
+  snapshot, applicable subtitle barrier, registry identity/epoch, and published
+  session/accounts in one `NonCancellable` tail. On successful completion, the
+  captured caller context is checked; cancellation between those steps would
+  otherwise expose split durable and runtime truth. Carrying the committed
+  snapshot also prevents publication from observing a different store
+  generation. Cold restore needs one authoritative read, and removal carries
+  its committed snapshot. Regression fakes reject every read after commit.
+  Rejected: a publish-time secure-store refresh or protecting only the final
+  publication from cancellation.
+- **UI-visible operation contracts are domain contracts because presentation
+  must not depend on an implementation layer.** Session-removal authorization,
+  download outcomes, subtitle-selection identity, visible-related projection,
+  and mapped playback failures describe decisions made above repositories.
+  Keeping them in data packages inverted that dependency and exposed transport
+  exceptions to ViewModels. New opaque protocols and raw byte carriers stay
+  outside the compiler-declared stable model package rather than being made
+  falsely stable. Rejected: repository-owned presentation contracts and
+  stability annotations that hide mutable structure.
 
 ### Desktop playback embedding
 

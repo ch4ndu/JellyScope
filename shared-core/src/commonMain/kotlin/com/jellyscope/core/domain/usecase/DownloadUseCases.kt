@@ -3,8 +3,8 @@
 package com.jellyscope.core.domain.usecase
 
 import com.jellyscope.core.data.repository.DownloadRepository
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
-import com.jellyscope.core.data.repository.SessionRemovalScope
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadRecord

@@ -9,13 +9,13 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class PublicSystemInfoDto(
     @SerialName("ServerName")
-    val serverName: String,
+    val serverName: String? = null,
     @SerialName("Version")
-    val version: String,
+    val version: String? = null,
     @SerialName("Id")
-    val id: String,
+    val id: String? = null,
     @SerialName("ProductName")
-    val productName: String,
+    val productName: String? = null,
 )
 
 @Serializable
@@ -25,7 +25,7 @@ data class AuthenticationResultDto(
     @SerialName("User")
     val user: UserDto,
     @SerialName("ServerId")
-    val serverId: String,
+    val serverId: String? = null,
 )
 
 @Serializable

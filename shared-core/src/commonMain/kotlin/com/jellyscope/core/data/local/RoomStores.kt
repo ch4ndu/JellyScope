@@ -41,6 +41,7 @@ import com.jellyscope.core.domain.playback.PlayerDeviceSettings
 import com.jellyscope.core.domain.playback.PlayerHdrMode
 import com.jellyscope.core.domain.playback.PlayerVideoResolutionLimit
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1185,6 +1186,12 @@ internal class RoomWatchNextSyncStore(
 internal class RoomPlayerDeviceSettingsStore(
     private val dao: JellyfinStoreDao,
     scope: CoroutineScope,
+    private val readStoredSettings: suspend () -> PlayerDeviceSettingsEntity? = {
+        dao.playerDeviceSettings(PLAYER_DEVICE_SETTINGS_ID)
+    },
+    private val writeStoredSettings: suspend (PlayerDeviceSettingsEntity) -> Unit = { entity ->
+        dao.upsertPlayerDeviceSettings(entity)
+    },
 ) : PlayerDeviceSettingsStore {
     private val mutex = Mutex()
     private val _settings = MutableStateFlow(PlayerDeviceSettings())
@@ -1195,8 +1202,7 @@ internal class RoomPlayerDeviceSettingsStore(
     init {
         scope.launch {
             val stored =
-                dao
-                    .playerDeviceSettings(PLAYER_DEVICE_SETTINGS_ID)
+                readStoredSettings()
                     ?.toModel()
                     ?: PlayerDeviceSettings()
 
@@ -1210,8 +1216,8 @@ internal class RoomPlayerDeviceSettingsStore(
 
     override suspend fun setSettings(settings: PlayerDeviceSettings) {
         mutex.withLock {
+            writeStoredSettings(settings.toEntity())
             wroteSettings = true
-            dao.upsertPlayerDeviceSettings(settings.toEntity())
             _settings.value = settings
         }
     }
@@ -1228,15 +1234,10 @@ internal class RoomSubtitleSelectionStore(
                 itemId = key.itemId,
                 mediaSourceId = key.mediaSourceId,
             ) ?: return null
-        val selection = entity.toModel()
-        if (selection == null) {
-            delete(key)
-        }
-        return selection
+        return entity.toModel()
     }
 
-    // Note: unlike get(), this does not self-heal (delete) rows whose toModel() is
-    // null — it just skips them. Harmless for read-only pre-seeding of a strip.
+    // Malformed rows decode as absent; reads never bypass the mutation owner to repair storage.
     override suspend fun getForItems(
         serverId: String,
         userId: String,

@@ -35,9 +35,3 @@ data class OpenSubtitleSearchResult(
     val selectable: Boolean,
     val unavailableReason: String? = null,
 )
-
-data class OpenSubtitleDownload(
-    val bytes: ByteArray,
-    val remaining: Int?,
-    val resetTime: String?,
-)

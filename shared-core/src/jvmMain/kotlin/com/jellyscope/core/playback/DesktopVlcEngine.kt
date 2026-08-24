@@ -89,6 +89,7 @@ internal interface DesktopVlcEngine {
 
     fun subtitleTracks(): List<DesktopVlcTrack>
 
+    /** Returns true only when native readback confirms the requested selector. */
     fun selectAudioTrack(id: Int): Boolean
 
     /** Returns true only when native readback confirms the requested selector. */
@@ -345,9 +346,10 @@ private class JnaDesktopVlcEngine(
                     targetId = id,
                     nativeResult = setResult,
                     selectedId = selectedTrack,
+                    accepted = desktopVlcAudioSelectionConfirmed(id, selectedTrack),
                 ),
             )
-            selectedTrack == id || setResult == 0
+            desktopVlcAudioSelectionConfirmed(requestedId = id, selectedId = selectedTrack)
         }
 
     override fun selectSubtitleTrack(id: Int?): Boolean =
@@ -456,6 +458,11 @@ private class JnaDesktopVlcEngine(
         return tracks
     }
 }
+
+internal fun desktopVlcAudioSelectionConfirmed(
+    requestedId: Int,
+    selectedId: Int,
+): Boolean = selectedId == requestedId
 
 internal fun desktopVlcInstanceArguments(): Array<String> =
     arrayOf(

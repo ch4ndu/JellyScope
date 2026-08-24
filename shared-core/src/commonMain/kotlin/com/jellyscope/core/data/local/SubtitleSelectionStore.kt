@@ -3,13 +3,7 @@
 package com.jellyscope.core.data.local
 
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
-
-data class SubtitleSelectionKey(
-    val serverId: String,
-    val userId: String,
-    val itemId: String,
-    val mediaSourceId: String,
-)
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 
 interface SubtitleSelectionStore : AccountScopedClearableStore {
     suspend fun get(key: SubtitleSelectionKey): SubtitleSelectionIntent?

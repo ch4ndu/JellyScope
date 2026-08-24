@@ -4,15 +4,22 @@ package com.jellyscope.core.domain.action
 
 import com.jellyscope.core.data.local.LocalSubtitleAssetStore
 import com.jellyscope.core.data.local.LocalSubtitleFileStore
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.data.local.SubtitleSelectionStore
+import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.domain.model.LocalSubtitleAsset
 import com.jellyscope.core.domain.model.LocalSubtitleContext
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -68,8 +75,8 @@ class LocalSubtitleActionsTest {
             val assetStore = ActionTestAssetStore()
             val fileStore = ActionTestFileStore()
             val selectionStore = ActionTestSelectionStore()
-            val save = SaveSubtitleSelectionAction(selectionStore, backgroundScope)
-            val install = InstallLocalSubtitleAction(assetStore, fileStore, save)
+            val coordinator = LocalSubtitleMutationCoordinator(assetStore, fileStore, selectionStore, backgroundScope)
+            val install = InstallLocalSubtitleAction(coordinator)
             val request = installRequest()
 
             val first = install(request)
@@ -80,11 +87,42 @@ class LocalSubtitleActionsTest {
             val key = SubtitleSelectionKey("server", "user", "item", "source")
             assertEquals(SubtitleSelectionIntent.LocalAsset(first.id), selectionStore.get(key))
 
-            DeleteLocalSubtitleAction(assetStore, fileStore, save)(first.id)
+            DeleteLocalSubtitleAction(coordinator)(first.id)
 
             assertEquals(null, assetStore.get(first.id))
             assertEquals(null, selectionStore.get(key))
             assertEquals(setOf(first.fileId), fileStore.deleted)
+        }
+
+    @Test
+    fun normalizationAndFinalEncodingRunOnTheInjectedWorkerDispatcherBeforeActorWrites() =
+        runTest {
+            val assetStore = ActionTestAssetStore()
+            val fileStore = ActionTestFileStore()
+            val selectionStore = ActionTestSelectionStore()
+            val coordinator = LocalSubtitleMutationCoordinator(assetStore, fileStore, selectionStore, backgroundScope)
+            val workerDispatcher = QueuedActionDispatcher()
+            val payloadEncoder = RecordingLocalSubtitlePayloadEncoder(workerDispatcher)
+            val action = InstallLocalSubtitleAction(coordinator, workerDispatcher, payloadEncoder)
+            val install = async { action(installRequest()) }
+
+            runCurrent()
+
+            assertEquals(1, workerDispatcher.pendingCount)
+            assertEquals(0, fileStore.writeCount)
+            assertEquals(null, fileStore.lastWrittenText)
+            assertEquals(0, payloadEncoder.calls)
+
+            workerDispatcher.runNext()
+            assertEquals(0, fileStore.writeCount)
+            runCurrent()
+            advanceUntilIdle()
+            install.await()
+
+            assertEquals(1, fileStore.writeCount)
+            assertEquals("WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHello\n", fileStore.lastWrittenText)
+            assertEquals(1, payloadEncoder.calls)
+            assertEquals(listOf(true), payloadEncoder.workerContexts)
         }
 }
 
@@ -144,6 +182,8 @@ private class ActionTestFileStore : LocalSubtitleFileStore {
     private val files = mutableMapOf<String, ByteArray>()
     val deleted = mutableSetOf<String>()
     var writeCount = 0
+    val lastWrittenText: String?
+        get() = files.values.lastOrNull()?.decodeToString()
 
     override suspend fun writeAtomically(
         fileId: String,
@@ -194,3 +234,41 @@ private class ActionTestSelectionStore : SubtitleSelectionStore {
 
 private val LocalSubtitleAsset.context: LocalSubtitleContext
     get() = LocalSubtitleContext(serverId, userId, itemId, mediaSourceId)
+
+private class QueuedActionDispatcher : CoroutineDispatcher() {
+    private val pending = ArrayDeque<Runnable>()
+    var isRunning = false
+        private set
+
+    val pendingCount: Int
+        get() = pending.size
+
+    override fun dispatch(
+        context: CoroutineContext,
+        block: Runnable,
+    ) {
+        pending.addLast(block)
+    }
+
+    fun runNext() {
+        isRunning = true
+        try {
+            pending.removeFirst().run()
+        } finally {
+            isRunning = false
+        }
+    }
+}
+
+private class RecordingLocalSubtitlePayloadEncoder(
+    private val dispatcher: QueuedActionDispatcher,
+) : LocalSubtitlePayloadEncoder {
+    var calls = 0
+    val workerContexts = mutableListOf<Boolean>()
+
+    override fun encode(webVtt: String): ByteArray {
+        calls += 1
+        workerContexts += dispatcher.isRunning
+        return webVtt.encodeToByteArray()
+    }
+}

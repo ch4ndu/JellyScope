@@ -12,10 +12,10 @@ import com.jellyscope.core.data.repository.DownloadQueueRepository
 import com.jellyscope.core.data.repository.DownloadRemovalMutex
 import com.jellyscope.core.data.repository.PreparedSessionRemoval
 import com.jellyscope.core.data.repository.SessionBoundaryParticipant
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
-import com.jellyscope.core.data.repository.SessionRemovalError
 import com.jellyscope.core.data.repository.SessionRemovalExecutor
-import com.jellyscope.core.data.repository.SessionRemovalScope
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalError
+import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.BeginDownloadRemovalResult
 import com.jellyscope.core.domain.model.DownloadArtifactKey

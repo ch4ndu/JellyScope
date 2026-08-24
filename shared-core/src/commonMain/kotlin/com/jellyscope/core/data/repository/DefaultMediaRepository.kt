@@ -59,6 +59,7 @@ import com.jellyscope.core.domain.playback.PlaybackInfo
 import com.jellyscope.core.domain.playback.PlaybackInfoRequestPolicy
 import com.jellyscope.core.domain.playback.PlaybackMediaSourceInfo
 import com.jellyscope.core.domain.playback.PlaybackMediaStream
+import com.jellyscope.core.domain.playback.PlaybackPlanningException
 import com.jellyscope.core.domain.playback.RepositoryOperation
 import com.jellyscope.core.domain.playback.diagnosticClass
 import com.jellyscope.core.domain.playback.formatPlaybackDiagnostic
@@ -876,7 +877,10 @@ class DefaultMediaRepository(
                     ),
                 )
             }
-        }
+        }.fold(
+            onSuccess = { value -> Result.success(value) },
+            onFailure = { throwable -> Result.failure(throwable.toPlaybackPlanningFailure()) },
+        )
 
     override suspend fun setPlayed(
         itemId: String,
@@ -950,6 +954,16 @@ class DefaultMediaRepository(
             accessToken = accessToken,
         )
 }
+
+private fun Throwable.toPlaybackPlanningFailure(): Throwable =
+    if (this is JellyfinApiException) {
+        PlaybackPlanningException.RemoteRequestFailed(
+            isNetworkFailure = this !is JellyfinApiException.Unexpected,
+            sourceExceptionType = playbackExceptionType(),
+        )
+    } else {
+        this
+    }
 
 private data class AccountSessionSnapshot(
     val session: Session,

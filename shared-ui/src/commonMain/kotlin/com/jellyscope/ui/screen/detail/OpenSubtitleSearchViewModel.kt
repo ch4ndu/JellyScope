@@ -85,7 +85,9 @@ class OpenSubtitleSearchViewModel(
                             quotaResetTime = installed.quotaResetTime,
                         )
                     }
-                    installedEvents.send(installed.asset)
+                    if (installed.selectionApplied) {
+                        installedEvents.send(installed.asset)
+                    }
                 } catch (exception: CancellationException) {
                     throw exception
                 } catch (exception: Throwable) {

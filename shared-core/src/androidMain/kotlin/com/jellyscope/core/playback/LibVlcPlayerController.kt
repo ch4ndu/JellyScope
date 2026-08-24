@@ -168,7 +168,8 @@ class LibVlcPlayerController(
         ) : NativeTransition()
     }
 
-    private var tickerJob: Job? = null
+    private val tickerOwner = LibVlcTickerOwner()
+    private val progressCadence = LibVlcProgressCadence()
     private var lastPlan: PlaybackPlan? = null
     private var playIntent = false
     private var playbackFocusAdmitted = audioFocusCoordinator == null
@@ -612,6 +613,7 @@ class LibVlcPlayerController(
                     _playbackState.update { current ->
                         current.copy(status = PlaybackStatus.Failed, error = PlaybackError.Unknown)
                     }
+                    applyTickerFor(PlaybackStatus.Failed)
                 }
             MediaPlayer.Event.ESAdded -> {
                 when (event.getEsChangedType()) {
@@ -631,9 +633,11 @@ class LibVlcPlayerController(
             MediaPlayer.Event.TimeChanged,
             MediaPlayer.Event.PositionChanged,
             -> {
+                val eventTimeMs = SystemClock.elapsedRealtime()
+                val position = readPositionMs()
+                var seekCompletion = false
                 val pendingSeekTarget = pendingSeekTargetMs
                 if (pendingSeekTarget != null && playIntent && mediaPlayer.isPlaying) {
-                    val position = readPositionMs()
                     val arrivalPosition = pendingSeekArrivalPositionMs
                     if (hasLibVlcSeekPlaybackResumed(arrivalPosition, position)) {
                         controllerLogger.i {
@@ -647,18 +651,34 @@ class LibVlcPlayerController(
                         pendingSeekArrivalPositionMs = null
                         pendingSeekTimeoutJob?.cancel()
                         pendingSeekTimeoutJob = null
+                        seekCompletion = true
                     } else if (arrivalPosition == null && abs(position - pendingSeekTarget) <= SEEK_POSITION_TOLERANCE_MS) {
                         pendingSeekArrivalPositionMs = position
                         controllerLogger.i { "seek target arrived targetMs=$pendingSeekTarget positionMs=$position" }
-                        updateProgress(PlaybackStatus.Buffering)
+                        val sample = readProgressSample(PlaybackStatus.Buffering, observedPositionMs = position)
+                        if (
+                            progressCadence.onNativeSample(
+                                nowMs = eventTimeMs,
+                                sample = sample,
+                            )
+                        ) {
+                            publishProgress(sample)
+                        }
                         return
                     } else {
-                        updateProgress(PlaybackStatus.Buffering)
+                        val sample = readProgressSample(PlaybackStatus.Buffering, observedPositionMs = position)
+                        if (
+                            progressCadence.onNativeSample(
+                                nowMs = eventTimeMs,
+                                sample = sample,
+                            )
+                        ) {
+                            publishProgress(sample)
+                        }
                         return
                     }
                 }
                 val nativePlaying = mediaPlayer.isPlaying
-                val position = readPositionMs()
                 endOfStream.onPositionSample(
                     positionMs = position,
                     playing = playIntent && nativePlaying,
@@ -670,7 +690,16 @@ class LibVlcPlayerController(
                     } else {
                         _playbackState.value.status
                     }
-                updateProgress(status)
+                val sample = readProgressSample(status, observedPositionMs = position)
+                if (
+                    progressCadence.onNativeSample(
+                        nowMs = eventTimeMs,
+                        sample = sample,
+                        force = seekCompletion,
+                    )
+                ) {
+                    publishProgress(sample)
+                }
             }
         }
     }
@@ -782,7 +811,7 @@ class LibVlcPlayerController(
         mediaPlayer.setEventListener(null)
         generation += 1L
         stopped = true
-        tickerJob?.cancel()
+        tickerOwner.invalidateGeneration()
         audioFocusCoordinator?.abandon()
         resumeAfterTransientFocusLoss = false
         playIntent = false
@@ -824,6 +853,7 @@ class LibVlcPlayerController(
         lastPlan = plan
         timing.clearForDiscontinuity()
         resetRuntimeDiagnosticsBaseline()
+        progressCadence.reset()
         resetVideoOutputBaseline()
         _runtimeDiagnostics.value = PlaybackRuntimeDiagnostics.EMPTY.copy(prepareEpoch = generation)
         val streamUrl =
@@ -1197,8 +1227,7 @@ class LibVlcPlayerController(
         selectedPostAttachmentSubtitleIds.clear()
         audioFocusCoordinator?.abandon()
         playbackFocusAdmitted = false
-        tickerJob?.cancel()
-        tickerJob = null
+        tickerOwner.invalidateGeneration()
         pendingStartSeekJob?.cancel()
         pendingStartSeekJob = null
         pendingStartPositionMs = null
@@ -1211,6 +1240,7 @@ class LibVlcPlayerController(
         startupResyncJob?.cancel()
         startupResyncJob = null
         resetRuntimeDiagnosticsBaseline()
+        progressCadence.reset()
         resetVideoOutputBaseline()
         _runtimeDiagnostics.value = PlaybackRuntimeDiagnostics.EMPTY
         currentMedia = null
@@ -1279,7 +1309,7 @@ class LibVlcPlayerController(
         subtitleActivationConfirmation.clear()
         audioFocusCoordinator?.abandon()
         playbackFocusAdmitted = false
-        tickerJob?.cancel()
+        tickerOwner.invalidateGeneration()
         pendingStartSeekJob?.cancel()
         pendingStartSeekJob = null
         clearResumeOutputRelock()
@@ -1292,6 +1322,7 @@ class LibVlcPlayerController(
         startupResyncJob = null
         detachSurface()
         resetRuntimeDiagnosticsBaseline()
+        progressCadence.reset()
         resetVideoOutputBaseline()
         _runtimeDiagnostics.value = PlaybackRuntimeDiagnostics.EMPTY
         droppedFrameMeasurementsChannel.close()
@@ -1490,6 +1521,10 @@ class LibVlcPlayerController(
                 bufferedPositionMs = position,
             )
         }
+        progressCadence.onPublication(
+            nowMs = SystemClock.elapsedRealtime(),
+            sample = LibVlcProgressSample(positionMs = position, durationMs = duration, status = status),
+        )
         applyTickerFor(status)
     }
 
@@ -1501,8 +1536,8 @@ class LibVlcPlayerController(
         if (status == PlaybackStatus.Playing || status == PlaybackStatus.Buffering) {
             startTicker()
         } else {
-            tickerJob?.cancel()
-            tickerJob = null
+            tickerOwner.invalidateGeneration()
+            progressCadence.reset()
         }
     }
 
@@ -1512,23 +1547,38 @@ class LibVlcPlayerController(
     // the seek bar travel target -> old position -> target on every skip.
     private fun outstandingSeekTargetMs(): Long? = seekCoalescer.pendingTargetMs ?: pendingSeekTargetMs
 
-    private fun updateProgress(status: PlaybackStatus = _playbackState.value.status) {
-        val position = (outstandingSeekTargetMs() ?: readPositionMs()).coerceAtLeast(0L)
-        val duration = readDurationMs()
+    private fun updateProgress(
+        status: PlaybackStatus = _playbackState.value.status,
+        observedPositionMs: Long? = null,
+    ) = publishProgress(readProgressSample(status, observedPositionMs))
+
+    private fun readProgressSample(
+        status: PlaybackStatus,
+        observedPositionMs: Long? = null,
+    ): LibVlcProgressSample {
+        val position = (outstandingSeekTargetMs() ?: observedPositionMs ?: readPositionMs()).coerceAtLeast(0L)
+        return LibVlcProgressSample(
+            positionMs = position,
+            durationMs = readDurationMs(),
+            status = status,
+        )
+    }
+
+    private fun publishProgress(sample: LibVlcProgressSample) {
         _playbackState.update { current ->
             current.copy(
-                status = status,
-                positionMs = position,
-                durationMs = duration,
-                bufferedPositionMs = position,
+                status = sample.status,
+                positionMs = sample.positionMs,
+                durationMs = sample.durationMs,
+                bufferedPositionMs = sample.positionMs,
             )
         }
+        progressCadence.onPublication(SystemClock.elapsedRealtime(), sample)
     }
 
     private fun startTicker() {
-        if (tickerJob != null) return
         val tickerGeneration = generation
-        tickerJob =
+        tickerOwner.start {
             scope.launch {
                 while (!released && tickerGeneration == generation) {
                     delay(RUNTIME_DIAGNOSTICS_POLL_MS)
@@ -1536,9 +1586,13 @@ class LibVlcPlayerController(
                     // Runtime diagnostics only need a 1 s cadence; keep them off the
                     // high-frequency TimeChanged/PositionChanged event path.
                     updateRuntimeDiagnostics()
-                    updateProgress()
+                    val sample = readProgressSample(_playbackState.value.status)
+                    if (progressCadence.onTicker(nowMs = SystemClock.elapsedRealtime(), sample = sample)) {
+                        publishProgress(sample)
+                    }
                 }
             }
+        }
     }
 
     private fun readPositionMs(): Long = runCatching { mediaPlayer.time }.getOrDefault(_playbackState.value.positionMs)
@@ -2079,6 +2133,92 @@ private const val SEEK_BUFFERING_PROGRESS_PROBE_MS = 3_000L
 private const val SEEK_POSITION_TOLERANCE_MS = 2_000L
 internal const val SEEK_RESUME_ADVANCE_MS = 50L
 
+/** Retires each generation's ticker slot before a replacement may claim it. */
+internal class LibVlcTickerOwner {
+    private var job: Job? = null
+
+    fun start(createJob: () -> Job) {
+        if (job != null) return
+        job = createJob()
+    }
+
+    fun invalidateGeneration() {
+        job?.cancel()
+        job = null
+    }
+}
+
+/** Native progress owns healthy publication; the diagnostics ticker is stale-callback fallback only. */
+internal class LibVlcProgressCadence(
+    private val nativePublishIntervalMs: Long = LIBVLC_NATIVE_PROGRESS_INTERVAL_MS,
+    private val nativeStaleAfterMs: Long = RUNTIME_DIAGNOSTICS_POLL_MS,
+) {
+    private var lastNativeSampleAtMs: Long? = null
+    private var lastPublishedAtMs: Long? = null
+    private var lastPublishedSample: LibVlcProgressSample? = null
+
+    fun onNativeSample(
+        nowMs: Long,
+        sample: LibVlcProgressSample,
+        force: Boolean = false,
+    ): Boolean {
+        lastNativeSampleAtMs = nowMs
+        val previousSample = lastPublishedSample
+        val semanticEdge =
+            previousSample == null ||
+                previousSample.status != sample.status ||
+                previousSample.durationMs != sample.durationMs
+        val publicationDue =
+            force ||
+                semanticEdge ||
+                previousSample.positionMs != sample.positionMs &&
+                lastPublishedAtMs?.let { previous -> nowMs - previous >= nativePublishIntervalMs } != false
+        if (publicationDue) recordPublication(nowMs, sample)
+        return publicationDue
+    }
+
+    fun onTicker(
+        nowMs: Long,
+        sample: LibVlcProgressSample,
+    ): Boolean {
+        val nativeSampleAtMs = lastNativeSampleAtMs
+        val nativeIsFresh =
+            nativeSampleAtMs != null &&
+                nowMs >= nativeSampleAtMs &&
+                nowMs - nativeSampleAtMs < nativeStaleAfterMs
+        if (nativeIsFresh || lastPublishedSample == sample) return false
+        recordPublication(nowMs, sample)
+        return true
+    }
+
+    fun onPublication(
+        nowMs: Long,
+        sample: LibVlcProgressSample,
+    ) {
+        recordPublication(nowMs, sample)
+    }
+
+    fun reset() {
+        lastNativeSampleAtMs = null
+        lastPublishedAtMs = null
+        lastPublishedSample = null
+    }
+
+    private fun recordPublication(
+        nowMs: Long,
+        sample: LibVlcProgressSample,
+    ) {
+        lastPublishedAtMs = nowMs
+        lastPublishedSample = sample
+    }
+}
+
+internal data class LibVlcProgressSample(
+    val positionMs: Long,
+    val durationMs: Long?,
+    val status: PlaybackStatus,
+)
+
 internal fun hasLibVlcSeekPlaybackResumed(
     arrivalPositionMs: Long?,
     currentPositionMs: Long,
@@ -2136,6 +2276,7 @@ private const val STARTUP_RESYNC_MAX_ATTEMPTS = 8
 // is already A/V-locked and the re-lock seek is skipped (no startup hitch). Well
 // under the ~1-2s lag that produces audible drift, comfortably over prompt starts.
 private const val STARTUP_RESYNC_MIN_LAG_MS = 400L
+private const val LIBVLC_NATIVE_PROGRESS_INTERVAL_MS = 250L
 private const val RUNTIME_DIAGNOSTICS_POLL_MS = 1_000L
 
 private val HANDLED_LIBVLC_EVENTS =

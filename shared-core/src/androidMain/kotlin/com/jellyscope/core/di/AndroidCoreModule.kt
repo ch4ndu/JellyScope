@@ -131,7 +131,7 @@ fun androidCoreModule(context: Context) =
         single<PlayerBackendOverrideStore> {
             RoomPlayerBackendOverrideStore(dao = get())
         }
-        single<SubtitleSelectionStore> {
+        single<SubtitleSelectionStore>(localSubtitleSelectionPersistenceQualifier) {
             RoomSubtitleSelectionStore(dao = get())
         }
         single<RecentSearchStore> {

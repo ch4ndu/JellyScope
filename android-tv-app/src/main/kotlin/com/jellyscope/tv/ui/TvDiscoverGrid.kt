@@ -48,8 +48,10 @@ import com.jellyscope.tv.ui.focus.acceptsFocusedChild
 import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
 import com.jellyscope.tv.ui.focus.tvFocusScope
 import com.jellyscope.ui.adaptive.tileScaled
+import com.jellyscope.ui.component.CardImageAspect
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.authenticatedImageRequest
+import com.jellyscope.ui.component.rememberCardImageDecode
 import com.jellyscope.ui.screen.discover.DiscoverFacetUi
 import com.jellyscope.ui.screen.discover.DiscoverListState
 import com.jellyscope.ui.screen.discover.DiscoverMediaItemsState
@@ -373,6 +375,11 @@ internal fun TvDiscoverFacetCard(
     focusRequester: FocusRequester?,
     onFocused: () -> Unit,
 ) {
+    val imageDecode =
+        rememberCardImageDecode(
+            width = TvDimens.discoverFacetWidth.tileScaled(),
+            aspect = CardImageAspect.Wide,
+        )
     Column(
         modifier = Modifier.width(TvDimens.discoverFacetWidth.tileScaled()),
         verticalArrangement = Arrangement.spacedBy(TvDimens.cardTitleGap),
@@ -397,7 +404,7 @@ internal fun TvDiscoverFacetCard(
             val imageUrl = facet.imageUrl
             if (imageUrl != null) {
                 AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session),
+                    model = authenticatedImageRequest(imageUrl, session, imageDecode),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

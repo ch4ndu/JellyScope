@@ -3,8 +3,8 @@
 package com.jellyscope.ui.screen.login
 
 import com.jellyscope.core.data.repository.AuthRepository
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
 import com.jellyscope.core.domain.action.QuickConnectLoginAction
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.model.QuickConnectCode
 import com.jellyscope.core.domain.model.QuickConnectLoginUpdate
 import com.jellyscope.core.domain.model.ServerInfo

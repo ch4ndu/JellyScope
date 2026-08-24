@@ -21,10 +21,10 @@ data class ClientInfo(
 )
 
 object AuthHeaderBuilder {
-    fun buildTokenOnly(token: String?): String? =
-        token
-            ?.takeIf { it.isNotBlank() }
-            ?.let { """MediaBrowser Token="$it"""" }
+    fun buildTokenOnly(token: String?): String? {
+        val encodedToken = token?.let(::encodeAuthorizationParameter)?.takeIf(String::isNotEmpty)
+        return encodedToken?.let { value -> """MediaBrowser Token="$value"""" }
+    }
 
     fun build(
         deviceName: String,
@@ -32,19 +32,46 @@ object AuthHeaderBuilder {
         clientInfo: ClientInfo,
         token: String?,
     ): String {
+        val encodedToken = token?.let(::encodeAuthorizationParameter)?.takeIf(String::isNotEmpty)
         val tokenPart =
-            token
-                ?.takeIf { it.isNotBlank() }
-                ?.let { """, Token="$it"""" }
+            encodedToken
+                ?.let { value -> """, Token="$value"""" }
                 .orEmpty()
 
-        return "MediaBrowser Client=\"${clientInfo.clientName}\", " +
-            "Device=\"$deviceName\", " +
-            "DeviceId=\"$deviceId\", " +
-            "Version=\"${clientInfo.versionName}\"" +
+        return "MediaBrowser Client=\"${encodeAuthorizationParameter(clientInfo.clientName)}\", " +
+            "Device=\"${encodeAuthorizationParameter(deviceName)}\", " +
+            "DeviceId=\"${encodeAuthorizationParameter(deviceId)}\", " +
+            "Version=\"${encodeAuthorizationParameter(clientInfo.versionName)}\"" +
             tokenPart
     }
 }
+
+internal fun encodeAuthorizationParameter(value: String): String {
+    val normalized = value.trim().replace("\r", "").replace("\n", "")
+    return buildString {
+        normalized.encodeToByteArray().forEach { byte ->
+            val unsigned = byte.toInt() and 0xff
+            if (unsigned.isRfc3986Unreserved()) {
+                append(unsigned.toChar())
+            } else {
+                append('%')
+                append(UPPERCASE_HEX[unsigned ushr 4])
+                append(UPPERCASE_HEX[unsigned and 0x0f])
+            }
+        }
+    }
+}
+
+private fun Int.isRfc3986Unreserved(): Boolean =
+    this in 'A'.code..'Z'.code ||
+        this in 'a'.code..'z'.code ||
+        this in '0'.code..'9'.code ||
+        this == '-'.code ||
+        this == '.'.code ||
+        this == '_'.code ||
+        this == '~'.code
+
+private const val UPPERCASE_HEX = "0123456789ABCDEF"
 
 class DefaultImageAuthHeaderProvider(
     private val deviceInfoProvider: DeviceInfoProvider,

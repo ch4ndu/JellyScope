@@ -29,11 +29,11 @@ internal class BackendMediaSessionPlayer(
     initialActivePlayer: AndroidActivePlayer,
 ) : SimpleBasePlayer(Looper.getMainLooper()) {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var activePlayer: AndroidActivePlayer? = initialActivePlayer
+    private val projection = BackendMediaSessionProjection(initialActivePlayer)
     private var pendingUpdate = false
 
     fun update(active: AndroidActivePlayer?) {
-        activePlayer = active
+        projection.update(active)
         if (!pendingUpdate) {
             pendingUpdate = true
             mainHandler.post {
@@ -43,10 +43,10 @@ internal class BackendMediaSessionPlayer(
         }
     }
 
-    override fun getState(): State = stateFor(activePlayer)
+    override fun getState(): State = stateFor(projection.activePlayer)
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
-        activePlayer?.let { active ->
+        projection.activePlayer?.let { active ->
             if (playWhenReady) {
                 active.commandCallbacks.play()
             } else {
@@ -57,7 +57,10 @@ internal class BackendMediaSessionPlayer(
     }
 
     override fun handleSetPlaybackParameters(playbackParameters: PlaybackParameters): ListenableFuture<*> {
-        activePlayer?.commandCallbacks?.setPlaybackSpeed?.invoke(playbackParameters.speed)
+        projection.activePlayer
+            ?.commandCallbacks
+            ?.setPlaybackSpeed
+            ?.invoke(playbackParameters.speed)
         return Futures.immediateVoidFuture()
     }
 
@@ -66,32 +69,22 @@ internal class BackendMediaSessionPlayer(
         positionMs: Long,
         seekCommand: Int,
     ): ListenableFuture<*> {
-        val active = activePlayer
-        if (active != null) {
-            when (seekCommand) {
-                Player.COMMAND_SEEK_TO_NEXT,
-                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                -> active.commandCallbacks.next()
-
-                Player.COMMAND_SEEK_TO_PREVIOUS,
-                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
-                -> active.commandCallbacks.previous()
-
-                else -> active.commandCallbacks.seekTo(positionMs.coerceAtLeast(0L))
-            }
-        }
+        projection.handleSeek(positionMs, seekCommand)
         return Futures.immediateVoidFuture()
     }
 
     override fun handleStop(): ListenableFuture<*> {
-        activePlayer?.commandCallbacks?.stop?.invoke()
+        projection.activePlayer
+            ?.commandCallbacks
+            ?.stop
+            ?.invoke()
         return Futures.immediateVoidFuture()
     }
 
     override fun handlePrepare(): ListenableFuture<*> = Futures.immediateVoidFuture()
 
     override fun handleRelease(): ListenableFuture<*> {
-        activePlayer = null
+        projection.update(null)
         return Futures.immediateVoidFuture()
     }
 
@@ -100,14 +93,7 @@ internal class BackendMediaSessionPlayer(
         // restart-or-previous rule and must work on a single-item queue); only the
         // *_MEDIA_ITEM variants are gated on queue position so the notification does
         // not show non-functional skip buttons at the queue boundaries.
-        val commands =
-            Player.Commands
-                .Builder()
-                .addAll(BASE_COMMANDS)
-                .apply {
-                    if (active?.hasNext == true) add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                    if (active?.hasPrevious == true) add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                }.build()
+        val commands = projection.availableCommands()
         val state = active?.playbackState
         if (active == null || state == null) {
             return State
@@ -137,7 +123,7 @@ internal class BackendMediaSessionPlayer(
                 .Builder(mediaItem.mediaId)
                 .setMediaItem(mediaItem)
                 .setMediaMetadata(metadata)
-                .setIsSeekable(true)
+                .setIsSeekable(active.isSeekable)
                 .setDurationUs(durationUs)
                 .build()
         val playbackState =
@@ -167,28 +153,85 @@ internal class BackendMediaSessionPlayer(
             .setContentPositionMs(state.positionMs.coerceAtLeast(0L))
             .build()
     }
+}
+
+@UnstableApi
+internal class BackendMediaSessionProjection(
+    initialActivePlayer: AndroidActivePlayer,
+) {
+    var activePlayer: AndroidActivePlayer? = initialActivePlayer
+        private set
+
+    fun update(active: AndroidActivePlayer?) {
+        activePlayer = active
+    }
+
+    fun availableCommands(): Player.Commands =
+        Player.Commands
+            .Builder()
+            .apply { availableCommandCodes().forEach(::add) }
+            .build()
+
+    /** Pure command projection kept separate from Android's runtime-backed Commands builder. */
+    fun availableCommandCodes(): Set<Int> =
+        buildSet {
+            addAll(BASE_COMMANDS)
+            val active = activePlayer
+            if (active?.isSeekable == true) addAll(IN_ITEM_SEEK_COMMANDS)
+            if (active?.hasNext == true) add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+            if (active?.hasPrevious == true) add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+        }
+
+    fun handleSeek(
+        positionMs: Long,
+        seekCommand: Int,
+    ) {
+        val active = activePlayer ?: return
+        when (seekCommand) {
+            Player.COMMAND_SEEK_TO_NEXT -> active.commandCallbacks.next()
+
+            Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
+                if (active.hasNext) active.commandCallbacks.next()
+            }
+
+            Player.COMMAND_SEEK_TO_PREVIOUS -> active.commandCallbacks.previous()
+
+            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                if (active.hasPrevious) active.commandCallbacks.previous()
+            }
+
+            in IN_ITEM_SEEK_COMMANDS -> {
+                if (active.isSeekable) {
+                    active.commandCallbacks.seekTo(positionMs.coerceAtLeast(0L))
+                }
+            }
+        }
+    }
 
     private companion object {
-        // Commands available regardless of queue position; the *_MEDIA_ITEM
-        // skip variants are added per-state based on hasNext/hasPrevious.
-        private val BASE_COMMANDS: Player.Commands =
-            Player.Commands
-                .Builder()
-                .addAll(
-                    Player.COMMAND_PLAY_PAUSE,
-                    Player.COMMAND_PREPARE,
-                    Player.COMMAND_STOP,
-                    Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
-                    Player.COMMAND_SEEK_TO_PREVIOUS,
-                    Player.COMMAND_SEEK_TO_NEXT,
-                    Player.COMMAND_SEEK_TO_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_BACK,
-                    Player.COMMAND_SEEK_FORWARD,
-                    Player.COMMAND_SET_SPEED_AND_PITCH,
-                    Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
-                    Player.COMMAND_GET_TIMELINE,
-                    Player.COMMAND_GET_METADATA,
-                    Player.COMMAND_RELEASE,
-                ).build()
+        // Plain previous/next stay available because they own queue navigation
+        // and the restart-or-previous behavior, not in-item timeline seeking.
+        private val BASE_COMMANDS =
+            setOf(
+                Player.COMMAND_PLAY_PAUSE,
+                Player.COMMAND_PREPARE,
+                Player.COMMAND_STOP,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SET_SPEED_AND_PITCH,
+                Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+                Player.COMMAND_GET_TIMELINE,
+                Player.COMMAND_GET_METADATA,
+                Player.COMMAND_RELEASE,
+            )
+
+        private val IN_ITEM_SEEK_COMMANDS =
+            setOf(
+                Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
+                Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_MEDIA_ITEM,
+                Player.COMMAND_SEEK_BACK,
+                Player.COMMAND_SEEK_FORWARD,
+            )
     }
 }

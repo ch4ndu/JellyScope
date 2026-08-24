@@ -3,10 +3,10 @@
 package com.jellyscope.core.domain.action
 
 import com.jellyscope.core.data.repository.DownloadCommandCoordinator
-import com.jellyscope.core.data.repository.DownloadCommandResult
-import com.jellyscope.core.data.repository.DownloadDeletionResult
 import com.jellyscope.core.data.repository.DownloadRepository
 import com.jellyscope.core.domain.model.AccountIdentity
+import com.jellyscope.core.domain.model.DownloadCommandResult
+import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadEnqueueResult
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadRecord

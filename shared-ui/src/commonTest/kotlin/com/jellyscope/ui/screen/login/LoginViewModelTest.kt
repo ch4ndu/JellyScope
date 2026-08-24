@@ -3,9 +3,9 @@
 package com.jellyscope.ui.screen.login
 
 import com.jellyscope.core.data.repository.AuthRepository
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.AuthError
 import com.jellyscope.core.domain.action.LoginAction
-import com.jellyscope.core.domain.model.AuthError
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.model.Session
 import kotlinx.coroutines.CompletableDeferred

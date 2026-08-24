@@ -2,10 +2,10 @@
 
 package com.jellyscope.tvos.presenter
 
+import com.jellyscope.core.domain.action.AuthError
 import com.jellyscope.core.domain.action.LoginAction
 import com.jellyscope.core.domain.action.QuickConnectLoginAction
 import com.jellyscope.core.domain.action.ValidateServerAction
-import com.jellyscope.core.domain.model.AuthError
 import com.jellyscope.core.domain.model.QuickConnectCode
 import com.jellyscope.core.domain.model.QuickConnectLoginUpdate
 import kotlinx.coroutines.test.StandardTestDispatcher

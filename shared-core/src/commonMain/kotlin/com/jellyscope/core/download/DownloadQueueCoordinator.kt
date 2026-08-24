@@ -7,10 +7,10 @@ import com.jellyscope.core.data.local.GateHeldBoundaryCommit
 import com.jellyscope.core.data.repository.DownloadActiveAttemptRegistration
 import com.jellyscope.core.data.repository.DownloadCheckpointFacts
 import com.jellyscope.core.data.repository.DownloadCommandCoordinator
-import com.jellyscope.core.data.repository.DownloadCommandResult
-import com.jellyscope.core.data.repository.DownloadDeletionResult
 import com.jellyscope.core.data.repository.DownloadQueueRepository
 import com.jellyscope.core.domain.model.AccountIdentity
+import com.jellyscope.core.domain.model.DownloadCommandResult
+import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadPlatformWorkIdentity

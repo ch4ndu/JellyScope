@@ -16,11 +16,16 @@ import com.jellyscope.core.domain.playback.PlayerDeviceSettings
 import com.jellyscope.core.domain.playback.PlayerHdrMode
 import com.jellyscope.core.domain.playback.PlayerVideoResolutionLimit
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -29,9 +34,11 @@ import org.robolectric.RobolectricTestRunner
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 @RunWith(RobolectricTestRunner::class)
+@OptIn(ExperimentalCoroutinesApi::class)
 class AndroidRoomStoresTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val database =
@@ -265,6 +272,86 @@ class AndroidRoomStoresTest {
         }
 
     @Test
+    fun failedRacingSettingsWriteDoesNotPublishAndLeavesInitializationEligible() =
+        runTest {
+            val stored =
+                PlayerDeviceSettings(
+                    audioMode = PlayerAudioMode.PassthroughWhenSupported,
+                    hdrMode = PlayerHdrMode.PreferSdr,
+                )
+            dao.upsertPlayerDeviceSettings(
+                PlayerDeviceSettingsEntity(
+                    id = PLAYER_DEVICE_SETTINGS_ID,
+                    audioMode = stored.audioMode.name,
+                    hdrMode = stored.hdrMode.name,
+                ),
+            )
+            val loadStarted = CompletableDeferred<Unit>()
+            val releaseLoad = CompletableDeferred<Unit>()
+            val store =
+                RoomPlayerDeviceSettingsStore(
+                    dao = dao,
+                    scope = this,
+                    readStoredSettings = {
+                        val entity = dao.playerDeviceSettings(PLAYER_DEVICE_SETTINGS_ID)
+                        loadStarted.complete(Unit)
+                        releaseLoad.await()
+                        entity
+                    },
+                    writeStoredSettings = { throw IllegalStateException("write failed") },
+                )
+            runCurrent()
+            loadStarted.await()
+            val failedValue = PlayerDeviceSettings(audioMode = PlayerAudioMode.StereoPcm)
+
+            assertFailsWith<IllegalStateException> {
+                store.setSettings(failedValue)
+            }
+            assertEquals(PlayerDeviceSettings(), store.settings.value)
+
+            releaseLoad.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(stored, store.settings.value)
+        }
+
+    @Test
+    fun successfulRacingSettingsWriteBeatsDelayedInitialization() =
+        runTest {
+            dao.upsertPlayerDeviceSettings(
+                PlayerDeviceSettingsEntity(
+                    id = PLAYER_DEVICE_SETTINGS_ID,
+                    audioMode = PlayerAudioMode.PassthroughWhenSupported.name,
+                    hdrMode = PlayerHdrMode.PreferSdr.name,
+                ),
+            )
+            val loadStarted = CompletableDeferred<Unit>()
+            val releaseLoad = CompletableDeferred<Unit>()
+            val store =
+                RoomPlayerDeviceSettingsStore(
+                    dao = dao,
+                    scope = this,
+                    readStoredSettings = {
+                        val entity = dao.playerDeviceSettings(PLAYER_DEVICE_SETTINGS_ID)
+                        loadStarted.complete(Unit)
+                        releaseLoad.await()
+                        entity
+                    },
+                )
+            runCurrent()
+            loadStarted.await()
+            val newValue = PlayerDeviceSettings(audioMode = PlayerAudioMode.StereoPcm)
+
+            store.setSettings(newValue)
+            assertEquals(newValue, store.settings.value)
+
+            releaseLoad.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(newValue, store.settings.value)
+        }
+
+    @Test
     fun unknownPersistedPlayerDeviceSettingsFallBackToDefaults() =
         runTest {
             dao.upsertPlayerDeviceSettings(
@@ -393,7 +480,7 @@ class AndroidRoomStoresTest {
         }
 
     @Test
-    fun invalidStoredTrackIsDeleted() =
+    fun invalidStoredTrackReadIsPureAndLeavesRepairToTheMutationOwner() =
         runTest {
             val key = SubtitleSelectionKey("server-1", "user-1", "item-1", "source-1")
             dao.upsertSubtitleSelection(
@@ -408,7 +495,10 @@ class AndroidRoomStoresTest {
             )
 
             assertNull(RoomSubtitleSelectionStore(dao).get(key))
-            assertNull(dao.subtitleSelection(key.serverId, key.userId, key.itemId, key.mediaSourceId))
+            assertEquals(
+                -3,
+                dao.subtitleSelection(key.serverId, key.userId, key.itemId, key.mediaSourceId)?.streamIndex,
+            )
         }
 
     @Test
@@ -432,6 +522,29 @@ class AndroidRoomStoresTest {
             assetStore.clearAll()
             assertNull(selectionStore.get(key))
             assertNull(assetStore.get(asset.id))
+        }
+
+    @Test
+    fun uploadedUnconfirmedIsAvailableToStartupSnapshotButExcludedFromLivePendingAdmission() =
+        runTest {
+            val context = LocalSubtitleContext("server-1", "user-1", "item-1", "source-1")
+            val pending = localSubtitleAsset(context)
+            val uploadedUnconfirmed =
+                pending.copy(
+                    id = "asset-uploaded-unconfirmed",
+                    providerFileId = "file-uploaded-unconfirmed",
+                    fileId = "asset-uploaded-unconfirmed.vtt",
+                    createdAtEpochMs = 2L,
+                    lastUsedAtEpochMs = 2L,
+                    syncState = LocalSubtitleSyncState.UploadedUnconfirmed,
+                )
+            val assetStore = RoomLocalSubtitleAssetStore(dao)
+
+            assetStore.upsert(pending)
+            assetStore.upsert(uploadedUnconfirmed)
+
+            assertEquals(setOf(pending, uploadedUnconfirmed), assetStore.all().toSet())
+            assertEquals(listOf(pending), assetStore.observePendingSync().first())
         }
 
     @Test

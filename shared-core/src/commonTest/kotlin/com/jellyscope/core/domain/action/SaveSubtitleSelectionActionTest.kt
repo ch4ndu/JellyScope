@@ -2,9 +2,10 @@
 
 package com.jellyscope.core.domain.action
 
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.data.local.SubtitleSelectionStore
+import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
@@ -25,7 +26,7 @@ class SaveSubtitleSelectionActionTest {
     fun rapidWritesFinishInUserActionOrderWithNewestValueLast() =
         runTest {
             val store = SlowSubtitleSelectionStore()
-            val action = SaveSubtitleSelectionAction(store = store, scope = backgroundScope)
+            val action = saveAction(store, backgroundScope)
             val key = SubtitleSelectionKey("server", "user", "item", "source")
 
             action.save(key, SubtitleSelectionIntent.Track(2))
@@ -48,7 +49,7 @@ class SaveSubtitleSelectionActionTest {
     @Test
     fun storeFailureCompletesTheReturnedWriteExceptionally() =
         runTest {
-            val action = SaveSubtitleSelectionAction(store = FailingSubtitleSelectionStore(), scope = backgroundScope)
+            val action = saveAction(FailingSubtitleSelectionStore(), backgroundScope)
             val write = action.save(testKey(), SubtitleSelectionIntent.Track(2))
 
             runCurrent()
@@ -61,7 +62,7 @@ class SaveSubtitleSelectionActionTest {
         runTest {
             val ownerJob = SupervisorJob()
             val ownerScope = CoroutineScope(ownerJob + StandardTestDispatcher(testScheduler))
-            val action = SaveSubtitleSelectionAction(store = BlockingSubtitleSelectionStore(), scope = ownerScope)
+            val action = saveAction(BlockingSubtitleSelectionStore(), ownerScope)
             val active = action.save(testKey(), SubtitleSelectionIntent.Track(2))
             val queued = action.save(testKey(), SubtitleSelectionIntent.Off)
             runCurrent()
@@ -76,7 +77,7 @@ class SaveSubtitleSelectionActionTest {
     @Test
     fun cancellingDrainRemainsCancellation() =
         runTest {
-            val action = SaveSubtitleSelectionAction(store = BlockingSubtitleSelectionStore(), scope = backgroundScope)
+            val action = saveAction(BlockingSubtitleSelectionStore(), backgroundScope)
             action.save(testKey(), SubtitleSelectionIntent.Track(2))
             runCurrent()
             val drain = action.drainLatest()
@@ -91,7 +92,7 @@ class SaveSubtitleSelectionActionTest {
     @Test
     fun drainTimeoutCompletesNormally() =
         runTest {
-            val action = SaveSubtitleSelectionAction(store = BlockingSubtitleSelectionStore(), scope = backgroundScope)
+            val action = saveAction(BlockingSubtitleSelectionStore(), backgroundScope)
             action.save(testKey(), SubtitleSelectionIntent.Track(2))
             runCurrent()
             val drain = action.drainLatest(timeoutMs = 100L)
@@ -104,6 +105,14 @@ class SaveSubtitleSelectionActionTest {
         }
 
     private fun testKey() = SubtitleSelectionKey("server", "user", "item", "source")
+
+    private fun saveAction(
+        store: SubtitleSelectionStore,
+        scope: CoroutineScope,
+    ): SaveSubtitleSelectionAction {
+        val coordinator = LocalSubtitleMutationCoordinator(null, null, store, scope)
+        return SaveSubtitleSelectionAction(coordinator, scope)
+    }
 }
 
 private class FailingSubtitleSelectionStore : SubtitleSelectionStore {

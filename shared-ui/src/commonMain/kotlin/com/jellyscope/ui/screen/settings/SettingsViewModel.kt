@@ -5,14 +5,14 @@ package com.jellyscope.ui.screen.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.coroutines.platformIoDispatcher
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
-import com.jellyscope.core.data.repository.SessionRemovalError
-import com.jellyscope.core.data.repository.SessionRemovalScope
 import com.jellyscope.core.domain.action.ClearLocalSubtitlesAction
 import com.jellyscope.core.domain.action.LogoutAction
 import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SavePlayerDeviceSettingsAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalError
+import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.action.SetAppThemeAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
 import com.jellyscope.core.domain.action.SetOpenSubtitleResultPreferenceAction

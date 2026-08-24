@@ -4,7 +4,6 @@ package com.jellyscope.core.domain.usecase
 
 import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlaybackSelectionStore
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.data.local.SubtitleSelectionStore
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PlaybackSelection
@@ -12,6 +11,7 @@ import com.jellyscope.core.domain.model.PlaybackSelectionKey
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.PlaybackLaunchReadOutcome
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async

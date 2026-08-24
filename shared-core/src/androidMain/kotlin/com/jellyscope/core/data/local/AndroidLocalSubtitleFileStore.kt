@@ -68,7 +68,10 @@ internal class AndroidLocalSubtitleFileStore(
     override suspend fun exists(fileId: String): Boolean = withContext(ioDispatcher) { file(fileId).isFile }
 
     override suspend fun delete(fileId: String) {
-        withContext(ioDispatcher) { file(fileId).delete() }
+        withContext(ioDispatcher) {
+            val target = file(fileId)
+            check(target.delete() || !target.exists()) { LOCAL_SUBTITLE_DELETE_FAILURE }
+        }
     }
 
     override suspend fun listFileIds(): Set<String> =
@@ -85,3 +88,5 @@ internal class AndroidLocalSubtitleFileStore(
 
     private fun file(fileId: String): File = File(directory, requireSafeLocalSubtitleFileId(fileId))
 }
+
+private const val LOCAL_SUBTITLE_DELETE_FAILURE = "Unable to delete local subtitle file."

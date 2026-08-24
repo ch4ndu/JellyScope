@@ -3,8 +3,6 @@
 
 package com.jellyscope.core.data.repository
 
-import com.jellyscope.core.data.local.LocalSubtitleAssetStore
-import com.jellyscope.core.data.local.LocalSubtitleFileStore
 import com.jellyscope.core.data.remote.AuthenticatedRequestContext
 import com.jellyscope.core.data.remote.BaseItemDto
 import com.jellyscope.core.data.remote.JellyfinApi
@@ -20,7 +18,11 @@ import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.io.encoding.Base64
 
 interface LocalSubtitleSyncRepository {
@@ -83,10 +85,11 @@ internal class JellyfinLocalSubtitleSyncApi(
 
 internal class DefaultLocalSubtitleSyncRepository(
     private val api: LocalSubtitleSyncApi,
-    private val assetStore: LocalSubtitleAssetStore,
-    private val fileStore: LocalSubtitleFileStore,
+    private val mutationCoordinator: LocalSubtitleMutationCoordinator,
+    private val workerDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val reconciliationAttempts: Int = RECONCILIATION_ATTEMPTS,
     private val reconciliationDelayMs: Long = RECONCILIATION_DELAY_MS,
+    private val cpuOperations: LocalSubtitleSyncCpuOperations = DefaultLocalSubtitleSyncCpuOperations,
 ) : LocalSubtitleSyncRepository {
     override suspend fun sync(
         session: Session,
@@ -104,25 +107,44 @@ internal class DefaultLocalSubtitleSyncRepository(
         manualRetry: Boolean,
     ) {
         if (session.serverId != asset.serverId || session.userId != asset.userId) return
+        val lease = mutationCoordinator.beginSync(asset) ?: return
+        try {
+            syncClaimed(session, lease, manualRetry)
+        } finally {
+            withContext(NonCancellable) { mutationCoordinator.releaseSync(lease) }
+        }
+    }
+
+    private suspend fun syncClaimed(
+        session: Session,
+        lease: LocalSubtitleSyncLease,
+        manualRetry: Boolean,
+    ) {
+        val asset = lease.asset
         val context = AuthenticatedRequestContext(session.serverUrl, session.userId, session.accessToken)
-        val bytes =
-            fileStore.read(asset.fileId) ?: run {
-                localSubtitleSyncLogger.w {
-                    "stage=read-local-file event=missing operation=${DiagnosticOperation.LocalSubtitleRead.wireValue}"
-                }
-                return assetStore.delete(asset.id)
+        val bytes = lease.bytes
+        val localText =
+            withContext(workerDispatcher) {
+                cpuOperations.canonicalizeLocal(bytes)
             }
-        val localText = bytes.decodeToString().canonicalWebVtt()
         val detail = api.getItemDetail(context, asset.itemId)
         val sources = detail.mediaSources
         val primary = sources.firstOrNull()
         if (sources.size > 1 && primary?.id != asset.mediaSourceId) {
-            assetStore.upsert(asset.copy(syncState = LocalSubtitleSyncState.LocalOnlyAlternateSource))
+            mutationCoordinator.applySyncUpdate(
+                lease,
+                asset.copy(syncState = LocalSubtitleSyncState.LocalOnlyAlternateSource),
+                terminal = true,
+            )
             return
         }
         val policy = api.getCurrentUser(context).policy
         if (policy?.enableSubtitleManagement != true) {
-            assetStore.upsert(asset.copy(syncState = LocalSubtitleSyncState.PermissionDenied))
+            mutationCoordinator.applySyncUpdate(
+                lease,
+                asset.copy(syncState = LocalSubtitleSyncState.PermissionDenied),
+                terminal = true,
+            )
             return
         }
         val requiresReconciliation =
@@ -131,7 +153,7 @@ internal class DefaultLocalSubtitleSyncRepository(
                 asset.syncState == LocalSubtitleSyncState.Reconciling
         when (val match = findExactMatch(context, asset, primary?.mediaStreams.orEmpty(), localText)) {
             is MatchProbe.Match -> {
-                assetStore.upsert(asset.confirmed(match.streamIndex))
+                mutationCoordinator.applySyncUpdate(lease, asset.confirmed(match.streamIndex), terminal = true)
                 return
             }
             MatchProbe.Inconclusive -> if (!requiresReconciliation) return
@@ -139,17 +161,21 @@ internal class DefaultLocalSubtitleSyncRepository(
         }
         if (requiresReconciliation) {
             val reconciling = asset.copy(syncState = LocalSubtitleSyncState.Reconciling)
-            assetStore.upsert(reconciling)
-            when (val match = reconcile(context, reconciling, localText)) {
+            if (!mutationCoordinator.applySyncUpdate(lease, reconciling)) return
+            when (val match = reconcile(context, lease, reconciling, localText)) {
                 is MatchProbe.Match -> {
-                    assetStore.upsert(reconciling.confirmed(match.streamIndex))
+                    mutationCoordinator.applySyncUpdate(lease, reconciling.confirmed(match.streamIndex), terminal = true)
                     return
                 }
                 MatchProbe.Inconclusive,
                 MatchProbe.NoMatch,
                 ->
                     if (!manualRetry || match == MatchProbe.Inconclusive) {
-                        assetStore.upsert(reconciling.copy(syncState = LocalSubtitleSyncState.UploadedUnconfirmed))
+                        mutationCoordinator.applySyncUpdate(
+                            lease,
+                            reconciling.copy(syncState = LocalSubtitleSyncState.UploadedUnconfirmed),
+                            terminal = true,
+                        )
                         return
                     }
             }
@@ -159,19 +185,31 @@ internal class DefaultLocalSubtitleSyncRepository(
                 syncState = LocalSubtitleSyncState.Uploading,
                 uploadBaseline = primary?.mediaStreams?.subtitleBaseline(),
             )
-        assetStore.upsert(uploading)
+        val encodedUpload =
+            withContext(workerDispatcher) {
+                cpuOperations.encodeUpload(bytes)
+            }
+        if (!mutationCoordinator.applySyncUpdate(lease, uploading)) return
         try {
             api.uploadSubtitle(
                 context,
                 asset.itemId,
-                UploadSubtitleDto(asset.language, "vtt", asset.forced, asset.hearingImpaired, Base64.encode(bytes)),
+                UploadSubtitleDto(asset.language, "vtt", asset.forced, asset.hearingImpaired, encodedUpload),
             )
         } catch (exception: JellyfinApiException.Unauthorized) {
-            assetStore.upsert(asset.copy(syncState = LocalSubtitleSyncState.PermissionDenied))
+            mutationCoordinator.applySyncUpdate(
+                lease,
+                asset.copy(syncState = LocalSubtitleSyncState.PermissionDenied),
+                terminal = true,
+            )
             return
         } catch (exception: CancellationException) {
-            if (assetStore.get(asset.id) != null) {
-                assetStore.upsert(uploading.copy(syncState = LocalSubtitleSyncState.Reconciling))
+            withContext(NonCancellable) {
+                mutationCoordinator.applySyncUpdate(
+                    lease,
+                    uploading.copy(syncState = LocalSubtitleSyncState.Reconciling),
+                    terminal = true,
+                )
             }
             throw exception
         } catch (exception: Throwable) {
@@ -186,24 +224,30 @@ internal class DefaultLocalSubtitleSyncRepository(
             // Dispatch may have reached Jellyfin. Reconcile and never repeat the POST automatically.
         }
         val reconciling = uploading.copy(syncState = LocalSubtitleSyncState.Reconciling)
-        if (assetStore.get(asset.id) == null) return
-        assetStore.upsert(reconciling)
-        when (val match = reconcile(context, reconciling, localText)) {
-            is MatchProbe.Match -> assetStore.upsert(reconciling.confirmed(match.streamIndex))
+        if (!mutationCoordinator.applySyncUpdate(lease, reconciling)) return
+        when (val match = reconcile(context, lease, reconciling, localText)) {
+            is MatchProbe.Match ->
+                mutationCoordinator.applySyncUpdate(lease, reconciling.confirmed(match.streamIndex), terminal = true)
             MatchProbe.Inconclusive,
             MatchProbe.NoMatch,
-            -> assetStore.upsert(reconciling.copy(syncState = LocalSubtitleSyncState.UploadedUnconfirmed))
+            ->
+                mutationCoordinator.applySyncUpdate(
+                    lease,
+                    reconciling.copy(syncState = LocalSubtitleSyncState.UploadedUnconfirmed),
+                    terminal = true,
+                )
         }
     }
 
     private suspend fun reconcile(
         context: AuthenticatedRequestContext,
+        lease: LocalSubtitleSyncLease,
         asset: LocalSubtitleAsset,
         localText: String,
     ): MatchProbe {
         var conclusiveNoMatch = false
         repeat(reconciliationAttempts) { attempt ->
-            if (assetStore.get(asset.id) == null) return MatchProbe.Inconclusive
+            if (!mutationCoordinator.isSyncCurrent(lease)) return MatchProbe.Inconclusive
             if (attempt > 0) delay(reconciliationDelayMs)
             val refreshed =
                 try {
@@ -247,9 +291,9 @@ internal class DefaultLocalSubtitleSyncRepository(
                 .toList()
         var inconclusive = false
         for (index in candidates) {
-            val remoteText =
+            val remoteBody =
                 try {
-                    api.getSubtitleText(context, asset.itemId, asset.mediaSourceId, index).canonicalWebVtt()
+                    api.getSubtitleText(context, asset.itemId, asset.mediaSourceId, index)
                 } catch (exception: CancellationException) {
                     throw exception
                 } catch (exception: Throwable) {
@@ -264,12 +308,34 @@ internal class DefaultLocalSubtitleSyncRepository(
                     inconclusive = true
                     null
                 }
+            val remoteText =
+                remoteBody?.let { body ->
+                    withContext(workerDispatcher) {
+                        cpuOperations.canonicalizeRemote(body)
+                    }
+                }
             if (remoteText == localText) {
                 return MatchProbe.Match(index)
             }
         }
         return if (inconclusive) MatchProbe.Inconclusive else MatchProbe.NoMatch
     }
+}
+
+internal interface LocalSubtitleSyncCpuOperations {
+    fun canonicalizeLocal(bytes: ByteArray): String
+
+    fun canonicalizeRemote(body: String): String
+
+    fun encodeUpload(bytes: ByteArray): String
+}
+
+internal object DefaultLocalSubtitleSyncCpuOperations : LocalSubtitleSyncCpuOperations {
+    override fun canonicalizeLocal(bytes: ByteArray): String = bytes.decodeToString().canonicalWebVtt()
+
+    override fun canonicalizeRemote(body: String): String = body.canonicalWebVtt()
+
+    override fun encodeUpload(bytes: ByteArray): String = Base64.encode(bytes)
 }
 
 private sealed interface MatchProbe {

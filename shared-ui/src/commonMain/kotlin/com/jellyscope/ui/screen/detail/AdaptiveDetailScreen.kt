@@ -173,7 +173,6 @@ fun AdaptiveDetailScreen(
                         ),
                     onInstalled = { asset ->
                         selectedLocalAssetId = asset.id
-                        viewModel.selectLocalSubtitle(asset.id)
                     },
                     onDismiss = {
                         searchVisible = false

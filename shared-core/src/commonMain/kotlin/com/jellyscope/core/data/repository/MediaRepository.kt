@@ -21,7 +21,6 @@ import com.jellyscope.core.domain.model.PagedItems
 import com.jellyscope.core.domain.model.Person
 import com.jellyscope.core.domain.model.PersonFilmography
 import com.jellyscope.core.domain.model.PersonHeader
-import com.jellyscope.core.domain.model.RELATED_GROUP_DISPLAY_LIMIT
 import com.jellyscope.core.domain.model.RelatedGroup
 import com.jellyscope.core.domain.model.RelatedGroupKind
 import com.jellyscope.core.domain.model.SendClientLogsResult
@@ -29,7 +28,6 @@ import com.jellyscope.core.domain.playback.MediaSegment
 import com.jellyscope.core.domain.playback.PlaybackInfo
 import com.jellyscope.core.domain.playback.PlaybackInfoRequestPolicy
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 
 interface MediaRepository {
@@ -188,15 +186,3 @@ interface MediaRepository {
         favorite: Boolean,
     ): Result<Unit> = Result.failure(UnsupportedOperationException("Favorite writes are not implemented."))
 }
-
-/** Keeps the visible shelf cap without cancelling cache-backed related flows. */
-fun Flow<RelatedGroup>.visibleRelatedGroups(): Flow<RelatedGroup> =
-    flow {
-        var renderedGroups = 0
-        collect { group ->
-            if (group.items.isNotEmpty() && renderedGroups < RELATED_GROUP_DISPLAY_LIMIT) {
-                emit(group)
-                renderedGroups += 1
-            }
-        }
-    }

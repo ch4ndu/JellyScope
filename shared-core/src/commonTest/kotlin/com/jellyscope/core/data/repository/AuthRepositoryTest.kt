@@ -18,10 +18,13 @@ import com.jellyscope.core.data.local.accountId
 import com.jellyscope.core.data.remote.AuthHeaderProvider
 import com.jellyscope.core.data.remote.JellyfinApiException
 import com.jellyscope.core.data.remote.KtorJellyfinApi
+import com.jellyscope.core.domain.action.AuthError
 import com.jellyscope.core.domain.action.LogoutAction
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalError
+import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.action.SignOutAccountAction
 import com.jellyscope.core.domain.model.AccountIdentity
-import com.jellyscope.core.domain.model.AuthError
 import com.jellyscope.core.domain.model.QuickConnectLoginUpdate
 import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.model.SessionState
@@ -116,6 +119,108 @@ class AuthRepositoryTest {
         }
 
     @Test
+    fun optionalPublicDisplayFieldsUseTrimmedIdAndAuthorityFallbacks() =
+        runTest {
+            val fixture =
+                repositoryFixture(
+                    engine =
+                        MockEngine { request ->
+                            when (request.url.encodedPath) {
+                                "/base/System/Info/Public" -> respondJson("""{"Id":"  server-1  "}""")
+                                else -> error("Unexpected path ${request.url.encodedPath}")
+                            }
+                        },
+                )
+            advanceUntilIdle()
+
+            val result = fixture.repository.validateServer("https://jellyfin.example:8096/base/").getOrThrow()
+
+            assertEquals("server-1", result.serverId)
+            assertEquals("jellyfin.example:8096", result.serverName)
+            assertEquals("", result.version)
+            assertEquals("", result.productName)
+        }
+
+    @Test
+    fun missingPublicIdFailsBeforePasswordAuthenticationOrSessionCommit() =
+        runTest {
+            var authenticationCalled = false
+            val fixture =
+                repositoryFixture(
+                    engine =
+                        MockEngine { request ->
+                            when (request.url.encodedPath) {
+                                "/System/Info/Public" -> respondJson("""{"ServerName":"No Id"}""")
+                                "/Users/AuthenticateByName" -> {
+                                    authenticationCalled = true
+                                    respondJson(authJson)
+                                }
+                                else -> error("Unexpected path ${request.url.encodedPath}")
+                            }
+                        },
+                )
+            advanceUntilIdle()
+
+            val result = fixture.repository.login("https://jellyfin.example", "demo-user", "pw")
+
+            assertIs<AuthError.ServerError>(result.exceptionOrNull())
+            assertFalse(authenticationCalled)
+            assertNull(fixture.sessionStore.readSession())
+            assertIs<SessionState.LoggedOut>(fixture.sessionRepository.sessionState.value)
+        }
+
+    @Test
+    fun passwordAuthMissingOrBlankServerIdUsesCanonicalPublicId() =
+        runTest {
+            listOf(null, "   ").forEach { authenticationServerId ->
+                val fixture =
+                    repositoryFixture(
+                        engine =
+                            MockEngine { request ->
+                                when (request.url.encodedPath) {
+                                    "/System/Info/Public" -> respondJson(publicInfoJson)
+                                    "/Users/AuthenticateByName" ->
+                                        respondJson(authJsonWithServerId(authenticationServerId))
+                                    else -> error("Unexpected path ${request.url.encodedPath}")
+                                }
+                            },
+                    )
+                advanceUntilIdle()
+
+                val session =
+                    fixture.repository
+                        .login("https://jellyfin.example", "demo-user", "pw")
+                        .getOrThrow()
+
+                assertEquals("server-1", session.serverId)
+                assertEquals("server-1", fixture.sessionStore.readSession()?.serverId)
+            }
+        }
+
+    @Test
+    fun passwordAuthMismatchedServerIdFailsBeforeSessionCommit() =
+        runTest {
+            val fixture =
+                repositoryFixture(
+                    engine =
+                        MockEngine { request ->
+                            when (request.url.encodedPath) {
+                                "/System/Info/Public" -> respondJson(publicInfoJson)
+                                "/Users/AuthenticateByName" -> respondJson(authJsonWithServerId("other-server"))
+                                else -> error("Unexpected path ${request.url.encodedPath}")
+                            }
+                        },
+                )
+            advanceUntilIdle()
+
+            val result = fixture.repository.login("https://jellyfin.example", "demo-user", "pw")
+
+            assertIs<AuthError.ServerError>(result.exceptionOrNull())
+            assertNull(fixture.sessionStore.readSession())
+            assertIs<SessionState.LoggedOut>(fixture.sessionRepository.sessionState.value)
+        }
+
+    @Test
     fun loginMapsUnauthorizedToInvalidCredentials() =
         runTest {
             val fixture =
@@ -193,6 +298,68 @@ class AuthRepositoryTest {
                 SessionState.LoggedIn(success.session, boundaryEpoch = 1L),
                 fixture.sessionRepository.sessionState.value,
             )
+        }
+
+    @Test
+    fun quickConnectMissingOrBlankServerIdUsesCanonicalPublicId() =
+        runTest {
+            listOf(null, "   ").forEach { authenticationServerId ->
+                val fixture =
+                    repositoryFixture(
+                        engine =
+                            MockEngine { request ->
+                                when (request.url.encodedPath) {
+                                    "/QuickConnect/Initiate" -> respondJson(quickConnectAuthenticatedJson)
+                                    "/Users/AuthenticateWithQuickConnect" ->
+                                        respondJson(authJsonWithServerId(authenticationServerId))
+                                    else -> error("Unexpected path ${request.url.encodedPath}")
+                                }
+                            },
+                    )
+                advanceUntilIdle()
+                val updates = mutableListOf<Result<QuickConnectLoginUpdate>>()
+
+                val collectJob =
+                    launch {
+                        fixture.repository.loginWithQuickConnect(serverInfo).toList(updates)
+                    }
+                advanceUntilIdle()
+                collectJob.join()
+
+                val success = assertIs<QuickConnectLoginUpdate.Success>(updates.last().getOrThrow())
+                assertEquals("server-1", success.session.serverId)
+                assertEquals("server-1", fixture.sessionStore.readSession()?.serverId)
+            }
+        }
+
+    @Test
+    fun quickConnectMismatchedServerIdFailsBeforeSessionCommit() =
+        runTest {
+            val fixture =
+                repositoryFixture(
+                    engine =
+                        MockEngine { request ->
+                            when (request.url.encodedPath) {
+                                "/QuickConnect/Initiate" -> respondJson(quickConnectAuthenticatedJson)
+                                "/Users/AuthenticateWithQuickConnect" ->
+                                    respondJson(authJsonWithServerId("other-server"))
+                                else -> error("Unexpected path ${request.url.encodedPath}")
+                            }
+                        },
+                )
+            advanceUntilIdle()
+            val updates = mutableListOf<Result<QuickConnectLoginUpdate>>()
+
+            val collectJob =
+                launch {
+                    fixture.repository.loginWithQuickConnect(serverInfo).toList(updates)
+                }
+            advanceUntilIdle()
+            collectJob.join()
+
+            assertIs<AuthError.ServerError>(updates.last().exceptionOrNull())
+            assertNull(fixture.sessionStore.readSession())
+            assertIs<SessionState.LoggedOut>(fixture.sessionRepository.sessionState.value)
         }
 
     @Test
@@ -878,6 +1045,19 @@ private val authJsonUser2 =
       "ServerId": "server-1"
     }
     """.trimIndent()
+
+private fun authJsonWithServerId(serverId: String?): String {
+    val serverIdField = serverId?.let { value -> ",\n      \"ServerId\": \"$value\"" }.orEmpty()
+    return """
+        {
+          "AccessToken": "token-1",
+          "User": {
+            "Id": "user-1",
+            "Name": "Demo User"
+          }$serverIdField
+        }
+        """.trimIndent()
+}
 
 private fun storedSession(
     serverId: String,

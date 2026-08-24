@@ -2,7 +2,6 @@
 
 package com.jellyscope.tvos.presenter
 
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.domain.action.SaveSubtitleSelectionAction
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
 import com.jellyscope.core.domain.model.MediaItem
@@ -73,6 +72,7 @@ import com.jellyscope.core.domain.playback.SubtitleActivationTarget
 import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
 import com.jellyscope.core.domain.playback.SubtitleKind
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import com.jellyscope.core.domain.playback.SubtitleTrackOption
 import com.jellyscope.core.domain.playback.audioOptions
 import com.jellyscope.core.domain.playback.defaultSubtitleStreamIndex
@@ -159,6 +159,12 @@ data class TvPlaybackUiState(
     val playbackActions: List<PlaybackAction> = emptyList(),
     val error: PlaybackError? = null,
 )
+
+private fun TvPlaybackUiState.hasSwiftVisibleChange(current: TvPlaybackUiState): Boolean =
+    copy(
+        positionMs = current.positionMs,
+        bufferedPositionMs = current.bufferedPositionMs,
+    ) != current
 
 /**
  * Playback session for the tvOS system player: plan -> prepare -> play with
@@ -298,7 +304,16 @@ class TvPlaybackSessionPresenter(
     private var replanJob: Job? = null
     private var queueJob: Job? = null
 
-    fun watchState(onChange: (TvPlaybackUiState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
+    fun watchState(onChange: (TvPlaybackUiState) -> Unit): WatchHandle {
+        var previousPublished: TvPlaybackUiState? = null
+        return state.watchIn(scope) { current ->
+            val previous = previousPublished
+            if (previous == null || previous.hasSwiftVisibleChange(current)) {
+                previousPublished = current
+                onChange(current)
+            }
+        }
+    }
 
     fun start() {
         if (started || closed) {

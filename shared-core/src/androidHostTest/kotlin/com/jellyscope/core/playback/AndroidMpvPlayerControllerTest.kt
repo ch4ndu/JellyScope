@@ -33,6 +33,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -812,6 +813,250 @@ class AndroidMpvPlayerControllerTest {
         }
 
     @Test
+    fun hotCallbackBurstPublishesOnlyLatestAtBoundedCadence() =
+        runTest {
+            val engine = FakeAndroidMpvEngine()
+            val nativeDispatcher = UnconfinedTestDispatcher(testScheduler)
+            val mainDispatcher = StandardTestDispatcher(testScheduler)
+            val controller = controller(engine, nativeDispatcher, mainDispatcher = mainDispatcher)
+
+            controller.prepare(plan(0L), null)
+            runCurrent()
+            repeat(20) { index ->
+                val seconds = index + 1.0
+                engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", seconds))
+                engine.emit(AndroidMpvEvent.PropertyDouble("demuxer-cache-time", seconds + 5.0))
+            }
+            runCurrent()
+
+            assertEquals(20_000L, controller.playbackState.value.positionMs)
+            assertEquals(25_000L, controller.playbackState.value.bufferedPositionMs)
+
+            repeat(20) { index ->
+                val seconds = index + 21.0
+                engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", seconds))
+                engine.emit(AndroidMpvEvent.PropertyDouble("demuxer-cache-time", seconds + 5.0))
+            }
+            runCurrent()
+            assertEquals(20_000L, controller.playbackState.value.positionMs)
+
+            advanceTimeBy(249L)
+            runCurrent()
+            assertEquals(20_000L, controller.playbackState.value.positionMs)
+
+            advanceTimeBy(1L)
+            runCurrent()
+            assertEquals(40_000L, controller.playbackState.value.positionMs)
+            assertEquals(45_000L, controller.playbackState.value.bufferedPositionMs)
+            controller.release()
+            runCurrent()
+        }
+
+    @Test
+    fun hotDiagnosticsPublishLatestNoFasterThanOneSecond() =
+        runTest {
+            val engine = FakeAndroidMpvEngine()
+            val nativeDispatcher = UnconfinedTestDispatcher(testScheduler)
+            val mainDispatcher = StandardTestDispatcher(testScheduler)
+            val controller = controller(engine, nativeDispatcher, mainDispatcher = mainDispatcher)
+
+            controller.prepare(plan(0L), null)
+            runCurrent()
+            repeat(10) { index ->
+                engine.emit(AndroidMpvEvent.PropertyDouble("cache-speed", 100_000.0 + index))
+                engine.emit(AndroidMpvEvent.PropertyDouble("container-fps", 24.0 + index))
+                engine.emit(AndroidMpvEvent.PropertyLong("frame-drop-count", index.toLong()))
+                engine.emit(AndroidMpvEvent.PropertyLong("decoder-frame-drop-count", (index / 2).toLong()))
+            }
+            runCurrent()
+
+            assertEquals(800_072L, controller.runtimeDiagnostics.value.bandwidthEstimateBps)
+            assertEquals(33.0, controller.runtimeDiagnostics.value.videoFrameRate)
+            assertEquals(9L, controller.runtimeDiagnostics.value.outputDroppedVideoFrames)
+            assertEquals(4L, controller.runtimeDiagnostics.value.decoderDroppedVideoFrames)
+
+            engine.emit(AndroidMpvEvent.PropertyDouble("cache-speed", 250_000.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("container-fps", 50.0))
+            engine.emit(AndroidMpvEvent.PropertyLong("frame-drop-count", 20L))
+            engine.emit(AndroidMpvEvent.PropertyLong("decoder-frame-drop-count", 8L))
+            runCurrent()
+            assertEquals(800_072L, controller.runtimeDiagnostics.value.bandwidthEstimateBps)
+
+            advanceTimeBy(999L)
+            runCurrent()
+            assertEquals(800_072L, controller.runtimeDiagnostics.value.bandwidthEstimateBps)
+
+            advanceTimeBy(1L)
+            runCurrent()
+            assertEquals(2_000_000L, controller.runtimeDiagnostics.value.bandwidthEstimateBps)
+            assertEquals(50.0, controller.runtimeDiagnostics.value.videoFrameRate)
+            assertEquals(20L, controller.runtimeDiagnostics.value.outputDroppedVideoFrames)
+            assertEquals(8L, controller.runtimeDiagnostics.value.decoderDroppedVideoFrames)
+            controller.release()
+            runCurrent()
+        }
+
+    @Test
+    fun replacementHotSamplesWaitForStartFileBeforeMutatingOrConfirmingTransitions() =
+        runTest {
+            val engine = FakeAndroidMpvEngine()
+            val nativeDispatcher = UnconfinedTestDispatcher(testScheduler)
+            val mainDispatcher = StandardTestDispatcher(testScheduler)
+            val controller = controller(engine, nativeDispatcher, mainDispatcher = mainDispatcher)
+            val surface = Surface(SurfaceTexture(20))
+
+            controller.simulateSurfaceCreatedForTest(surface)
+            controller.prepare(plan(0L), null)
+            runCurrent()
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.START_FILE))
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.FILE_LOADED))
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 4.0))
+            runCurrent()
+            controller.prepare(plan(5_000L), null)
+            runCurrent()
+            controller.seekTo(7_000L)
+            controller.play()
+
+            // These callbacks belong to the retiring item but arrive after
+            // the replacement command acquired the new callback generation.
+            // Its delayed START_FILE must not arm replacement hot samples
+            // before the expected retiring END_FILE is consumed.
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.START_FILE))
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 7.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("demuxer-cache-time", 9.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("cache-speed", 250_000.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("container-fps", 50.0))
+            engine.emit(AndroidMpvEvent.PropertyLong("frame-drop-count", 20L))
+            engine.emit(AndroidMpvEvent.PropertyLong("decoder-frame-drop-count", 8L))
+            runCurrent()
+            advanceTimeBy(1_000L)
+            runCurrent()
+
+            assertEquals(PlaybackStatus.Loading, controller.playbackState.value.status)
+            assertEquals(7_000L, controller.playbackState.value.positionMs)
+            assertEquals(7_000L, controller.playbackState.value.bufferedPositionMs)
+            assertEquals(null, controller.runtimeDiagnostics.value.bandwidthEstimateBps)
+            assertEquals(null, controller.runtimeDiagnostics.value.videoFrameRate)
+            assertEquals(null, controller.runtimeDiagnostics.value.outputDroppedVideoFrames)
+            assertEquals(null, controller.runtimeDiagnostics.value.decoderDroppedVideoFrames)
+
+            // Expected replacement EOF remains consumed, while START_FILE is
+            // the exact boundary that arms the replacement hot-sample epoch.
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.END_FILE))
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.START_FILE))
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.FILE_LOADED))
+            engine.emit(AndroidMpvEvent.PropertyBoolean("pause", false))
+            runCurrent()
+            assertEquals(PlaybackStatus.Buffering, controller.playbackState.value.status)
+
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 7.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("demuxer-cache-time", 9.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("cache-speed", 250_000.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("container-fps", 50.0))
+            engine.emit(AndroidMpvEvent.PropertyLong("frame-drop-count", 20L))
+            engine.emit(AndroidMpvEvent.PropertyLong("decoder-frame-drop-count", 8L))
+            runCurrent()
+
+            assertEquals(PlaybackStatus.Buffering, controller.playbackState.value.status)
+            assertEquals(7_000L, controller.playbackState.value.positionMs)
+            assertEquals(9_000L, controller.playbackState.value.bufferedPositionMs)
+            assertEquals(2_000_000L, controller.runtimeDiagnostics.value.bandwidthEstimateBps)
+            assertEquals(50.0, controller.runtimeDiagnostics.value.videoFrameRate)
+            assertEquals(20L, controller.runtimeDiagnostics.value.outputDroppedVideoFrames)
+            assertEquals(8L, controller.runtimeDiagnostics.value.decoderDroppedVideoFrames)
+
+            // The target sample settles the seek, but only later replacement
+            // progress settles the independent resume confirmation hold.
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 7.1))
+            runCurrent()
+            assertEquals(PlaybackStatus.Playing, controller.playbackState.value.status)
+            assertEquals(7_100L, controller.playbackState.value.positionMs)
+            controller.release()
+            runCurrent()
+            surface.release()
+        }
+
+    @Test
+    fun inactiveHotCallbackIsConsumedWithoutDispatchingMainWork() =
+        runTest {
+            val engine = FakeAndroidMpvEngine()
+            val nativeDispatcher = UnconfinedTestDispatcher(testScheduler)
+            val mainDispatcher = CountingQueuedDispatcher()
+            val controller = controller(engine, nativeDispatcher, mainDispatcher = mainDispatcher)
+
+            mainDispatcher.runAll()
+            controller.prepare(plan(0L), null)
+            mainDispatcher.runAll()
+            controller.stop()
+            mainDispatcher.runAll()
+            val dispatchesBeforeStaleCallbacks = mainDispatcher.dispatchCount
+
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 12.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("demuxer-cache-time", 18.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("cache-speed", 125_000.0))
+            engine.emit(AndroidMpvEvent.PropertyLong("frame-drop-count", 4L))
+
+            assertEquals(dispatchesBeforeStaleCallbacks, mainDispatcher.dispatchCount)
+            controller.release()
+            mainDispatcher.runAll()
+        }
+
+    @Test
+    fun releaseInvalidatesQueuedHotSampleAndDrain() =
+        runTest {
+            val engine = FakeAndroidMpvEngine()
+            val nativeDispatcher = UnconfinedTestDispatcher(testScheduler)
+            val mainDispatcher = StandardTestDispatcher(testScheduler)
+            val controller = controller(engine, nativeDispatcher, mainDispatcher = mainDispatcher)
+
+            controller.prepare(plan(0L), null)
+            runCurrent()
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 12.0))
+            engine.emit(AndroidMpvEvent.PropertyDouble("demuxer-cache-time", 18.0))
+            controller.release()
+            runCurrent()
+            advanceTimeBy(1_000L)
+            runCurrent()
+
+            assertEquals(0L, controller.playbackState.value.positionMs)
+            assertEquals(0L, controller.playbackState.value.bufferedPositionMs)
+            assertTrue(engine.destroyed)
+        }
+
+    @Test
+    fun pendingSeekForcesImmediateCurrentGenerationDrain() =
+        runTest {
+            val engine = FakeAndroidMpvEngine()
+            val nativeDispatcher = UnconfinedTestDispatcher(testScheduler)
+            val mainDispatcher = StandardTestDispatcher(testScheduler)
+            val controller = controller(engine, nativeDispatcher, mainDispatcher = mainDispatcher)
+
+            controller.prepare(plan(0L), null)
+            runCurrent()
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.FILE_LOADED))
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 10.0))
+            runCurrent()
+            assertEquals(10_000L, controller.playbackState.value.positionMs)
+
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 10.5))
+            runCurrent()
+            assertEquals(10_000L, controller.playbackState.value.positionMs)
+
+            controller.seekTo(20_000L)
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 10.6))
+            runCurrent()
+            assertEquals(20_000L, controller.playbackState.value.positionMs)
+            assertEquals(PlaybackStatus.Buffering, controller.playbackState.value.status)
+
+            engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 20.0))
+            runCurrent()
+            assertEquals(20_000L, controller.playbackState.value.positionMs)
+            assertEquals(PlaybackStatus.Paused, controller.playbackState.value.status)
+            controller.release()
+            runCurrent()
+        }
+
+    @Test
     fun nativePropertiesProjectBufferAndCodecDiagnosticsWithoutFirstFrameClaims() =
         runTest {
             val engine = FakeAndroidMpvEngine()
@@ -828,6 +1073,8 @@ class AndroidMpvPlayerControllerTest {
             engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 4.0))
             engine.emit(AndroidMpvEvent.PropertyDouble("demuxer-cache-time", 10.0))
             engine.emit(AndroidMpvEvent.PropertyDouble("cache-speed", 125_000.0))
+            runCurrent()
+            advanceTimeBy(1_000L)
             runCurrent()
 
             val diagnostics = controller.runtimeDiagnostics.value
@@ -896,6 +1143,7 @@ class AndroidMpvPlayerControllerTest {
             assertEquals(firstLoadCount + 1, engine.commands.count { command -> command.firstOrNull() == "loadfile" })
 
             engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.END_FILE))
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.START_FILE))
             engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.FILE_LOADED))
             engine.emit(AndroidMpvEvent.PropertyBoolean("pause", false))
             engine.emit(AndroidMpvEvent.PropertyDouble("time-pos", 1.1))
@@ -1096,5 +1344,24 @@ private class FakeAndroidMpvEngine(
 
     fun emit(event: AndroidMpvEvent) {
         observers.toList().forEach { observer -> observer.onEvent(event) }
+    }
+}
+
+private class CountingQueuedDispatcher : CoroutineDispatcher() {
+    private val tasks = ArrayDeque<Runnable>()
+
+    var dispatchCount: Int = 0
+        private set
+
+    override fun dispatch(
+        context: CoroutineContext,
+        block: Runnable,
+    ) {
+        dispatchCount += 1
+        tasks.addLast(block)
+    }
+
+    fun runAll() {
+        while (tasks.isNotEmpty()) tasks.removeFirst().run()
     }
 }

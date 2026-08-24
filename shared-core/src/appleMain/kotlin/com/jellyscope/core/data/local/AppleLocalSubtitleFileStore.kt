@@ -98,7 +98,14 @@ internal class AppleLocalSubtitleFileStore(
         withContext(ioDispatcher) { NSFileManager.defaultManager.fileExistsAtPath(path(fileId)) }
 
     override suspend fun delete(fileId: String) {
-        withContext(ioDispatcher) { NSFileManager.defaultManager.removeItemAtPath(path(fileId), null) }
+        withContext(ioDispatcher) {
+            val fileManager = NSFileManager.defaultManager
+            val target = path(fileId)
+            requireLocalSubtitleFileDeleted(
+                removalSucceeded = fileManager.removeItemAtPath(target, null),
+                targetStillExists = fileManager.fileExistsAtPath(target),
+            )
+        }
     }
 
     override suspend fun listFileIds(): Set<String> =
@@ -115,3 +122,12 @@ internal class AppleLocalSubtitleFileStore(
     private fun path(fileId: String): String =
         requireNotNull(directory.URLByAppendingPathComponent(requireSafeLocalSubtitleFileId(fileId))?.path)
 }
+
+internal fun requireLocalSubtitleFileDeleted(
+    removalSucceeded: Boolean,
+    targetStillExists: Boolean,
+) {
+    check(removalSucceeded || !targetStillExists) { LOCAL_SUBTITLE_DELETE_FAILURE }
+}
+
+private const val LOCAL_SUBTITLE_DELETE_FAILURE = "Unable to delete local subtitle file."

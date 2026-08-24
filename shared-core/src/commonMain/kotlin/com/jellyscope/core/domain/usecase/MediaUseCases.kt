@@ -13,8 +13,13 @@ import com.jellyscope.core.domain.model.MediaItem
 import com.jellyscope.core.domain.model.MediaItemDetail
 import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.MediaRibbon
+import com.jellyscope.core.domain.model.RELATED_GROUP_DISPLAY_LIMIT
+import com.jellyscope.core.domain.model.RelatedGroup
 import com.jellyscope.core.domain.model.isUserLibrary
 import com.jellyscope.core.util.runCatchingCancellable
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 
 // Only the user's real media libraries (for navigation chrome); drops auto/system
 // views like collections, playlists, folders, and live TV.
@@ -56,6 +61,18 @@ class GetRelatedItemsUseCase(
     // in priority order, so a lower-priority shelf cannot overtake an earlier one.
     operator fun invoke(detail: MediaItemDetail) = mediaRepository.getRelatedGroups(detail)
 }
+
+/** Keeps the visible shelf cap without cancelling cache-backed related flows. */
+fun Flow<RelatedGroup>.visibleRelatedGroups(): Flow<RelatedGroup> =
+    flow {
+        var renderedGroups = 0
+        collect { group ->
+            if (group.items.isNotEmpty() && renderedGroups < RELATED_GROUP_DISPLAY_LIMIT) {
+                emit(group)
+                renderedGroups += 1
+            }
+        }
+    }
 
 class GetSeriesSeasonsUseCase(
     private val mediaRepository: MediaRepository,

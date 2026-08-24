@@ -12,16 +12,17 @@ import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlaybackSelectionStore
 import com.jellyscope.core.data.local.PlayerBackendOverrideStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
-import com.jellyscope.core.data.remote.JellyfinApiException
-import com.jellyscope.core.data.repository.DownloadCommandResult
-import com.jellyscope.core.data.repository.DownloadDeletionResult
+import com.jellyscope.core.data.local.SubtitleSelectionStore
 import com.jellyscope.core.data.repository.DownloadRepository
+import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.data.repository.MediaRepository
 import com.jellyscope.core.domain.action.SavePlaybackSelectionAction
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadArtifactKey
 import com.jellyscope.core.domain.model.DownloadArtifactKind
 import com.jellyscope.core.domain.model.DownloadBusinessKey
+import com.jellyscope.core.domain.model.DownloadCommandResult
+import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadEnqueueResult
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadQuality
@@ -86,6 +87,7 @@ import com.jellyscope.core.domain.playback.PlaybackInfoRequestPolicy
 import com.jellyscope.core.domain.playback.PlaybackMediaSourceInfo
 import com.jellyscope.core.domain.playback.PlaybackMediaStream
 import com.jellyscope.core.domain.playback.PlaybackPlan
+import com.jellyscope.core.domain.playback.PlaybackPlanningException
 import com.jellyscope.core.domain.playback.PlaybackProgressEvent
 import com.jellyscope.core.domain.playback.PlaybackProgressReporter
 import com.jellyscope.core.domain.playback.PlaybackQualityCapOrigin
@@ -108,6 +110,7 @@ import com.jellyscope.core.domain.playback.SubtitleEdgeStyle
 import com.jellyscope.core.domain.playback.SubtitleRenderMode
 import com.jellyscope.core.domain.playback.SubtitleRenderStatus
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.core.domain.playback.TrickplayInfo
 import com.jellyscope.core.domain.playback.VideoCodecResolution
@@ -160,6 +163,7 @@ import kotlinx.coroutines.test.setMain
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
@@ -1581,7 +1585,12 @@ class PlayerViewModelTest {
                             ArrayDeque(
                                 listOf(
                                     Result.success(playbackInfoWithStreams(streams)),
-                                    Result.failure(JellyfinApiException.NotReachable),
+                                    Result.failure(
+                                        PlaybackPlanningException.RemoteRequestFailed(
+                                            isNetworkFailure = true,
+                                            sourceExceptionType = "NotReachable",
+                                        ),
+                                    ),
                                 ),
                             ),
                         mediaStreams = streams,
@@ -5234,6 +5243,73 @@ class PlayerViewModelTest {
         }
 
     @Test
+    fun previousAtThresholdRestartsTheCurrentItemWithoutSwitchingQueueRows() =
+        runPlayerViewModelTest {
+            val fixture = playerFixture(queue = listOf("item-1", "item-2"))
+            runCurrent()
+            assertTrue(fixture.viewModel.playNext())
+            runCurrent()
+            fixture.controller.playbackStateFlow.value =
+                playbackState(PlaybackStatus.Idle, positionMs = 5_000L)
+            runCurrent()
+
+            fixture.viewModel.playPrevious()
+            runCurrent()
+
+            assertEquals(listOf(0L), fixture.controller.seekPositions)
+            assertEquals(2, fixture.controller.prepareCount)
+            assertEquals(
+                1,
+                assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).playlist?.currentIndex,
+            )
+        }
+
+    @Test
+    fun previousBelowThresholdSwitchesToThePriorQueueRow() =
+        runPlayerViewModelTest {
+            val fixture = playerFixture(queue = listOf("item-1", "item-2"))
+            runCurrent()
+            assertTrue(fixture.viewModel.playNext())
+            runCurrent()
+            fixture.controller.playbackStateFlow.value =
+                playbackState(PlaybackStatus.Idle, positionMs = 4_999L)
+            runCurrent()
+
+            fixture.viewModel.playPrevious()
+            assertNull(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).playbackItemId)
+            runCurrent()
+
+            assertEquals(
+                "item-1",
+                fixture.repository.requests
+                    .last()
+                    .itemId,
+            )
+            assertEquals(3, fixture.controller.prepareCount)
+            assertTrue(fixture.controller.seekPositions.isEmpty())
+        }
+
+    @Test
+    fun previousBelowThresholdOnTheFirstQueueRowIsANoOp() =
+        runPlayerViewModelTest {
+            val fixture = playerFixture(queue = listOf("item-1", "item-2"))
+            runCurrent()
+            fixture.controller.playbackStateFlow.value =
+                playbackState(PlaybackStatus.Idle, positionMs = 4_999L)
+            runCurrent()
+
+            fixture.viewModel.playPrevious()
+            runCurrent()
+
+            assertEquals(1, fixture.controller.prepareCount)
+            assertTrue(fixture.controller.seekPositions.isEmpty())
+            assertEquals(
+                0,
+                assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).playlist?.currentIndex,
+            )
+        }
+
+    @Test
     fun playNextReportsRefusalForAStaleAutoAdvanceGeneration() =
         runPlayerViewModelTest {
             try {
@@ -6195,6 +6271,50 @@ class PlayerViewModelTest {
         }
 
     @Test
+    fun queueSwitchRevokesInstalledSeekabilityBeforeReplacementPlanning() =
+        runTest {
+            val mainDispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(mainDispatcher)
+            val workDispatcher = StandardTestDispatcher(TestCoroutineScheduler())
+            val boundedItem =
+                MediaItem(
+                    id = "item-1",
+                    name = "Item",
+                    kind = MediaKind.Movie,
+                    versions =
+                        listOf(
+                            MediaVersion(
+                                id = "source-1",
+                                name = "Source",
+                                mediaStreams = playbackStreams,
+                                runtime = 90.seconds,
+                            ),
+                        ),
+                )
+            var fixtureRef: PlayerFixture? = null
+            try {
+                val fixture =
+                    playerFixture(
+                        queue = listOf("item-1", "item-2"),
+                        detailItems = mapOf("item-1" to boundedItem),
+                        workDispatcher = workDispatcher,
+                    ).also { fixtureRef = it }
+                drainPlayerViewModelSchedulers(workDispatcher)
+                assertTrue(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+
+                fixture.viewModel.playQueueItem(1)
+
+                val switching = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
+                assertFalse(switching.isSeekable)
+                assertNull(switching.playbackItemId)
+            } finally {
+                fixtureRef?.viewModel?.dispose()
+                drainPlayerViewModelSchedulers(workDispatcher)
+                Dispatchers.resetMain()
+            }
+        }
+
+    @Test
     fun returnedMediaSourceOwnsTheBoundedTimelineInsteadOfTheRequestedSourceOrItemFallback() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
@@ -6241,12 +6361,140 @@ class PlayerViewModelTest {
                 val timeline = assertIs<PlaybackContentTimeline.BoundedVod>(fixture.controller.preparedPlan?.contentTimeline)
                 assertEquals(90.seconds.inWholeMilliseconds, timeline.durationMs)
                 assertEquals(PlaybackContentTimelineSource.SelectedMediaSource, timeline.source)
+                assertTrue(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
             } finally {
                 fixtureRef?.viewModel?.dispose()
                 runCurrent()
                 Dispatchers.resetMain()
             }
         }
+
+    @Test
+    fun unknownOrUnboundedInstalledTimelineIsNotPublishedAsSeekable() =
+        runPlayerViewModelTest {
+            val fixture = playerFixture()
+            runCurrent()
+
+            assertEquals(
+                PlaybackContentTimeline.UnknownOrUnbounded,
+                fixture.controller.preparedPlan?.contentTimeline,
+            )
+            assertFalse(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+
+            fixture.viewModel.dispose()
+        }
+
+    @Test
+    fun initialPreparePublishingFailureRejectsInstalledTruthAndPlayerCommands() =
+        runPlayerViewModelTest {
+            val boundedItem =
+                MediaItem(
+                    id = "item-1",
+                    name = "Item",
+                    kind = MediaKind.Movie,
+                    versions =
+                        listOf(
+                            MediaVersion(
+                                id = "source-1",
+                                name = "Source",
+                                mediaStreams = playbackStreams,
+                                runtime = 90.seconds,
+                            ),
+                        ),
+                )
+            val fixture = playerFixture(detailItems = mapOf("item-1" to boundedItem))
+            fixture.controller.preparePublishedState = playbackState(PlaybackStatus.Failed)
+
+            runCurrent()
+
+            assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
+            assertEquals(1, fixture.controller.prepareCount)
+            assertEquals(0, fixture.controller.playCount)
+            assertTrue(fixture.controller.embeddedAudioOrdinals.isEmpty())
+            assertTrue(fixture.controller.embeddedTextOrdinals.isEmpty())
+
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Paused)
+            runCurrent()
+            assertFalse(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+            fixture.viewModel.dispose()
+        }
+
+    @Test
+    fun sameItemReplanPublishingFailureKeepsInstalledTruthRevokedAndSkipsCommands() =
+        runPlayerViewModelTest {
+            val boundedItem =
+                MediaItem(
+                    id = "item-1",
+                    name = "Item",
+                    kind = MediaKind.Movie,
+                    versions =
+                        listOf(
+                            MediaVersion(
+                                id = "source-1",
+                                name = "Source",
+                                mediaStreams = playbackStreams,
+                                runtime = 90.seconds,
+                            ),
+                        ),
+                )
+            val fixture = playerFixture(detailItems = mapOf("item-1" to boundedItem))
+            runCurrent()
+            assertTrue(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+            val playCount = fixture.controller.playCount
+            val audioSelectionCount = fixture.controller.embeddedAudioOrdinals.size
+            val subtitleSelectionCount = fixture.controller.embeddedTextOrdinals.size
+            fixture.controller.preparePublishedState = playbackState(PlaybackStatus.Failed)
+
+            fixture.viewModel.selectQuality(maxBitrateBps = 8_000_000L)
+            runCurrent()
+
+            assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
+            assertEquals(2, fixture.controller.prepareCount)
+            assertEquals(playCount, fixture.controller.playCount)
+            assertEquals(audioSelectionCount, fixture.controller.embeddedAudioOrdinals.size)
+            assertEquals(subtitleSelectionCount, fixture.controller.embeddedTextOrdinals.size)
+
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Paused)
+            runCurrent()
+            assertFalse(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+            fixture.viewModel.dispose()
+        }
+
+    @Test
+    fun sameItemReplanPrepareFailureLeavesInstalledSeekabilityRevoked() {
+        val expectedFailure = IllegalStateException("prepare failed")
+        val thrown =
+            assertFailsWith<IllegalStateException> {
+                runPlayerViewModelTest {
+                    val boundedItem =
+                        MediaItem(
+                            id = "item-1",
+                            name = "Item",
+                            kind = MediaKind.Movie,
+                            versions =
+                                listOf(
+                                    MediaVersion(
+                                        id = "source-1",
+                                        name = "Source",
+                                        mediaStreams = playbackStreams,
+                                        runtime = 90.seconds,
+                                    ),
+                                ),
+                        )
+                    val fixture = playerFixture(detailItems = mapOf("item-1" to boundedItem))
+                    runCurrent()
+                    assertTrue(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+                    fixture.controller.prepareFailure = expectedFailure
+
+                    fixture.viewModel.selectQuality(maxBitrateBps = 8_000_000L)
+                    runCurrent()
+
+                    assertFalse(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+                    fixture.viewModel.dispose()
+                }
+            }
+        assertSame(expectedFailure, thrown)
+    }
 
     @Test
     fun sameItemRetryCancelsAReplanStartedUnderTheSupersededGeneration() =
@@ -6989,10 +7237,14 @@ private fun playerFixture(
                 playerBackendOverrideStore?.let(::GetPlayerBackendOverrideUseCase),
             getLocalSubtitleAssetUseCase =
                 localSubtitleAsset?.let { asset ->
-                    GetLocalSubtitleAssetUseCase(
-                        assetStore = FakeLocalSubtitleAssetStore(asset),
-                        fileStore = FakeLocalSubtitleFileStore(asset.fileId),
-                    )
+                    val coordinator =
+                        LocalSubtitleMutationCoordinator(
+                            assetStore = FakeLocalSubtitleAssetStore(asset),
+                            fileStore = FakeLocalSubtitleFileStore(asset.fileId),
+                            selectionStore = PlayerNoopSubtitleSelectionStore,
+                            scope = CoroutineScope(SupervisorJob() + workDispatcher),
+                        )
+                    GetLocalSubtitleAssetUseCase(coordinator)
                 },
             workDispatcher = workDispatcher,
             monotonicTimeMs = coordinatorClock,
@@ -7175,6 +7427,21 @@ private class FakeLocalSubtitleFileStore(
     override fun resolvePath(fileId: String): String? = "/tmp/$fileId".takeIf { fileId == this.fileId }
 }
 
+private object PlayerNoopSubtitleSelectionStore : SubtitleSelectionStore {
+    override suspend fun get(key: SubtitleSelectionKey): SubtitleSelectionIntent? = null
+
+    override suspend fun save(
+        key: SubtitleSelectionKey,
+        selection: SubtitleSelectionIntent,
+    ) = Unit
+
+    override suspend fun delete(key: SubtitleSelectionKey) = Unit
+
+    override suspend fun clearServerScoped(serverId: String) = Unit
+
+    override suspend fun clearServerScoped() = Unit
+}
+
 /**
  * Emits one dropped-frame measurement exactly as a controller would. Going
  * through the production factory keeps fixtures from expressing a rate that a
@@ -7204,6 +7471,8 @@ private open class FakePlayerController(
     val offlinePreparePlans = mutableListOf<PlaybackPlan>()
     var preparedPlan: PlaybackPlan? = null
     var prepareCount = 0
+    var prepareFailure: Throwable? = null
+    var preparePublishedState: PlaybackState? = null
     var playCount = 0
     var pauseCount = 0
     var stopCount = 0
@@ -7237,16 +7506,17 @@ private open class FakePlayerController(
         plan: PlaybackPlan,
         subtitleAsset: com.jellyscope.core.domain.playback.SubtitleAsset?,
     ) {
+        prepareCount += 1
+        prepareFailure?.let { failure -> throw failure }
         preparedPlan = plan
         preparedSubtitleAsset = subtitleAsset
-        prepareCount += 1
         if (publishPrepareEpoch) {
             runtimeDiagnosticsFlow.value =
                 PlaybackRuntimeDiagnostics.EMPTY.copy(prepareEpoch = prepareCount.toLong())
         }
         val target = plan.subtitleActivationTarget
         val audioTarget = plan.audioActivationTarget
-        playbackStateFlow.value =
+        val preparedState =
             playbackStateFlow.value.copy(
                 status =
                     if (playbackStateFlow.value.status == PlaybackStatus.Failed) {
@@ -7267,6 +7537,7 @@ private open class FakePlayerController(
                         SubtitleActivationState.None
                     },
             )
+        playbackStateFlow.value = preparePublishedState ?: preparedState
     }
 
     override suspend fun prepareOffline(plan: PlaybackPlan): com.jellyscope.core.domain.playback.OfflinePrepareResult {

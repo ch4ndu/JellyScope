@@ -887,6 +887,15 @@ sealed class PlaybackPlanningException(
     /** The decoder cannot safely receive the source video without a transcode. */
     data object SourceVideoCopyRejected : PlaybackPlanningException("Source video exceeds the decoder capability bound.")
 
+    /**
+     * Repository-owned transport details are reduced to this project contract
+     * before they cross into presentation code.
+     */
+    class RemoteRequestFailed(
+        val isNetworkFailure: Boolean,
+        val sourceExceptionType: String,
+    ) : PlaybackPlanningException("The remote playback request failed.")
+
     /** The one allowed forced-transcode recovery did not return a safe stream. */
     class SourceVideoCopyUnsupported(
         val attemptedRequestPolicy: PlaybackInfoRequestPolicy? = null,

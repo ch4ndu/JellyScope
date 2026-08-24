@@ -3,7 +3,6 @@
 package com.jellyscope.ui.screen.detail
 
 import com.jellyscope.core.data.local.PlaybackSelectionStore
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.data.local.SubtitleSelectionStore
 import com.jellyscope.core.data.repository.MediaRepository
 import com.jellyscope.core.domain.action.SetItemFavoriteAction
@@ -25,6 +24,7 @@ import com.jellyscope.core.domain.playback.JELLYFIN_TICKS_PER_MILLISECOND
 import com.jellyscope.core.domain.playback.PlaybackInfo
 import com.jellyscope.core.domain.playback.PlaybackMediaStream
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
 import com.jellyscope.core.domain.usecase.GetNextUpUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackLaunchContextUseCase
@@ -43,6 +43,7 @@ import com.jellyscope.ui.screen.player.PlaybackSelectionMemory
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain

@@ -76,6 +76,62 @@ application cannot reach.
   follow-up work instead of mixing it into the change.
 - Remove code or documentation only when this change makes it obsolete.
 
+### Complexity Expansion Decision Gate
+
+Implementation authorization covers the approved outcome and described
+solution shape. It does not authorize an unplanned permanent framework,
+analyzer, linter, parser or compiler surrogate, code generator, background
+subsystem, module, dependency, integration harness, test framework, duplicated
+bootstrap, or other support system. Apply this gate while planning and again
+before implementation or review-driven repair. It also applies whenever the
+support or test infrastructure would have a maintenance surface materially
+larger than the behavior it protects.
+
+Before editing that expansion, present the maintainer with:
+
+- the required outcome and evidence for the gap;
+- the smallest adequate solution and its focused verification;
+- the proposed expansion and why the smaller solution is insufficient;
+- the expected permanent footprint in files, approximate code and test size,
+  dependencies, build or CI runtime, and ongoing maintenance; and
+- a recommendation.
+
+Wait for an explicit choice. When planning proposes the expansion, obtain that
+choice before plan review or approval and record it in the plan. When the need
+emerges later, pause the affected edits. Plan approval, general implementation
+authority, assigned file ownership, or a reviewer finding does not approve an
+expansion that was not presented this way. A reviewer may identify a gap, but
+cannot turn it into new scope. An ordinary local helper or single focused
+causal test does not trigger this gate when it fits the approved solution; the
+test still must satisfy the separate Test Expansion Decision Gate below. When
+the classification is uncertain, pause and ask.
+
+### Scale Coordination To The Task
+
+These rules apply to every engineering task, but the ceremony must remain
+proportional. A bounded change normally has one implementation owner and a
+short acceptance checklist; do not create lanes, ledgers, or coordination
+artifacts merely because the workflow supports them.
+
+When two or more genuinely independent outcomes can materially shorten the
+work, map their dependencies and file conflicts before delegating edits. Give
+each lane exact owned paths, protected paths, acceptance checks, and an
+integration order. Complete a shared contract or seam before dependent lanes,
+and keep shared wiring and canonical documentation under one integration
+owner. Never give concurrent writers overlapping ownership.
+
+Use one named build owner and one build slot per checkout. Concurrent writers
+yield at coherent source checkpoints; only the build owner runs Gradle,
+formatters, generators, or other commands that write shared build state. Batch
+compatible focused checks instead of letting workers stop or invalidate one
+another's build processes.
+
+Record the starting `HEAD` and complete status inventory once. During lane work,
+track only the lane-owned, reviewed, and protected inputs. Preserve and report
+unrelated outside-scope changes without treating them as lane invalidation;
+unexpected drift in an owned or protected path pauses that lane. Inspect and
+freeze the complete candidate once at integration and final verification.
+
 ### Consider Edge Cases Before Shared Decisions
 
 For behavior shared by multiple screens or platforms, write down how the design
@@ -197,40 +253,91 @@ reason in the review description.
 
 ## 5. Test The Behavior You Changed
 
-Tests protect business behavior and durable state, not line counts. Add the
-smallest test that would fail for the bug or missing rule and pass for the
-intended behavior.
+Automated tests are selective protection for deterministic app-owned risks,
+not a default deliverable for every feature or fix. The default new-test budget
+for one bounded feature, fix, or accepted finding is zero. Most user-facing app
+behavior is validated manually. A feature or bug fix does not by itself require
+a new regression test, and several edge cases may need design analysis without
+needing one test each.
 
-Tests are expected for:
+Without separate approval, add at most one new causal automated test only when
+all of these are true:
 
-- business rules and repository behavior;
+- it protects a meaningful deterministic app-owned invariant whose regression
+  would be costly, unsafe, recurrent, or difficult to notice manually;
+- existing coverage, source tracing, compilation, and the planned manual check
+  do not already provide adequate confidence; and
+- it fits an existing suite, fixture, fake, and production seam without new
+  support machinery.
+
+Update existing tests when an intentional behavior change makes their
+expectations stale, but keep that repair to the affected expectations and do
+not multiply cases. Before adding the one optional causal test, state the exact
+regression it protects and why the cheaper evidence is insufficient.
+
+### Test Expansion Decision Gate
+
+Pause before writing a larger test surface when one outcome or finding would
+require any of the following:
+
+- a second new automated test for one bounded feature, fix, or accepted
+  finding;
+- more than three new automated tests across a program-sized task;
+- roughly more than 100 lines of new test or support code for one bounded
+  outcome;
+- a production seam introduced primarily for testing;
+- a new fake or helper framework, harness, application/server bootstrap,
+  scheduler model, simulator, emulator, device flow, or exhaustive permutation
+  matrix; or
+- test growth materially larger than the production change it protects.
+
+Show the maintainer the distinct guarantee added by the extra coverage, the
+projected files, tests and approximate lines, runtime and maintenance cost, and
+the smallest adequate alternative. Wait for a decision before crossing the
+trigger. These are conversation triggers, not coverage quotas. The maintainer
+may choose manual validation even for a high-risk path after seeing the tradeoff.
+
+A new automated test is most likely to justify its cost for:
+
 - authentication, account isolation, deletion, and persistence;
-- durable state transitions and narrowly causal concurrency;
-- external request shape and playback planning;
-- a new user-visible failure, fallback, or degraded path, including the typed
-  diagnostic emitted by the boundary that catches it. Its test must show that
-  the diagnostic identifies the failed stage, survives the sanitized
-  collection allowlist, and contains no raw values, messages, or stacks.
+- security and external request shape;
+- a durable state transition or narrowly causal concurrency invariant;
+- a recurring bug with a cheap deterministic reproduction; or
+- a complex pure business rule that is impractical to verify reliably through
+  the app.
+
+Those categories justify consideration, not automatic coverage. Prefer manual
+validation, source tracing, and applicable existing tests when they adequately
+cover the risk.
+
+Every implementation plan and handoff names the shortest exact manual path:
+platform, setup, user actions, and expected result. Unless the current request
+explicitly authorizes a device, emulator, simulator, or other live runtime
+check, an AI agent supplies that checklist and reports it as unperformed rather
+than running it.
 
 Do not add unit tests for Compose layout, visual styling, formatting,
 localization, navigation, focus, buttons, icons, interaction, or screenshots by
-default. Trace those paths in source, compile the affected platform, and perform
-the appropriate runtime check. Discuss permanent UI, screenshot, integration,
+default. Trace those paths in source, compile the affected platform, and
+document the appropriate manual runtime check; perform it only when authorized
+for the current task. Discuss permanent UI, screenshot, integration,
 server-orchestration, duplicate-bootstrap, or exhaustive cross-system harnesses
 with the maintainer before accepting their maintenance and runtime cost.
 
-Prefer small hand-written fakes with injected clocks, dispatchers, factories,
-and storage roots. The project does not use MockK or Turbine. Common tests use
+When the one justified test needs a fake, reuse the nearest small hand-written
+fake and existing injected clock, dispatcher, factory, or storage root. Do not
+introduce a production seam primarily for testing. The project does not use
+MockK or Turbine. Common tests use
 `kotlin.test` and `kotlinx-coroutines-test` (`runTest`); Android host tests use
 JUnit 4 and Robolectric only when Android APIs are required.
 
 ### Playback And Device-Test Scope
 
-For playback, player, and device-integration changes, light coverage is the
-default, not comprehensive fake coverage. New host or fake tests are justified
-only for deterministic app-owned contracts: pure policy or reducers, Jellyfin
-request/profile encoding, persistence, reporting state, or one small
-exactly-once resource-ownership or causal-concurrency seam.
+For playback, player, and device-integration changes, zero new host or fake
+tests is the default. One new test may be justified for a deterministic
+app-owned contract such as pure policy, Jellyfin request/profile encoding,
+persistence, reporting state, or one small exactly-once resource-ownership or
+causal-concurrency seam when the general criteria above are met.
 
 Host and fake tests do not validate native decoder selection or fallback,
 rendered audio or video, HDR or tone mapping, A/V sync or frame pacing,
@@ -241,15 +348,18 @@ validation until observed.
 
 Do not add exhaustive permutation matrices, duplicate fake-player or app
 bootstraps, scheduler-hop choreography, or assertions about internal logger
-strings or call order merely to approximate native confidence. One causal case
-is enough when it protects the app-owned contract.
+strings or call order merely to approximate native confidence. If a new
+automated case is justified, stop at that one causal case unless the maintainer
+explicitly approves more.
 
 Stop and reduce scope when fixture, mock, or scheduler setup is longer or more
 complex than its behavioral assertions, when a small rule needs production hooks
 solely for testing, or when several tests prove the same contract. Prefer the
 smallest pure or causal test with a source trace, affected-platform compilation,
-and manual device validation. Record coverage debt only for a still-uncovered
-app-owned contract, never as a substitute for ordinary device validation.
+and manual device validation. Do not create coverage debt merely because this
+manual-first policy chose zero new tests. Record it only for a high-risk,
+deterministic app-owned contract that should eventually be automated but cannot
+be covered proportionately with the current seams.
 
 Comprehensive playback matrices, new native-player proxy coverage, permanent
 integration or device harnesses, and broader fixtures require explicit
@@ -276,11 +386,12 @@ Test files are named `<Subject>Test.kt` in the production package. Test methods
 use descriptive camelCase behavior sentences without backticks or
 given/when/then scaffolding.
 
-There is no percentage-coverage target. Authentication, deletion, persistence,
-account isolation, and external request shape must retain meaningful behavioral
-coverage. If a business path resists focused testing, record one line in the
-Coverage debt section of `.local/KNOWN-ISSUES.md` using
+There is no percentage-coverage target. Preserve applicable existing coverage,
+but do not add cases merely to increase counts. If a high-risk deterministic
+path should eventually be automated and resists the one-test budget, record one
+line in the Coverage debt section of `.local/KNOWN-ISSUES.md` using
 `path | why hard | escape plan`, then remove it when the path gains coverage.
+Ordinary manually validated behavior does not create coverage debt.
 
 Playback coverage keeps shared planning separate from platform mapping and
 protects only app-owned planning or reporting contracts, such as stream mode,
@@ -298,24 +409,39 @@ Before running the final gate:
 - Confirm that every changed file belongs to the request.
 - Remove imports, branches, comments, tests, and documentation made obsolete by
   the change, but leave unrelated cleanup alone.
-- Re-run focused tests after each meaningful fix. Do not repeatedly run the
+- Re-run only applicable existing tests and any explicitly justified new test
+  after a meaningful fix invalidates their evidence. Do not repeatedly run the
   entire verification suite while the implementation is still changing.
 - Use [`audit.md`](audit.md) for a formal review. Compose-sensitive reviews also
   use [`compose-performance-audit.md`](compose-performance-audit.md).
+
+Review a stable integrated candidate once. The maintainer first decides whether
+each finding is a current reachable defect or contract violation, separately
+from deciding whether its proposed remedy is proportionate. Combine accepted
+findings into one repair pass, run only invalidated focused checks, and give the
+same reviewer one focused recheck. If material blockers or new scope remain,
+stop for a maintainer decision instead of starting another open-ended review
+cycle. A small solo change may use this same sequence as proportional
+self-review without creating an independent reviewer.
 
 ## 7. Verify The Final Candidate
 
 Build success is necessary, but it does not prove the requested behavior. Run
 one final gate after review fixes, against the exact candidate you plan to hand
 off. Earlier results may be reused only when the relevant files and inputs have
-not changed.
+not changed. For a broad or multi-lane task, run the aggregate matrix only after
+review and its one recheck settle the candidate; development uses focused lane
+checks. A later repair reruns only invalidated dimensions unless it changes a
+shared, build, dependency, packaging, or release input that makes the aggregate
+matrix stale. Do not start a new open-ended review after that final matrix.
 
 1. Re-read the request, issue, or pull-request description and every later
    constraint.
 2. Trace each named behavior, click, key, screen, route, lifecycle, and platform
    path through the final implementation.
 3. Apply the readability and simplicity review above to the final diff.
-4. Run the focused business-behavior tests and compile every affected platform.
+4. Run applicable existing tests and any explicitly justified new causal test,
+   then compile every affected platform.
 5. For a broad change, run `./scripts/verify.sh`. It runs formatting checks,
    shared Android host tests, Android TV route tests, both minified Android
    release assemblies, and packaged-resource checks.
@@ -323,9 +449,11 @@ not changed.
    `./gradlew :shared-ui:linkDebugFrameworkIosSimulatorArm64`.
 7. Run `./gradlew --stop` after Gradle work.
 
-UI and platform changes also need the actual interaction traced or exercised;
-compilation alone is not enough. Report any device, simulator, server, playback,
-or platform path that was not checked.
+UI and platform changes also need the actual interaction traced and a concise
+manual validation checklist; compilation alone is not enough. Exercise that
+interaction only when the current request authorizes the required runtime or
+device. Report every device, simulator, server, playback, or platform path that
+was not manually checked.
 
 Android physical playback, frame pacing, A/V sync, memory, and performance must
 be evaluated with a minified release APK. Debug builds are useful for diagnosis,
@@ -442,7 +570,20 @@ its rule changes.
   generic failures, and implementation-shape tests while preserving necessary
   domain, platform, security, and concurrency boundaries. Comment quotas,
   helper counts, coverage targets, and generated-code detectors were rejected
-  because they are easy to game.
+  because they are easy to game. Test-size thresholds pause for a maintainer
+  decision; they are not quality scores or automatic rejection rules.
+- **Permanent complexity requires a separate decision because outcome approval
+  is not maintenance approval.** The maintainer must see the smallest adequate
+  solution beside any proposed framework, analyzer, generator, subsystem, or
+  large test/support surface and explicitly accept its footprint. Reviewer
+  severity and broad implementation authority were rejected as substitutes for
+  that product and maintenance decision.
+- **Coordination follows real independence.** One owner is fastest for a
+  bounded change. Exact-file parallel lanes are useful only when they remove a
+  real dependency bottleneck; shared-seam ordering, one integration owner, and
+  one build slot were chosen to retain that speed without file collisions or
+  competing Gradle processes. Repeated whole-tree snapshots were rejected when
+  scoped ownership can attribute changes safely.
 - **Third-party validation is structural and provenance-based.** Pinned versions
   and source revisions, required package contents, dependency closure, signing,
   and license/source checks remain required. Maintaining a second expected-byte
@@ -459,7 +600,15 @@ its rule changes.
   checks stay active for local Release builds, while the publication script owns
   the clean-source requirement. A clean binding does not prove third-party
   readiness, and a dirty local test package is never a publishable artifact.
-- **Regression coverage follows business risk.** Authentication, deletion,
-  persistence, isolation, concurrency, and external request shape keep focused
-  tests. UI presentation uses source tracing, platform compilation, and relevant
-  runtime checks unless a durable test provides clear value.
+- **Automated tests are exceptional and manual validation is the default.** A
+  bounded change starts at zero new tests. At most one cheap causal case is
+  added without another decision, and only for a meaningful deterministic
+  app-owned risk that existing evidence and the manual path do not adequately
+  protect. A second case, new test machinery, or disproportionate support code
+  exposes its incremental value and cost before implementation. This keeps
+  coverage focused on durable regressions instead of turning every feature and
+  edge case into permanent maintenance work.
+- **Review converges before the aggregate build.** One integrated review, one
+  consolidated repair, and one focused recheck bound speculative reopening.
+  Running the broad matrix only after that sequence avoids repeatedly rebuilding
+  candidates that are still changing.

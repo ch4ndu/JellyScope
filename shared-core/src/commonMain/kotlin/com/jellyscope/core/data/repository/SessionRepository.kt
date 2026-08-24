@@ -3,12 +3,14 @@
 package com.jellyscope.core.data.repository
 
 import com.jellyscope.core.coroutines.platformIoDispatcher
+import com.jellyscope.core.data.local.CommittedSessionSnapshot
 import com.jellyscope.core.data.local.SessionStore
 import com.jellyscope.core.data.local.StoredSession
 import com.jellyscope.core.data.local.accountId
+import com.jellyscope.core.domain.action.AuthError
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AccountSession
-import com.jellyscope.core.domain.model.AuthError
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
@@ -81,6 +83,22 @@ class DefaultSessionRepository(
         _accounts.value = storedAccountsSource.value.toAccounts(activeAccountId)
     }
 
+    private fun publishCommittedSnapshot(
+        snapshot: CommittedSessionSnapshot,
+        boundaryEpoch: Long?,
+        loggedOutServerUrl: String? = null,
+    ) {
+        storedAccountsSource.value = snapshot.sessions
+        val activeSession = snapshot.activeSession?.toDomain()
+        _sessionState.value =
+            if (activeSession == null || boundaryEpoch == null) {
+                SessionState.LoggedOut(serverUrl = loggedOutServerUrl)
+            } else {
+                SessionState.LoggedIn(activeSession, boundaryEpoch)
+            }
+        _accounts.value = snapshot.sessions.toAccounts(snapshot.activeAccountId)
+    }
+
     init {
         scope.launch {
             val removalRecoveryCompleted =
@@ -103,24 +121,10 @@ class DefaultSessionRepository(
                 return@launch
             }
 
-            val restore =
+            val restoredSnapshot =
                 runCatchingCancellable {
                     withContext(workDispatcher) {
-                        if (sessionStore.isLogoutPending()) {
-                            RestoredSessions(
-                                activeSession = null,
-                                storedAccounts = emptyList(),
-                                logoutPending = true,
-                            )
-                        } else {
-                            val activeSession = sessionStore.readSession()
-                            val storedAccounts = sessionStore.readAccounts()
-                            RestoredSessions(
-                                activeSession = activeSession,
-                                storedAccounts = storedAccounts,
-                                logoutPending = false,
-                            )
-                        }
+                        sessionStore.readSnapshot()
                     }
                 }.onFailure { throwable ->
                     sessionLogger.w {
@@ -131,7 +135,7 @@ class DefaultSessionRepository(
                         )
                     }
                 }.getOrNull()
-            if (restore?.logoutPending == true) {
+            if (restoredSnapshot?.logoutPending == true) {
                 runCatchingCancellable {
                     sessionTransitionCoordinator.commitLogout(
                         prepareLogout = { sessionStore.markLogoutPending() },
@@ -153,16 +157,9 @@ class DefaultSessionRepository(
                     }
                 }
             } else {
-                val activeSession = restore?.activeSession?.toDomain()
-                sessionTransitionCoordinator.restore(activeSession) { boundaryEpoch ->
-                    storedAccountsSource.value = restore?.storedAccounts.orEmpty()
-                    _sessionState.value =
-                        if (activeSession == null || boundaryEpoch == null) {
-                            SessionState.LoggedOut(serverUrl = null)
-                        } else {
-                            SessionState.LoggedIn(activeSession, boundaryEpoch)
-                        }
-                    publishDerivedAccounts()
+                val snapshot = restoredSnapshot ?: emptyCommittedSessionSnapshot
+                sessionTransitionCoordinator.restore(snapshot) { committedSnapshot, boundaryEpoch ->
+                    publishCommittedSnapshot(committedSnapshot, boundaryEpoch)
                 }
             }
         }
@@ -205,10 +202,10 @@ class DefaultSessionRepository(
                         ?.session
                         ?.accountIdentity(),
                 load = { sessionStore.switchActiveAccount(accountId) },
-                publish = { session, boundaryEpoch ->
-                    _sessionState.value = SessionState.LoggedIn(session, boundaryEpoch)
-                    refreshStoredAccounts()
-                    session
+                publish = { snapshot, boundaryEpoch ->
+                    publishCommittedSnapshot(snapshot, boundaryEpoch)
+                    snapshot.activeSession?.toDomain()
+                        ?: throw IllegalStateException("Committed account switch has no active session.")
                 },
             )
         }
@@ -229,22 +226,19 @@ class DefaultSessionRepository(
                 removeAccount = { sessionStore.removeAccount(accountId) },
                 publish = { transition ->
                     val activeSession = transition.activeSession
-                    if (activeSession == null) {
-                        _sessionState.value = SessionState.LoggedOut(transition.removedSession.serverUrl)
-                    } else {
-                        val boundaryEpoch =
+                    val boundaryEpoch =
+                        if (activeSession == null) {
+                            null
+                        } else {
                             transition.boundaryEpoch
                                 ?: (sessionState.value as? SessionState.LoggedIn)?.boundaryEpoch
                                 ?: throw IllegalStateException("Account removal fallback has no boundary epoch")
-                        _sessionState.value = SessionState.LoggedIn(activeSession, boundaryEpoch)
-                    }
-                    // Publish the pre-read account list rather than calling
-                    // refreshStoredAccounts(): that re-reads the store, whose
-                    // migration retries the index/active-key writes and can throw
-                    // here — skipping the failure aggregate and leaving accounts
-                    // stale after _sessionState has already changed.
-                    storedAccountsSource.value = transition.remainingSessions
-                    publishDerivedAccounts()
+                        }
+                    publishCommittedSnapshot(
+                        snapshot = transition.committedSnapshot,
+                        boundaryEpoch = boundaryEpoch,
+                        loggedOutServerUrl = transition.removedSession.serverUrl,
+                    )
                     AccountRemoval(
                         removedAccount = transition.removedSession.toStored().toAccount(activeAccountId = null),
                         activeSession = activeSession,
@@ -265,28 +259,20 @@ class DefaultSessionRepository(
                     ?.session
                     ?.accountIdentity(),
             persist = { sessionStore.writeSession(session.toStored()) },
-            publish = { boundaryEpoch ->
-                _sessionState.value = SessionState.LoggedIn(session, boundaryEpoch)
-                refreshStoredAccounts()
+            publish = { snapshot, boundaryEpoch ->
+                publishCommittedSnapshot(snapshot, boundaryEpoch)
             },
         )
     }
-
-    private suspend fun refreshStoredAccounts() {
-        val storedAccounts =
-            withContext(workDispatcher) {
-                sessionStore.readAccounts()
-            }
-        storedAccountsSource.value = storedAccounts
-        publishDerivedAccounts()
-    }
 }
 
-private data class RestoredSessions(
-    val activeSession: StoredSession?,
-    val storedAccounts: List<StoredSession>,
-    val logoutPending: Boolean,
-)
+private val emptyCommittedSessionSnapshot =
+    CommittedSessionSnapshot(
+        sessions = emptyList(),
+        activeAccountId = null,
+        activeSession = null,
+        logoutPending = false,
+    )
 
 internal fun StoredSession.toDomain(): Session =
     Session(

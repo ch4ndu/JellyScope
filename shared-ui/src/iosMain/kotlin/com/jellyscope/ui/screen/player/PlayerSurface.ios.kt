@@ -5,6 +5,7 @@ package com.jellyscope.ui.screen.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.interop.UIKitView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -23,6 +24,8 @@ import com.jellyscope.core.playback.IosPictureInPictureWindowState
 import com.jellyscope.core.playback.IosPlaybackSurfaceProvider
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import org.koin.compose.koinInject
 import platform.AVFoundation.AVLayerVideoGravity
 import platform.AVFoundation.AVLayerVideoGravityResizeAspect
@@ -83,14 +86,23 @@ actual fun PlayerSurface(
     }
 
     val videoGravity = resizeMode.toAVLayerVideoGravity()
-    val runtimeDiagnostics by controller.runtimeDiagnostics.collectAsStateWithLifecycle()
+    val prepareEpochFlow =
+        remember(controller) {
+            controller.runtimeDiagnostics
+                .map { diagnostics -> diagnostics.prepareEpoch }
+                .distinctUntilChanged()
+        }
+    val prepareEpoch by
+        prepareEpochFlow.collectAsStateWithLifecycle(
+            initialValue = controller.runtimeDiagnostics.value.prepareEpoch,
+        )
     UIKitView(
         factory = {
             AVPlayerLayerView().apply {
                 bind(
                     owner = controller,
                     player = controller.platformPlayer as? AVPlayer,
-                    prepareEpoch = runtimeDiagnostics.prepareEpoch,
+                    prepareEpoch = prepareEpoch,
                     onVideoOutputReady = { epoch ->
                         controller.recordVideoOutputObservation(generation = epoch)
                     },
@@ -103,7 +115,7 @@ actual fun PlayerSurface(
             view.bind(
                 owner = controller,
                 player = controller.platformPlayer as? AVPlayer,
-                prepareEpoch = runtimeDiagnostics.prepareEpoch,
+                prepareEpoch = prepareEpoch,
                 onVideoOutputReady = { epoch ->
                     controller.recordVideoOutputObservation(generation = epoch)
                 },
@@ -124,28 +136,24 @@ internal actual fun PlayerPointerActivityRegistration(
 
 private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0)) {
     private val playerLayer = AVPlayerLayer()
-    private val pictureInPictureDelegate = IosPictureInPictureDelegate()
+    private var bindingOwner: PlayerController? = null
+    private var pictureInPictureDelegate: IosPictureInPictureDelegate? = null
     private var pictureInPictureController: AVPictureInPictureController? = null
     private var readinessTimer: NSTimer? = null
     private var expectedPrepareEpoch: Long? = null
     private var observedPrepareEpoch: Long? = null
     private var onVideoOutputReady: ((Long) -> Unit)? = null
 
-    var player: AVPlayer?
-        get() = playerLayer.player
-        set(value) {
-            playerLayer.player = value
-            updatePictureInPictureController()
-        }
-
     var videoGravity: AVLayerVideoGravity
         get() = playerLayer.videoGravity
         set(value) {
+            if (playerLayer.videoGravity == value) return
             playerLayer.videoGravity = value
         }
 
     var pictureInPictureEnabled: Boolean = false
         set(value) {
+            if (field == value) return
             field = value
             updatePictureInPictureController()
         }
@@ -162,21 +170,32 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
         prepareEpoch: Long?,
         onVideoOutputReady: (Long) -> Unit,
     ) {
-        val ownerChanged = pictureInPictureDelegate.owner !== owner
-        val sourceIdentityChanged = expectedPrepareEpoch != prepareEpoch
-        if (ownerChanged || sourceIdentityChanged) {
-            clearPictureInPictureController()
-        }
-        pictureInPictureDelegate.owner = owner
-        pictureInPictureDelegate.sourceIdentity = prepareEpoch
         val bindingChanged =
-            playerLayer.player !== player || expectedPrepareEpoch != prepareEpoch
+            iosAvPlayerBindingChanged(
+                currentOwner = bindingOwner,
+                currentPlayer = playerLayer.player,
+                currentPrepareEpoch = expectedPrepareEpoch,
+                nextOwner = owner,
+                nextPlayer = player,
+                nextPrepareEpoch = prepareEpoch,
+            )
         this.onVideoOutputReady = onVideoOutputReady
-        if (bindingChanged) {
-            expectedPrepareEpoch = prepareEpoch
-            observedPrepareEpoch = null
+        if (!bindingChanged) {
+            notifyVideoOutputIfReady()
+            updateReadinessPolling()
+            updateAutomaticStartRegistration()
+            return
         }
-        this.player = player
+
+        clearPictureInPictureController()
+        readinessTimer?.invalidate()
+        readinessTimer = null
+        bindingOwner = owner
+        expectedPrepareEpoch = prepareEpoch
+        observedPrepareEpoch = null
+        pictureInPictureDelegate = IosPictureInPictureDelegate(owner, prepareEpoch)
+        playerLayer.player = player
+        updatePictureInPictureController()
         notifyVideoOutputIfReady()
         updateReadinessPolling()
         updateAutomaticStartRegistration()
@@ -231,7 +250,7 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
     }
 
     private fun clearPictureInPictureController() {
-        pictureInPictureDelegate.owner?.let { owner ->
+        bindingOwner?.let { owner ->
             IosPictureInPictureCoordinator.clearAutomaticStartController(owner, this)
         }
         pictureInPictureController?.stopPictureInPicture()
@@ -272,12 +291,15 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
         readinessTimer = null
         clearPictureInPictureController()
         playerLayer.player = null
-        pictureInPictureDelegate.owner = null
-        pictureInPictureDelegate.sourceIdentity = null
+        bindingOwner = null
+        pictureInPictureDelegate = null
+        expectedPrepareEpoch = null
+        observedPrepareEpoch = null
+        onVideoOutputReady = null
     }
 
     private fun updateAutomaticStartRegistration() {
-        val owner = pictureInPictureDelegate.owner ?: return
+        val owner = bindingOwner ?: return
         val sourceIdentity = expectedPrepareEpoch ?: return
         val controller = pictureInPictureController
         IosPictureInPictureCoordinator.updateAutomaticStartController(
@@ -297,18 +319,28 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
     }
 }
 
+internal fun iosAvPlayerBindingChanged(
+    currentOwner: Any?,
+    currentPlayer: Any?,
+    currentPrepareEpoch: Long?,
+    nextOwner: Any,
+    nextPlayer: Any?,
+    nextPrepareEpoch: Long?,
+): Boolean =
+    currentOwner !== nextOwner ||
+        currentPlayer !== nextPlayer ||
+        currentPrepareEpoch != nextPrepareEpoch
+
 private const val IOS_VIDEO_OUTPUT_READY_POLL_INTERVAL_SECONDS = 0.1
 
-private class IosPictureInPictureDelegate :
-    NSObject(),
+private class IosPictureInPictureDelegate(
+    private val owner: PlayerController,
+    private val sourceIdentity: Long?,
+) : NSObject(),
     AVPictureInPictureControllerDelegateProtocol {
-    var owner: PlayerController? = null
-    var sourceIdentity: Long? = null
-
     override fun pictureInPictureControllerDidStartPictureInPicture(pictureInPictureController: AVPictureInPictureController) {
-        val callbackOwner = owner ?: return
         val callbackIdentity = sourceIdentity ?: return
-        if (!IosPictureInPictureCoordinator.onPictureInPictureStarted(callbackOwner, callbackIdentity)) {
+        if (!IosPictureInPictureCoordinator.onPictureInPictureStarted(owner, callbackIdentity)) {
             pictureInPictureController.stopPictureInPicture()
         }
     }
@@ -317,10 +349,9 @@ private class IosPictureInPictureDelegate :
         pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError: NSError,
     ) {
-        val callbackOwner = owner
         val callbackIdentity = sourceIdentity
-        if (callbackOwner != null && callbackIdentity != null) {
-            IosPictureInPictureCoordinator.onPictureInPictureStartFailed(callbackOwner, callbackIdentity)
+        if (callbackIdentity != null) {
+            IosPictureInPictureCoordinator.onPictureInPictureStartFailed(owner, callbackIdentity)
         }
         playerSurfaceLogger.w {
             formatPlaybackDiagnostic(
@@ -338,13 +369,12 @@ private class IosPictureInPictureDelegate :
         pictureInPictureController: AVPictureInPictureController,
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler: (Boolean) -> Unit,
     ) {
-        val callbackOwner = owner
         val callbackIdentity = sourceIdentity
-        if (callbackOwner == null || callbackIdentity == null) {
+        if (callbackIdentity == null) {
             restoreUserInterfaceForPictureInPictureStopWithCompletionHandler(false)
         } else {
             IosPictureInPictureCoordinator.onRestoreUserInterface(
-                owner = callbackOwner,
+                owner = owner,
                 sourceIdentity = callbackIdentity,
                 completionHandler = restoreUserInterfaceForPictureInPictureStopWithCompletionHandler,
             )
@@ -352,9 +382,8 @@ private class IosPictureInPictureDelegate :
     }
 
     override fun pictureInPictureControllerDidStopPictureInPicture(pictureInPictureController: AVPictureInPictureController) {
-        val callbackOwner = owner ?: return
         val callbackIdentity = sourceIdentity ?: return
-        IosPictureInPictureCoordinator.onPictureInPictureStopped(callbackOwner, callbackIdentity)
+        IosPictureInPictureCoordinator.onPictureInPictureStopped(owner, callbackIdentity)
     }
 }
 

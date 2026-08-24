@@ -183,7 +183,6 @@ fun DetailScreen(
                         ),
                     onInstalled = { asset ->
                         installedAssetId = asset.id
-                        viewModel.selectLocalSubtitle(asset.id)
                     },
                     onDismiss = {
                         searchVisible = false

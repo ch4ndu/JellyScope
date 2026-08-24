@@ -9,6 +9,11 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 ## Jellyfin API
 
 - Keep API clients behind repositories or API facades.
+- Map client-specific transport failures to project-owned domain failures in
+  the repository before playback planning or presentation sees them. Preserve
+  only the safe retryability and allowlisted source-type facts required by the
+  existing planner diagnostics; never make a ViewModel inspect a transport
+  exception class.
 - Normalize server URLs consistently, usually by trimming trailing slashes
   before composing endpoints and image URLs.
 - Automatic network discovery is a `ServerDiscovery.isAvailable` capability.
@@ -20,6 +25,19 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   server URLs, including direct local HTTP, and restored sessions/accounts remain
   supported. Do not substitute Bonjour or a permission probe for discovery.
 - Keep auth token/header creation centralized.
+- Every value in both Jellyfin `MediaBrowser` authorization forms uses the same
+  encoder: trim outer whitespace, remove CR/LF, then UTF-8 percent-encode every
+  byte except RFC 3986 unreserved characters using uppercase hex and `%20` for
+  spaces. A token that is empty after normalization produces no token-only
+  header.
+- `/System/Info/Public` display fields are optional. Its trimmed nonblank `Id`
+  is the canonical server identity; a missing or blank ID fails validation
+  before authentication can publish or persist a session. Server name falls
+  back from a trimmed display value to the normalized URL authority and then
+  the normalized URL, while missing product/version display values become
+  empty strings. Password and Quick Connect authentication both accept a
+  missing/blank result `ServerId`, require any nonblank result ID to match the
+  canonical public ID exactly, and always persist that public ID in `Session`.
 - Shared UI may build platform image loader requests, but Jellyfin
   `Authorization` header values must come from core auth-header providers; UI
   should not construct `MediaBrowser` auth headers or inject app/device identity
@@ -76,6 +94,9 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 - Whole-snapshot settings writes are serialized per setting family and may
   coalesce queued values to the newest snapshot. A slower older write must not
   complete after and overwrite a newer user choice.
+- Room player-device settings publish the submitted value and suppress delayed
+  initialization only after the DAO upsert succeeds. A failed upsert publishes
+  no failed value and leaves the stored initialization value eligible to win.
 - The Audio and HDR portions of player-device settings (`PlayerDeviceSettings`)
   live behind `PlayerDeviceSettingsStore` and are interpreted through
   `resolvePlayerDevicePolicy` before shaping Jellyfin PlaybackInfo requests.
@@ -92,15 +113,25 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   undecryptable data is deleted and treated as an empty store. iOS and tvOS use
   Apple Keychain generic password items with
   `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` and synchronizable=false
-  (no iCloud sync). Signed macOS desktop releases use the `/usr/bin/security`
-  Keychain store and migrate the legacy JSON file once; non-macOS JVM hosts
-  retain plaintext JSON storage under `~/.jellyscope`. This is an accepted risk
-  limited to the unsupported development targets identified in
+  (no iCloud sync). Signed macOS desktop releases use a narrow lazy
+  Security.framework `SecItem` boundary with the same item policy and migrate
+  the legacy JSON file once through it. Native failures expose only a fixed
+  operation label and numeric `OSStatus`; account names and credential values
+  never enter process arguments or diagnostics. Non-macOS JVM hosts retain
+  plaintext JSON storage under `~/.jellyscope`. This is an accepted risk limited
+  to the unsupported development targets identified in
   [`README.md`](../../README.md#platforms), not encrypted or release-hardened
   storage. Any future decision to distribute or support either target must
   reopen and complete native OS credential storage before release. The legacy
   Apple `NSUserDefaults` JSON blob is imported once into Keychain and deleted
   only after successful import.
+- `SessionStore` persists ordered accounts, active account, envelope-era marker,
+  and logout-pending state in one versioned secure envelope; the device ID is a
+  separate durable key and survives session clearing. Envelope absence alone
+  permits one import from the known legacy session/account/active/pending keys.
+  The envelope is committed before best-effort alias cleanup, and a valid empty
+  envelope is a durable logout tombstone. Any present malformed, incomplete, or
+  unsupported envelope fails closed and never falls back to stale aliases.
 - For non-credential settings, RAM-only storage is not acceptable for a working
   feature. Every current user-visible setting must use normal persistent app
   storage on every platform where that feature exists, even when credential
@@ -113,14 +144,15 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   preferences.
 - Clear-login flows must stop authenticated reads before clearing credentials
   and cached library data that could leak data from the previous account. Logout
-  writes a durable pending marker before publishing logged-out state, clears
-  `SessionStore` credentials first, and removes that marker only after the
-  credential clear succeeds. Every persistent and runtime store is attempted
-  independently under `NonCancellable`; failures are aggregated after all clears
-  and cancellation is reconciled only at the outer boundary. If the marker
-  survives a crash or failed clear, cold restore treats the process as logged
-  out, clears the in-memory account list inside the boundary gate, and retries
-  cleanup instead of restoring the stored session.
+  commits a durable pending state before publishing logged-out state, commits an
+  empty authoritative session envelope first during credential clearing, and
+  clears the pending state only after that credential clear succeeds. Every
+  persistent and runtime store is attempted independently under
+  `NonCancellable`; failures are aggregated after all clears and cancellation is
+  reconciled only at the outer boundary. If the pending state survives a crash
+  or failed clear, cold restore treats the process as logged out, clears the
+  in-memory account list inside the boundary gate, and retries cleanup instead
+  of restoring a stored session.
 - `AccountIdentity` is the canonical `(serverId, userId)` boundary key. Runtime
   refetchable caches register with `ServerScopedStoreRegistry`; persistent
   session, playback-preference, recent-search, Watch Next, subtitle-selection,
@@ -505,6 +537,11 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   logged, diagnosed, displayed, or persisted. The first result is only the
   best-ranked candidate. JellyScope never presents it as a confirmed match for
   the item, never auto-installs it, and always leaves the choice with the user.
+- Search state retains raw keyed results. `LazyColumn.items` receives those
+  results directly with provider file-ID keys, and localization plus row-model
+  materialization happens only inside the composed item content. This preserves
+  ordering, quota, focus, errors, and install behavior without eagerly mapping
+  offscreen rows.
 - Quota handling treats the API's returned remaining-download/reset values as
   authoritative; never hardcode authenticated quota counts. Anonymous guidance
   is five downloads per 24 h per IP (version-bound to OpenSubtitles' current
@@ -512,11 +549,14 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 - Only single-file SRT and WebVTT results are installable. Downloads are capped
   at 5 MiB, reject empty/HTML/unknown content, decode supported UTF encodings,
   and normalize to canonical UTF-8 WebVTT in persistent app-private storage.
-  Remote filenames are never used as paths. Metadata and selection are keyed by
-  server, user, item, and media source; the file and Room row survive Jellyfin
-  logout until explicit per-file or settings-wide deletion. Startup
-  reconciliation removes missing-file rows, their matching selections, and
-  unreferenced files.
+  Local payload decode/canonicalization and final install WebVTT byte encoding,
+  fetched-server canonicalization, and upload Base64 all run on the injected
+  worker dispatcher. Network calls remain outside those CPU blocks and the
+  mutation owner. The raw `ByteArray` download carrier is data-owned, never a
+  compiler-declared stable domain model. Remote filenames are never used as
+  paths. Metadata and selection are keyed by server, user, item, and media
+  source; the file and Room row survive Jellyfin logout until explicit per-file
+  or settings-wide deletion.
 - A persisted asset row carries exactly: a primary-key row ID; the ownership
   tuple of server, user, item, and media source plus the provider name and the
   provider's file ID, which together are unique per row; the provider's subtitle
@@ -536,23 +576,64 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   receives Jellyfin headers. Off removes the local track immediately. A local
   activation failure is nonfatal and never enters Jellyfin ForceEncode because
   the server does not own the file.
+- One application-scoped `LocalSubtitleMutationCoordinator` FIFO actor is the
+  sole writer of local subtitle files, asset metadata, and selections. The raw
+  platform Room selection store is qualified in DI; the ordinary
+  `SubtitleSelectionStore` contract is a coordinator-backed facade so normal
+  writes and account/server/full cleanup cannot bypass the owner. Immediate
+  work reserves its monotonic logical ticket and enters the FIFO in one short
+  lock-protected submission step. Physical FIFO order governs persistence,
+  while per-key intent tickets and key/account/server/global barriers govern
+  whether delayed work remains valid.
+- Install reserves before download and normalization, then writes file -> asset
+  -> conditional selection. A genuinely newer selection prevents auto-select
+  but keeps a successfully installed asset; a newer delete, clear, account,
+  server, repair, or reconciliation barrier prevents an older delayed write
+  from resurrecting state. Delete and missing-file repair clear the matching
+  selection before asset metadata and file. Reconciliation snapshots and
+  mutates in one actor request, and duplicate metadata whose file is missing is
+  repaired by recreating the file rather than returning a dangling asset. Each
+  platform file store treats an already-absent target as successful deletion;
+  when deletion reports failure and the target remains, it throws exactly
+  `Unable to delete local subtitle file.` without a file identity or path.
+- Mutation requests distinguish queued, started, cancelled, and completed
+  state. Cancellation before start skips persistence. Cancellation after start
+  waits for non-cancellable in-actor compensation, which attempts every
+  applicable cleanup, clears only the matching selection, preserves the
+  original failure or cancellation, and settles before the caller rethrows. A
+  failed or cancelled sync-state upsert restores its exact captured prior row
+  only while the same asset generation and exact claim/order still own it;
+  for terminal or inapplicable updates, committed success and compensation share
+  one finalization winner, and only that winner owns release. Shutdown and
+  undelivered work complete terminally without leaving a FIFO gap.
 - Newly installed assets enter an app-scoped, sequential Jellyfin sync
   coordinator. Automatic upload is limited to a single source or the selected
   primary source because Jellyfin's upload endpoint has no media-source
   parameter; alternate sources remain `LocalOnlyAlternateSource`. Permission is
   checked from the current-user policy. Before POST and after any successful or
   ambiguous dispatch, compare candidate server WebVTT by canonical content and
-  language/forced/hearing-impaired flags. Stale Uploading, Reconciling, or
-  UploadedUnconfirmed work only reconciles automatically and never repeats the
-  POST. Manual Retry also reconciles first and posts only after a conclusive
-  no-match. Current playback remains local; a later stored launch may prefer the
-  confirmed server stream while retaining the local fallback.
-- That coordinator is app-scoped by contract: it observes the active session and
-  pending assets, runs one job at a time, cancels on account switch, and resumes
-  stale work on the next launch. Do not hand subtitle sync to an operating-system
-  background scheduler — no WorkManager job, no `BGTaskScheduler` task, no
-  desktop daemon. The prohibition is scoped to subtitle sync and says nothing
-  about unrelated scheduled work such as the Android TV Watch Next job.
+  language/forced/hearing-impaired flags. Stale Uploading and Reconciling work
+  only reconciles automatically and never repeats the POST. Each logged-in
+  boundary takes one bounded current-account snapshot pass that admits
+  `UploadedUnconfirmed` through the ordinary lease/reconciliation route; it is
+  absent from the live pending query, cannot self-loop, and never reaches an
+  automatic POST. Manual Retry also reconciles first and posts only after a
+  conclusive no-match. Current playback remains local; a later stored launch may
+  prefer the confirmed server stream while retaining the local fallback.
+- Sync network work remains outside the mutation actor. One exact
+  asset-generation/order claim is active at a time; every returned state update
+  re-reads and conditionally validates that claim inside the actor, so a stale
+  response cannot replace an asset deleted, cleared, or reinstalled while the
+  request was in flight. The sole app-scoped startup owner awaits storage
+  reconciliation before observing sessions or pending assets. A
+  non-cancellation reconciliation failure settles after one fixed sanitized
+  diagnostic before observation begins; cancellation is rethrown and prevents
+  observation. It then runs one network job at a time, cancels on account
+  switch, and resumes stale work on the next launch. Do not hand subtitle sync
+  to an operating-system background scheduler — no WorkManager job, no
+  `BGTaskScheduler` task, no desktop daemon. The prohibition is scoped to
+  subtitle sync and says nothing about unrelated scheduled work such as the
+  Android TV Watch Next job.
 
 ## Playback Planning
 
@@ -1511,14 +1592,17 @@ rather than porting code. When probing a live server:
 - The vendor adapter converts callbacks to project-owned events. The
   `AndroidMpvPlayerController` owns serialized native calls, generation-scoped
   state, play/pause/seek/retry/release, exact track and subtitle activation,
-  timing/style, audio focus, and sanitized diagnostics. Its
-  shared-ui's Android-only `AndroidPlayerSurfaceHost` owns the common mobile/TV
+  timing/style, audio focus, and sanitized diagnostics. Shared UI's Android-only
+  `AndroidPlayerSurfaceHost` owns the common mobile/TV
   Compose hierarchy and maps Fit/Fill/Zoom plus the shell-supplied subtitle
   inset into project-owned presentation. `AndroidMpvSurfaceView` plus
-  `AndroidPlayerSurfaceBridge` owns SurfaceView attach/detach/recreation and
-  applies that presentation. Each host gets a fresh SurfaceView, and release/destroy/size callbacks are
-  accepted only from the current owner so an outgoing host cannot detach its
-  replacement. A valid attach enables mpv's native window, writes the current
+  `AndroidPlayerSurfaceBridge` owns native SurfaceView callbacks. The shared
+  host gives each exact controller/platform-player binding a process-monotonic
+  owner token: a replacement detaches before it attaches, and delayed attach,
+  release, or presentation work from an outgoing token is ignored. Factory
+  creation is the only attach path; resize, style, and inset updates never
+  attach. The Media3 path likewise owns one cue consumer per binding. A valid
+  attach enables mpv's native window, writes the current
   `android-surface-size`, and reapplies dimensions after rotation; detach clears
   that window without tearing down the VO pipeline. Shared
   UI and TV UI never import mpv types. A current `FILE_LOADED` establishes load
@@ -1544,16 +1628,30 @@ rather than porting code. When probing a live server:
   `PowerManager.WakeLock`, `WAKE_LOCK` permission, polling, or device-specific
   branch.
 - Android mpv reports buffering, dropped-frame, decoder, cache, and bounded
-  runtime facts through the existing diagnostic contract. It currently declares
-  first-video-output measurement unsupported, so surface attachment or native
-  configuration is not presented as displayed output. Native logs are reduced
-  to allowlisted stage/event, exception, and bounded numeric fields. Surface
-  lifecycle records include attachment state, bounded width/height, size-change
-  and detach milestones, and ignored stale callbacks/releases; runtime native
-  option rejection includes only the fixed key and numeric code. Those records
-  must make an audio-with-black-video report distinguish missing geometry,
-  native-window rejection, current detach, and a late stale detach from logs
-  alone.
+  runtime facts through the existing diagnostic contract. The first load arms
+  hot samples immediately. Replacement prepare and TV surface reload keep
+  clock/cache/diagnostic samples disarmed through late outgoing callbacks and
+  any retiring `START_FILE`; after the expected retiring `END_FILE` is consumed,
+  only the following matching `START_FILE` for the awaited replacement
+  generation arms them. Disarmed hot callbacks are consumed rather than
+  retagged, so they cannot mutate replacement state or satisfy replacement
+  seek/resume confirmation. Once armed, ordinary
+  current-generation `time-pos`/buffer samples are conflated before Main and
+  publish the latest clock at an approximately 250 ms cadence; cache speed,
+  frame rate, dropped-frame health, and buffered-ahead diagnostics publish at
+  most once per second. Seek/resume confirmation and lifecycle, error, track,
+  activation, completion, and recovery edges remain immediate. Prepare, TV
+  surface reload, stop, and release invalidate both retained samples and their
+  cadence so an outgoing generation cannot delay or overwrite its replacement.
+  The backend currently declares first-video-output measurement unsupported, so
+  surface attachment or native configuration is not presented as displayed
+  output. Native logs are reduced to allowlisted stage/event, exception, and
+  bounded numeric fields. Surface lifecycle records include attachment state,
+  bounded width/height, size-change and detach milestones, and ignored stale
+  callbacks/releases; runtime native option rejection includes only the fixed
+  key and numeric code. Those records must make an audio-with-black-video report
+  distinguish missing geometry, native-window rejection, current detach, and a
+  late stale detach from logs alone.
 - The Android native dependency is the project-owned `android-libmpv` module,
   built from the audited `dev.jdtech.mpv:libmpv:1.0.0` source/native input
   recorded in the [Android native dependency runbook](../operations/android-native-dependencies.md).
@@ -1703,6 +1801,14 @@ rather than porting code. When probing a live server:
   it must not force `Playing` while a slow stream remains stalled. This
   preserves the TV spinner without allowing Fire OS callback storms to
   monopolize the Main dispatcher.
+- Android LibVLC treats `TimeChanged` and `PositionChanged` as one native
+  progress source. Every accepted native sample still feeds seek and
+  end-of-stream correctness, while one approximately 250 ms publication policy
+  deduplicates the exact effective position, duration, and status. Seek
+  completion and status/duration edges publish immediately. The one-second
+  ticker always refreshes diagnostics but publishes progress only when native
+  callbacks are missing or stale; pause, terminal, prepare, stop, and release
+  reset freshness so the first sample of a new active interval is admitted.
 - Android LibVLC initial playback remains `Buffering` until its native clock
   advances. A non-zero resume position uses the same arrival-then-advance rule
   as an explicit seek, so an early native `Playing` event or immediate
@@ -1795,8 +1901,18 @@ rather than porting code. When probing a live server:
   `PlayerPlatformCommandCallbacks` owned by the active `PlayerViewModel`.
   `BackendMediaSessionPlayer` is a backend-neutral `SimpleBasePlayer` adapter
   used by AndroidX MediaSession for ExoPlayer, LibVLC, and mpv; no raw native
-  player object or controller is passed to MediaSession, and stale active-player
-  identities are ignored when the adapter is replaced. Positive planned video
+  player object or controller is passed to MediaSession. Only a successfully
+  installed `BoundedVod` plan is seekable. After either initial or same-item
+  `prepare`, a normal return whose synchronous state is already `Failed` is not
+  installed truth: the installed plan remains absent, seekability stays revoked,
+  and no selection or play follows. Default-position, in-item,
+  media-item-position, back, and forward seek commands are exposed and accepted
+  only for a successfully installed bounded plan; queue next/previous,
+  queue-boundary variants, and the restart-or-previous rule remain separate. A
+  monotonic publication owner stops an outgoing composition from restoring or
+  clearing a newer active player, and adapter replacement revokes the retiring
+  callbacks before release.
+  Positive planned video
   dimensions own PiP's stable, normalized coded aspect, with 16:9 as the
   missing/invalid-metadata fallback. Aspect/action/auto-enter signatures are
   recorded and deduplicated before Android is called. Changing Compose bounds
@@ -2566,6 +2682,11 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   non-seekable media through that public contract.
   Direct-play subtitle subpictures remain a separate UIKit overlay and do not
   appear in PiP; burned-in transcode subtitles remain visible as video pixels.
+  The AVPlayer layer observes distinct prepare epochs and replaces native
+  player/PiP ownership only when the exact controller, AVPlayer, or prepare
+  epoch changes. Gravity and PiP-enabled presentation changes do not rebind;
+  an immutable delegate retains each retired binding's epoch for any already
+  queued native callback.
 - Diagnostics include sanitized player/wait/buffer/error/access state and never
   include URLs, auth headers, or tokens.
 
@@ -2709,6 +2830,11 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   play, executes `PlaybackSessionRecoveryPolicy` decisions (including the
   one-shot runtime network retry and typed activation fallbacks), owns
   transcode-seek restart, and retains the full ordered reporting contract above.
+- `TvPlaybackSessionPresenter.state` retains every raw internal position and
+  buffer update for reporting, segment/up-next decisions, and other Kotlin
+  consumers. Its Swift watch projection suppresses only changes limited to
+  those two clock fields. Any semantic boundary still emits the complete
+  current state, including the latest position and buffer values.
 - Playback UI is the system `AVPlayerViewController`. Its transport drives
   AVPlayer directly (the polling controller still observes pause/play edges for
   reporting), so free scrubbing must be disabled for transcode plans via
@@ -3000,6 +3126,24 @@ operative text lives in the body sections above, never here.
   upgrades can never break the build at compile time — the trade-off is that
   the obligation is manual wire-format and behavior tracking against each
   server release.
+- **Public system identity is authoritative across authentication variants.**
+  Display metadata and authentication-result IDs vary across supported server
+  responses, but `/System/Info/Public` supplies the stable identity used before
+  credential persistence. Treating an auth response mismatch as cosmetic could
+  bind a credential to the wrong server; requiring display fields or a duplicate
+  result ID would reject otherwise compatible servers. Rejected: trusting a
+  nonblank conflicting auth ID or deriving identity from optional display text.
+- **Authorization parameters use one CR/LF-safe RFC 3986 wire policy.** Raw
+  quoting leaves delimiter, control-character, and non-ASCII ambiguity, while
+  form encoding changes spaces to `+`. One UTF-8 percent encoder for both full
+  and token-only headers keeps their shapes stable without allowing any value
+  to bypass normalization. Rejected: field-specific escaping and token-only raw
+  interpolation.
+- **Playback transport failures are mapped below presentation.** Retryability
+  and the allowlisted source exception type are stable domain facts used by the
+  planner, while client exception classes are an implementation detail that may
+  change with the HTTP stack. Rejected: importing `JellyfinApiException` into a
+  ViewModel or discarding the existing safe diagnostic source type.
 - **The portrait transcode-URL rewrite is future-proof by construction.** It
   stays correct even if a future server fixes the width-tier scaler, because
   it only ever requests dimensions already inside the decoder's limits.
@@ -3076,6 +3220,26 @@ operative text lives in the body sections above, never here.
   metadata that detail carries.
 
 ### Persistence
+
+- **Direct Security.framework ownership keeps macOS session secrets out of
+  process metadata.** The JNA boundary calls `SecItem` directly, reports only a
+  fixed operation name and numeric `OSStatus`, and explicitly releases every
+  CoreFoundation dictionary, created value, and copied result it owns.
+  `/usr/bin/security` was rejected because writes would put credentials or
+  serialized sessions in child-process `argv` and expose them through process
+  metadata.
+- **A present session envelope is the only authority because fallback can
+  resurrect credentials.** Independent account, active, and pending keys could
+  expose a mixed generation after a partial write, while treating an empty
+  result as absence lets stale aliases undo logout. The versioned envelope makes
+  one commit authoritative, including an empty tombstone; migration commits it
+  before best-effort alias cleanup, and corrupt or unsupported envelopes fail
+  closed for diagnosis instead of consulting legacy state. Rejected: continued
+  dual writes, delete-on-empty, and fallback from any present envelope.
+- **Delayed Room settings initialization yields only to a successful write.**
+  Marking a write before its DAO upsert can suppress the stored value even when
+  persistence failed, and publishing first can expose a value that never became
+  durable. DAO success therefore precedes both the write marker and publication.
 
 - **Plaintext non-macOS JVM credentials are an accepted development-target
   risk, not a release storage design.** Replacing the fallback now was rejected
@@ -3285,6 +3449,13 @@ operative text lives in the body sections above, never here.
   controller without calling native PiP stop; only a requested/started window
   needs that teardown. This keeps ordinary Player Back independent of unused
   PiP shutdown while preserving explicit and automatic PiP close behavior.
+- **iOS player-layer ownership follows prepare identity, not diagnostics
+  cadence.** Runtime dimensions, bandwidth, and dropped-frame snapshots can
+  change many times inside one prepare. Rebinding AVPlayer/PiP from those hot
+  snapshots duplicated native ownership work and could relabel a queued old
+  callback with the new epoch. Exact controller/player/epoch identity plus an
+  immutable delegate preserves stale-callback rejection without making gravity
+  or the PiP preference part of source identity.
 - **AVPlayer is the iOS default; VLCKit PiP is a disclosed beta capability.**
   Making Auto the default would implicitly route unsupported AVPlayer sources
   into a backend whose foreground compatibility is broader but whose native PiP
@@ -3308,7 +3479,15 @@ operative text lives in the body sections above, never here.
   negative option results, removing
   resume-at-load semantics, a tokenized-URL credential fallback, and a
   misleading hardcoded network timeout for an unclassified startup failure.
-- **Android mobile PiP aspect is planned-media state, not layout state.**
+- **Android mobile platform playback uses plan truth and owner identity, not
+  layout churn.** Unknown or unbounded content cannot truthfully advertise an
+  in-item MediaSession seek even if a native backend accepts arbitrary seek
+  calls, while queue navigation remains meaningful independently. A normally
+  returning prepare is likewise not installed truth when the controller has
+  already published `Failed`; treating it as installed would expose selection,
+  play, or seek commands after terminal refusal. Monotonic registry/surface
+  ownership prevents stale Compose release or update work from reaching a
+  replacement without adding a timer or backend-specific UI path.
   Animated controls, insets, and player transitions can move or briefly
   collapse the composed surface many times while the video itself remains the
   same. Feeding those rectangles into the aspect repeatedly exhausts Android's
@@ -3317,6 +3496,20 @@ operative text lives in the body sections above, never here.
   was rejected because it makes correctness depend on animation timing, and
   backend-specific PiP handling was rejected because the platform owner already
   serves ExoPlayer, LibVLC, and mpv through one command contract.
+- **Hot playback clocks are reduced at their owning boundary, not downstream.**
+  Launching one Main coroutine per mpv callback and publishing both halves of a
+  LibVLC callback pair made scheduler and observer work scale with native event
+  rate. Throttling the tvOS presenter itself would instead make reporting and
+  segment decisions stale. An mpv replacement generation alone is insufficient:
+  a late outgoing callback could otherwise be retagged as replacement truth.
+  Keeping hot admission closed through the retiring `END_FILE` and opening it
+  only on the following `START_FILE` for the awaited replacement generation
+  rejects those samples without delaying lifecycle or other immediate edges.
+  Generation-bound latest-sample ownership for mpv, native-freshness ownership
+  for LibVLC, and a clock-only Swift watch projection then bound ordinary work.
+  Rejected: downstream debounce, arming replacement samples at command dispatch,
+  ticker ownership during healthy native callbacks, and suppression of the raw
+  tvOS state.
 - **Raw mpv logs stay app-internal and out of uploads.** Uploading or attempting
   to redact free-form native text cannot prove that arbitrary titles, usernames,
   IDs, paths, or credentials are absent. The raw file remains useful for local
@@ -3387,6 +3580,27 @@ operative text lives in the body sections above, never here.
   logging, displaying, or persisting the full media path and filtering out
   nonpreferred results were rejected as unnecessary privacy and usability
   regressions.
+- **One subtitle mutation actor and one startup owner preserve ordering and
+  compensation because per-call locks and live observation cannot order delayed
+  work.** Download, normalization, and network completion can arrive after a
+  newer user intent or destructive boundary; logical tickets and barriers reject
+  stale writes while the FIFO keeps file/metadata/selection order deterministic.
+  Startup reconciliation settles before observation, and restored
+  `UploadedUnconfirmed` work enters through one bounded boundary-snapshot pass
+  instead of a self-triggering live query. CPU transforms stay on the injected
+  worker while network stays outside the actor. Sync compensation restores only
+  the exact prior generation still owned by its claim/order, and only the
+  terminal/no-op finalization winner owns release. Idempotent absent-file
+  deletion plus one fixed path-free still-present failure keeps cleanup
+  retryable without leaking local identity. Rejected: independent action
+  writers, direct DAO cleanup, live `UploadedUnconfirmed` admission, and a
+  mutex-only approximation.
+- **OpenSubtitle rows stay raw until composition, and raw bytes stay below the
+  stable domain-model boundary.** Eager localization/materialization performs
+  work for offscreen results, while a `ByteArray` is mutable and cannot satisfy
+  the package-wide Compose stability promise. Stable provider-file keys retain
+  list identity without either compromise. Rejected: eager row projection and
+  annotations that assert stability without immutable structure.
 
 ### Diagnostics, logging, and privacy
 

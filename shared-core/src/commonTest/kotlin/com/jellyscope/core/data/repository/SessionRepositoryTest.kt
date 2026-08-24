@@ -15,6 +15,7 @@ import com.jellyscope.core.data.local.RecordingRecentSearchStore
 import com.jellyscope.core.data.local.RecordingSubtitleSelectionStore
 import com.jellyscope.core.data.local.RecordingWatchNextStore
 import com.jellyscope.core.data.local.RefetchableServerCache
+import com.jellyscope.core.data.local.SESSION_ENVELOPE_KEY
 import com.jellyscope.core.data.local.SecureStore
 import com.jellyscope.core.data.local.ServerScopedClearableStore
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
@@ -22,6 +23,9 @@ import com.jellyscope.core.data.local.SessionStore
 import com.jellyscope.core.data.local.StoreCleanupException
 import com.jellyscope.core.data.local.StoredSession
 import com.jellyscope.core.data.local.accountId
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalError
+import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
@@ -39,6 +43,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class SessionRepositoryTest {
@@ -177,41 +182,37 @@ class SessionRepositoryTest {
         }
 
     @Test
-    fun cancelledAddAccountCommitKeepsSameServerAccountsAndLiveActiveMarker() =
+    fun loginPublishesCommittedSnapshotWithoutPostCommitRead() =
         runTest {
             val first = storedSession(serverId = "server-1", userId = "user-1")
             val second = storedSession(serverId = "server-1", userId = "user-2")
-            val secureStore =
-                AccountsReadGate(
-                    armOnWriteKey = "session_account:${second.accountId()}",
-                )
+            val secureStore = PostCommitReadRejectingSecureStore()
             val sessionStore = SessionStore(secureStore, Json)
             sessionStore.writeSession(first)
             val registry = ServerScopedStoreRegistry()
             val dispatcher = StandardTestDispatcher(testScheduler)
+            val barriers = mutableListOf<AccountIdentity>()
             val repository =
                 DefaultSessionRepository(
                     sessionStore = sessionStore,
-                    sessionTransitionCoordinator = SessionTransitionCoordinator(registry, ioDispatcher = dispatcher),
+                    sessionTransitionCoordinator =
+                        SessionTransitionCoordinator(
+                            serverScopedStoreRegistry = registry,
+                            ioDispatcher = dispatcher,
+                            advanceLocalSubtitleAccountBarrier = { identity -> barriers += identity },
+                        ),
                     scope = this,
                     workDispatcher = dispatcher,
                 )
             advanceUntilIdle()
 
-            val commit =
-                launch {
-                    repository.setLoggedIn(second.toDomain())
-                }
-            runCurrent()
-            secureStore.accountsRead.await()
-
-            assertEquals(second.toDomain(), (repository.sessionState.value as SessionState.LoggedIn).session)
-            commit.cancel()
-            secureStore.releaseAccountsRead.complete(Unit)
-            advanceUntilIdle()
+            secureStore.rejectReadsAfterNextEnvelopeWrite()
+            repository.setLoggedIn(second.toDomain())
 
             val loggedIn = repository.sessionState.value as SessionState.LoggedIn
             val accounts = repository.accounts.value
+            assertTrue(secureStore.envelopeWriteObserved)
+            assertEquals(0, secureStore.forbiddenReadCount)
             assertEquals(
                 setOf(first.accountId(), second.accountId()),
                 accounts.map { account -> account.accountId }.toSet(),
@@ -221,6 +222,284 @@ class SessionRepositoryTest {
                 loggedIn.session.accountIdentity().accountId,
                 accounts.single { account -> account.isActive }.accountId,
             )
+            assertEquals(listOf(first.toDomain().accountIdentity()), barriers)
+        }
+
+    @Test
+    fun switchPublishesCommittedSnapshotWithoutPostCommitRead() =
+        runTest {
+            val first = storedSession(serverId = "server-1", userId = "user-1")
+            val second = storedSession(serverId = "server-2", userId = "user-2")
+            val secureStore = PostCommitReadRejectingSecureStore()
+            val sessionStore = SessionStore(secureStore, Json)
+            sessionStore.writeSession(first)
+            sessionStore.writeSession(second)
+            sessionStore.switchActiveAccount(first.accountId())
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val barriers = mutableListOf<AccountIdentity>()
+            val repository =
+                DefaultSessionRepository(
+                    sessionStore = sessionStore,
+                    sessionTransitionCoordinator =
+                        SessionTransitionCoordinator(
+                            serverScopedStoreRegistry = ServerScopedStoreRegistry(),
+                            ioDispatcher = dispatcher,
+                            advanceLocalSubtitleAccountBarrier = { identity -> barriers += identity },
+                        ),
+                    scope = this,
+                    workDispatcher = dispatcher,
+                )
+            advanceUntilIdle()
+
+            secureStore.rejectReadsAfterNextEnvelopeWrite()
+            val switched = repository.switchTo(second.accountId()).getOrThrow()
+
+            assertEquals(second.toDomain(), switched)
+            assertEquals(second.toDomain(), (repository.sessionState.value as SessionState.LoggedIn).session)
+            assertEquals(
+                second.accountId(),
+                repository.accounts.value
+                    .single { account -> account.isActive }
+                    .accountId,
+            )
+            assertTrue(secureStore.envelopeWriteObserved)
+            assertEquals(0, secureStore.forbiddenReadCount)
+            assertEquals(listOf(first.toDomain().accountIdentity()), barriers)
+        }
+
+    @Test
+    fun sameIdentityReauthenticationAdvancesBarrierAndPublishesWithoutPostCommitRead() =
+        runTest {
+            val first = storedSession(serverId = "server-1", userId = "user-1")
+            val rotated = first.copy(accessToken = "rotated-token")
+            val secureStore = PostCommitReadRejectingSecureStore()
+            val sessionStore = SessionStore(secureStore, Json)
+            sessionStore.writeSession(first)
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val barriers = mutableListOf<AccountIdentity>()
+            val repository =
+                DefaultSessionRepository(
+                    sessionStore = sessionStore,
+                    sessionTransitionCoordinator =
+                        SessionTransitionCoordinator(
+                            serverScopedStoreRegistry = ServerScopedStoreRegistry(),
+                            ioDispatcher = dispatcher,
+                            advanceLocalSubtitleAccountBarrier = { identity -> barriers += identity },
+                        ),
+                    scope = this,
+                    workDispatcher = dispatcher,
+                )
+            advanceUntilIdle()
+
+            secureStore.rejectReadsAfterNextEnvelopeWrite()
+            repository.setLoggedIn(rotated.toDomain())
+
+            assertEquals(rotated.toDomain(), (repository.sessionState.value as SessionState.LoggedIn).session)
+            assertEquals(1, repository.accounts.value.size)
+            assertTrue(
+                repository.accounts.value
+                    .single()
+                    .isActive,
+            )
+            assertEquals(listOf(first.toDomain().accountIdentity()), barriers)
+            assertTrue(secureStore.envelopeWriteObserved)
+            assertEquals(0, secureStore.forbiddenReadCount)
+        }
+
+    @Test
+    fun loginCancellationAfterEnvelopeCommitSettlesCommittedBoundary() =
+        runTest {
+            verifyCancelledTransitionSettlement(
+                transition = CancellationTransition.Login,
+                cancellationPoint = TransitionCancellationPoint.AfterEnvelopeCommit,
+            )
+        }
+
+    @Test
+    fun loginCancellationAfterBarrierAdvancementSettlesCommittedBoundary() =
+        runTest {
+            verifyCancelledTransitionSettlement(
+                transition = CancellationTransition.Login,
+                cancellationPoint = TransitionCancellationPoint.AfterBarrierAdvancement,
+            )
+        }
+
+    @Test
+    fun switchCancellationAfterEnvelopeCommitSettlesCommittedBoundary() =
+        runTest {
+            verifyCancelledTransitionSettlement(
+                transition = CancellationTransition.Switch,
+                cancellationPoint = TransitionCancellationPoint.AfterEnvelopeCommit,
+            )
+        }
+
+    @Test
+    fun switchCancellationAfterBarrierAdvancementSettlesCommittedBoundary() =
+        runTest {
+            verifyCancelledTransitionSettlement(
+                transition = CancellationTransition.Switch,
+                cancellationPoint = TransitionCancellationPoint.AfterBarrierAdvancement,
+            )
+        }
+
+    @Test
+    fun sameIdentityReauthenticationCancellationAfterEnvelopeCommitSettlesCommittedBoundary() =
+        runTest {
+            verifyCancelledTransitionSettlement(
+                transition = CancellationTransition.Reauthentication,
+                cancellationPoint = TransitionCancellationPoint.AfterEnvelopeCommit,
+            )
+        }
+
+    @Test
+    fun sameIdentityReauthenticationCancellationAfterBarrierAdvancementSettlesCommittedBoundary() =
+        runTest {
+            verifyCancelledTransitionSettlement(
+                transition = CancellationTransition.Reauthentication,
+                cancellationPoint = TransitionCancellationPoint.AfterBarrierAdvancement,
+            )
+        }
+
+    private suspend fun TestScope.verifyCancelledTransitionSettlement(
+        transition: CancellationTransition,
+        cancellationPoint: TransitionCancellationPoint,
+    ) {
+        val first = storedSession(serverId = "server-1", userId = "user-1")
+        val second = storedSession(serverId = "server-2", userId = "user-2")
+        val rotated = first.copy(accessToken = "rotated-token")
+        val expectedActive =
+            when (transition) {
+                CancellationTransition.Login,
+                CancellationTransition.Switch,
+                -> second
+                CancellationTransition.Reauthentication -> rotated
+            }
+        val expectedSessions =
+            when (transition) {
+                CancellationTransition.Login,
+                CancellationTransition.Switch,
+                -> listOf(first, second)
+                CancellationTransition.Reauthentication -> listOf(rotated)
+            }
+        val gate = TransitionCancellationGate()
+        val secureStore = PostCommitReadRejectingSecureStore()
+        val sessionStore = SessionStore(secureStore, Json)
+        sessionStore.writeSession(first)
+        if (transition == CancellationTransition.Switch) {
+            sessionStore.writeSession(second)
+            sessionStore.switchActiveAccount(first.accountId())
+        }
+        val registry = ServerScopedStoreRegistry()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val barriers = mutableListOf<AccountIdentity>()
+        val repository =
+            DefaultSessionRepository(
+                sessionStore = sessionStore,
+                sessionTransitionCoordinator =
+                    SessionTransitionCoordinator(
+                        serverScopedStoreRegistry = registry,
+                        ioDispatcher = dispatcher,
+                        advanceLocalSubtitleAccountBarrier = { identity ->
+                            barriers += identity
+                            if (cancellationPoint == TransitionCancellationPoint.AfterBarrierAdvancement) {
+                                gate.pause()
+                            }
+                        },
+                    ),
+                scope = this,
+                workDispatcher = dispatcher,
+            )
+        advanceUntilIdle()
+        val initialState = assertIs<SessionState.LoggedIn>(repository.sessionState.value)
+        val initialLease =
+            registry.acquireWorkLease(
+                accountIdentity = initialState.session.accountIdentity(),
+                boundaryEpoch = initialState.boundaryEpoch,
+            )
+        assertTrue(initialLease != null)
+
+        secureStore.rejectReadsAfterNextEnvelopeWrite {
+            if (cancellationPoint == TransitionCancellationPoint.AfterEnvelopeCommit) {
+                gate.pause()
+            }
+        }
+        var surfacedFailure: Throwable? = null
+        val operation =
+            launch {
+                try {
+                    when (transition) {
+                        CancellationTransition.Login -> repository.setLoggedIn(second.toDomain())
+                        CancellationTransition.Switch -> repository.switchTo(second.accountId()).getOrThrow()
+                        CancellationTransition.Reauthentication -> repository.setLoggedIn(rotated.toDomain())
+                    }
+                } catch (throwable: Throwable) {
+                    surfacedFailure = throwable
+                }
+            }
+
+        runCurrent()
+        gate.reached.await()
+        val callerCancellation = CancellationException("caller cancelled after irreversible session commit")
+        operation.cancel(callerCancellation)
+        runCurrent()
+        assertFalse(operation.isCompleted)
+        gate.release.complete(Unit)
+        advanceUntilIdle()
+
+        assertSame(callerCancellation, surfacedFailure)
+        val durableSnapshot = secureStore.readCommittedSnapshot()
+        assertEquals(expectedSessions, durableSnapshot.sessions)
+        assertEquals(expectedActive.accountId(), durableSnapshot.activeAccountId)
+        assertEquals(expectedActive, durableSnapshot.activeSession)
+        val publishedState = assertIs<SessionState.LoggedIn>(repository.sessionState.value)
+        assertEquals(expectedActive.toDomain(), publishedState.session)
+        assertEquals(expectedSessions.map(StoredSession::accountId), repository.accounts.value.map { it.accountId })
+        assertEquals(
+            expectedActive.accountId(),
+            repository.accounts.value
+                .single { account -> account.isActive }
+                .accountId,
+        )
+        assertEquals(1, repository.accounts.value.count { account -> account.isActive })
+        assertTrue(
+            registry.acquireWorkLease(
+                accountIdentity = initialState.session.accountIdentity(),
+                boundaryEpoch = initialState.boundaryEpoch,
+            ) == null,
+        )
+        assertTrue(
+            registry.acquireWorkLease(
+                accountIdentity = expectedActive.toDomain().accountIdentity(),
+                boundaryEpoch = publishedState.boundaryEpoch,
+            ) != null,
+        )
+        assertEquals(listOf(first.toDomain().accountIdentity()), barriers)
+        assertTrue(secureStore.envelopeWriteObserved)
+        assertEquals(0, secureStore.forbiddenReadCount)
+    }
+
+    @Test
+    fun coldRestoreReadsOneCommittedSnapshot() =
+        runTest {
+            val delegate = FakeSecureStore()
+            val firstStore = SessionStore(delegate, Json)
+            val session = storedSession(serverId = "server-1", userId = "user-1")
+            firstStore.writeSession(session)
+            val countingStore = ReadCountingSecureStore(delegate)
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val repository =
+                DefaultSessionRepository(
+                    sessionStore = SessionStore(countingStore, Json),
+                    sessionTransitionCoordinator =
+                        SessionTransitionCoordinator(ServerScopedStoreRegistry(), ioDispatcher = dispatcher),
+                    scope = this,
+                    workDispatcher = dispatcher,
+                )
+
+            advanceUntilIdle()
+
+            assertEquals(listOf(SESSION_ENVELOPE_KEY), countingStore.readKeys)
+            assertEquals(session.toDomain(), (repository.sessionState.value as SessionState.LoggedIn).session)
         }
 
     @Test
@@ -308,6 +587,7 @@ class SessionRepositoryTest {
             assertIs<StoreCleanupException>(repository.setLoggedOut(session.serverUrl).exceptionOrNull())
 
             assertTrue(sessionStore.isLogoutPending())
+            assertEquals(null, sessionStore.readSession())
             assertEquals(SessionState.LoggedOut(session.serverUrl), repository.sessionState.value)
             assertEquals(emptyList(), repository.accounts.value)
             secureStore.failOnRemoveKey = null
@@ -361,7 +641,7 @@ class SessionRepositoryTest {
             // The durable logout-pending marker cannot be persisted: logout must
             // abort fail-closed rather than clear credentials without a recoverable
             // marker (which would risk a silent re-login on the next cold start).
-            secureStore.failOnWriteKey = "session_logout_pending"
+            secureStore.failOnWriteKey = SESSION_ENVELOPE_KEY
 
             assertIs<IllegalStateException>(repository.setLoggedOut(session.serverUrl).exceptionOrNull())
 
@@ -462,14 +742,11 @@ class SessionRepositoryTest {
         }
 
     @Test
-    fun removeAccountPublishesRemainingAccountsWithoutReadingSecureStore() =
+    fun removeAccountPublishesCommittedSnapshotWithoutPostCommitRead() =
         runTest {
             val first = storedSession(serverId = "server-1", userId = "user-1")
             val second = storedSession(serverId = "server-1", userId = "user-2")
-            val secureStore =
-                ThrowingAccountsReadGate(
-                    armOnRemoveKey = "session_account:${second.accountId()}",
-                )
+            val secureStore = PostCommitReadRejectingSecureStore()
             val sessionStore = SessionStore(secureStore, Json)
             sessionStore.writeSession(first)
             sessionStore.writeSession(second)
@@ -497,9 +774,11 @@ class SessionRepositoryTest {
                 )
             advanceUntilIdle()
 
+            secureStore.rejectReadsAfterNextEnvelopeWrite()
             val removal = repository.removeAccount(second.accountId()).getOrThrow()
 
-            assertTrue(secureStore.removeObserved)
+            assertTrue(secureStore.envelopeWriteObserved)
+            assertEquals(0, secureStore.forbiddenReadCount)
             assertEquals(first.toDomain(), removal.activeSession)
             val loggedIn = repository.sessionState.value as SessionState.LoggedIn
             assertEquals(first.toDomain(), loggedIn.session)
@@ -556,6 +835,27 @@ private data class SessionRepositoryFixture(
     val registry: ServerScopedStoreRegistry,
 )
 
+private enum class CancellationTransition {
+    Login,
+    Switch,
+    Reauthentication,
+}
+
+private enum class TransitionCancellationPoint {
+    AfterEnvelopeCommit,
+    AfterBarrierAdvancement,
+}
+
+private class TransitionCancellationGate {
+    val reached = CompletableDeferred<Unit>()
+    val release = CompletableDeferred<Unit>()
+
+    suspend fun pause() {
+        reached.complete(Unit)
+        release.await()
+    }
+}
+
 private class CancellingRefetchableCache : RefetchableServerCache {
     override suspend fun clearServerScoped(): Unit = throw CancellationException("account operation cancelled")
 }
@@ -585,20 +885,28 @@ private class RecordingServerScopedStore : ServerScopedClearableStore {
     }
 }
 
-private class AccountsReadGate(
-    private val armOnWriteKey: String,
-) : SecureStore {
+private class PostCommitReadRejectingSecureStore : SecureStore {
     private val delegate = FakeSecureStore()
-    val accountsRead = CompletableDeferred<Unit>()
-    val releaseAccountsRead = CompletableDeferred<Unit>()
-    private var armed = false
-    private var blocked = false
+    private var rejectAfterNextWrite = false
+    private var rejectReads = false
+    private var afterNextEnvelopeWrite: suspend () -> Unit = {}
+    var envelopeWriteObserved = false
+        private set
+    var forbiddenReadCount = 0
+        private set
+
+    fun rejectReadsAfterNextEnvelopeWrite(afterWrite: suspend () -> Unit = {}) {
+        rejectAfterNextWrite = true
+        envelopeWriteObserved = false
+        afterNextEnvelopeWrite = afterWrite
+    }
+
+    suspend fun readCommittedSnapshot() = SessionStore(delegate, Json).readSnapshot()
 
     override suspend fun read(key: String): String? {
-        if (armed && !blocked && key == "session_accounts") {
-            blocked = true
-            accountsRead.complete(Unit)
-            releaseAccountsRead.await()
+        if (rejectReads) {
+            forbiddenReadCount += 1
+            throw IllegalStateException("secure-store read after committed envelope write")
         }
         return delegate.read(key)
     }
@@ -608,8 +916,12 @@ private class AccountsReadGate(
         value: String,
     ) {
         delegate.write(key, value)
-        if (key == armOnWriteKey) {
-            armed = true
+        if (key == SESSION_ENVELOPE_KEY && rejectAfterNextWrite) {
+            rejectAfterNextWrite = false
+            rejectReads = true
+            envelopeWriteObserved = true
+            afterNextEnvelopeWrite()
+            afterNextEnvelopeWrite = {}
         }
     }
 
@@ -622,20 +934,13 @@ private class AccountsReadGate(
     }
 }
 
-private class ThrowingAccountsReadGate(
-    private val armOnRemoveKey: String,
+private class ReadCountingSecureStore(
+    private val delegate: SecureStore,
 ) : SecureStore {
-    private val delegate = FakeSecureStore()
-    private var armed = false
-    private var blocked = false
-    var removeObserved = false
-        private set
+    val readKeys = mutableListOf<String>()
 
     override suspend fun read(key: String): String? {
-        if (armed && !blocked && key == "session_accounts") {
-            blocked = true
-            throw IllegalStateException("account index read after account removal")
-        }
+        readKeys += key
         return delegate.read(key)
     }
 
@@ -648,10 +953,6 @@ private class ThrowingAccountsReadGate(
 
     override suspend fun remove(key: String) {
         delegate.remove(key)
-        if (key == armOnRemoveKey) {
-            armed = true
-            removeObserved = true
-        }
     }
 
     override suspend fun clear() {

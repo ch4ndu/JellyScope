@@ -6,6 +6,8 @@ import com.jellyscope.core.data.local.AccountWorkLease
 import com.jellyscope.core.data.local.DownloadAttemptInvalidationResult
 import com.jellyscope.core.data.local.GateHeldBoundaryCommit
 import com.jellyscope.core.domain.model.AccountIdentity
+import com.jellyscope.core.domain.model.DownloadCommandResult
+import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadEnqueueResult
 import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadId
@@ -95,41 +97,6 @@ interface DownloadRepository {
         resumePositionMs: Long,
         watched: Boolean? = null,
     ): Boolean
-}
-
-sealed interface DownloadCommandResult {
-    data object Applied : DownloadCommandResult
-
-    data object NotFound : DownloadCommandResult
-
-    data object AccountNotOwned : DownloadCommandResult
-
-    data object RemovalInProgress : DownloadCommandResult
-
-    /** The durable row is active, but no live writer registration can safely quiesce it. */
-    data object ActiveAttemptUnavailable : DownloadCommandResult
-
-    /** The durable command was applied, but the platform could not admit the follow-up wake. */
-    data object SchedulingRejected : DownloadCommandResult
-
-    data object InvalidState : DownloadCommandResult
-}
-
-sealed interface DownloadDeletionResult {
-    data object Deleted : DownloadDeletionResult
-
-    data object NotFound : DownloadDeletionResult
-
-    data object InvalidState : DownloadDeletionResult
-
-    data object AccountNotOwned : DownloadDeletionResult
-
-    data object RemovalInProgress : DownloadDeletionResult
-
-    /** The durable row is active, but no live writer registration can safely quiesce it. */
-    data object ActiveAttemptUnavailable : DownloadDeletionResult
-
-    data object ArtifactInUse : DownloadDeletionResult
 }
 
 /**

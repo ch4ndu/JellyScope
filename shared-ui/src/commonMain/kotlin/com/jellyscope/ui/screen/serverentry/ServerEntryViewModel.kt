@@ -4,9 +4,9 @@ package com.jellyscope.ui.screen.serverentry
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jellyscope.core.domain.action.AuthError
 import com.jellyscope.core.domain.action.ValidateServerAction
 import com.jellyscope.core.domain.discovery.DiscoveredServer
-import com.jellyscope.core.domain.model.AuthError
 import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.usecase.DiscoverServersUseCase
 import com.jellyscope.core.util.DiagnosticTag

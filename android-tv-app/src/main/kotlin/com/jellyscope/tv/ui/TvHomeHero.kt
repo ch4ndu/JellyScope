@@ -22,7 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -58,28 +58,32 @@ internal fun TvHeroBackdrop(
                 .fillMaxWidth(TvDimens.heroBackdropWidthFraction)
                 .height(TvDimens.heroBackdropHeight)
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    // The image self-fades on its left and bottom edges
-                    // (alpha mask) so it melts into the background from the
-                    // physical screen corner with no hard seams.
-                    drawRect(
-                        brush =
-                            Brush.horizontalGradient(
-                                0f to Color.Transparent,
-                                0.45f to Color.Black,
-                            ),
-                        blendMode = BlendMode.DstIn,
-                    )
-                    drawRect(
-                        brush =
-                            Brush.verticalGradient(
-                                0f to Color.Black,
-                                0.78f to Color.Black,
-                                1f to Color.Transparent,
-                            ),
-                        blendMode = BlendMode.DstIn,
-                    )
+                .drawWithCache {
+                    val horizontalMask =
+                        Brush.horizontalGradient(
+                            0f to Color.Transparent,
+                            0.45f to Color.Black,
+                        )
+                    val verticalMask =
+                        Brush.verticalGradient(
+                            0f to Color.Black,
+                            0.78f to Color.Black,
+                            1f to Color.Transparent,
+                        )
+                    onDrawWithContent {
+                        drawContent()
+                        // The image self-fades on its left and bottom edges
+                        // (alpha mask) so it melts into the background from the
+                        // physical screen corner with no hard seams.
+                        drawRect(
+                            brush = horizontalMask,
+                            blendMode = BlendMode.DstIn,
+                        )
+                        drawRect(
+                            brush = verticalMask,
+                            blendMode = BlendMode.DstIn,
+                        )
+                    }
                 },
     ) { imageUrl ->
         if (imageUrl != null) {

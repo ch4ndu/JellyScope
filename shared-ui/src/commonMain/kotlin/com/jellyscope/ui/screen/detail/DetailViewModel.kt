@@ -4,8 +4,6 @@ package com.jellyscope.ui.screen.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jellyscope.core.data.local.SubtitleSelectionKey
-import com.jellyscope.core.data.repository.visibleRelatedGroups
 import com.jellyscope.core.domain.action.ConfigureDownloadQuotaAction
 import com.jellyscope.core.domain.action.DeleteLocalSubtitleAction
 import com.jellyscope.core.domain.action.EnqueueDownloadAction
@@ -40,6 +38,7 @@ import com.jellyscope.core.domain.playback.PlaybackLaunchContext
 import com.jellyscope.core.domain.playback.PlaybackLaunchReadOutcome
 import com.jellyscope.core.domain.playback.ResumeDecision
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import com.jellyscope.core.domain.playback.resumeDecision
 import com.jellyscope.core.domain.playback.toExplicitSubtitleSelectionIntent
 import com.jellyscope.core.domain.usecase.FixedDownloadAdmissionResult
@@ -55,6 +54,7 @@ import com.jellyscope.core.domain.usecase.ObservePlaybackStopSettlementUseCase
 import com.jellyscope.core.domain.usecase.OriginalDownloadAdmissionResult
 import com.jellyscope.core.domain.usecase.PreviewFixedDownloadUseCase
 import com.jellyscope.core.domain.usecase.PreviewOriginalDownloadUseCase
+import com.jellyscope.core.domain.usecase.visibleRelatedGroups
 import com.jellyscope.core.playback.SettlementKey
 import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import com.jellyscope.ui.component.toMediaCardUi

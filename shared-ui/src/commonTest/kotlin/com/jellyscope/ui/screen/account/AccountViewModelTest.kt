@@ -4,11 +4,11 @@ package com.jellyscope.ui.screen.account
 
 import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.data.repository.AuthRepository
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
-import com.jellyscope.core.data.repository.SessionRemovalError
-import com.jellyscope.core.data.repository.SessionRemovalScope
 import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.action.AddAccountAction
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalError
+import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.action.SignOutAccountAction
 import com.jellyscope.core.domain.action.SwitchAccountAction
 import com.jellyscope.core.domain.model.AccountIdentity

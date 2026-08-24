@@ -2,6 +2,13 @@
 
 package com.jellyscope.core.domain.playback
 
+data class SubtitleSelectionKey(
+    val serverId: String,
+    val userId: String,
+    val itemId: String,
+    val mediaSourceId: String,
+)
+
 sealed interface SubtitleSelectionIntent {
     data object Unspecified : SubtitleSelectionIntent
 

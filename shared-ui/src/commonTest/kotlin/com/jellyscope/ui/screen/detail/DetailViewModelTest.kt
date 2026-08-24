@@ -5,11 +5,9 @@ package com.jellyscope.ui.screen.detail
 import com.jellyscope.core.data.local.LocalSubtitleAssetStore
 import com.jellyscope.core.data.local.LocalSubtitleFileStore
 import com.jellyscope.core.data.local.PlaybackSelectionStore
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.data.local.SubtitleSelectionStore
-import com.jellyscope.core.data.repository.DownloadCommandResult
-import com.jellyscope.core.data.repository.DownloadDeletionResult
 import com.jellyscope.core.data.repository.DownloadRepository
+import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.data.repository.MediaRepository
 import com.jellyscope.core.domain.action.DeleteLocalSubtitleAction
 import com.jellyscope.core.domain.action.EnqueueDownloadAction
@@ -21,6 +19,8 @@ import com.jellyscope.core.domain.model.DownloadAdmissionDecision
 import com.jellyscope.core.domain.model.DownloadArtifactKey
 import com.jellyscope.core.domain.model.DownloadArtifactKind
 import com.jellyscope.core.domain.model.DownloadBusinessKey
+import com.jellyscope.core.domain.model.DownloadCommandResult
+import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadEnqueueResult
 import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadId
@@ -60,6 +60,7 @@ import com.jellyscope.core.domain.playback.JELLYFIN_TICKS_PER_MILLISECOND
 import com.jellyscope.core.domain.playback.PlaybackInfo
 import com.jellyscope.core.domain.playback.PlaybackMediaStream
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import com.jellyscope.core.domain.usecase.FixedDownloadAdmission
 import com.jellyscope.core.domain.usecase.FixedDownloadAdmissionResult
 import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
@@ -827,7 +828,10 @@ class DetailViewModelTest {
                         relatedResults = ArrayDeque(listOf(Result.success(emptyList()))),
                     )
                 val store = DetailViewModelRecordingSubtitleSelectionStore()
-                val saveAction = SaveSubtitleSelectionAction(store = store, scope = backgroundScope)
+                val assetStore = DetailViewModelLocalSubtitleAssetStore(detailLocalSubtitleAsset)
+                val fileStore = DetailViewModelLocalSubtitleFileStore(detailLocalSubtitleAsset.fileId)
+                val coordinator = LocalSubtitleMutationCoordinator(assetStore, fileStore, store, backgroundScope)
+                val saveAction = SaveSubtitleSelectionAction(coordinator, backgroundScope)
                 val viewModel =
                     repository.detailViewModel(
                         itemId = "episode-1",
@@ -867,14 +871,11 @@ class DetailViewModelTest {
                 val key = SubtitleSelectionKey("server-1", "user-1", "episode-1", "source-1")
                 val selectionStore = DetailViewModelRecordingSubtitleSelectionStore()
                 selectionStore.writes += key to SubtitleSelectionIntent.Off
-                val saveAction = SaveSubtitleSelectionAction(store = selectionStore, scope = backgroundScope)
                 val assetStore = DetailViewModelLocalSubtitleAssetStore(detailLocalSubtitleAsset)
-                val deleteAction =
-                    DeleteLocalSubtitleAction(
-                        assetStore = assetStore,
-                        fileStore = DetailViewModelLocalSubtitleFileStore(detailLocalSubtitleAsset.fileId),
-                        saveSubtitleSelectionAction = saveAction,
-                    )
+                val fileStore = DetailViewModelLocalSubtitleFileStore(detailLocalSubtitleAsset.fileId)
+                val coordinator = LocalSubtitleMutationCoordinator(assetStore, fileStore, selectionStore, backgroundScope)
+                val saveAction = SaveSubtitleSelectionAction(coordinator = coordinator, scope = backgroundScope)
+                val deleteAction = DeleteLocalSubtitleAction(coordinator)
                 val repository =
                     QueueMediaRepository(
                         detailResults = ArrayDeque(listOf(Result.success(episodeDetail), Result.success(episodeDetail))),
@@ -911,6 +912,7 @@ class DetailViewModelTest {
                 assertEquals(SubtitleSelectionIntent.LocalAsset(detailLocalSubtitleAsset.id), saveAction.current(key))
 
                 viewModel.deleteLocalSubtitle(detailLocalSubtitleAsset.id)
+                runCurrent()
                 advanceUntilIdle()
                 saveAction.latestWrite()?.await() ?: error("Expected local subtitle deletion write")
                 advanceUntilIdle()
@@ -941,14 +943,11 @@ class DetailViewModelTest {
                 val key = SubtitleSelectionKey("server-1", "user-1", "episode-1", "source-1")
                 val selectionStore = DetailViewModelRecordingSubtitleSelectionStore()
                 selectionStore.writes += key to SubtitleSelectionIntent.Off
-                val saveAction = SaveSubtitleSelectionAction(store = selectionStore, scope = backgroundScope)
                 val assetStore = DetailViewModelLocalSubtitleAssetStore(detailLocalSubtitleAsset)
-                val deleteAction =
-                    DeleteLocalSubtitleAction(
-                        assetStore = assetStore,
-                        fileStore = DetailViewModelLocalSubtitleFileStore(detailLocalSubtitleAsset.fileId),
-                        saveSubtitleSelectionAction = saveAction,
-                    )
+                val fileStore = DetailViewModelLocalSubtitleFileStore(detailLocalSubtitleAsset.fileId)
+                val coordinator = LocalSubtitleMutationCoordinator(assetStore, fileStore, selectionStore, backgroundScope)
+                val saveAction = SaveSubtitleSelectionAction(coordinator = coordinator, scope = backgroundScope)
+                val deleteAction = DeleteLocalSubtitleAction(coordinator)
                 val repository =
                     QueueMediaRepository(
                         detailResults =
@@ -987,6 +986,7 @@ class DetailViewModelTest {
                 saveAction.latestWrite()?.await() ?: error("Expected local subtitle selection write")
 
                 viewModel.deleteLocalSubtitle(detailLocalSubtitleAsset.id)
+                runCurrent()
                 advanceUntilIdle()
                 saveAction.latestWrite()?.await() ?: error("Expected local subtitle deletion write")
                 advanceUntilIdle()
@@ -1019,14 +1019,11 @@ class DetailViewModelTest {
                 val otherAsset = detailLocalSubtitleAsset.copy(id = "asset-2", fileId = "file-2")
                 val selectionStore = DetailViewModelRecordingSubtitleSelectionStore()
                 selectionStore.writes += key to SubtitleSelectionIntent.LocalAsset(detailLocalSubtitleAsset.id)
-                val saveAction = SaveSubtitleSelectionAction(store = selectionStore, scope = backgroundScope)
                 val assetStore = DetailViewModelLocalSubtitleAssetStore(detailLocalSubtitleAsset, otherAsset)
-                val deleteAction =
-                    DeleteLocalSubtitleAction(
-                        assetStore = assetStore,
-                        fileStore = DetailViewModelLocalSubtitleFileStore(otherAsset.fileId),
-                        saveSubtitleSelectionAction = saveAction,
-                    )
+                val fileStore = DetailViewModelLocalSubtitleFileStore(otherAsset.fileId)
+                val coordinator = LocalSubtitleMutationCoordinator(assetStore, fileStore, selectionStore, backgroundScope)
+                val saveAction = SaveSubtitleSelectionAction(coordinator = coordinator, scope = backgroundScope)
+                val deleteAction = DeleteLocalSubtitleAction(coordinator)
                 val repository =
                     QueueMediaRepository(
                         detailResults = ArrayDeque(listOf(Result.success(episodeDetail), Result.success(episodeDetail))),
@@ -1043,6 +1040,7 @@ class DetailViewModelTest {
                 advanceUntilIdle()
 
                 viewModel.deleteLocalSubtitle(otherAsset.id)
+                runCurrent()
                 advanceUntilIdle()
 
                 assertEquals(null, assetStore.get(otherAsset.id))

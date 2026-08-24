@@ -130,8 +130,9 @@ private class MobilePlayerPlatformOwner(
             return
         }
 
-        if (previous?.controller !== active.controller ||
-            previous?.playbackItemId != active.playbackItemId
+        if (previous == null ||
+            previous.controller !== active.controller ||
+            previous.playbackItemId != active.playbackItemId
         ) {
             pictureInPictureAttemptGate.reset()
         }
@@ -168,7 +169,10 @@ private class MobilePlayerPlatformOwner(
     }
 
     private fun releaseMediaSession() {
+        val adapter = mediaSessionPlayer
+        adapter?.update(null)
         mediaSession?.release()
+        adapter?.release()
         mediaSession = null
         mediaSessionPlayer = null
     }

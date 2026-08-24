@@ -37,6 +37,13 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class DesktopLibVlcPlayerControllerTest {
     @Test
+    fun audioSelectionRequiresExactNativeReadback() {
+        assertTrue(desktopVlcAudioSelectionConfirmed(requestedId = 7, selectedId = 7))
+        assertFalse(desktopVlcAudioSelectionConfirmed(requestedId = 7, selectedId = 0))
+        assertFalse(desktopVlcAudioSelectionConfirmed(requestedId = 7, selectedId = -1))
+    }
+
+    @Test
     fun retryReinitializesAfterInitializationFailureAndClearsTheError() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
@@ -733,6 +740,112 @@ class DesktopLibVlcPlayerControllerTest {
 
                 assertEquals(listOf(2), engine.selectedAudioTrackIds)
                 assertEquals(AudioActivationState.Active(target), controller.playbackState.value.audioActivation)
+            } finally {
+                controller.release()
+                runCurrent()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun audioSelectionStaysPendingUntilDelayedExactReadbackConfirms() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val scope = CoroutineScope(SupervisorJob() + dispatcher)
+            val descriptors = audioDescriptors()
+            val target = AudioActivationTarget(requestId = 51L, itemId = "item", streamIndex = 2)
+            val engine =
+                RecordingDesktopVlcEngine(
+                    audioTrackDescriptions =
+                        listOf(
+                            DesktopVlcTrack(id = 1, label = "Track 1"),
+                            DesktopVlcTrack(id = 2, label = "Track 2"),
+                        ),
+                    selectableAudioTrackIds = setOf(2),
+                    audioReadbackConfirmAfterAttempts = 3,
+                )
+            val controller =
+                DesktopLibVlcPlayerController(
+                    session = session,
+                    stateScope = scope,
+                    engine = engine,
+                    nativeDispatcher = dispatcher,
+                )
+            try {
+                controller.prepare(
+                    playbackPlan().copy(
+                        selectedAudioStreamIndex = 2,
+                        embeddedAudioTracks = descriptors,
+                        audioActivationTarget = target,
+                    ),
+                    null,
+                )
+                controller.selectEmbeddedAudio(EmbeddedAudioSelection(target, descriptors[1]))
+                controller.play()
+                controller.attachVideoSurface(requireNotNull(DesktopVlcSurfaceHandle.create(42L, 1L)))
+                runCurrent()
+                engine.emit(DesktopVlcEvent.Playing)
+                runCurrent()
+
+                repeat(2) {
+                    testScheduler.advanceTimeBy(251L)
+                    runCurrent()
+                    assertEquals(AudioActivationState.Pending(target), controller.playbackState.value.audioActivation)
+                }
+                testScheduler.advanceTimeBy(251L)
+                runCurrent()
+
+                assertEquals(listOf(2, 2, 2), engine.selectedAudioTrackIds)
+                assertEquals(AudioActivationState.Active(target), controller.playbackState.value.audioActivation)
+            } finally {
+                controller.release()
+                runCurrent()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun persistentAudioReadbackMismatchExhaustsTheBoundedRetryWindow() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val scope = CoroutineScope(SupervisorJob() + dispatcher)
+            val descriptors = audioDescriptors()
+            val target = AudioActivationTarget(requestId = 52L, itemId = "item", streamIndex = 2)
+            val engine =
+                RecordingDesktopVlcEngine(
+                    audioTrackDescriptions =
+                        listOf(
+                            DesktopVlcTrack(id = 1, label = "Track 1"),
+                            DesktopVlcTrack(id = 2, label = "Track 2"),
+                        ),
+                )
+            val controller =
+                DesktopLibVlcPlayerController(
+                    session = session,
+                    stateScope = scope,
+                    engine = engine,
+                    nativeDispatcher = dispatcher,
+                )
+            try {
+                controller.prepare(
+                    playbackPlan().copy(
+                        selectedAudioStreamIndex = 2,
+                        embeddedAudioTracks = descriptors,
+                        audioActivationTarget = target,
+                    ),
+                    null,
+                )
+                controller.selectEmbeddedAudio(EmbeddedAudioSelection(target, descriptors[1]))
+                controller.play()
+                controller.attachVideoSurface(requireNotNull(DesktopVlcSurfaceHandle.create(42L, 1L)))
+                runCurrent()
+                engine.emit(DesktopVlcEvent.Playing)
+                runCurrent()
+                testScheduler.advanceTimeBy(2_600L)
+                runCurrent()
+
+                assertEquals(10, engine.selectedAudioTrackIds.size)
+                assertEquals(AudioActivationState.Unavailable(target), controller.playbackState.value.audioActivation)
             } finally {
                 controller.release()
                 runCurrent()
@@ -1673,6 +1786,7 @@ private class RecordingDesktopVlcEngine(
         ),
     private val audioTrackDescriptions: List<DesktopVlcTrack> = emptyList(),
     private val selectableAudioTrackIds: Set<Int> = emptySet(),
+    private val audioReadbackConfirmAfterAttempts: Int = 1,
     private val subtitleTrackDescriptions: List<DesktopVlcTrack> = emptyList(),
     private val selectableSubtitleTrackIds: Set<Int> = emptySet(),
     private val subtitleReadbackConfirmAfterAttempts: Int = 1,
@@ -1750,7 +1864,8 @@ private class RecordingDesktopVlcEngine(
 
     override fun selectAudioTrack(id: Int): Boolean {
         selectedAudioTrackIds += id
-        return id in selectableAudioTrackIds
+        val attempts = selectedAudioTrackIds.count { selectedId -> selectedId == id }
+        return id in selectableAudioTrackIds && attempts >= audioReadbackConfirmAfterAttempts
     }
 
     override fun selectSubtitleTrack(id: Int?): Boolean {
@@ -1768,6 +1883,24 @@ private class RecordingDesktopVlcEngine(
         events += "release"
     }
 }
+
+private fun audioDescriptors(): List<PlannedEmbeddedTrack> =
+    listOf(
+        PlannedEmbeddedTrack(
+            jellyfinStreamIndex = 1,
+            filteredContainerOrdinal = 0,
+            codec = "aac",
+            normalizedLanguage = "eng",
+            label = "English",
+        ),
+        PlannedEmbeddedTrack(
+            jellyfinStreamIndex = 2,
+            filteredContainerOrdinal = 1,
+            codec = "aac",
+            normalizedLanguage = "spa",
+            label = "Spanish",
+        ),
+    )
 
 private data class GeometryCall(
     val crop: Boolean,

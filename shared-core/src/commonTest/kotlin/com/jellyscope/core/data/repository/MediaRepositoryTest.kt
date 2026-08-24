@@ -15,12 +15,15 @@ import com.jellyscope.core.data.remote.JellyfinApi
 import com.jellyscope.core.data.remote.JellyfinApiException
 import com.jellyscope.core.data.remote.KtorJellyfinApi
 import com.jellyscope.core.data.remote.MediaSegmentDto
+import com.jellyscope.core.data.remote.PlaybackDeviceProfileDto
 import com.jellyscope.core.data.remote.PlaybackInfoRequestDto
+import com.jellyscope.core.data.remote.PlaybackInfoResponseDto
 import com.jellyscope.core.data.remote.buildDeviceProfile
 import com.jellyscope.core.data.remote.defaultItemFields
 import com.jellyscope.core.data.remote.detailScreenItemFields
 import com.jellyscope.core.data.remote.episodeStripFields
 import com.jellyscope.core.data.remote.mediaSourceItemFields
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.model.FindQuery
 import com.jellyscope.core.domain.model.LibraryCollectionType
 import com.jellyscope.core.domain.model.LibraryFilterSelection
@@ -46,11 +49,14 @@ import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.WatchedFilter
 import com.jellyscope.core.domain.playback.DeviceDecodingCapabilities
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
+import com.jellyscope.core.domain.playback.EffectivePlayerDevicePolicy
 import com.jellyscope.core.domain.playback.PlaybackInfoRequestPolicy
+import com.jellyscope.core.domain.playback.PlaybackPlanningException
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerDeviceSettings
 import com.jellyscope.core.domain.playback.RepositoryOperation
 import com.jellyscope.core.domain.playback.toExactBitrateConstraint
+import com.jellyscope.core.domain.usecase.visibleRelatedGroups
 import com.jellyscope.core.util.LogScrubber
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -818,7 +824,7 @@ class MediaRepositoryTest {
         }
 
     @Test
-    fun getPlaybackInfoUnauthorizedMapsToTypedError() =
+    fun getPlaybackInfoUnauthorizedMapsToSafeDomainFailure() =
         runTest {
             val fixture =
                 mediaRepositoryFixture(
@@ -838,7 +844,54 @@ class MediaRepositoryTest {
                     startTimeTicks = 0L,
                 )
 
-            assertIs<JellyfinApiException.Unauthorized>(result.exceptionOrNull())
+            val failure = assertIs<PlaybackPlanningException.RemoteRequestFailed>(result.exceptionOrNull())
+            assertTrue(failure.isNetworkFailure)
+            assertEquals("Unauthorized", failure.sourceExceptionType)
+        }
+
+    @Test
+    fun getPlaybackInfoNotReachableMapsToRetryableSafeDomainFailure() =
+        runTest {
+            val fixture =
+                mediaRepositoryFixture(
+                    engine = MockEngine { error("transport should not be reached") },
+                    apiDecorator = playbackFailureDecorator(JellyfinApiException.NotReachable),
+                )
+
+            val result =
+                fixture.repository.getPlaybackInfo(
+                    itemId = "item-1",
+                    mediaSourceId = "source-1",
+                    startTimeTicks = 0L,
+                )
+
+            val failure = assertIs<PlaybackPlanningException.RemoteRequestFailed>(result.exceptionOrNull())
+            assertTrue(failure.isNetworkFailure)
+            assertEquals("NotReachable", failure.sourceExceptionType)
+        }
+
+    @Test
+    fun getPlaybackInfoUnexpectedMapsToNonNetworkSafeDomainFailure() =
+        runTest {
+            val fixture =
+                mediaRepositoryFixture(
+                    engine = MockEngine { error("transport should not be reached") },
+                    apiDecorator =
+                        playbackFailureDecorator(
+                            JellyfinApiException.Unexpected(IllegalStateException("unsafe detail")),
+                        ),
+                )
+
+            val result =
+                fixture.repository.getPlaybackInfo(
+                    itemId = "item-1",
+                    mediaSourceId = "source-1",
+                    startTimeTicks = 0L,
+                )
+
+            val failure = assertIs<PlaybackPlanningException.RemoteRequestFailed>(result.exceptionOrNull())
+            assertFalse(failure.isNetworkFailure)
+            assertEquals("Unexpected", failure.sourceExceptionType)
         }
 
     @Test
@@ -1607,6 +1660,24 @@ private fun testRelatedItem(id: String) =
         name = id,
         kind = MediaKind.Movie,
     )
+
+private fun playbackFailureDecorator(failure: JellyfinApiException): (JellyfinApi) -> JellyfinApi =
+    { delegate ->
+        object : JellyfinApi by delegate {
+            override suspend fun getPlaybackInfo(
+                context: AuthenticatedRequestContext,
+                itemId: String,
+                mediaSourceId: String?,
+                startTimeTicks: Long,
+                deviceProfile: PlaybackDeviceProfileDto,
+                playerDevicePolicy: EffectivePlayerDevicePolicy,
+                requestPolicy: PlaybackInfoRequestPolicy,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                maxStreamingBitrate: Long?,
+            ): PlaybackInfoResponseDto = throw failure
+        }
+    }
 
 private fun mediaRepositoryFixture(
     engine: MockEngine,

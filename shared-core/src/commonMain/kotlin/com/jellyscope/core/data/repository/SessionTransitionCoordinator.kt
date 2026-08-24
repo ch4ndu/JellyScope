@@ -4,14 +4,16 @@ package com.jellyscope.core.data.repository
 
 import com.jellyscope.core.coroutines.platformIoDispatcher
 import com.jellyscope.core.data.local.BoundaryMutation
+import com.jellyscope.core.data.local.CommittedSessionSnapshot
 import com.jellyscope.core.data.local.LogoutCleanupCancellationException
 import com.jellyscope.core.data.local.PersistentAccountStoreCleaner
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.local.SessionStore
 import com.jellyscope.core.data.local.StoreCleanupException
 import com.jellyscope.core.data.local.StoredAccountRemoval
-import com.jellyscope.core.data.local.StoredSession
 import com.jellyscope.core.data.local.appendCleanupFailures
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.accountIdentity
@@ -33,6 +35,7 @@ class SessionTransitionCoordinator(
     private val sessionStore: SessionStore? = null,
     private val sessionBoundaryParticipant: SessionBoundaryParticipant = NoOpSessionBoundaryParticipant,
     private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher(),
+    private val advanceLocalSubtitleAccountBarrier: suspend (AccountIdentity) -> Unit = {},
 ) {
     private var nextBoundaryEpoch = 0L
     private var latestAuthenticationAttempt = 0L
@@ -67,68 +70,91 @@ class SessionTransitionCoordinator(
         }
     }
 
-    suspend fun <T> restore(
-        activeSession: Session?,
-        publish: suspend (boundaryEpoch: Long?) -> T,
+    internal suspend fun <T> restore(
+        snapshot: CommittedSessionSnapshot,
+        publish: suspend (snapshot: CommittedSessionSnapshot, boundaryEpoch: Long?) -> T,
     ): T =
         serverScopedStoreRegistry.withBoundaryMutation {
             latestAuthenticationAttempt += 1
+            val activeSession = snapshot.activeSession?.toDomain()
             if (activeSession == null) {
                 installLoggedOut()
-                publish(null)
+                publish(snapshot, null)
             } else {
                 val boundaryEpoch = nextBoundaryEpoch()
                 installRestoredAccount(activeSession.accountIdentity(), boundaryEpoch)
-                publish(boundaryEpoch)
+                publish(snapshot, boundaryEpoch)
             }
         }
 
-    suspend fun <T> commitLoggedIn(
+    internal suspend fun <T> commitLoggedIn(
         session: Session,
         authenticationAttempt: AuthenticationAttemptToken?,
         previousAccountIdentity: AccountIdentity? = null,
-        persist: suspend () -> Unit,
-        publish: suspend (boundaryEpoch: Long) -> T,
+        persist: suspend () -> CommittedSessionSnapshot,
+        publish: suspend (snapshot: CommittedSessionSnapshot, boundaryEpoch: Long) -> T,
     ): T =
         serverScopedStoreRegistry.withBoundaryMutation {
+            val callerContext = currentCoroutineContext()
             validateAuthenticationAttempt(authenticationAttempt)
             previousAccountIdentity?.let { accountIdentity ->
                 sessionBoundaryParticipant
                     .beforeAccountSwitch(accountIdentity, this)
                     .getOrThrow()
             }
-            withContext(ioDispatcher) { persist() }
-            val boundaryEpoch = nextBoundaryEpoch()
-            withContext(ioDispatcher) {
-                transitionToAccount(session.accountIdentity(), boundaryEpoch)
-            }
-            withContext(NonCancellable) { publish(boundaryEpoch) }
+            callerContext.ensureActive()
+            val result =
+                withContext(NonCancellable) {
+                    val committedSnapshot = withContext(ioDispatcher) { persist() }
+                    previousAccountIdentity?.let { accountIdentity ->
+                        advanceLocalSubtitleAccountBarrier(accountIdentity)
+                    }
+                    val boundaryEpoch = nextBoundaryEpoch()
+                    withContext(ioDispatcher) {
+                        transitionToAccount(session.accountIdentity(), boundaryEpoch)
+                    }
+                    publish(committedSnapshot, boundaryEpoch)
+                }
+            callerContext.ensureActive()
+            result
         }
 
-    suspend fun <T> commitSwitch(
+    internal suspend fun <T> commitSwitch(
         currentAccountIdentity: AccountIdentity?,
-        load: suspend () -> StoredSession?,
-        publish: suspend (session: Session, boundaryEpoch: Long) -> T,
+        load: suspend () -> CommittedSessionSnapshot?,
+        publish: suspend (snapshot: CommittedSessionSnapshot, boundaryEpoch: Long) -> T,
     ): T =
         serverScopedStoreRegistry.withBoundaryMutation {
+            val callerContext = currentCoroutineContext()
             currentAccountIdentity?.let { accountIdentity ->
                 sessionBoundaryParticipant
                     .beforeAccountSwitch(accountIdentity, this)
                     .getOrThrow()
             }
             invalidateAuthenticationAttempts()
-            val storedSession =
-                withContext(ioDispatcher) { load() }
-                    ?: throw com.jellyscope.core.domain.model.AuthError.AccountNotFound
-            val session = storedSession.toDomain()
-            val boundaryEpoch = nextBoundaryEpoch()
-            withContext(ioDispatcher) {
-                transitionToAccount(session.accountIdentity(), boundaryEpoch)
-            }
-            withContext(NonCancellable) { publish(session, boundaryEpoch) }
+            callerContext.ensureActive()
+            val result =
+                withContext(NonCancellable) {
+                    val committedSnapshot =
+                        withContext(ioDispatcher) { load() }
+                            ?: throw com.jellyscope.core.domain.action.AuthError.AccountNotFound
+                    val session =
+                        committedSnapshot.activeSession?.toDomain()
+                            ?: throw com.jellyscope.core.domain.action.AuthError.AccountNotFound
+                    currentAccountIdentity?.let { accountIdentity ->
+                        advanceLocalSubtitleAccountBarrier(accountIdentity)
+                    }
+                    val boundaryEpoch = nextBoundaryEpoch()
+                    withContext(ioDispatcher) {
+                        transitionToAccount(session.accountIdentity(), boundaryEpoch)
+                    }
+                    publish(committedSnapshot, boundaryEpoch)
+                }
+            callerContext.ensureActive()
+            result
         }
 
-    suspend fun <T> commitAccountRemoval(
+    internal suspend fun <T> commitAccountRemoval(
         accountIdentity: AccountIdentity,
         authorization: SessionRemovalAuthorization = SessionRemovalAuthorization.None,
         removeAccount: suspend () -> StoredAccountRemoval?,
@@ -149,7 +175,7 @@ class SessionTransitionCoordinator(
                     invalidateAuthenticationAttempts()
                     val removal =
                         withContext(ioDispatcher) { removeAccount() }
-                            ?: throw com.jellyscope.core.domain.model.AuthError.AccountNotFound
+                            ?: throw com.jellyscope.core.domain.action.AuthError.AccountNotFound
                     val removedSession = removal.removedSession.toDomain()
                     // Mutations that failed after the credential was already
                     // deleted: the removal is irreversible, so they join the
@@ -230,7 +256,7 @@ class SessionTransitionCoordinator(
                             removedSession = removedSession,
                             activeSession = activeSession,
                             boundaryEpoch = boundaryEpoch,
-                            remainingSessions = removal.remainingSessions,
+                            committedSnapshot = removal.committedSnapshot,
                         ),
                     )
                 }
@@ -331,7 +357,7 @@ class SessionTransitionCoordinator(
                         )
                 val storedAccounts =
                     try {
-                        withContext(ioDispatcher) { store.readAccounts() }
+                        withContext(ioDispatcher) { store.readSnapshot().sessions }
                     } catch (throwable: Throwable) {
                         return@withContext Result.failure(throwable)
                     }
@@ -378,7 +404,7 @@ class SessionTransitionCoordinator(
                 val absent =
                     try {
                         withContext(ioDispatcher) {
-                            store.readAccounts().none { stored ->
+                            store.readSnapshot().sessions.none { stored ->
                                 stored.serverId == accountIdentity.serverId && stored.userId == accountIdentity.userId
                             }
                         }
@@ -422,7 +448,7 @@ class SessionTransitionCoordinator(
 
                 val accountsAbsent =
                     try {
-                        withContext(ioDispatcher) { store.readAccounts().isEmpty() }
+                        withContext(ioDispatcher) { store.readSnapshot().sessions.isEmpty() }
                     } catch (throwable: Throwable) {
                         appendCleanupFailures(failures, throwable)
                         false
@@ -442,7 +468,7 @@ class SessionTransitionCoordinator(
             return try {
                 Result.success(
                     withContext(ioDispatcher) {
-                        store.readAccounts().none { stored ->
+                        store.readSnapshot().sessions.none { stored ->
                             stored.serverId == accountIdentity.serverId && stored.userId == accountIdentity.userId
                         }
                     },
@@ -470,7 +496,8 @@ class SessionTransitionCoordinator(
             }
         return withContext(ioDispatcher) {
             store
-                .readAccounts()
+                .readSnapshot()
+                .sessions
                 .map { stored ->
                     AccountIdentity(
                         serverId = stored.serverId,
@@ -501,15 +528,9 @@ class AuthenticationAttemptToken internal constructor(
     internal val sequence: Long,
 )
 
-data class AccountRemovalTransition(
+internal data class AccountRemovalTransition(
     val removedSession: Session,
     val activeSession: Session?,
     val boundaryEpoch: Long?,
-    /**
-     * Accounts remaining after the removal, captured before the credential was
-     * deleted. Publish these instead of re-reading the store: a post-deletion read
-     * re-enters the migration pass, which retries the index and active-key writes
-     * and can therefore throw inside publication.
-     */
-    val remainingSessions: List<StoredSession> = emptyList(),
+    val committedSnapshot: CommittedSessionSnapshot,
 )

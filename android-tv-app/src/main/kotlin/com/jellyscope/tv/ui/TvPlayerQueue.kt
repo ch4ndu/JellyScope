@@ -41,7 +41,9 @@ import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
 import com.jellyscope.ui.adaptive.tileScaled
+import com.jellyscope.ui.component.CardImageAspect
 import com.jellyscope.ui.component.authenticatedImageRequest
+import com.jellyscope.ui.component.rememberCardImageDecode
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.player.AutoplayPolicySnapshot
 import com.jellyscope.ui.screen.player.PlaylistUi
@@ -271,6 +273,11 @@ private fun TvQueueEpisodeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val imageDecode =
+        rememberCardImageDecode(
+            width = TvDimens.seasonEpisodeCardWidth.tileScaled(),
+            aspect = CardImageAspect.Wide,
+        )
     TvFocusableBox(
         onClick = onClick,
         modifier =
@@ -287,7 +294,7 @@ private fun TvQueueEpisodeCard(
             val imageUrl = item.imageUrl
             if (imageUrl != null) {
                 AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session),
+                    model = authenticatedImageRequest(imageUrl, session, imageDecode),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

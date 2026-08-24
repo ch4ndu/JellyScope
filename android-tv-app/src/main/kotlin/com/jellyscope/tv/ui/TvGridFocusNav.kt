@@ -238,19 +238,16 @@ internal fun TvGridFocusNav.rememberItemFocusRequester(
     return requester
 }
 
-/** Uses the widest fully composed row as the stable grid column count. */
+/** Uses the configured grid span as the stable column count once items are visible. */
 @Composable
 internal fun rememberStableGridColumnCount(gridState: LazyGridState): Int {
     val columns by remember {
         derivedStateOf {
-            val visible = gridState.layoutInfo.visibleItemsInfo
-            if (visible.isEmpty()) {
+            val layoutInfo = gridState.layoutInfo
+            if (layoutInfo.visibleItemsInfo.isEmpty()) {
                 1
             } else {
-                visible
-                    .groupBy { item -> item.offset.y }
-                    .maxOf { (_, rowItems) -> rowItems.size }
-                    .coerceAtLeast(1)
+                layoutInfo.maxSpan.coerceAtLeast(1)
             }
         }
     }

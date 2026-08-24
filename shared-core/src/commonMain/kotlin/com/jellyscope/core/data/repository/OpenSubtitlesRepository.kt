@@ -5,7 +5,6 @@ package com.jellyscope.core.data.repository
 import com.jellyscope.core.data.local.OpenSubtitlesSettingsStore
 import com.jellyscope.core.data.remote.OpenSubtitlesApi
 import com.jellyscope.core.data.remote.OpenSubtitlesQuery
-import com.jellyscope.core.domain.model.OpenSubtitleDownload
 import com.jellyscope.core.domain.model.OpenSubtitleSearchRequest
 import com.jellyscope.core.domain.model.OpenSubtitleSearchResult
 import kotlinx.coroutines.CoroutineDispatcher
@@ -17,6 +16,12 @@ interface OpenSubtitlesRepository {
 
     suspend fun download(fileId: String): OpenSubtitleDownload
 }
+
+data class OpenSubtitleDownload(
+    val bytes: ByteArray,
+    val remaining: Int?,
+    val resetTime: String?,
+)
 
 internal class DefaultOpenSubtitlesRepository(
     private val api: OpenSubtitlesApi,

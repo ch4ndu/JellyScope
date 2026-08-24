@@ -2,9 +2,9 @@
 
 package com.jellyscope.core.domain.usecase
 
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.data.local.SubtitleSelectionStore
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 
 class GetSubtitleSelectionUseCase(
     private val store: SubtitleSelectionStore,

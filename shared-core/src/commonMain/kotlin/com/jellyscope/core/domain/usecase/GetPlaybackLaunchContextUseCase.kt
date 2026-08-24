@@ -2,12 +2,12 @@
 
 package com.jellyscope.core.domain.usecase
 
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.PlaybackLaunchContext
 import com.jellyscope.core.domain.playback.PlaybackLaunchReadOutcome
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope

@@ -4,6 +4,7 @@ package com.jellyscope.core.data.repository
 
 import com.jellyscope.core.data.local.AccountScopedClearableStore
 import com.jellyscope.core.data.local.AccountWorkLease
+import com.jellyscope.core.data.local.CommittedSessionSnapshot
 import com.jellyscope.core.data.local.FakeSecureStore
 import com.jellyscope.core.data.local.GateHeldBoundaryCommit
 import com.jellyscope.core.data.local.LogoutCleanupCancellationException
@@ -12,6 +13,10 @@ import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.local.SessionStore
 import com.jellyscope.core.data.local.StoredAccountRemoval
 import com.jellyscope.core.data.local.StoredSession
+import com.jellyscope.core.data.local.accountId
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalError
+import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.model.AccountIdentity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,7 +28,10 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.coroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -85,8 +93,8 @@ class SessionTransitionCoordinatorTest {
                         removeAccount = {
                             StoredAccountRemoval(
                                 removedSession = storedSession(account),
-                                activeSession = null,
                                 hasServerSibling = false,
+                                committedSnapshot = committedSnapshot(emptyList()),
                             )
                         },
                         publish = {
@@ -145,7 +153,7 @@ class SessionTransitionCoordinatorTest {
     }
 
     @Test
-    fun publishedTransitionCarriesRemainingAccountsSoNoStoreReadIsNeeded() =
+    fun publishedTransitionCarriesCommittedSnapshotSoNoStoreReadIsNeeded() =
         kotlinx.coroutines.test.runTest {
             // Publication must not re-read the store: a post-deletion read re-enters
             // the migration pass, which retries the index/active-key writes and can
@@ -157,9 +165,13 @@ class SessionTransitionCoordinatorTest {
 
             fixture.coordinator.commitAccountRemoval(
                 accountIdentity = fixture.account,
-                removeAccount = { fixture.removal.copy(remainingSessions = listOf(sibling)) },
+                removeAccount = {
+                    fixture.removal.copy(
+                        committedSnapshot = committedSnapshot(listOf(sibling), sibling),
+                    )
+                },
                 publish = { transition ->
-                    publishedRemaining = transition.remainingSessions.map { session -> session.userId }
+                    publishedRemaining = transition.committedSnapshot.sessions.map { session -> session.userId }
                 },
             )
 
@@ -176,11 +188,15 @@ class SessionTransitionCoordinatorTest {
             val lease = registry.acquireWorkLease(current, boundaryEpoch = 9L)
             assertTrue(lease != null)
             val participant = SwitchRecordingParticipant(lease)
+            var publishedEpoch: Long? = null
             val coordinator =
                 SessionTransitionCoordinator(
                     serverScopedStoreRegistry = registry,
                     sessionBoundaryParticipant = participant,
                     ioDispatcher = Dispatchers.Unconfined,
+                    advanceLocalSubtitleAccountBarrier = { accountIdentity ->
+                        participant.events += "barrier:${accountIdentity.serverId}:${accountIdentity.userId}"
+                    },
                 )
 
             withTimeout(1.seconds) {
@@ -188,13 +204,160 @@ class SessionTransitionCoordinatorTest {
                     currentAccountIdentity = current,
                     load = {
                         participant.events += "load"
-                        storedSession(replacement)
+                        val stored = storedSession(replacement)
+                        committedSnapshot(listOf(stored), stored)
                     },
-                    publish = { _, _ -> participant.events += "publish" },
+                    publish = { _, boundaryEpoch ->
+                        publishedEpoch = boundaryEpoch
+                        participant.events += "publish"
+                    },
                 )
             }
 
-            assertEquals(listOf("before:true", "load", "publish"), participant.events)
+            assertEquals(
+                listOf("before:true", "load", "barrier:server-1:user-1", "publish"),
+                participant.events,
+            )
+            assertTrue(registry.acquireWorkLease(current, boundaryEpoch = 9L) == null)
+            assertTrue(registry.acquireWorkLease(replacement, checkNotNull(publishedEpoch)) != null)
+        }
+
+    @Test
+    fun sameIdentityReauthenticationAwaitsBarrierAfterPersistBeforeTransitionAndPublish() =
+        runTest {
+            val account = AccountIdentity("server-1", "user-1")
+            val registry = ServerScopedStoreRegistry()
+            registry.transitionToAccount(account, boundaryEpoch = 9L)
+            val oldLease = registry.acquireWorkLease(account, boundaryEpoch = 9L)
+            assertTrue(oldLease != null)
+            val participant = SwitchRecordingParticipant(oldLease)
+            val stored = storedSession(account).copy(accessToken = "rotated-token")
+            val snapshot = committedSnapshot(listOf(stored), stored)
+            var publishedEpoch: Long? = null
+            val coordinator =
+                SessionTransitionCoordinator(
+                    serverScopedStoreRegistry = registry,
+                    sessionBoundaryParticipant = participant,
+                    ioDispatcher = Dispatchers.Unconfined,
+                    advanceLocalSubtitleAccountBarrier = { identity ->
+                        participant.events += "barrier:${identity.serverId}:${identity.userId}"
+                    },
+                )
+
+            coordinator.commitLoggedIn(
+                session = stored.toDomain(),
+                authenticationAttempt = null,
+                previousAccountIdentity = account,
+                persist = {
+                    participant.events += "persist"
+                    snapshot
+                },
+                publish = { publishedSnapshot, boundaryEpoch ->
+                    assertSame(snapshot, publishedSnapshot)
+                    publishedEpoch = boundaryEpoch
+                    participant.events += "publish"
+                },
+            )
+
+            assertEquals(
+                listOf("before:true", "persist", "barrier:server-1:user-1", "publish"),
+                participant.events,
+            )
+            assertTrue(registry.acquireWorkLease(account, boundaryEpoch = 9L) == null)
+            assertTrue(registry.acquireWorkLease(account, checkNotNull(publishedEpoch)) != null)
+        }
+
+    @Test
+    fun loggedInPersistFailureDoesNotAdvanceBarrierTransitionOrPublication() =
+        runTest {
+            val current = AccountIdentity("server-1", "user-1")
+            val registry = ServerScopedStoreRegistry()
+            registry.transitionToAccount(current, boundaryEpoch = 9L)
+            var barrierCalled = false
+            var published = false
+            val coordinator =
+                SessionTransitionCoordinator(
+                    serverScopedStoreRegistry = registry,
+                    ioDispatcher = Dispatchers.Unconfined,
+                    advanceLocalSubtitleAccountBarrier = { barrierCalled = true },
+                )
+
+            assertFailsWith<IllegalStateException> {
+                coordinator.commitLoggedIn(
+                    session = storedSession(current).toDomain(),
+                    authenticationAttempt = null,
+                    previousAccountIdentity = current,
+                    persist = { throw IllegalStateException("persist failed") },
+                    publish = { _, _ -> published = true },
+                )
+            }
+
+            assertFalse(barrierCalled)
+            assertFalse(published)
+            assertTrue(registry.acquireWorkLease(current, boundaryEpoch = 9L) != null)
+        }
+
+    @Test
+    fun switchLoadFailureDoesNotAdvanceBarrierTransitionOrPublication() =
+        runTest {
+            val current = AccountIdentity("server-1", "user-1")
+            val registry = ServerScopedStoreRegistry()
+            registry.transitionToAccount(current, boundaryEpoch = 9L)
+            var barrierCalled = false
+            var published = false
+            val coordinator =
+                SessionTransitionCoordinator(
+                    serverScopedStoreRegistry = registry,
+                    ioDispatcher = Dispatchers.Unconfined,
+                    advanceLocalSubtitleAccountBarrier = { barrierCalled = true },
+                )
+
+            assertFailsWith<IllegalStateException> {
+                coordinator.commitSwitch(
+                    currentAccountIdentity = current,
+                    load = { throw IllegalStateException("load failed") },
+                    publish = { _, _ -> published = true },
+                )
+            }
+
+            assertFalse(barrierCalled)
+            assertFalse(published)
+            assertTrue(registry.acquireWorkLease(current, boundaryEpoch = 9L) != null)
+        }
+
+    @Test
+    fun accountBarrierFailureStopsTransitionAndPublication() =
+        runTest {
+            val current = AccountIdentity("server-1", "user-1")
+            val replacement = AccountIdentity("server-2", "user-2")
+            val registry = ServerScopedStoreRegistry()
+            registry.transitionToAccount(current, boundaryEpoch = 9L)
+            var loaded = false
+            var published = false
+            val coordinator =
+                SessionTransitionCoordinator(
+                    serverScopedStoreRegistry = registry,
+                    ioDispatcher = Dispatchers.Unconfined,
+                    advanceLocalSubtitleAccountBarrier = {
+                        throw IllegalStateException("subtitle barrier failed")
+                    },
+                )
+
+            assertFailsWith<IllegalStateException> {
+                coordinator.commitSwitch(
+                    currentAccountIdentity = current,
+                    load = {
+                        loaded = true
+                        val stored = storedSession(replacement)
+                        committedSnapshot(listOf(stored), stored)
+                    },
+                    publish = { _, _ -> published = true },
+                )
+            }
+
+            assertTrue(loaded)
+            assertFalse(published)
+            assertTrue(registry.acquireWorkLease(current, boundaryEpoch = 9L) != null)
         }
 
     @Test
@@ -216,8 +379,8 @@ class SessionTransitionCoordinatorTest {
                         credentialMutationCalled = true
                         StoredAccountRemoval(
                             removedSession = storedSession(account),
-                            activeSession = null,
                             hasServerSibling = false,
+                            committedSnapshot = committedSnapshot(emptyList()),
                         )
                     },
                     publish = { Unit },
@@ -304,8 +467,8 @@ private class RemovalFixture {
     val removal =
         StoredAccountRemoval(
             removedSession = storedSession(account),
-            activeSession = null,
             hasServerSibling = false,
+            committedSnapshot = committedSnapshot(emptyList()),
         )
     var published = false
     var failure: Throwable? = null
@@ -469,4 +632,15 @@ private fun StoredSession.toIdentity(): AccountIdentity =
     AccountIdentity(
         serverId = serverId,
         userId = userId,
+    )
+
+private fun committedSnapshot(
+    sessions: List<StoredSession>,
+    activeSession: StoredSession? = sessions.firstOrNull(),
+): CommittedSessionSnapshot =
+    CommittedSessionSnapshot(
+        sessions = sessions,
+        activeAccountId = activeSession?.accountId(),
+        activeSession = activeSession,
+        logoutPending = false,
     )

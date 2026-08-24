@@ -524,27 +524,68 @@ private fun LazyGridLayoutInfo.libraryScrollbarMetrics(
     canScrollForward: Boolean,
 ): LibraryScrollbarMetrics {
     val visibleItems = visibleItemsInfo
-    val visibleRows = visibleItems.groupBy { item -> item.offset.y }
-    val leadingRow = visibleRows.minByOrNull { (rowStart, _) -> rowStart }?.value
+    var firstVisibleIndex = Int.MAX_VALUE
+    var lastVisibleIndex = -1
+    var currentRow = LazyGridItemInfo.UnknownRow
+    var currentRowStart = 0
+    var currentRowEnd = 0
+    var leadingRowStart = 0
+    var leadingRowEnd = 0
+    var hasLeadingRow = false
+    var visibleExtentInRows = 0f
+
+    var visibleItemIndex = 0
+    while (visibleItemIndex < visibleItems.size) {
+        val item = visibleItems[visibleItemIndex]
+        visibleItemIndex += 1
+        firstVisibleIndex = minOf(firstVisibleIndex, item.index)
+        lastVisibleIndex = maxOf(lastVisibleIndex, item.index)
+
+        val row = item.row
+        if (row == LazyGridItemInfo.UnknownRow) continue
+        val itemStart = item.offset.y
+        val itemEnd = itemStart + item.size.height
+        if (row == currentRow) {
+            currentRowStart = minOf(currentRowStart, itemStart)
+            currentRowEnd = maxOf(currentRowEnd, itemEnd)
+        } else {
+            if (currentRow != LazyGridItemInfo.UnknownRow) {
+                visibleExtentInRows += visibleFraction(start = currentRowStart, end = currentRowEnd)
+                if (!hasLeadingRow || currentRowStart < leadingRowStart) {
+                    leadingRowStart = currentRowStart
+                    leadingRowEnd = currentRowEnd
+                    hasLeadingRow = true
+                }
+            }
+            currentRow = row
+            currentRowStart = itemStart
+            currentRowEnd = itemEnd
+        }
+    }
+    if (currentRow != LazyGridItemInfo.UnknownRow) {
+        visibleExtentInRows += visibleFraction(start = currentRowStart, end = currentRowEnd)
+        if (!hasLeadingRow || currentRowStart < leadingRowStart) {
+            leadingRowStart = currentRowStart
+            leadingRowEnd = currentRowEnd
+            hasLeadingRow = true
+        }
+    }
+
     return libraryScrollbarMetrics(
         totalItems = totalItemsCount,
-        firstVisibleIndex = visibleItems.minOfOrNull { item -> item.index } ?: -1,
-        lastVisibleIndex = visibleItems.maxOfOrNull { item -> item.index } ?: -1,
-        itemsPerRow = observedGridColumnCount(visibleItems),
-        visibleExtentInRows =
-            visibleRows.values
-                .fold(0f) { extent, row ->
-                    val rowStart = row.minOf { item -> item.offset.y }
-                    val rowEnd = row.maxOf { item -> item.offset.y + item.size.height }
-                    extent + visibleFraction(start = rowStart, end = rowEnd)
-                },
+        firstVisibleIndex = if (firstVisibleIndex == Int.MAX_VALUE) -1 else firstVisibleIndex,
+        lastVisibleIndex = lastVisibleIndex,
+        itemsPerRow = maxSpan.coerceAtLeast(1),
+        visibleExtentInRows = visibleExtentInRows,
         firstVisibleRowScrollFraction =
-            leadingRow?.let { row ->
+            if (hasLeadingRow) {
                 scrollFractionPastViewportStart(
-                    start = row.minOf { item -> item.offset.y },
-                    end = row.maxOf { item -> item.offset.y + item.size.height },
+                    start = leadingRowStart,
+                    end = leadingRowEnd,
                 )
-            } ?: 0f,
+            } else {
+                0f
+            },
         canScrollBackward = canScrollBackward,
         canScrollForward = canScrollForward,
     )
@@ -602,15 +643,4 @@ private fun LazyGridLayoutInfo.scrollFractionPastViewportStart(
     val size = end - start
     if (size <= 0) return 0f
     return ((viewportStartOffset - start).coerceAtLeast(0).toFloat() / size).coerceIn(0f, 1f)
-}
-
-private fun observedGridColumnCount(visibleItems: List<LazyGridItemInfo>): Int {
-    if (visibleItems.isEmpty()) {
-        return 1
-    }
-    return visibleItems
-        .groupingBy { item -> item.offset.y }
-        .eachCount()
-        .maxOf { (_, count) -> count }
-        .coerceAtLeast(1)
 }

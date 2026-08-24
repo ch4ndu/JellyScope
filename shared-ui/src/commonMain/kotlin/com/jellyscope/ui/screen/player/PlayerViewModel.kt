@@ -7,8 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jellyscope.core.data.local.SubtitleSelectionKey
-import com.jellyscope.core.data.remote.JellyfinApiException
 import com.jellyscope.core.domain.action.SavePlaybackSelectionAction
 import com.jellyscope.core.domain.action.SavePlaybackTimingOffsetAction
 import com.jellyscope.core.domain.action.SaveSubtitleSelectionAction
@@ -122,6 +120,7 @@ import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
 import com.jellyscope.core.domain.playback.SubtitleKind
 import com.jellyscope.core.domain.playback.SubtitleRenderInfo
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.core.domain.playback.SubtitleTrackOption
 import com.jellyscope.core.domain.playback.TrickplayInfo
@@ -263,6 +262,7 @@ class PlayerViewModel(
     private var currentQueueIndex = queueIds.indexOf(itemId).takeIf { index -> index >= 0 } ?: 0
     private var playSessionId = deviceInfoProvider.newDeviceId()
     private var plan: PlaybackPlan? = null
+    private var installedPlan: PlaybackPlan? = null
     private var selectedMediaSourceId: String? = null
     private var selectedSourceContainer: String? = null
     private var mediaStreams: List<PlaybackMediaStream> = emptyList()
@@ -1616,6 +1616,8 @@ class PlayerViewModel(
         markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
         logPrepareRequested()
         playerController.prepare(playbackPlanWithMetadata)
+        if (rejectSynchronouslyFailedPrepare()) return false
+        installedPlan = playbackPlanWithMetadata
         playerController.runtimeDiagnostics.value.prepareEpoch
             ?.let(playbackHealthCoordinator::expectVideoOutput)
         armFirstVideoOutputDebugState()
@@ -1845,7 +1847,9 @@ class PlayerViewModel(
         logPrepareRequested()
         try {
             when (val result = playerController.prepareOffline(offlinePlan)) {
-                com.jellyscope.core.domain.playback.OfflinePrepareResult.Started -> Unit
+                com.jellyscope.core.domain.playback.OfflinePrepareResult.Started -> {
+                    installedPlan = offlinePlan
+                }
                 is com.jellyscope.core.domain.playback.OfflinePrepareResult.Unavailable -> {
                     releaseOwnedPlayerController()
                     return failOfflineLaunch(launchGeneration, result.error)
@@ -2534,6 +2538,7 @@ class PlayerViewModel(
     }
 
     private fun releaseOwnedPlayerController() {
+        installedPlan = null
         if (!playerControllerFieldOwned) {
             return
         }
@@ -3304,6 +3309,9 @@ class PlayerViewModel(
                 // A same-item replan cannot stabilize a queue switch.
                 if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
                 installPlan(playbackPlanWithMetadata, resetReporting = true, stabilizesQueueSwitch = false)
+                _state.update { current ->
+                    if (current is PlayerUiState.Content) current.copy(isSeekable = false) else current
+                }
                 if (nonFatalSubtitleFallback != null) {
                     subtitleFallbackTarget = null
                 }
@@ -3312,6 +3320,8 @@ class PlayerViewModel(
                 markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
                 logPrepareRequested()
                 playerController.prepare(playbackPlanWithMetadata)
+                if (rejectSynchronouslyFailedPrepare()) return@launch
+                installedPlan = playbackPlanWithMetadata
                 playerController.runtimeDiagnostics.value.prepareEpoch
                     ?.let(playbackHealthCoordinator::expectVideoOutput)
                 armFirstVideoOutputDebugState()
@@ -3405,6 +3415,7 @@ class PlayerViewModel(
         resetReporting: Boolean,
         stabilizesQueueSwitch: Boolean,
     ) {
+        installedPlan = null
         plan = playbackPlan
         updatePlaybackHealthSessionContext()
         if (stabilizesQueueSwitch) {
@@ -3437,6 +3448,14 @@ class PlayerViewModel(
             plan = playbackPlan,
             playSessionId = playbackPlan.effectivePlaySessionId(),
         )
+    }
+
+    private fun rejectSynchronouslyFailedPrepare(): Boolean {
+        if (playerController.playbackState.value.status != PlaybackStatus.Failed) return false
+        installedPlan = null
+        // Initial direct injection has no collector yet; use the ordinary failure path.
+        observePlaybackState()
+        return true
     }
 
     private fun publishContent(
@@ -3499,6 +3518,7 @@ class PlayerViewModel(
                 timingState = timingCoordinator.timingState,
                 debugInfo = buildDebugInfo(subtitleRenderInfo, subtitleStyleable),
                 videoPresentation = plan?.videoPresentation,
+                isSeekable = installedPlan?.contentTimeline is PlaybackContentTimeline.BoundedVod,
                 playbackItemId = currentItemId.takeUnless { queueSwitchInFlight },
             )
         }
@@ -4102,7 +4122,7 @@ class PlayerViewModel(
                     retryable = false,
                     error = PlaybackError.UnsupportedMedia,
                 )
-            rootFailure is JellyfinApiException && rootFailure !is JellyfinApiException.Unexpected ->
+            rootFailure is PlaybackPlanningException.RemoteRequestFailed && rootFailure.isNetworkFailure ->
                 PlayerUiState.Error(error = PlaybackError.Network)
             else -> PlayerUiState.Error(error = PlaybackError.Unknown)
         }
@@ -4588,8 +4608,13 @@ class PlayerViewModel(
         autoplayGeneration += 1
         // Invalidate identity before async planning so held seeks cancel now.
         queueSwitchInFlight = true
+        installedPlan = null
         _state.update { current ->
-            if (current is PlayerUiState.Content) current.copy(playbackItemId = null) else current
+            if (current is PlayerUiState.Content) {
+                current.copy(isSeekable = false, playbackItemId = null)
+            } else {
+                current
+            }
         }
         derivedEpisodeQueueJob?.cancel()
         // Cancel any replan targeting the outgoing item.

@@ -3,9 +3,9 @@
 package com.jellyscope.core.domain.action
 
 import com.jellyscope.core.data.local.LocalSubtitleAssetStore
-import com.jellyscope.core.data.local.LocalSubtitleFileStore
-import com.jellyscope.core.data.local.SubtitleSelectionKey
-import com.jellyscope.core.data.local.SubtitleSelectionStore
+import com.jellyscope.core.data.repository.LocalSubtitleInstallReservation
+import com.jellyscope.core.data.repository.LocalSubtitleInstallResult
+import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.data.repository.LocalSubtitleSyncRepository
 import com.jellyscope.core.data.repository.OpenSubtitlesRepository
 import com.jellyscope.core.domain.model.LocalSubtitleAsset
@@ -13,7 +13,9 @@ import com.jellyscope.core.domain.model.LocalSubtitleContext
 import com.jellyscope.core.domain.model.LocalSubtitleSyncState
 import com.jellyscope.core.domain.model.OpenSubtitleSearchResult
 import com.jellyscope.core.domain.model.Session
-import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 
 data class InstallLocalSubtitleRequest(
@@ -31,17 +33,33 @@ data class InstallLocalSubtitleRequest(
     val bytes: ByteArray,
 )
 
-class InstallLocalSubtitleAction(
-    private val assetStore: LocalSubtitleAssetStore,
-    private val fileStore: LocalSubtitleFileStore,
-    private val saveSubtitleSelectionAction: SaveSubtitleSelectionAction,
+class InstallLocalSubtitleAction internal constructor(
+    private val coordinator: LocalSubtitleMutationCoordinator,
+    private val workerDispatcher: CoroutineDispatcher,
+    private val payloadEncoder: LocalSubtitlePayloadEncoder,
 ) {
-    suspend operator fun invoke(request: InstallLocalSubtitleRequest): LocalSubtitleAsset {
-        assetStore.findByProviderFile(request.context, request.provider, request.providerFileId)?.let { existing ->
-            saveSelection(request.context, existing.id)
-            return existing
-        }
-        val normalized = normalizeSubtitle(request.bytes, request.declaredFormat)
+    constructor(
+        coordinator: LocalSubtitleMutationCoordinator,
+        workerDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    ) : this(coordinator, workerDispatcher, DefaultLocalSubtitlePayloadEncoder)
+
+    internal fun reserve(context: LocalSubtitleContext): LocalSubtitleInstallReservation = coordinator.reserveInstall(context)
+
+    suspend operator fun invoke(request: InstallLocalSubtitleRequest): LocalSubtitleAsset = install(reserve(request.context), request).asset
+
+    internal suspend fun install(
+        reservation: LocalSubtitleInstallReservation,
+        request: InstallLocalSubtitleRequest,
+    ): LocalSubtitleInstallResult {
+        val normalized =
+            withContext(workerDispatcher) {
+                normalizeSubtitle(request.bytes, request.declaredFormat).let { subtitle ->
+                    NormalizedSubtitlePayload(
+                        originalFormat = subtitle.originalFormat,
+                        webVttBytes = payloadEncoder.encode(subtitle.webVtt),
+                    )
+                }
+            }
         val now = Clock.System.now().toEpochMilliseconds()
         val identity = stableAssetIdentity(request, now)
         val fileId = "$identity.vtt"
@@ -68,26 +86,11 @@ class InstallLocalSubtitleAction(
                 lastUsedAtEpochMs = now,
                 syncState = LocalSubtitleSyncState.Pending,
             )
-        fileStore.writeAtomically(fileId, normalized.webVtt.encodeToByteArray())
-        try {
-            assetStore.upsert(asset)
-            saveSelection(request.context, asset.id)
-        } catch (throwable: Throwable) {
-            fileStore.delete(fileId)
-            throw throwable
-        }
-        return asset
-    }
-
-    private suspend fun saveSelection(
-        context: LocalSubtitleContext,
-        assetId: String,
-    ) {
-        saveSubtitleSelectionAction
-            .save(
-                SubtitleSelectionKey(context.serverId, context.userId, context.itemId, context.mediaSourceId),
-                SubtitleSelectionIntent.LocalAsset(assetId),
-            ).await()
+        return coordinator.commitInstall(
+            reservation = reservation,
+            candidate = asset,
+            webVttBytes = normalized.webVttBytes,
+        )
     }
 }
 
@@ -100,60 +103,53 @@ class DownloadAndInstallOpenSubtitleAction(
         result: OpenSubtitleSearchResult,
     ): InstalledOpenSubtitle {
         require(result.selectable) { result.unavailableReason ?: "Subtitle result is unavailable." }
+        val reservation = installLocalSubtitleAction.reserve(context)
         val download = repository.download(result.fileId)
-        val asset =
-            installLocalSubtitleAction(
-                InstallLocalSubtitleRequest(
-                    context = context,
-                    provider = "OpenSubtitles",
-                    providerSubtitleId = result.subtitleId,
-                    providerFileId = result.fileId,
-                    language = result.language,
-                    label = result.releaseName ?: result.fileName,
-                    releaseName = result.releaseName,
-                    declaredFormat = result.format,
-                    hearingImpaired = result.hearingImpaired,
-                    forced = result.forced,
-                    trusted = result.trusted,
-                    bytes = download.bytes,
-                ),
+        val installed =
+            installLocalSubtitleAction.install(
+                reservation = reservation,
+                request =
+                    InstallLocalSubtitleRequest(
+                        context = context,
+                        provider = "OpenSubtitles",
+                        providerSubtitleId = result.subtitleId,
+                        providerFileId = result.fileId,
+                        language = result.language,
+                        label = result.releaseName ?: result.fileName,
+                        releaseName = result.releaseName,
+                        declaredFormat = result.format,
+                        hearingImpaired = result.hearingImpaired,
+                        forced = result.forced,
+                        trusted = result.trusted,
+                        bytes = download.bytes,
+                    ),
             )
-        return InstalledOpenSubtitle(asset, download.remaining, download.resetTime)
+        return InstalledOpenSubtitle(
+            asset = installed.asset,
+            selectionApplied = installed.selectionApplied,
+            quotaRemaining = download.remaining,
+            quotaResetTime = download.resetTime,
+        )
     }
 }
 
 data class InstalledOpenSubtitle(
     val asset: LocalSubtitleAsset,
+    val selectionApplied: Boolean,
     val quotaRemaining: Int?,
     val quotaResetTime: String?,
 )
 
 class DeleteLocalSubtitleAction(
-    private val assetStore: LocalSubtitleAssetStore,
-    private val fileStore: LocalSubtitleFileStore,
-    private val saveSubtitleSelectionAction: SaveSubtitleSelectionAction,
+    private val coordinator: LocalSubtitleMutationCoordinator,
 ) {
-    suspend operator fun invoke(assetId: String) {
-        val asset = assetStore.get(assetId) ?: return
-        assetStore.delete(assetId)
-        val key = SubtitleSelectionKey(asset.serverId, asset.userId, asset.itemId, asset.mediaSourceId)
-        if (saveSubtitleSelectionAction.current(key) == SubtitleSelectionIntent.LocalAsset(asset.id)) {
-            saveSubtitleSelectionAction.delete(key).await()
-        }
-        fileStore.delete(asset.fileId)
-    }
+    suspend operator fun invoke(assetId: String) = coordinator.deleteAsset(assetId)
 }
 
 class ClearLocalSubtitlesAction(
-    private val assetStore: LocalSubtitleAssetStore,
-    private val fileStore: LocalSubtitleFileStore,
-    private val subtitleSelectionStore: SubtitleSelectionStore,
+    private val coordinator: LocalSubtitleMutationCoordinator,
 ) {
-    suspend operator fun invoke() {
-        subtitleSelectionStore.clearLocalAssetSelections()
-        assetStore.all().forEach { asset -> fileStore.delete(asset.fileId) }
-        assetStore.clearAll()
-    }
+    suspend operator fun invoke() = coordinator.clearAllLocalSubtitles()
 }
 
 class RetryLocalSubtitleSyncAction(
@@ -173,6 +169,19 @@ internal data class NormalizedSubtitle(
     val originalFormat: String,
     val webVtt: String,
 )
+
+private data class NormalizedSubtitlePayload(
+    val originalFormat: String,
+    val webVttBytes: ByteArray,
+)
+
+internal fun interface LocalSubtitlePayloadEncoder {
+    fun encode(webVtt: String): ByteArray
+}
+
+private object DefaultLocalSubtitlePayloadEncoder : LocalSubtitlePayloadEncoder {
+    override fun encode(webVtt: String): ByteArray = webVtt.encodeToByteArray()
+}
 
 internal fun normalizeSubtitle(
     bytes: ByteArray,

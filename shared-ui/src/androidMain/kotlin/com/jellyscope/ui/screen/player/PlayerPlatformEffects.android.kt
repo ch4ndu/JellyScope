@@ -39,6 +39,7 @@ actual fun PlayerPlatformEffects(
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() as? ComponentActivity }
+    val activePlayerRegistration = remember { AndroidActivePlayerRegistry.newRegistration() }
 
     DisposableEffect(activity) {
         if (activity == null) {
@@ -89,31 +90,32 @@ actual fun PlayerPlatformEffects(
     // for; the registry's StateFlow conflates a write that changes nothing, so
     // recomposing without a real change still costs no emission downstream.
     SideEffect {
-        if (content == null) {
-            AndroidActivePlayerRegistry.clear(controller)
-        } else {
-            val playlist = content.playlist
-            AndroidActivePlayerRegistry.update(
-                AndroidActivePlayer(
-                    controller = controller,
-                    playbackState = content.playbackState,
-                    metadata = content.metadata,
-                    videoWidth = content.videoPresentation?.width?.takeIf { width -> width > 0 },
-                    videoHeight = content.videoPresentation?.height?.takeIf { height -> height > 0 },
-                    playbackItemId = content.playbackItemId,
-                    sourceRect = sourceBounds?.toAndroidRect(),
-                    commandCallbacks = commandCallbacks,
-                    hasNext = playlist?.let { value -> value.currentIndex < value.items.lastIndex } == true,
-                    hasPrevious = playlist?.let { value -> value.currentIndex > 0 } == true,
-                    onCloseFromPictureInPicture = onCloseFromPictureInPicture,
-                ),
-            )
-        }
+        val playlist = content?.playlist
+        AndroidActivePlayerRegistry.publish(
+            registration = activePlayerRegistration,
+            activePlayer =
+                content?.let { current ->
+                    AndroidActivePlayer(
+                        controller = controller,
+                        playbackState = current.playbackState,
+                        metadata = current.metadata,
+                        videoWidth = current.videoPresentation?.width?.takeIf { width -> width > 0 },
+                        videoHeight = current.videoPresentation?.height?.takeIf { height -> height > 0 },
+                        isSeekable = current.isSeekable,
+                        playbackItemId = current.playbackItemId,
+                        sourceRect = sourceBounds?.toAndroidRect(),
+                        commandCallbacks = commandCallbacks,
+                        hasNext = playlist?.let { value -> value.currentIndex < value.items.lastIndex } == true,
+                        hasPrevious = playlist?.let { value -> value.currentIndex > 0 } == true,
+                        onCloseFromPictureInPicture = onCloseFromPictureInPicture,
+                    )
+                },
+        )
     }
 
-    DisposableEffect(controller) {
+    DisposableEffect(activePlayerRegistration) {
         onDispose {
-            AndroidActivePlayerRegistry.clear(controller)
+            AndroidActivePlayerRegistry.release(activePlayerRegistration)
         }
     }
 }
@@ -130,6 +132,7 @@ data class AndroidActivePlayer(
     val metadata: PlayerMediaMetadata,
     val videoWidth: Int?,
     val videoHeight: Int?,
+    val isSeekable: Boolean,
     val playbackItemId: String?,
     val sourceRect: AndroidRect?,
     val commandCallbacks: PlayerPlatformCommandCallbacks,
@@ -141,15 +144,23 @@ data class AndroidActivePlayer(
 object AndroidActivePlayerRegistry {
     private val _activePlayer = MutableStateFlow<AndroidActivePlayer?>(null)
     val activePlayer: StateFlow<AndroidActivePlayer?> = _activePlayer.asStateFlow()
+    private val registrations = AndroidActivePlayerRegistrationOwner()
 
     private var inPictureInPictureMode = false
 
-    fun update(activePlayer: AndroidActivePlayer) {
-        _activePlayer.value = activePlayer
+    internal fun newRegistration(): AndroidActivePlayerRegistration = registrations.newRegistration()
+
+    internal fun publish(
+        registration: AndroidActivePlayerRegistration,
+        activePlayer: AndroidActivePlayer?,
+    ) {
+        if (registrations.acceptPublication(registration)) {
+            _activePlayer.value = activePlayer
+        }
     }
 
-    fun clear(controller: PlayerController) {
-        if (_activePlayer.value?.controller == controller) {
+    internal fun release(registration: AndroidActivePlayerRegistration) {
+        if (registrations.release(registration)) {
             _activePlayer.value = null
         }
     }
@@ -160,6 +171,41 @@ object AndroidActivePlayerRegistry {
 
     fun isInPictureInPictureMode(): Boolean = inPictureInPictureMode
 }
+
+internal class AndroidActivePlayerRegistrationOwner {
+    private var nextSequence = 0L
+    private var currentSequence = 0L
+    private var currentReleased = true
+
+    fun newRegistration(): AndroidActivePlayerRegistration = AndroidActivePlayerRegistration(owner = this, sequence = ++nextSequence)
+
+    fun acceptPublication(registration: AndroidActivePlayerRegistration): Boolean {
+        if (registration.owner !== this || registration.sequence < currentSequence) return false
+        if (registration.sequence > currentSequence) {
+            currentSequence = registration.sequence
+            currentReleased = false
+            return true
+        }
+        return !currentReleased
+    }
+
+    fun release(registration: AndroidActivePlayerRegistration): Boolean {
+        if (
+            registration.owner !== this ||
+            registration.sequence != currentSequence ||
+            currentReleased
+        ) {
+            return false
+        }
+        currentReleased = true
+        return true
+    }
+}
+
+internal class AndroidActivePlayerRegistration internal constructor(
+    internal val owner: AndroidActivePlayerRegistrationOwner,
+    val sequence: Long,
+)
 
 private class AndroidPlayerGestureController(
     context: Context,

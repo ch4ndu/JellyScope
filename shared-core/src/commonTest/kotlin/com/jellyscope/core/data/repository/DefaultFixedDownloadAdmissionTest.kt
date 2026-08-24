@@ -10,6 +10,7 @@ import com.jellyscope.core.data.remote.FixedDownloadRequest
 import com.jellyscope.core.data.remote.ItemsQuery
 import com.jellyscope.core.data.remote.JellyfinApi
 import com.jellyscope.core.data.remote.PlaybackDeviceProfileDto
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadAdmissionDecision
 import com.jellyscope.core.domain.model.DownloadArtifactKey

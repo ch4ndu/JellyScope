@@ -16,22 +16,20 @@ import com.jellyscope.core.data.local.PictureInPictureStore
 import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.SecureStore
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.data.local.SubtitleSelectionStore
 import com.jellyscope.core.data.local.TileSizeStore
 import com.jellyscope.core.data.repository.AuthRepository
-import com.jellyscope.core.data.repository.DownloadCommandResult
-import com.jellyscope.core.data.repository.DownloadDeletionResult
 import com.jellyscope.core.data.repository.DownloadRepository
+import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.data.repository.MediaRepository
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
-import com.jellyscope.core.data.repository.SessionRemovalError
-import com.jellyscope.core.data.repository.SessionRemovalScope
 import com.jellyscope.core.domain.action.ClearLocalSubtitlesAction
 import com.jellyscope.core.domain.action.LogoutAction
 import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SavePlayerDeviceSettingsAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalError
+import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.action.SetAppThemeAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
 import com.jellyscope.core.domain.action.SetOpenSubtitleResultPreferenceAction
@@ -43,6 +41,8 @@ import com.jellyscope.core.domain.action.SetTileSizeAction
 import com.jellyscope.core.domain.action.SetVerboseLogcatEnabledAction
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.DownloadCommandResult
+import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadEnqueueResult
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadRecord
@@ -82,6 +82,7 @@ import com.jellyscope.core.domain.playback.PlayerBackendPolicy
 import com.jellyscope.core.domain.playback.PlayerDeviceSettings
 import com.jellyscope.core.domain.playback.PlayerVideoResolutionLimit
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import com.jellyscope.core.domain.playback.androidPlayerBackendPolicy
 import com.jellyscope.core.domain.usecase.DownloadRemovalAuthorizationIssuer
 import com.jellyscope.core.domain.usecase.DownloadRemovalPreviewReader
@@ -111,6 +112,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -1202,14 +1204,16 @@ class SettingsViewModelTest {
             Dispatchers.setMain(dispatcher)
             try {
                 val assetStore = FakeLocalSubtitleAssetStore()
+                val coordinator =
+                    LocalSubtitleMutationCoordinator(
+                        assetStore = assetStore,
+                        fileStore = FakeLocalSubtitleFileStore(),
+                        selectionStore = FakeSubtitleSelectionStore(),
+                        scope = backgroundScope,
+                    )
                 val viewModel =
                     settingsViewModel(
-                        clearLocalSubtitlesAction =
-                            ClearLocalSubtitlesAction(
-                                assetStore = assetStore,
-                                fileStore = FakeLocalSubtitleFileStore(),
-                                subtitleSelectionStore = FakeSubtitleSelectionStore(),
-                            ),
+                        clearLocalSubtitlesAction = ClearLocalSubtitlesAction(coordinator),
                         workDispatcher = dispatcher,
                     )
 
@@ -1235,14 +1239,16 @@ class SettingsViewModelTest {
             val workDispatcher = GateDispatcher()
             Dispatchers.setMain(mainDispatcher)
             try {
+                val coordinator =
+                    LocalSubtitleMutationCoordinator(
+                        assetStore = FakeLocalSubtitleAssetStore(allFailure = IllegalStateException("clear failed")),
+                        fileStore = FakeLocalSubtitleFileStore(),
+                        selectionStore = FakeSubtitleSelectionStore(),
+                        scope = backgroundScope,
+                    )
                 val viewModel =
                     settingsViewModel(
-                        clearLocalSubtitlesAction =
-                            ClearLocalSubtitlesAction(
-                                assetStore = FakeLocalSubtitleAssetStore(allFailure = IllegalStateException("clear failed")),
-                                fileStore = FakeLocalSubtitleFileStore(),
-                                subtitleSelectionStore = FakeSubtitleSelectionStore(),
-                            ),
+                        clearLocalSubtitlesAction = ClearLocalSubtitlesAction(coordinator),
                         workDispatcher = workDispatcher,
                     )
 

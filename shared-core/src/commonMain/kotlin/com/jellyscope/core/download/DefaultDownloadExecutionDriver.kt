@@ -94,7 +94,7 @@ internal class DefaultDownloadExecutionDriver(
                     }?.let { record -> DownloadAttemptIdentity(record.downloadId, record.attemptGeneration) }
             if (target == null) return Result.success(Unit)
             val commandResult = queueCoordinator.pause(account, target.downloadId)
-            if (commandResult == com.jellyscope.core.data.repository.DownloadCommandResult.ActiveAttemptUnavailable) {
+            if (commandResult == com.jellyscope.core.domain.model.DownloadCommandResult.ActiveAttemptUnavailable) {
                 return when (queueCoordinator.checkpointPersistedAttempt(target, DownloadState.Paused)) {
                     is com.jellyscope.core.data.local.DownloadAttemptInvalidationResult.Invalidated,
                     -> Result.success(Unit)
@@ -105,14 +105,14 @@ internal class DefaultDownloadExecutionDriver(
                 }
             }
             when (commandResult) {
-                com.jellyscope.core.data.repository.DownloadCommandResult.Applied,
-                com.jellyscope.core.data.repository.DownloadCommandResult.NotFound,
-                com.jellyscope.core.data.repository.DownloadCommandResult.InvalidState,
+                com.jellyscope.core.domain.model.DownloadCommandResult.Applied,
+                com.jellyscope.core.domain.model.DownloadCommandResult.NotFound,
+                com.jellyscope.core.domain.model.DownloadCommandResult.InvalidState,
                 -> Result.success(Unit)
-                com.jellyscope.core.data.repository.DownloadCommandResult.AccountNotOwned,
-                com.jellyscope.core.data.repository.DownloadCommandResult.RemovalInProgress,
-                com.jellyscope.core.data.repository.DownloadCommandResult.ActiveAttemptUnavailable,
-                com.jellyscope.core.data.repository.DownloadCommandResult.SchedulingRejected,
+                com.jellyscope.core.domain.model.DownloadCommandResult.AccountNotOwned,
+                com.jellyscope.core.domain.model.DownloadCommandResult.RemovalInProgress,
+                com.jellyscope.core.domain.model.DownloadCommandResult.ActiveAttemptUnavailable,
+                com.jellyscope.core.domain.model.DownloadCommandResult.SchedulingRejected,
                 -> Result.failure(IllegalStateException("Download could not be suspended."))
             }
         } catch (cancellation: CancellationException) {
@@ -196,8 +196,8 @@ internal class DefaultDownloadExecutionDriver(
                         candidate.businessKey.accountIdentity == account
                 } ?: return Result.success(Unit)
             when (queueCoordinator.cancel(account, record.downloadId)) {
-                com.jellyscope.core.data.repository.DownloadDeletionResult.Deleted,
-                com.jellyscope.core.data.repository.DownloadDeletionResult.NotFound,
+                com.jellyscope.core.domain.model.DownloadDeletionResult.Deleted,
+                com.jellyscope.core.domain.model.DownloadDeletionResult.NotFound,
                 -> Result.success(Unit)
                 else -> Result.failure(IllegalStateException("Download cancellation was not admitted."))
             }

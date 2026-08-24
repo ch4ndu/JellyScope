@@ -5,8 +5,6 @@ package com.jellyscope.ui.screen.downloads
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.coroutines.platformIoDispatcher
-import com.jellyscope.core.data.repository.DownloadCommandResult
-import com.jellyscope.core.data.repository.DownloadDeletionResult
 import com.jellyscope.core.domain.action.CancelDownloadAction
 import com.jellyscope.core.domain.action.ConfigureDownloadQuotaAction
 import com.jellyscope.core.domain.action.DeleteDownloadAction
@@ -15,6 +13,8 @@ import com.jellyscope.core.domain.action.ResumeDownloadAction
 import com.jellyscope.core.domain.action.RetryDownloadAction
 import com.jellyscope.core.domain.action.RetryDownloadSchedulingAction
 import com.jellyscope.core.domain.model.AccountIdentity
+import com.jellyscope.core.domain.model.DownloadCommandResult
+import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadSettings
 import com.jellyscope.core.domain.model.DownloadState

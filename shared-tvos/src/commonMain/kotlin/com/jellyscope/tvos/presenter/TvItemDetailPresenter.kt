@@ -2,7 +2,6 @@
 
 package com.jellyscope.tvos.presenter
 
-import com.jellyscope.core.data.repository.visibleRelatedGroups
 import com.jellyscope.core.domain.action.SetItemFavoriteAction
 import com.jellyscope.core.domain.action.SetItemPlayedAction
 import com.jellyscope.core.domain.model.JellyfinImageType
@@ -16,6 +15,7 @@ import com.jellyscope.core.domain.usecase.GetNextUpUseCase
 import com.jellyscope.core.domain.usecase.GetRelatedItemsUseCase
 import com.jellyscope.core.domain.usecase.GetSeasonEpisodesUseCase
 import com.jellyscope.core.domain.usecase.GetSeriesSeasonsUseCase
+import com.jellyscope.core.domain.usecase.visibleRelatedGroups
 import com.jellyscope.tvos.bridge.WatchHandle
 import com.jellyscope.tvos.bridge.watchIn
 import kotlinx.coroutines.Job

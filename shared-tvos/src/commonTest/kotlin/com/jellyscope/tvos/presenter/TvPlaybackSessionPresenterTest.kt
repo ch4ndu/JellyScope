@@ -6,6 +6,7 @@ import co.touchlab.kermit.LogWriter
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.jellyscope.core.data.local.PlaybackSelectionStore
+import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.domain.action.SavePlaybackSelectionAction
 import com.jellyscope.core.domain.action.SaveSubtitleSelectionAction
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
@@ -55,6 +56,7 @@ import com.jellyscope.core.playback.PlaybackStopSettlementRegistry
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.LogScrubber
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -378,6 +380,40 @@ class TvPlaybackSessionPresenterTest {
             runCurrent()
             assertEquals(TvPlaybackPhase.Active, fixture.presenter.state.value.phase)
             assertEquals("Item item-1", fixture.presenter.state.value.title)
+            fixture.presenter.close()
+        }
+
+    @Test
+    fun swiftWatchSuppressesClockOnlyChangesAndSemanticChangeCarriesLatestClock() =
+        runTest {
+            val fixture = fixture()
+            val watched = mutableListOf<TvPlaybackUiState>()
+            val handle = fixture.presenter.watchState(watched::add)
+
+            fixture.presenter.start()
+            runCurrent()
+            fixture.controller.playbackStateFlow.value =
+                playbackState(PlaybackStatus.Playing, positionMs = 1_000L).copy(bufferedPositionMs = 4_000L)
+            runCurrent()
+            val emissionsAfterPlaying = watched.size
+
+            fixture.controller.playbackStateFlow.value =
+                playbackState(PlaybackStatus.Playing, positionMs = 2_000L).copy(bufferedPositionMs = 6_000L)
+            runCurrent()
+
+            assertEquals(2_000L, fixture.presenter.state.value.positionMs)
+            assertEquals(6_000L, fixture.presenter.state.value.bufferedPositionMs)
+            assertEquals(emissionsAfterPlaying, watched.size)
+
+            fixture.controller.playbackStateFlow.value =
+                playbackState(PlaybackStatus.Paused, positionMs = 3_000L).copy(bufferedPositionMs = 7_000L)
+            runCurrent()
+
+            assertEquals(emissionsAfterPlaying + 1, watched.size)
+            assertEquals(PlaybackStatus.Paused, watched.last().status)
+            assertEquals(3_000L, watched.last().positionMs)
+            assertEquals(7_000L, watched.last().bufferedPositionMs)
+            handle.close()
             fixture.presenter.close()
         }
 
@@ -1651,6 +1687,7 @@ class TvPlaybackSessionPresenterTest {
         val reportingQueue = PlaybackReportingQueue(reporter, dispatcher, PlaybackStopSettlementRegistry())
         val preferencesStore = FakePlaybackPreferencesStore(preferences)
         val subtitleStore = FakeSubtitleSelectionStore(storedSubtitle)
+        val subtitleMutationCoordinator = LocalSubtitleMutationCoordinator(null, null, subtitleStore, backgroundScope)
         val presenter =
             TvPlaybackSessionPresenter(
                 session = testSession(),
@@ -1678,7 +1715,7 @@ class TvPlaybackSessionPresenterTest {
                         getPlaybackSelection = selectionStore?.let(::GetPlaybackSelectionUseCase),
                         getSubtitleSelection = GetSubtitleSelectionUseCase(subtitleStore),
                     ),
-                saveSubtitleSelection = SaveSubtitleSelectionAction(subtitleStore, backgroundScope),
+                saveSubtitleSelection = SaveSubtitleSelectionAction(subtitleMutationCoordinator, backgroundScope),
                 savePlaybackSelection =
                     selectionStore?.let { store ->
                         SavePlaybackSelectionAction(store, backgroundScope, dispatcher)

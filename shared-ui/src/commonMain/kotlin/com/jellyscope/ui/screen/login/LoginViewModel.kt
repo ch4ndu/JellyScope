@@ -5,8 +5,8 @@ package com.jellyscope.ui.screen.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.coroutines.platformIoDispatcher
+import com.jellyscope.core.domain.action.AuthError
 import com.jellyscope.core.domain.action.LoginAction
-import com.jellyscope.core.domain.model.AuthError
 import com.jellyscope.core.domain.model.ServerInfo
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.channels.Channel

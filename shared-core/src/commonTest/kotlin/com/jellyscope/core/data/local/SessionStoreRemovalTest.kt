@@ -2,16 +2,19 @@
 
 package com.jellyscope.core.data.local
 
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SessionStoreRemovalTest {
     @Test
-    fun removeAccountCarriesServerSiblingAnswerBeforeDeletion() =
-        kotlinx.coroutines.test.runTest {
+    fun removeAccountCarriesCommittedSiblingSnapshot() =
+        runTest {
             val store = SessionStore(FakeSecureStore(), Json)
             val removed = storedSession("server-1", "user-1")
             val sibling = storedSession("server-1", "user-2")
@@ -20,25 +23,24 @@ class SessionStoreRemovalTest {
             store.writeSession(sibling)
             store.writeSession(otherServer)
 
-            val removal =
-                kotlin.test.assertNotNull(
-                    store.removeAccount(removed.accountId()),
-                )
+            val removal = kotlin.test.assertNotNull(store.removeAccount(removed.accountId()))
 
             assertTrue(removal.hasServerSibling)
+            assertEquals(listOf(sibling, otherServer), removal.committedSnapshot.sessions)
+            assertEquals(otherServer, removal.committedSnapshot.activeSession)
             assertEquals(listOf(sibling, otherServer), store.readAccounts())
         }
 
     @Test
-    fun siblingReadFailureAbortsBeforeAccountDeletion() =
-        kotlinx.coroutines.test.runTest {
-            val secureStore = ReadFailingSecureStore()
+    fun envelopeReadFailureAbortsBeforeCommit() =
+        runTest {
+            val secureStore = ReadWriteFailingSecureStore()
             val store = SessionStore(secureStore, Json)
             val removed = storedSession("server-1", "user-1")
             val sibling = storedSession("server-1", "user-2")
             store.writeSession(removed)
             store.writeSession(sibling)
-            secureStore.failOnReadKey = "session_account:${sibling.accountId()}"
+            secureStore.failOnReadKey = SESSION_ENVELOPE_KEY
 
             assertFailsWith<IllegalStateException> {
                 store.removeAccount(removed.accountId())
@@ -49,43 +51,66 @@ class SessionStoreRemovalTest {
         }
 
     @Test
-    fun mutationFailureAfterCredentialDeletionIsReportedInsteadOfThrown() =
-        kotlinx.coroutines.test.runTest {
-            // Once the credential is deleted the removal is irreversible. A later
-            // index write failure must NOT propagate: throwing aborted the caller
-            // before account cleanup and before the published transition, which is
-            // the half-removed state this guards against.
-            val secureStore = ReadFailingSecureStore()
+    fun envelopeWriteFailureLeavesPriorAuthority() =
+        runTest {
+            val secureStore = ReadWriteFailingSecureStore()
             val store = SessionStore(secureStore, Json)
             val removed = storedSession("server-1", "user-1")
             val sibling = storedSession("server-1", "user-2")
             store.writeSession(removed)
             store.writeSession(sibling)
-            // Fail the index write after the credential deletion.
-            secureStore.failOnWriteKey = "session_accounts"
-            secureStore.failOnWriteKeyAfterWrites = 0
+            secureStore.failOnWriteKey = SESSION_ENVELOPE_KEY
 
-            val removal =
-                kotlin.test.assertNotNull(
-                    store.removeAccount(removed.accountId()),
-                    "removal must still be reported so cleanup and publication continue",
-                )
+            assertFailsWith<IllegalStateException> {
+                store.removeAccount(removed.accountId())
+            }
+
+            secureStore.failOnWriteKey = null
+            assertEquals(listOf(removed, sibling), SessionStore(secureStore, Json).readAccounts())
+        }
+
+    @Test
+    fun legacyCleanupFailureAfterCommitIsReportedWithCommittedSnapshot() =
+        runTest {
+            val secureStore = FakeSecureStore()
+            val store = SessionStore(secureStore, Json)
+            val removed = storedSession("server-1", "user-1")
+            val sibling = storedSession("server-1", "user-2")
+            store.writeSession(removed)
+            store.writeSession(sibling)
+            secureStore.failOnRemoveKey = "session_account:${removed.accountId()}"
+
+            val removal = kotlin.test.assertNotNull(store.removeAccount(removed.accountId()))
 
             assertEquals(1, removal.mutationFailures.size)
-            assertTrue(removal.hasServerSibling)
+            assertEquals(listOf(sibling), removal.committedSnapshot.sessions)
+            secureStore.failOnRemoveKey = null
+            assertEquals(listOf(sibling), SessionStore(secureStore, Json).readAccounts())
+        }
+
+    @Test
+    fun removeLastAccountCommitsEmptyTombstone() =
+        runTest {
+            val secureStore = FakeSecureStore()
+            val store = SessionStore(secureStore, Json)
+            val removed = storedSession("server-1", "user-1")
+            store.writeSession(removed)
+
+            val removal = kotlin.test.assertNotNull(store.removeAccount(removed.accountId()))
+            secureStore.write("session", Json.encodeToString(removed))
+            val recreated = SessionStore(secureStore, Json)
+
+            assertEquals(emptyList(), removal.committedSnapshot.sessions)
+            assertNull(removal.committedSnapshot.activeSession)
+            assertNull(recreated.readSession())
+            assertEquals(emptyList(), recreated.readAccounts())
         }
 }
 
-private class ReadFailingSecureStore : SecureStore {
+private class ReadWriteFailingSecureStore : SecureStore {
     private val delegate = FakeSecureStore()
     var failOnReadKey: String? = null
     var failOnWriteKey: String? = null
-
-    /**
-     * Writes to [failOnWriteKey] to let through before failing.
-     */
-    var failOnWriteKeyAfterWrites: Int = 0
-    private var matchedWrites = 0
 
     override suspend fun read(key: String): String? {
         if (key == failOnReadKey) {
@@ -99,21 +124,14 @@ private class ReadFailingSecureStore : SecureStore {
         value: String,
     ) {
         if (key == failOnWriteKey) {
-            matchedWrites += 1
-            if (matchedWrites > failOnWriteKeyAfterWrites) {
-                throw IllegalStateException("write failed")
-            }
+            throw IllegalStateException("write failed")
         }
         delegate.write(key, value)
     }
 
-    override suspend fun remove(key: String) {
-        delegate.remove(key)
-    }
+    override suspend fun remove(key: String) = delegate.remove(key)
 
-    override suspend fun clear() {
-        delegate.clear()
-    }
+    override suspend fun clear() = delegate.clear()
 }
 
 private fun storedSession(

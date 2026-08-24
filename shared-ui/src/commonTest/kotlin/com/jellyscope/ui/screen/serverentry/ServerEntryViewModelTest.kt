@@ -3,11 +3,11 @@
 package com.jellyscope.ui.screen.serverentry
 
 import com.jellyscope.core.data.repository.AuthRepository
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.AuthError
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.action.ValidateServerAction
 import com.jellyscope.core.domain.discovery.DiscoveredServer
 import com.jellyscope.core.domain.discovery.ServerDiscovery
-import com.jellyscope.core.domain.model.AuthError
 import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.usecase.DiscoverServersUseCase

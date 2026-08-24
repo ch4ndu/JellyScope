@@ -74,7 +74,6 @@ internal fun OpenSubtitleSearchDialog(
             downloads = { downloads -> downloads },
             fps = { fps -> fps },
         )
-    val rows = localizedOpenSubtitleRows(state.results, state.downloadingFileId, rowLabels)
     LaunchedEffect(viewModel) { viewModel.installed.collect { asset -> onInstalled(asset) } }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -88,7 +87,7 @@ internal fun OpenSubtitleSearchDialog(
                         dpad = dpad,
                         onClick = viewModel::search,
                     )
-                rows.isEmpty() -> Text(stringResource(Res.string.subtitles_search_empty))
+                state.results.isEmpty() -> Text(stringResource(Res.string.subtitles_search_empty))
                 else ->
                     LazyColumn {
                         state.quotaRemaining?.let { remaining ->
@@ -107,8 +106,9 @@ internal fun OpenSubtitleSearchDialog(
                                 )
                             }
                         }
-                        items(rows, key = { row -> row.result.fileId }) { row ->
-                            var focused by remember(row.result.fileId) { mutableStateOf(false) }
+                        items(state.results, key = OpenSubtitleSearchResult::fileId) { result ->
+                            val row = localizedOpenSubtitleRow(result, state.downloadingFileId, rowLabels)
+                            var focused by remember(result.fileId) { mutableStateOf(false) }
                             Column(
                                 Modifier
                                     .then(
@@ -127,8 +127,8 @@ internal fun OpenSubtitleSearchDialog(
                                         },
                                     ).detailOnFocusChanged { focusState -> focused = focusState.isFocused }
                                     .fillMaxWidth()
-                                    .clickable(enabled = row.result.selectable) { viewModel.install(row.result) }
-                                    .detailFocusable(enabled = row.result.selectable)
+                                    .clickable(enabled = result.selectable) { viewModel.install(result) }
+                                    .detailFocusable(enabled = result.selectable)
                                     .padding(Dimensions.contentSpacing),
                             ) {
                                 Text(row.title)
@@ -167,27 +167,22 @@ internal data class OpenSubtitleRowUi(
 )
 
 @Composable
-private fun localizedOpenSubtitleRows(
-    results: List<OpenSubtitleSearchResult>,
+private fun localizedOpenSubtitleRow(
+    result: OpenSubtitleSearchResult,
     downloadingFileId: String?,
     labels: OpenSubtitleRowLabels,
-): List<OpenSubtitleRowUi> {
-    val rows = ArrayList<OpenSubtitleRowUi>(results.size)
-    for (result in results) {
-        val rating = result.rating?.let { value -> stringResource(Res.string.subtitles_rating, value) }
-        val downloads = result.downloadCount?.let { value -> stringResource(Res.string.subtitles_downloads, value) }
-        val fps = result.fps?.let { value -> stringResource(Res.string.subtitles_fps, value) }
-        rows +=
-            result.toOpenSubtitleRowUi(
-                labels.copy(
-                    rating = { rating.orEmpty() },
-                    downloads = { downloads.orEmpty() },
-                    fps = { fps.orEmpty() },
-                ),
-                downloadingFileId,
-            )
-    }
-    return rows
+): OpenSubtitleRowUi {
+    val rating = result.rating?.let { value -> stringResource(Res.string.subtitles_rating, value) }
+    val downloads = result.downloadCount?.let { value -> stringResource(Res.string.subtitles_downloads, value) }
+    val fps = result.fps?.let { value -> stringResource(Res.string.subtitles_fps, value) }
+    return result.toOpenSubtitleRowUi(
+        labels.copy(
+            rating = { rating.orEmpty() },
+            downloads = { downloads.orEmpty() },
+            fps = { fps.orEmpty() },
+        ),
+        downloadingFileId,
+    )
 }
 
 internal fun OpenSubtitleSearchResult.toOpenSubtitleRowUi(

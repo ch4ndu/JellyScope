@@ -10,7 +10,9 @@ import com.jellyscope.core.data.remote.JellyfinApiException
 import com.jellyscope.core.data.remote.PublicSystemInfoDto
 import com.jellyscope.core.data.remote.ServerUrlNormalizationResult
 import com.jellyscope.core.data.remote.ServerUrlNormalizer
-import com.jellyscope.core.domain.model.AuthError
+import com.jellyscope.core.domain.action.AuthError
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.action.SessionRemovalError
 import com.jellyscope.core.domain.model.QuickConnectCode
 import com.jellyscope.core.domain.model.QuickConnectLoginUpdate
 import com.jellyscope.core.domain.model.ServerInfo
@@ -203,29 +205,47 @@ class DefaultAuthRepository(
 private fun PublicSystemInfoDto.toDomain(serverUrl: String): ServerInfo =
     ServerInfo(
         serverUrl = serverUrl,
-        serverId = id,
-        serverName = serverName,
-        version = version,
-        productName = productName,
+        serverId = id?.trim()?.takeIf(String::isNotEmpty) ?: throw AuthError.ServerError(statusCode = null),
+        serverName =
+            serverName?.trim()?.takeIf(String::isNotEmpty)
+                ?: normalizedServerAuthority(serverUrl)
+                ?: serverUrl,
+        version = version?.trim().orEmpty(),
+        productName = productName?.trim().orEmpty(),
     )
 
 private fun com.jellyscope.core.data.remote.AuthenticationResultDto.toSession(
     serverInfo: ServerInfo,
     deviceId: String,
 ): Session =
-    Session(
-        serverUrl = serverInfo.serverUrl,
-        serverId = serverId,
-        serverName = serverInfo.serverName,
-        userId = user.id,
-        userName = user.name,
-        accessToken = accessToken,
-        deviceId = deviceId,
-        // The server policy is intentionally kept raw in the DTO. This client
-        // temporarily projects the effective Downloads permission off at the
-        // session boundary for every authentication path.
-        enableContentDownloading = false,
-    )
+    serverInfo.canonicalServerId().let { canonicalServerId ->
+        if (!serverId.isNullOrBlank() && serverId != canonicalServerId) {
+            throw AuthError.ServerError(statusCode = null)
+        }
+        Session(
+            serverUrl = serverInfo.serverUrl,
+            serverId = canonicalServerId,
+            serverName = serverInfo.serverName,
+            userId = user.id,
+            userName = user.name,
+            accessToken = accessToken,
+            deviceId = deviceId,
+            // The server policy is intentionally kept raw in the DTO. This client
+            // temporarily projects the effective Downloads permission off at the
+            // session boundary for every authentication path.
+            enableContentDownloading = false,
+        )
+    }
+
+private fun ServerInfo.canonicalServerId(): String =
+    serverId.trim().takeIf(String::isNotEmpty) ?: throw AuthError.ServerError(statusCode = null)
+
+private fun normalizedServerAuthority(serverUrl: String): String? =
+    serverUrl
+        .substringAfter("://", missingDelimiterValue = "")
+        .substringBefore('/')
+        .trim()
+        .takeIf(String::isNotEmpty)
 
 private fun <T> Result<T>.mapError(operation: DiagnosticOperation): Result<T> =
     fold(

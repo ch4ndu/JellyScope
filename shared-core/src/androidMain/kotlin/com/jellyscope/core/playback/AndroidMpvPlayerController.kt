@@ -59,11 +59,14 @@ import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,7 +75,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -172,6 +177,14 @@ internal class AndroidMpvPlayerController(
     private val nativeEventGeneration = AtomicLong(NO_NATIVE_EVENT_GENERATION)
     private val nativeLoadOutstanding = AtomicBoolean(false)
     private val expectedReplacementEndFiles = AtomicInteger(0)
+    private val hotClockSample = AtomicReference<AndroidMpvHotClockSample?>(null)
+    private val hotDiagnosticSample = AtomicReference<AndroidMpvHotDiagnosticSample?>(null)
+    private val hotClockSignal = Channel<Unit>(Channel.CONFLATED)
+    private val hotDiagnosticSignal = Channel<Unit>(Channel.CONFLATED)
+    private val hotSampleEpoch =
+        AtomicReference<AndroidMpvHotSampleEpoch>(AndroidMpvHotSampleEpoch.Inactive)
+    private val immediateClockGeneration = AtomicLong(NO_NATIVE_EVENT_GENERATION)
+    private val immediateClockRequested = AtomicBoolean(false)
 
     private var engine: AndroidMpvEngine? = null
 
@@ -281,12 +294,14 @@ internal class AndroidMpvPlayerController(
                 val eventGeneration = nativeEventGeneration.get()
                 if (event is AndroidMpvEvent.NativeEvent) {
                     when (event.id) {
+                        AndroidMpvNativeEventIds.START_FILE -> activateReplacementHotSamples(eventGeneration)
                         AndroidMpvNativeEventIds.END_FILE -> {
                             if (consumeExpectedReplacementEndFile()) return
                             nativeLoadOutstanding.set(false)
                         }
                     }
                 }
+                if (offerHotNativeEvent(eventGeneration, event)) return
                 scope.launch { handleNativeEvent(eventGeneration, event) }
             }
         }
@@ -325,6 +340,8 @@ internal class AndroidMpvPlayerController(
     override val playbackHealthMeasurementCapabilities = PlaybackHealthMeasurementCapabilities.BufferingAndDroppedFrames
 
     init {
+        scope.launch { drainHotClockSamples() }
+        scope.launch { drainHotDiagnosticSamples() }
         if (initialCaBundlePath != null) {
             try {
                 initializeEngine(initialCaBundlePath)
@@ -560,6 +577,7 @@ internal class AndroidMpvPlayerController(
         val outgoingGeneration = generation
         val reloadGeneration = outgoingGeneration + 1L
         generation = reloadGeneration
+        awaitReplacementHotSamples(reloadGeneration)
         nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
         tvSurfaceLossGeneration = null
         tvSurfaceReloadAttemptedGeneration = outgoingGeneration
@@ -658,7 +676,13 @@ internal class AndroidMpvPlayerController(
         startupWatchdog = null
         seekCoalescer.cancel()
         nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
+        val replacingCurrentPlan = lastPlan != null
         generation += 1L
+        if (replacingCurrentPlan) {
+            awaitReplacementHotSamples(generation)
+        } else {
+            activateHotSamples(generation)
+        }
         lifecycle.prepare(generation)
         lastPlan = plan
         lastSubtitleAsset = subtitleAsset
@@ -819,6 +843,7 @@ internal class AndroidMpvPlayerController(
         playIntent = false
         playbackFocusAdmitted = false
         resumeConfirmationFromPositionMs = null
+        refreshImmediateClockGeneration()
         resumeAfterTransientFocusLoss = false
         seekCoalescer.flush()
         playbackFacts = playbackFacts.copy(paused = true)
@@ -832,6 +857,7 @@ internal class AndroidMpvPlayerController(
         val origin = pendingSeekFromPositionMs ?: playbackFacts.positionMs
         pendingSeekFromPositionMs = origin
         pendingSeekTargetPositionMs = target
+        refreshImmediateClockGeneration()
         logSeekDiagnostic(
             event = PlaybackDiagnosticEvent.SeekStarted,
             originPositionMs = origin,
@@ -858,6 +884,7 @@ internal class AndroidMpvPlayerController(
         clearPendingSeekState()
         lifecycle.transition(Stop(generation))
         nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
+        invalidateHotSamples()
         audioFocusCoordinator?.abandon(generation)
         playbackFocusAdmitted = false
         isDucked.set(false)
@@ -929,6 +956,7 @@ internal class AndroidMpvPlayerController(
         seekCoalescer.cancel()
         lifecycle.transition(Release(generation))
         nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
+        invalidateHotSamples()
         audioFocusCoordinator?.abandon(generation)
         playbackFocusAdmitted = false
         isDucked.set(false)
@@ -1312,6 +1340,391 @@ internal class AndroidMpvPlayerController(
         }
     }
 
+    private fun offerHotNativeEvent(
+        eventGeneration: Long,
+        event: AndroidMpvEvent,
+    ): Boolean {
+        val acceptsOffer =
+            !releasedFlag.get() &&
+                eventGeneration != NO_NATIVE_EVENT_GENERATION &&
+                activeHotGeneration() == eventGeneration
+        return when (event) {
+            is AndroidMpvEvent.PropertyDouble ->
+                when (event.name) {
+                    "time-pos" -> {
+                        if (acceptsOffer && event.value.isFinite()) {
+                            if (
+                                mergeHotClockSample(
+                                    eventGeneration = eventGeneration,
+                                    positionMs = (event.value * 1_000.0).roundToLong().coerceAtLeast(0L),
+                                )
+                            ) {
+                                signalHotClock(eventGeneration, mayCompleteTransition = true)
+                                signalBufferedAheadDiagnostic(eventGeneration)
+                            }
+                        }
+                        true
+                    }
+                    "demuxer-cache-time" -> {
+                        if (acceptsOffer && event.value.isFinite()) {
+                            if (
+                                mergeHotClockSample(
+                                    eventGeneration = eventGeneration,
+                                    bufferedPositionMs = (event.value * 1_000.0).roundToLong().coerceAtLeast(0L),
+                                )
+                            ) {
+                                signalHotClock(eventGeneration, mayCompleteTransition = false)
+                                signalBufferedAheadDiagnostic(eventGeneration)
+                            }
+                        }
+                        true
+                    }
+                    "cache-speed" -> {
+                        if (acceptsOffer && event.value.isFinite()) {
+                            if (
+                                mergeHotDiagnosticSample(eventGeneration) { current ->
+                                    current.copy(cacheSpeedBytesPerSecond = event.value)
+                                }
+                            ) {
+                                hotDiagnosticSignal.trySend(Unit)
+                            }
+                        }
+                        true
+                    }
+                    "container-fps" -> {
+                        if (acceptsOffer && event.value.isFinite()) {
+                            if (
+                                mergeHotDiagnosticSample(eventGeneration) { current ->
+                                    current.copy(containerFps = event.value)
+                                }
+                            ) {
+                                hotDiagnosticSignal.trySend(Unit)
+                            }
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            is AndroidMpvEvent.PropertyLong ->
+                when (event.name) {
+                    "frame-drop-count" -> {
+                        if (
+                            acceptsOffer &&
+                            mergeHotDiagnosticSample(eventGeneration) { current ->
+                                current.copy(outputDropCount = event.value)
+                            }
+                        ) {
+                            hotDiagnosticSignal.trySend(Unit)
+                        }
+                        true
+                    }
+                    "decoder-frame-drop-count" -> {
+                        if (
+                            acceptsOffer &&
+                            mergeHotDiagnosticSample(eventGeneration) { current ->
+                                current.copy(decoderDropCount = event.value)
+                            }
+                        ) {
+                            hotDiagnosticSignal.trySend(Unit)
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            else -> false
+        }
+    }
+
+    private fun signalHotClock(
+        eventGeneration: Long,
+        mayCompleteTransition: Boolean,
+    ) {
+        if (mayCompleteTransition && immediateClockGeneration.get() == eventGeneration) {
+            immediateClockRequested.set(true)
+        }
+        hotClockSignal.trySend(Unit)
+    }
+
+    private fun signalBufferedAheadDiagnostic(eventGeneration: Long) {
+        if (mergeHotDiagnosticSample(eventGeneration) { current -> current.copy(bufferedAheadDirty = true) }) {
+            hotDiagnosticSignal.trySend(Unit)
+        }
+    }
+
+    private fun mergeHotClockSample(
+        eventGeneration: Long,
+        positionMs: Long? = null,
+        bufferedPositionMs: Long? = null,
+    ): Boolean {
+        while (true) {
+            if (activeHotGeneration() != eventGeneration) return false
+            val current = hotClockSample.get()
+            if (current != null && current.generation > eventGeneration) return false
+            val base =
+                current?.takeIf { sample -> sample.generation == eventGeneration }
+                    ?: AndroidMpvHotClockSample(generation = eventGeneration)
+            val updated =
+                base.copy(
+                    positionMs = positionMs ?: base.positionMs,
+                    bufferedPositionMs = bufferedPositionMs ?: base.bufferedPositionMs,
+                )
+            if (hotClockSample.compareAndSet(current, updated)) {
+                if (activeHotGeneration() == eventGeneration) return true
+                hotClockSample.compareAndSet(updated, null)
+                return false
+            }
+        }
+    }
+
+    private fun mergeHotDiagnosticSample(
+        eventGeneration: Long,
+        transform: (AndroidMpvHotDiagnosticSample) -> AndroidMpvHotDiagnosticSample,
+    ): Boolean {
+        while (true) {
+            if (activeHotGeneration() != eventGeneration) return false
+            val current = hotDiagnosticSample.get()
+            if (current != null && current.generation > eventGeneration) return false
+            val base =
+                current?.takeIf { sample -> sample.generation == eventGeneration }
+                    ?: AndroidMpvHotDiagnosticSample(generation = eventGeneration)
+            val updated = transform(base)
+            if (hotDiagnosticSample.compareAndSet(current, updated)) {
+                if (activeHotGeneration() == eventGeneration) return true
+                hotDiagnosticSample.compareAndSet(updated, null)
+                return false
+            }
+        }
+    }
+
+    private suspend fun drainHotClockSamples() =
+        coroutineScope {
+            var cooldown: Deferred<Unit>? = null
+            var cadenceGeneration = NO_NATIVE_EVENT_GENERATION
+            var pendingCadencedSample = false
+            while (isActive) {
+                val activeCooldown = cooldown
+                if (activeCooldown == null) {
+                    hotClockSignal.receive()
+                    immediateClockRequested.set(false)
+                    cadenceGeneration = activeHotGeneration()
+                    val published = drainHotClockSample()
+                    pendingCadencedSample = false
+                    cooldown =
+                        if (published) {
+                            async { delay(HOT_CLOCK_PUBLICATION_INTERVAL_MS) }
+                        } else {
+                            null
+                        }
+                } else {
+                    select<Unit> {
+                        hotClockSignal.onReceive {
+                            val signaledGeneration = activeHotGeneration()
+                            if (signaledGeneration != cadenceGeneration) {
+                                activeCooldown.cancel()
+                                cadenceGeneration = signaledGeneration
+                                immediateClockRequested.set(false)
+                                val published = drainHotClockSample()
+                                pendingCadencedSample = false
+                                cooldown =
+                                    if (published) {
+                                        async { delay(HOT_CLOCK_PUBLICATION_INTERVAL_MS) }
+                                    } else {
+                                        null
+                                    }
+                            } else if (immediateClockRequested.compareAndSet(true, false)) {
+                                activeCooldown.cancel()
+                                val published = drainHotClockSample()
+                                pendingCadencedSample = false
+                                cooldown =
+                                    if (published) {
+                                        async { delay(HOT_CLOCK_PUBLICATION_INTERVAL_MS) }
+                                    } else {
+                                        null
+                                    }
+                            } else {
+                                pendingCadencedSample = true
+                            }
+                        }
+                        activeCooldown.onAwait {
+                            cooldown = null
+                            if (pendingCadencedSample) {
+                                val published = drainHotClockSample()
+                                pendingCadencedSample = false
+                                cooldown =
+                                    if (published) {
+                                        async { delay(HOT_CLOCK_PUBLICATION_INTERVAL_MS) }
+                                    } else {
+                                        null
+                                    }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    private suspend fun drainHotDiagnosticSamples() =
+        coroutineScope {
+            var cooldown: Deferred<Unit>? = null
+            var cadenceGeneration = NO_NATIVE_EVENT_GENERATION
+            var pendingCadencedSample = false
+            while (isActive) {
+                val activeCooldown = cooldown
+                if (activeCooldown == null) {
+                    hotDiagnosticSignal.receive()
+                    cadenceGeneration = activeHotGeneration()
+                    val published = drainHotDiagnosticSample()
+                    pendingCadencedSample = false
+                    cooldown =
+                        if (published) {
+                            async { delay(HOT_DIAGNOSTIC_PUBLICATION_INTERVAL_MS) }
+                        } else {
+                            null
+                        }
+                } else {
+                    select<Unit> {
+                        hotDiagnosticSignal.onReceive {
+                            val signaledGeneration = activeHotGeneration()
+                            if (signaledGeneration != cadenceGeneration) {
+                                activeCooldown.cancel()
+                                cadenceGeneration = signaledGeneration
+                                val published = drainHotDiagnosticSample()
+                                pendingCadencedSample = false
+                                cooldown =
+                                    if (published) {
+                                        async { delay(HOT_DIAGNOSTIC_PUBLICATION_INTERVAL_MS) }
+                                    } else {
+                                        null
+                                    }
+                            } else {
+                                pendingCadencedSample = true
+                            }
+                        }
+                        activeCooldown.onAwait {
+                            cooldown = null
+                            if (pendingCadencedSample) {
+                                val published = drainHotDiagnosticSample()
+                                pendingCadencedSample = false
+                                cooldown =
+                                    if (published) {
+                                        async { delay(HOT_DIAGNOSTIC_PUBLICATION_INTERVAL_MS) }
+                                    } else {
+                                        null
+                                    }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    private fun drainHotClockSample(): Boolean {
+        val sample = hotClockSample.getAndSet(null) ?: return false
+        if (!acceptsHotSample(sample.generation)) return false
+        sample.positionMs?.let(::handleObservedPosition)
+        sample.bufferedPositionMs?.let { bufferedPositionMs ->
+            playbackFacts = playbackFacts.copy(bufferedPositionMs = bufferedPositionMs)
+        }
+        publishDerivedState()
+        return true
+    }
+
+    private fun drainHotDiagnosticSample(): Boolean {
+        val sample = hotDiagnosticSample.getAndSet(null) ?: return false
+        if (!acceptsHotSample(sample.generation)) return false
+        val droppedFrames =
+            if (sample.outputDropCount != null || sample.decoderDropCount != null) {
+                observeDroppedFrames(sample.outputDropCount, sample.decoderDropCount)
+            } else {
+                null
+            }
+        updateDiagnostics { current ->
+            var next = current
+            droppedFrames?.let { dropped ->
+                next =
+                    next.copy(
+                        droppedVideoFrames = dropped.total,
+                        outputDroppedVideoFrames = dropped.output,
+                        decoderDroppedVideoFrames = dropped.decoder,
+                        droppedVideoFramesPerSecond = dropped.ratePerSecond ?: next.droppedVideoFramesPerSecond,
+                    )
+            }
+            sample.cacheSpeedBytesPerSecond?.let { speed ->
+                next = next.copy(bandwidthEstimateBps = (speed * 8.0).roundToLong().takeIf { value -> value > 0L })
+            }
+            sample.containerFps?.let { fps ->
+                next = next.copy(videoFrameRate = fps.takeIf { value -> value > 0.0 })
+            }
+            if (sample.bufferedAheadDirty) {
+                next =
+                    next.copy(
+                        bufferedAheadMs =
+                            (playbackFacts.bufferedPositionMs - playbackFacts.positionMs).coerceAtLeast(0L),
+                    )
+            }
+            next
+        }
+        return true
+    }
+
+    private fun acceptsHotSample(sampleGeneration: Long): Boolean =
+        !releasedFlag.get() &&
+            !lifecycle.state.stopped &&
+            sampleGeneration != NO_NATIVE_EVENT_GENERATION &&
+            sampleGeneration == activeHotGeneration() &&
+            sampleGeneration == generation
+
+    private fun activateHotSamples(sampleGeneration: Long) {
+        invalidateHotSamples()
+        hotSampleEpoch.set(AndroidMpvHotSampleEpoch.Active(sampleGeneration))
+    }
+
+    private fun awaitReplacementHotSamples(sampleGeneration: Long) {
+        invalidateHotSamples()
+        hotSampleEpoch.set(AndroidMpvHotSampleEpoch.AwaitingStart(sampleGeneration))
+    }
+
+    private fun activateReplacementHotSamples(sampleGeneration: Long) {
+        while (true) {
+            val epoch = hotSampleEpoch.get()
+            if (
+                epoch !is AndroidMpvHotSampleEpoch.AwaitingStart ||
+                epoch.generation != sampleGeneration ||
+                expectedReplacementEndFiles.get() > 0
+            ) {
+                return
+            }
+            if (
+                hotSampleEpoch.compareAndSet(
+                    epoch,
+                    AndroidMpvHotSampleEpoch.Active(sampleGeneration),
+                )
+            ) {
+                return
+            }
+        }
+    }
+
+    private fun invalidateHotSamples() {
+        hotSampleEpoch.set(AndroidMpvHotSampleEpoch.Inactive)
+        hotClockSample.set(null)
+        hotDiagnosticSample.set(null)
+        immediateClockGeneration.set(NO_NATIVE_EVENT_GENERATION)
+        immediateClockRequested.set(false)
+        while (hotClockSignal.tryReceive().isSuccess) {
+            // Drain obsolete wake-ups; an in-flight drain is still generation-checked.
+        }
+        while (hotDiagnosticSignal.tryReceive().isSuccess) {
+            // Drain obsolete wake-ups; an in-flight drain is still generation-checked.
+        }
+        hotClockSignal.trySend(Unit)
+        hotDiagnosticSignal.trySend(Unit)
+    }
+
+    private fun activeHotGeneration(): Long =
+        (hotSampleEpoch.get() as? AndroidMpvHotSampleEpoch.Active)?.generation
+            ?: NO_NATIVE_EVENT_GENERATION
+
     private suspend fun handleNativeEvent(
         eventGeneration: Long,
         event: AndroidMpvEvent,
@@ -1423,8 +1836,6 @@ internal class AndroidMpvPlayerController(
                 }
             "width" -> updateDiagnostics { current -> current.copy(videoWidth = value.toInt().takeIf { width -> width > 0 }) }
             "height" -> updateDiagnostics { current -> current.copy(videoHeight = value.toInt().takeIf { height -> height > 0 }) }
-            "frame-drop-count" -> observeDroppedFrames(value, null)
-            "decoder-frame-drop-count" -> observeDroppedFrames(null, value)
         }
     }
 
@@ -1434,53 +1845,44 @@ internal class AndroidMpvPlayerController(
     ) {
         if (!value.isFinite()) return
         when (name) {
-            "time-pos" -> {
-                val observedPositionMs = (value * 1_000.0).roundToLong().coerceAtLeast(0L)
-                val pendingSeekOrigin = pendingSeekFromPositionMs
-                val pendingSeekTarget = pendingSeekTargetPositionMs
-                val seekConfirmed =
-                    if (pendingSeekOrigin != null && pendingSeekTarget != null) {
-                        seekReachedTarget(
-                            originPositionMs = pendingSeekOrigin,
-                            targetPositionMs = pendingSeekTarget,
-                            observedPositionMs = observedPositionMs,
-                        )
-                    } else {
-                        true
-                    }
-                val resumeConfirmed =
-                    resumeConfirmationFromPositionMs?.let { previous -> observedPositionMs != previous } ?: true
-                if (seekConfirmed && pendingSeekOrigin != null && pendingSeekTarget != null) {
-                    logSeekDiagnostic(
-                        event = PlaybackDiagnosticEvent.SeekCompleted,
-                        originPositionMs = pendingSeekOrigin,
-                        targetPositionMs = pendingSeekTarget,
-                        observedPositionMs = observedPositionMs,
-                    )
-                    clearPendingSeekState()
-                }
-                if (resumeConfirmed) resumeConfirmationFromPositionMs = null
-                playbackFacts =
-                    playbackFacts.copy(
-                        positionMs = observedPositionMs.takeIf { seekConfirmed } ?: playbackFacts.positionMs,
-                        seeking = !seekConfirmed,
-                    )
-                updateBufferedAheadDiagnostics()
-            }
             "duration" ->
                 playbackFacts =
                     playbackFacts.copy(durationMs = (value * 1_000.0).roundToLong().takeIf { duration -> duration > 0L })
-            "demuxer-cache-time" -> {
-                playbackFacts = playbackFacts.copy(bufferedPositionMs = (value * 1_000.0).roundToLong().coerceAtLeast(0L))
-                updateBufferedAheadDiagnostics()
-            }
-            "cache-speed" ->
-                updateDiagnostics { current ->
-                    current.copy(bandwidthEstimateBps = (value * 8.0).roundToLong().takeIf { speed -> speed > 0L })
-                }
             "speed" -> _playbackState.update { current -> current.copy(playbackSpeed = value.toFloat().coerceIn(0.1f, 5f)) }
-            "container-fps" -> updateDiagnostics { current -> current.copy(videoFrameRate = value.takeIf { fps -> fps > 0.0 }) }
         }
+    }
+
+    private fun handleObservedPosition(observedPositionMs: Long) {
+        val pendingSeekOrigin = pendingSeekFromPositionMs
+        val pendingSeekTarget = pendingSeekTargetPositionMs
+        val seekConfirmed =
+            if (pendingSeekOrigin != null && pendingSeekTarget != null) {
+                seekReachedTarget(
+                    originPositionMs = pendingSeekOrigin,
+                    targetPositionMs = pendingSeekTarget,
+                    observedPositionMs = observedPositionMs,
+                )
+            } else {
+                true
+            }
+        val resumeConfirmed =
+            resumeConfirmationFromPositionMs?.let { previous -> observedPositionMs != previous } ?: true
+        if (seekConfirmed && pendingSeekOrigin != null && pendingSeekTarget != null) {
+            logSeekDiagnostic(
+                event = PlaybackDiagnosticEvent.SeekCompleted,
+                originPositionMs = pendingSeekOrigin,
+                targetPositionMs = pendingSeekTarget,
+                observedPositionMs = observedPositionMs,
+            )
+            clearPendingSeekState()
+        }
+        if (resumeConfirmed) resumeConfirmationFromPositionMs = null
+        refreshImmediateClockGeneration()
+        playbackFacts =
+            playbackFacts.copy(
+                positionMs = observedPositionMs.takeIf { seekConfirmed } ?: playbackFacts.positionMs,
+                seeking = !seekConfirmed,
+            )
     }
 
     private fun handleStringProperty(
@@ -1714,6 +2116,17 @@ internal class AndroidMpvPlayerController(
         pendingSeekWatchdog = null
         pendingSeekFromPositionMs = null
         pendingSeekTargetPositionMs = null
+        refreshImmediateClockGeneration()
+    }
+
+    private fun refreshImmediateClockGeneration() {
+        immediateClockGeneration.set(
+            if (pendingSeekTargetPositionMs != null || resumeConfirmationFromPositionMs != null) {
+                generation
+            } else {
+                NO_NATIVE_EVENT_GENERATION
+            },
+        )
     }
 
     /**
@@ -1795,6 +2208,7 @@ internal class AndroidMpvPlayerController(
         if (!playbackFacts.paused && resumeConfirmationFromPositionMs == null) return
         if (resumeConfirmationFromPositionMs != null) return
         resumeConfirmationFromPositionMs = playbackFacts.positionMs
+        refreshImmediateClockGeneration()
         enqueueNative { native -> native.setPropertyBoolean("pause", false) }
         logNativeMilestone(PlaybackNativePlayerMilestone.PlayUnpauseDispatched)
     }
@@ -1814,6 +2228,7 @@ internal class AndroidMpvPlayerController(
                 if (resumeAfterTransientFocusLoss && playIntent) {
                     resumeAfterTransientFocusLoss = false
                     resumeConfirmationFromPositionMs = playbackFacts.positionMs
+                    refreshImmediateClockGeneration()
                     enqueueNative { native -> native.setPropertyBoolean("pause", false) }
                 }
             }
@@ -1828,6 +2243,7 @@ internal class AndroidMpvPlayerController(
             AndroidAudioFocusEvent.TransientLoss -> {
                 resumeAfterTransientFocusLoss = playIntent
                 resumeConfirmationFromPositionMs = null
+                refreshImmediateClockGeneration()
                 enqueueNative { native -> native.setPropertyBoolean("pause", true) }
             }
             AndroidAudioFocusEvent.PermanentLoss,
@@ -1836,6 +2252,7 @@ internal class AndroidMpvPlayerController(
                 resumeAfterTransientFocusLoss = false
                 playIntent = false
                 resumeConfirmationFromPositionMs = null
+                refreshImmediateClockGeneration()
                 volumeBeforeDuck.getAndSet(null)?.let { volume ->
                     enqueueNative { native -> native.setPropertyDouble("volume", volume) }
                 }
@@ -2187,19 +2604,14 @@ internal class AndroidMpvPlayerController(
         _runtimeDiagnostics.update(transform)
     }
 
-    private fun updateBufferedAheadDiagnostics() {
-        val bufferedAheadMs = (playbackFacts.bufferedPositionMs - playbackFacts.positionMs).coerceAtLeast(0L)
-        updateDiagnostics { current -> current.copy(bufferedAheadMs = bufferedAheadMs) }
-    }
-
     private fun observeDroppedFrames(
         outputCount: Long?,
         decoderCount: Long?,
-    ) {
+    ): AndroidMpvDroppedFrameDiagnostics? {
         if (outputCount != null) latestOutputDropCount = outputCount
         if (decoderCount != null) latestDecoderDropCount = decoderCount
-        val currentOutputCount = latestOutputDropCount ?: return
-        val currentDecoderCount = latestDecoderDropCount ?: return
+        val currentOutputCount = latestOutputDropCount ?: return null
+        val currentDecoderCount = latestDecoderDropCount ?: return null
         val previousOutputCount = outputDropBaseline
         val previousDecoderCount = decoderDropBaseline
         val now = System.nanoTime()
@@ -2216,14 +2628,12 @@ internal class AndroidMpvPlayerController(
         outputDropBaseline = result.outputBaselineCount
         decoderDropBaseline = result.decoderBaselineCount
         result.measurement?.let(droppedFrameChannel::trySend)
-        updateDiagnostics { current ->
-            current.copy(
-                droppedVideoFrames = listOfNotNull(outputDropBaseline, decoderDropBaseline).maxOrNull(),
-                outputDroppedVideoFrames = outputDropBaseline,
-                decoderDroppedVideoFrames = decoderDropBaseline,
-                droppedVideoFramesPerSecond = result.measurement?.ratePerSecond ?: current.droppedVideoFramesPerSecond,
-            )
-        }
+        return AndroidMpvDroppedFrameDiagnostics(
+            total = listOfNotNull(outputDropBaseline, decoderDropBaseline).maxOrNull(),
+            output = outputDropBaseline,
+            decoder = decoderDropBaseline,
+            ratePerSecond = result.measurement?.ratePerSecond,
+        )
     }
 
     private fun postMain(block: () -> Unit) {
@@ -2231,6 +2641,40 @@ internal class AndroidMpvPlayerController(
     }
 
     private fun warnReleased(operation: PlayerOperation) = Unit
+
+    private data class AndroidMpvHotClockSample(
+        val generation: Long,
+        val positionMs: Long? = null,
+        val bufferedPositionMs: Long? = null,
+    )
+
+    private data class AndroidMpvHotDiagnosticSample(
+        val generation: Long,
+        val bufferedAheadDirty: Boolean = false,
+        val cacheSpeedBytesPerSecond: Double? = null,
+        val containerFps: Double? = null,
+        val outputDropCount: Long? = null,
+        val decoderDropCount: Long? = null,
+    )
+
+    private sealed interface AndroidMpvHotSampleEpoch {
+        data object Inactive : AndroidMpvHotSampleEpoch
+
+        data class AwaitingStart(
+            val generation: Long,
+        ) : AndroidMpvHotSampleEpoch
+
+        data class Active(
+            val generation: Long,
+        ) : AndroidMpvHotSampleEpoch
+    }
+
+    private data class AndroidMpvDroppedFrameDiagnostics(
+        val total: Long?,
+        val output: Long?,
+        val decoder: Long?,
+        val ratePerSecond: Double?,
+    )
 
     private data class PlaybackFacts(
         val positionMs: Long = 0L,
@@ -2246,6 +2690,8 @@ internal class AndroidMpvPlayerController(
     private companion object {
         const val NO_NATIVE_EVENT_GENERATION = 0L
         const val SEEK_CONFIRMATION_TOLERANCE_MS = 250L
+        const val HOT_CLOCK_PUBLICATION_INTERVAL_MS = 250L
+        const val HOT_DIAGNOSTIC_PUBLICATION_INTERVAL_MS = 1_000L
 
         /** Well below the 5s input-dispatch ANR threshold; a normal detach takes milliseconds. */
         const val NATIVE_SURFACE_RELEASE_TIMEOUT_MS = 3_000L

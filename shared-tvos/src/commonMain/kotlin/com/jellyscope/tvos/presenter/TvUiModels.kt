@@ -2,7 +2,7 @@
 
 package com.jellyscope.tvos.presenter
 
-import com.jellyscope.core.domain.model.AuthError
+import com.jellyscope.core.domain.action.AuthError
 import com.jellyscope.core.domain.model.JellyfinImageType
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
 import com.jellyscope.core.domain.model.MediaItem

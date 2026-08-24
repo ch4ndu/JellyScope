@@ -6,8 +6,6 @@ import co.touchlab.kermit.LogWriter
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.jellyscope.core.data.repository.DownloadCommandCoordinator
-import com.jellyscope.core.data.repository.DownloadCommandResult
-import com.jellyscope.core.data.repository.DownloadDeletionResult
 import com.jellyscope.core.data.repository.DownloadRepository
 import com.jellyscope.core.domain.action.CancelDownloadAction
 import com.jellyscope.core.domain.action.ConfigureDownloadQuotaAction
@@ -20,6 +18,8 @@ import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadArtifactKey
 import com.jellyscope.core.domain.model.DownloadArtifactKind
 import com.jellyscope.core.domain.model.DownloadBusinessKey
+import com.jellyscope.core.domain.model.DownloadCommandResult
+import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadEnqueueResult
 import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadId

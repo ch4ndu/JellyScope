@@ -11,19 +11,9 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
-internal data class SecurityCommandResult(
-    val exitCode: Int,
-    val stdout: String = "",
-    val stderr: String = "",
-)
-
-internal fun interface SecurityCommandRunner {
-    fun run(arguments: List<String>): SecurityCommandResult
-}
-
 internal class MacKeychainSecureStore(
     private val legacyFile: File,
-    private val commandRunner: SecurityCommandRunner = ProcessSecurityCommandRunner,
+    private val securityFramework: MacSecurityFramework = LazyMacSecurityFramework,
     private val json: Json = Json,
 ) : SecureStore {
     private val mutex = Mutex()
@@ -32,22 +22,13 @@ internal class MacKeychainSecureStore(
     override suspend fun read(key: String): String? =
         mutex.withLock {
             ensureLegacyMigration()
-
-            val result =
-                runSecurityCommand(
-                    listOf(
-                        "find-generic-password",
-                        "-s",
-                        KEYCHAIN_SERVICE,
-                        "-a",
-                        key,
-                        "-w",
-                    ),
-                )
-            when {
-                result.exitCode == 0 -> result.stdout.removeTrailingLineBreaks()
-                result.isItemNotFound() -> null
-                else -> throw securityCommandFailure("read", result)
+            withContext(Dispatchers.IO) {
+                val result = securityFramework.copyGenericPassword(KEYCHAIN_SERVICE, key)
+                when (result.status) {
+                    ERR_SEC_SUCCESS -> result.data?.toString(StandardCharsets.UTF_8)
+                    ERR_SEC_ITEM_NOT_FOUND -> null
+                    else -> throw securityFailure("SecItemCopyMatching", result.status)
+                }
             }
         }
 
@@ -57,40 +38,15 @@ internal class MacKeychainSecureStore(
     ) {
         mutex.withLock {
             ensureLegacyMigration()
-            requireSecurityCommandSuccess(
-                operation = "write",
-                result =
-                    runSecurityCommand(
-                        listOf(
-                            "add-generic-password",
-                            "-U",
-                            "-s",
-                            KEYCHAIN_SERVICE,
-                            "-a",
-                            key,
-                            "-w",
-                            value,
-                        ),
-                    ),
-            )
+            withContext(Dispatchers.IO) { writeItem(key, value) }
         }
     }
 
     override suspend fun remove(key: String) {
         mutex.withLock {
             ensureLegacyMigration()
-            val result =
-                runSecurityCommand(
-                    listOf(
-                        "delete-generic-password",
-                        "-s",
-                        KEYCHAIN_SERVICE,
-                        "-a",
-                        key,
-                    ),
-                )
-            if (result.exitCode != 0 && !result.isItemNotFound()) {
-                throw securityCommandFailure("remove", result)
+            withContext(Dispatchers.IO) {
+                deleteItem(account = key)
             }
         }
     }
@@ -98,25 +54,9 @@ internal class MacKeychainSecureStore(
     override suspend fun clear() {
         mutex.withLock {
             ensureLegacyMigration()
-            // Each key is a separate generic-password item, and
-            // `delete-generic-password` removes only one match per call, so loop
-            // until the service has no remaining items. The bound guards against a
-            // misbehaving runner reporting success without deleting anything.
-            repeat(MAX_CLEAR_DELETIONS) {
-                val result =
-                    runSecurityCommand(
-                        listOf(
-                            "delete-generic-password",
-                            "-s",
-                            KEYCHAIN_SERVICE,
-                        ),
-                    )
-                when {
-                    result.isItemNotFound() -> return@withLock
-                    result.exitCode != 0 -> throw securityCommandFailure("clear", result)
-                }
+            withContext(Dispatchers.IO) {
+                deleteItem(account = null)
             }
-            throw IllegalStateException("Keychain clear exceeded $MAX_CLEAR_DELETIONS deletions for $KEYCHAIN_SERVICE.")
         }
     }
 
@@ -135,22 +75,7 @@ internal class MacKeychainSecureStore(
                     }.getOrDefault(emptyMap())
 
                 values.forEach { (key, value) ->
-                    requireSecurityCommandSuccess(
-                        operation = "migrate",
-                        result =
-                            commandRunner.run(
-                                listOf(
-                                    "add-generic-password",
-                                    "-U",
-                                    "-s",
-                                    KEYCHAIN_SERVICE,
-                                    "-a",
-                                    key,
-                                    "-w",
-                                    value,
-                                ),
-                            ),
-                    )
+                    writeItem(key, value)
                 }
                 Files.deleteIfExists(legacyFile.toPath())
             }
@@ -158,56 +83,36 @@ internal class MacKeychainSecureStore(
         }
     }
 
-    private suspend fun runSecurityCommand(arguments: List<String>): SecurityCommandResult =
-        withContext(Dispatchers.IO) {
-            commandRunner.run(arguments)
-        }
-
-    private fun requireSecurityCommandSuccess(
-        operation: String,
-        result: SecurityCommandResult,
+    private fun writeItem(
+        key: String,
+        value: String,
     ) {
-        if (result.exitCode != 0) {
-            throw securityCommandFailure(operation, result)
+        val data = value.toByteArray(StandardCharsets.UTF_8)
+        when (val addStatus = securityFramework.addGenericPassword(KEYCHAIN_SERVICE, key, data)) {
+            ERR_SEC_SUCCESS -> Unit
+            ERR_SEC_DUPLICATE_ITEM -> {
+                val updateStatus = securityFramework.updateGenericPassword(KEYCHAIN_SERVICE, key, data)
+                if (updateStatus != ERR_SEC_SUCCESS) {
+                    throw securityFailure("SecItemUpdate", updateStatus)
+                }
+            }
+            else -> throw securityFailure("SecItemAdd", addStatus)
         }
     }
 
-    private fun securityCommandFailure(
+    private fun deleteItem(account: String?) {
+        val status = securityFramework.deleteGenericPassword(KEYCHAIN_SERVICE, account)
+        if (status != ERR_SEC_SUCCESS && status != ERR_SEC_ITEM_NOT_FOUND) {
+            throw securityFailure("SecItemDelete", status)
+        }
+    }
+
+    private fun securityFailure(
         operation: String,
-        result: SecurityCommandResult,
-    ): IllegalStateException =
-        IllegalStateException(
-            "macOS Keychain $operation failed with exit code ${result.exitCode}",
-        )
-
-    private fun SecurityCommandResult.isItemNotFound(): Boolean =
-        exitCode == ERR_SEC_ITEM_NOT_FOUND ||
-            exitCode == SECURITY_CLI_ITEM_NOT_FOUND_EXIT_CODE ||
-            stderr.contains("could not be found", ignoreCase = true) ||
-            stderr.contains("item not found", ignoreCase = true)
-
-    private fun String.removeTrailingLineBreaks(): String = trimEnd('\r', '\n')
+        status: Int,
+    ): IllegalStateException = IllegalStateException("$operation failed with status=$status")
 
     private companion object {
         const val KEYCHAIN_SERVICE = "com.jellyscope.secure-store"
-        const val ERR_SEC_ITEM_NOT_FOUND = -25300
-        const val SECURITY_CLI_ITEM_NOT_FOUND_EXIT_CODE = 44
-        const val MAX_CLEAR_DELETIONS = 10_000
-    }
-}
-
-private object ProcessSecurityCommandRunner : SecurityCommandRunner {
-    override fun run(arguments: List<String>): SecurityCommandResult {
-        val process =
-            ProcessBuilder(listOf("/usr/bin/security") + arguments)
-                .redirectErrorStream(true)
-                .start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        val exitCode = process.waitFor()
-        return if (exitCode == 0) {
-            SecurityCommandResult(exitCode = exitCode, stdout = output)
-        } else {
-            SecurityCommandResult(exitCode = exitCode, stderr = output)
-        }
     }
 }

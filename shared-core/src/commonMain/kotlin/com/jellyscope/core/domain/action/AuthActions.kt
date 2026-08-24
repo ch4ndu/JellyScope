@@ -3,7 +3,6 @@
 package com.jellyscope.core.domain.action
 
 import com.jellyscope.core.data.repository.AuthRepository
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
 import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.model.ServerInfo
 

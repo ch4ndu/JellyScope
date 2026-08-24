@@ -6,6 +6,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.exoplayer.ExoPlayer
@@ -30,83 +32,102 @@ fun AndroidPlayerSurfaceHost(
     subtitleStyle: SubtitleStyle,
     subtitleBottomInsetPx: Int,
 ) {
-    val surfaceBridge = controller.platformPlayer as? AndroidPlayerSurfaceBridge
-    if (surfaceBridge != null) {
-        AndroidView(
-            factory = { context ->
-                surfaceBridge.createSurfaceView(context).also {
-                    it.keepScreenOn = true
-                    surfaceBridge.updatePresentation(
-                        resizeMode.toAndroidSurfacePresentation(subtitleBottomInsetPx),
-                    )
-                    surfaceBridge.attachSurface(it)
-                }
-            },
-            update = { view ->
-                view.keepScreenOn = true
-                surfaceBridge.updatePresentation(
-                    resizeMode.toAndroidSurfacePresentation(subtitleBottomInsetPx),
-                )
-                surfaceBridge.attachSurface(view)
-            },
-            onRelease = { view ->
-                view.keepScreenOn = false
-                surfaceBridge.detachSurface(view)
-            },
-            modifier = modifier,
-        )
-        return
-    }
+    val platformPlayer = controller.platformPlayer
+    val bindingOwner = androidPlayerSurfaceBindingOwner
+    val bindingIdentity = AndroidSurfaceBindingIdentityKey(controller, platformPlayer)
+    val bindingToken = remember(bindingIdentity) { bindingOwner.newToken() }
 
-    val media3ResizeMode = resizeMode.toMedia3ResizeMode()
-    val subtitleTimingBridge = controller as? AndroidMedia3SubtitleTimingBridge
-    AndroidView(
-        factory = { context ->
-            val playerView =
-                PlayerView(context).apply {
-                    useController = false
-                    keepScreenOn = true
-                    player = controller.platformPlayer as? ExoPlayer
-                    this.resizeMode = media3ResizeMode
-                    // The overlay below is the single, order-independent cue
-                    // target; suppress PlayerView's own subtitle rendering.
-                    subtitleView?.visibility = View.GONE
-                }
-            val overlay =
-                SubtitleView(context).apply {
-                    applySubtitleStyleWhenReady(subtitleStyle)
-                    applySubtitleBottomInset(subtitleBottomInsetPx)
-                }
-            val frame =
-                FrameLayout(context).apply {
-                    keepScreenOn = true
-                    addView(playerView, matchParentParams())
-                    addView(overlay, matchParentParams())
-                }
-            playerView.player?.let { mediaPlayer ->
-                subtitleTimingBridge?.attachSubtitleView(mediaPlayer) { cues -> overlay.setCues(cues) }
-            }
-            frame
-        },
-        update = { frame ->
-            frame.keepScreenOn = true
-            val playerView = frame.getChildAt(0) as PlayerView
-            val overlay = frame.getChildAt(1) as SubtitleView
-            playerView.player = controller.platformPlayer as? ExoPlayer
-            playerView.resizeMode = media3ResizeMode
-            playerView.subtitleView?.visibility = View.GONE
-            overlay.applySubtitleStyleWhenReady(subtitleStyle)
-            overlay.applySubtitleBottomInset(subtitleBottomInsetPx)
-            playerView.player?.let { mediaPlayer ->
-                subtitleTimingBridge?.attachSubtitleView(mediaPlayer) { cues -> overlay.setCues(cues) }
-            }
-        },
-        onRelease = { frame ->
-            frame.keepScreenOn = false
-            subtitleTimingBridge?.detachSubtitleView()
-        },
-        modifier = modifier,
-    )
+    key(bindingToken) {
+        val surfaceBridge = platformPlayer as? AndroidPlayerSurfaceBridge
+        if (surfaceBridge != null) {
+            AndroidView(
+                factory = { context ->
+                    surfaceBridge.createSurfaceView(context).also { view ->
+                        view.keepScreenOn = true
+                        bindingOwner.bind(
+                            token = bindingToken,
+                            detach = {
+                                view.keepScreenOn = false
+                                surfaceBridge.detachSurface(view)
+                            },
+                            attach = {
+                                surfaceBridge.updatePresentation(
+                                    resizeMode.toAndroidSurfacePresentation(subtitleBottomInsetPx),
+                                )
+                                view.post {
+                                    if (bindingOwner.isCurrent(bindingToken)) {
+                                        surfaceBridge.attachSurface(view)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                },
+                update = { view ->
+                    view.keepScreenOn = true
+                    if (bindingOwner.isCurrent(bindingToken)) {
+                        surfaceBridge.updatePresentation(
+                            resizeMode.toAndroidSurfacePresentation(subtitleBottomInsetPx),
+                        )
+                    }
+                },
+                onRelease = { bindingOwner.release(bindingToken) },
+                modifier = modifier,
+            )
+        } else {
+            val mediaPlayer = platformPlayer as? ExoPlayer
+            val media3ResizeMode = resizeMode.toMedia3ResizeMode()
+            val subtitleTimingBridge = controller as? AndroidMedia3SubtitleTimingBridge
+            AndroidView(
+                factory = { context ->
+                    val playerView =
+                        PlayerView(context).apply {
+                            useController = false
+                            keepScreenOn = true
+                            this.resizeMode = media3ResizeMode
+                            // The overlay below is the single, order-independent cue
+                            // target; suppress PlayerView's own subtitle rendering.
+                            subtitleView?.visibility = View.GONE
+                        }
+                    val overlay =
+                        SubtitleView(context).apply {
+                            applySubtitleStyleWhenReady(subtitleStyle)
+                            applySubtitleBottomInset(subtitleBottomInsetPx)
+                        }
+                    FrameLayout(context).apply {
+                        keepScreenOn = true
+                        addView(playerView, matchParentParams())
+                        addView(overlay, matchParentParams())
+                        bindingOwner.bind(
+                            token = bindingToken,
+                            detach = {
+                                keepScreenOn = false
+                                subtitleTimingBridge?.detachSubtitleView()
+                                playerView.player = null
+                            },
+                            attach = {
+                                playerView.player = mediaPlayer
+                                mediaPlayer?.let { player ->
+                                    subtitleTimingBridge?.attachSubtitleView(player) { cues -> overlay.setCues(cues) }
+                                }
+                            },
+                        )
+                    }
+                },
+                update = { frame ->
+                    frame.keepScreenOn = true
+                    val playerView = frame.getChildAt(0) as PlayerView
+                    val overlay = frame.getChildAt(1) as SubtitleView
+                    playerView.resizeMode = media3ResizeMode
+                    playerView.subtitleView?.visibility = View.GONE
+                    overlay.applySubtitleStyleWhenReady(subtitleStyle)
+                    overlay.applySubtitleBottomInset(subtitleBottomInsetPx)
+                },
+                onRelease = { bindingOwner.release(bindingToken) },
+                modifier = modifier,
+            )
+        }
+    }
 }
 
 private fun matchParentParams(): FrameLayout.LayoutParams =

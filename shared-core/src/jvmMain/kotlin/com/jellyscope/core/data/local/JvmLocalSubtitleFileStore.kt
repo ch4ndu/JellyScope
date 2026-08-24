@@ -10,9 +10,10 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 internal class JvmLocalSubtitleFileStore(
+    rootDirectory: File = jellyscopeDataDirectory(),
     private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher(),
 ) : LocalSubtitleFileStore {
-    private val directory = File(jellyscopeDataDirectory(), "subtitles").apply { mkdirs() }
+    private val directory = File(rootDirectory, "subtitles").apply { mkdirs() }
 
     override suspend fun writeAtomically(
         fileId: String,
@@ -66,7 +67,10 @@ internal class JvmLocalSubtitleFileStore(
     override suspend fun exists(fileId: String): Boolean = withContext(ioDispatcher) { file(fileId).isFile }
 
     override suspend fun delete(fileId: String) {
-        withContext(ioDispatcher) { file(fileId).delete() }
+        withContext(ioDispatcher) {
+            val target = file(fileId)
+            check(target.delete() || !target.exists()) { LOCAL_SUBTITLE_DELETE_FAILURE }
+        }
     }
 
     override suspend fun listFileIds(): Set<String> =
@@ -83,3 +87,5 @@ internal class JvmLocalSubtitleFileStore(
 
     private fun file(fileId: String): File = File(directory, requireSafeLocalSubtitleFileId(fileId))
 }
+
+private const val LOCAL_SUBTITLE_DELETE_FAILURE = "Unable to delete local subtitle file."

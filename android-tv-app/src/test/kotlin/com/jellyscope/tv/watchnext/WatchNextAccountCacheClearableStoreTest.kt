@@ -3,10 +3,7 @@
 package com.jellyscope.tv.watchnext
 
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
-import com.jellyscope.core.data.local.StoredSession
-import com.jellyscope.core.data.repository.SessionTransitionCoordinator
 import com.jellyscope.core.domain.model.AccountIdentity
-import kotlinx.coroutines.Dispatchers
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -55,24 +52,7 @@ class WatchNextAccountCacheClearableStoreTest {
                 val registry = ServerScopedStoreRegistry()
                 registry.register(WatchNextAccountCacheClearableStore(context))
                 registry.transitionToAccount(first, boundaryEpoch = 1L)
-                SessionTransitionCoordinator(
-                    serverScopedStoreRegistry = registry,
-                    ioDispatcher = Dispatchers.Unconfined,
-                ).commitSwitch(
-                    currentAccountIdentity = first,
-                    load = {
-                        StoredSession(
-                            serverUrl = "https://server-2.example",
-                            serverId = replacement.serverId,
-                            serverName = "Server 2",
-                            userId = replacement.userId,
-                            userName = "User 2",
-                            accessToken = "token",
-                            deviceId = "device",
-                        )
-                    },
-                    publish = { _, _ -> Unit },
-                )
+                registry.transitionToAccount(replacement, boundaryEpoch = 2L)
 
                 assertFalse(firstFile.exists())
                 assertFalse(siblingFile.exists())

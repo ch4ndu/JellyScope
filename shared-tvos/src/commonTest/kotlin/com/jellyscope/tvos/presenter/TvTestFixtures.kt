@@ -3,14 +3,13 @@
 package com.jellyscope.tvos.presenter
 
 import com.jellyscope.core.data.local.PlaybackPreferencesStore
-import com.jellyscope.core.data.local.SubtitleSelectionKey
 import com.jellyscope.core.data.local.SubtitleSelectionStore
 import com.jellyscope.core.data.repository.AuthRepository
 import com.jellyscope.core.data.repository.MediaRepository
-import com.jellyscope.core.data.repository.SessionRemovalAuthorization
 import com.jellyscope.core.data.repository.SessionRepository
+import com.jellyscope.core.domain.action.AuthError
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.model.AccountSession
-import com.jellyscope.core.domain.model.AuthError
 import com.jellyscope.core.domain.model.FindQuery
 import com.jellyscope.core.domain.model.FindResults
 import com.jellyscope.core.domain.model.ImageRefs
@@ -45,6 +44,7 @@ import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.domain.playback.SubtitleAsset
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.awaitCancellation

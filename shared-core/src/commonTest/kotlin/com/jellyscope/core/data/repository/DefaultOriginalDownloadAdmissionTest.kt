@@ -8,6 +8,7 @@ import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.remote.AuthHeaderProvider
 import com.jellyscope.core.data.remote.JellyfinClientFactory
 import com.jellyscope.core.data.remote.KtorJellyfinApi
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadAdmissionDecision
 import com.jellyscope.core.domain.model.DownloadArtifactKey
