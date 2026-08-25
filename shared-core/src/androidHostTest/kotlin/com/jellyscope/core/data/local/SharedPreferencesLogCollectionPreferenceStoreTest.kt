@@ -11,6 +11,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
@@ -28,16 +29,25 @@ class SharedPreferencesLogCollectionPreferenceStoreTest {
     }
 
     @Test
-    fun absentPreferenceDefaultsOnAndFailedCommitDoesNotPublishFalse() =
+    fun absentPreferenceDefaultsOffFailedEnableDoesNotPublishAndExplicitEnabledPersists() =
         runTest {
-            val store =
+            val failingStore =
                 SharedPreferencesLogCollectionPreferenceStore(
                     context = context,
                     commitEnabled = { false },
                 )
 
-            assertTrue(store.enabled.value)
-            assertFailsWith<IllegalStateException> { store.setEnabled(false) }
+            assertFalse(failingStore.enabled.value)
+            assertFailsWith<IllegalStateException> { failingStore.setEnabled(true) }
+            assertFalse(failingStore.enabled.value)
+            assertFalse(SharedPreferencesLogCollectionPreferenceStore(context).enabled.value)
+
+            preferences().edit().putString(LOG_COLLECTION_ENABLED_TEST_KEY, "invalid").commit()
+            assertFalse(SharedPreferencesLogCollectionPreferenceStore(context).enabled.value)
+
+            val store = SharedPreferencesLogCollectionPreferenceStore(context)
+            store.setEnabled(true)
+
             assertTrue(store.enabled.value)
             assertTrue(SharedPreferencesLogCollectionPreferenceStore(context).enabled.value)
         }
@@ -46,3 +56,4 @@ class SharedPreferencesLogCollectionPreferenceStoreTest {
 }
 
 private const val LOG_COLLECTION_TEST_PREFS_NAME = "log_collection"
+private const val LOG_COLLECTION_ENABLED_TEST_KEY = "log_collection_enabled"

@@ -285,7 +285,7 @@ private fun JvmFilePreferencesStore.readPictureInPictureEnabled(): Boolean =
     readString(PICTURE_IN_PICTURE_ENABLED_KEY)?.toBooleanStrictOrNull() ?: true
 
 private fun JvmFilePreferencesStore.readLogCollectionEnabled(): Boolean =
-    readString(LOG_COLLECTION_ENABLED_KEY)?.toBooleanStrictOrNull() ?: true
+    readString(LOG_COLLECTION_ENABLED_KEY)?.toBooleanStrictOrNull() ?: false
 
 private fun JvmFilePreferencesStore.readVerboseLogcatEnabled(): Boolean =
     readString(VERBOSE_LOGCAT_ENABLED_KEY)?.toBooleanStrictOrNull() ?: false

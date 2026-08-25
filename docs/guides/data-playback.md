@@ -110,21 +110,18 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 - Session persistence flows through the project `SecureStore` boundary. Android
   uses Android Keystore-backed storage under `Context.noBackupFilesDir`, so Auto
   Backup never captures the undecryptable `secure-store.bin`; unreadable or
-  undecryptable data is deleted and treated as an empty store. iOS and tvOS use
-  Apple Keychain generic password items with
-  `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` and synchronizable=false
-  (no iCloud sync). Signed macOS desktop releases use a narrow lazy
-  Security.framework `SecItem` boundary with the same item policy and migrate
-  the legacy JSON file once through it. Native failures expose only a fixed
-  operation label and numeric `OSStatus`; account names and credential values
-  never enter process arguments or diagnostics. Non-macOS JVM hosts retain
-  plaintext JSON storage under `~/.jellyscope`. This is an accepted risk limited
-  to the unsupported development targets identified in
-  [`README.md`](../../README.md#platforms), not encrypted or release-hardened
-  storage. Any future decision to distribute or support either target must
-  reopen and complete native OS credential storage before release. The legacy
-  Apple `NSUserDefaults` JSON blob is imported once into Keychain and deleted
-  only after successful import.
+  undecryptable data is deleted and treated as an empty store. iOS and tvOS
+  deliberately persist the secure-store map as plaintext JSON in application
+  `NSUserDefaults`; macOS desktop deliberately persists it as plaintext JSON at
+  `~/.jellyscope/secure-store.json`. These Apple-family stores accept lower
+  at-rest security to avoid application-triggered Keychain prompts. Readable
+  app storage, backups, or copied files may expose Jellyfin access tokens,
+  account/device/logout state, and the OpenSubtitles API key and preference;
+  passwords are not persisted. Application credentials must never be written
+  to, read from, migrated from, or cleaned up through Apple Keychain or
+  Security.framework. Existing Keychain entries are intentionally left
+  orphaned and existing Apple users may need to log in once after this change.
+  Android Keystore storage is unchanged.
 - `SessionStore` persists ordered accounts, active account, envelope-era marker,
   and logout-pending state in one versioned secure envelope; the device ID is a
   separate durable key and survives session clearing. Envelope absence alone
@@ -139,9 +136,8 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   grid sort currently persist through Android SharedPreferences, iOS
   `NSUserDefaults`, and JVM desktop JSON preferences under `~/.jellyscope`.
 - Apple targets must not use in-memory session storage for login restore. The
-  shared Apple Keychain store keeps session credentials across relaunches on iOS
-  and tvOS; UserDefaults remains the persistence boundary for non-credential
-  preferences.
+  shared Apple plaintext UserDefaults store keeps session credentials across
+  relaunches on iOS and tvOS; macOS uses its plaintext JSON store.
 - Clear-login flows must stop authenticated reads before clearing credentials
   and cached library data that could leak data from the previous account. Logout
   commits a durable pending state before publishing logged-out state, commits an
@@ -214,8 +210,9 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   A line must have both an audited tag and the fixed structured
   `stage=`/`event=` diagnostic grammar; all other Kermit output, including
   HTTP and free-form messages, is dropped before a defense-in-depth
-  URL/token/path/address scrubber runs. Collection defaults on only when the
-  preference key is absent; an explicit false remains off. The history is
+  URL/token/path/address scrubber runs. Collection defaults off when the
+  preference key is absent or invalid; an explicit persisted value is honored.
+  The history is
   capped at 4,000 entries/500,000 UTF-8 bytes with a 4,096-byte line limit,
   is deleted when collection is turned off, and is uploaded only after the
   user explicitly presses Send to their Jellyfin server. Android, Android TV,
@@ -2680,7 +2677,7 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   integration is experimental and seeking may close PiP or interrupt playback.
   This disclosed limitation does not change foreground playback planning or
   silently disable the user's PiP preference.
-- Session restore uses the persistent Apple Keychain store. AVPlayer retains its
+- Session restore uses the persistent Apple plaintext store. AVPlayer retains its
   player-layer PiP controller. VLCKit uses its public drawable, PiP drawable,
   media-controller, and window-controller protocols on the retained native
   surface; it does not discover private layers or own an AVKit sample-buffer
@@ -3234,13 +3231,18 @@ operative text lives in the body sections above, never here.
 
 ### Persistence
 
-- **Direct Security.framework ownership keeps macOS session secrets out of
-  process metadata.** The JNA boundary calls `SecItem` directly, reports only a
-  fixed operation name and numeric `OSStatus`, and explicitly releases every
-  CoreFoundation dictionary, created value, and copied result it owns.
-  `/usr/bin/security` was rejected because writes would put credentials or
-  serialized sessions in child-process `argv` and expose them through process
-  metadata.
+- **Apple application credentials stay out of Keychain by policy.** Keychain
+  prompts during ordinary app launch make an open-source media client appear to
+  request broader system trust than it needs. iOS, tvOS, and macOS therefore use
+  app-owned plaintext persistence and accept its lower at-rest security. Do not
+  restore Security.framework, Keychain APIs, command-line `security` access, or
+  migration/cleanup reads for application credentials. Release signing and
+  notarization credentials are separate developer tooling and remain governed
+  by the release runbook.
+- **Diagnostic collection requires an explicit opt-in.** Even sanitized,
+  bounded local history is behavior data, so a missing or malformed preference
+  stays off. Persisted user choices continue to win, and upload still requires
+  a separate explicit Send action.
 - **A present session envelope is the only authority because fallback can
   resurrect credentials.** Independent account, active, and pending keys could
   expose a mixed generation after a partial write, while treating an empty
@@ -3254,12 +3256,10 @@ operative text lives in the body sections above, never here.
   persistence failed, and publishing first can expose a value that never became
   durable. DAO success therefore precedes both the write marker and publication.
 
-- **Plaintext non-macOS JVM credentials are an accepted development-target
-  risk, not a release storage design.** Replacing the fallback now was rejected
-  because README makes no distribution or support commitment for those targets;
-  recording it as open release work would contradict that scope. Any future
-  support or distribution decision invalidates the acceptance and must add a
-  native OS credential store before release.
+- **Plaintext desktop credentials are an accepted application-storage risk.**
+  Desktop targets use the same app-owned JSON-file policy. Distribution or
+  support decisions must not reintroduce native credential stores; any future
+  hardening must preserve the no-Keychain rule and avoid OS credential prompts.
 
 - **The Room owner preserves durable state across schema 10 migrations.** The
   database registers the complete 1→2 through 9→10 migration chain, including

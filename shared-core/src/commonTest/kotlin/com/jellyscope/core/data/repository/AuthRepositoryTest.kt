@@ -39,6 +39,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.errors.IOException
@@ -52,6 +53,8 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -91,7 +94,12 @@ class AuthRepositoryTest {
                         MockEngine { request ->
                             when (request.url.encodedPath) {
                                 "/System/Info/Public" -> respondJson(publicInfoJson)
-                                "/Users/AuthenticateByName" -> respondJson(authJson)
+                                "/Users/AuthenticateByName" -> {
+                                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                                    assertEquals(" demo-user", body.getValue("Username").jsonPrimitive.content)
+                                    assertEquals(" pw", body.getValue("Pw").jsonPrimitive.content)
+                                    respondJson(authJson)
+                                }
                                 else -> error("Unexpected path ${request.url.encodedPath}")
                             }
                         },
@@ -101,8 +109,8 @@ class AuthRepositoryTest {
             val result =
                 fixture.repository.login(
                     serverUrl = "  https://jellyfin.example///  ",
-                    username = "demo-user",
-                    password = "pw",
+                    username = " demo-user\t ",
+                    password = " pw\n ",
                 )
 
             val session = result.getOrThrow()

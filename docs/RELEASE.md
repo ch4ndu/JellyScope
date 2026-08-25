@@ -280,10 +280,6 @@ and the [TestFlight overview](https://developer.apple.com/help/app-store-connect
     spctl -a -t exec -vv path/to/JellyScope-*.app
     ```
 
-The macOS Keychain secure store is validated with a live read/write/remove
-round-trip and legacy migration on a signed macOS build during the release
-pass.
-
 ## Source and license metadata
 
 Every platform release package carries a `license-metadata` set

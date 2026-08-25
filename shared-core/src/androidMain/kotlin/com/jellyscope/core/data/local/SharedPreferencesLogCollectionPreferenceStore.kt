@@ -18,14 +18,7 @@ internal class SharedPreferencesLogCollectionPreferenceStore(
         context.applicationContext.getSharedPreferences(LOG_COLLECTION_PREFS_NAME, Context.MODE_PRIVATE)
     private val commitEnabledWriter: (Boolean) -> Boolean =
         commitEnabled ?: { value -> preferences.edit().putBoolean(LOG_COLLECTION_ENABLED_KEY, value).commit() }
-    private val _enabled =
-        MutableStateFlow(
-            if (preferences.contains(LOG_COLLECTION_ENABLED_KEY)) {
-                preferences.getBoolean(LOG_COLLECTION_ENABLED_KEY, false)
-            } else {
-                true
-            },
-        )
+    private val _enabled = MutableStateFlow((preferences.all[LOG_COLLECTION_ENABLED_KEY] as? Boolean) ?: false)
     private val _verboseLogcatEnabled = MutableStateFlow(preferences.getBoolean(VERBOSE_LOGCAT_ENABLED_KEY, false))
     private val _playbackInfoAtStartEnabled =
         MutableStateFlow(preferences.getBoolean(PLAYBACK_INFO_AT_START_ENABLED_KEY, false))

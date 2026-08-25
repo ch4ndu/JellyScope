@@ -3,8 +3,8 @@
 package com.jellyscope.core.di
 
 import com.jellyscope.core.data.local.AppThemeStore
-import com.jellyscope.core.data.local.AppleKeychainSecureStore
 import com.jellyscope.core.data.local.AppleLocalSubtitleFileStore
+import com.jellyscope.core.data.local.ApplePlaintextSecureStore
 import com.jellyscope.core.data.local.ApplePreviousRunFailureStore
 import com.jellyscope.core.data.local.AppleUserDefaultsAppThemeStore
 import com.jellyscope.core.data.local.AppleUserDefaultsGridSortStore
@@ -64,7 +64,7 @@ import platform.UIKit.UIDevice
 /**
  * Apple-family (iOS/tvOS) DI. Session credentials persist through the shared
  * SecureStore boundary so launch restore follows the same common path as
- * Android; credentials use the device-only Apple Keychain.
+ * Android; credentials use the app-owned plaintext UserDefaults store.
  * Note: tvOS caps UserDefaults persistence at ~500 KB — the UserDefaults-backed
  * preference stores bound here keep their data well under that budget.
  */
@@ -73,7 +73,7 @@ fun appleCoreModule(
     displaySupportsHdr: Boolean = false,
 ) = module {
     single { CoreConfig(enableHttpLogging = false) }
-    single<SecureStore> { AppleKeychainSecureStore() }
+    single<SecureStore> { ApplePlaintextSecureStore() }
     single<DeviceInfoProvider> { AppleDeviceInfoProvider() }
     single<DiagnosticsEnvironment> { AppleDiagnosticsEnvironment(diagnosticPlatform) }
     single<DeviceProfileProvider> {

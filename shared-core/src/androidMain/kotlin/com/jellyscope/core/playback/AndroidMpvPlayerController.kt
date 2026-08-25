@@ -2527,10 +2527,10 @@ internal class AndroidMpvPlayerController(
 
     private fun applySubtitleStyle(native: AndroidMpvEngine) {
         val scaledMargin =
-            if (surfaceHeight > 0 && presentation.subtitleBottomInsetPx > 0) {
-                maxOf(180, (presentation.subtitleBottomInsetPx * 720f / surfaceHeight).roundToInt())
-            } else {
-                180
+            when {
+                surfaceHeight <= 0 -> 180
+                presentation.subtitleBottomInsetPx <= 0 -> MPV_DEFAULT_SUBTITLE_BOTTOM_MARGIN_PX
+                else -> maxOf(180, (presentation.subtitleBottomInsetPx * 720f / surfaceHeight).roundToInt())
             }
         _playbackState.value.subtitleStyle
             .toMpvSubtitleProperties(scaledPixelMargin = scaledMargin)

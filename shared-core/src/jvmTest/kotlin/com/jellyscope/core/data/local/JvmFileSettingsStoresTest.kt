@@ -92,18 +92,27 @@ class JvmFileSettingsStoresTest {
         }
 
     @Test
-    fun logCollectionDefaultsOnOnlyWhenAbsentAndPersistsExplicitFalse() =
+    fun logCollectionDefaultsOffRejectsInvalidTextAndPersistsExplicitValues() =
         runTest {
             val file = tempDir.resolve("preferences.json").toFile()
             val store = JvmFileLogCollectionPreferenceStore(JvmFilePreferencesStore(file))
 
-            assertTrue(store.enabled.value)
-            store.setEnabled(false)
-
             assertFalse(store.enabled.value)
+            store.setEnabled(true)
+
+            assertTrue(store.enabled.value)
+            val restored = JvmFileLogCollectionPreferenceStore(JvmFilePreferencesStore(file))
+            assertTrue(restored.enabled.value)
+
+            restored.setEnabled(false)
             assertFalse(
                 JvmFileLogCollectionPreferenceStore(JvmFilePreferencesStore(file)).enabled.value,
             )
+
+            val invalidFile = tempDir.resolve("invalid-preferences.json").toFile()
+            JvmFilePreferencesStore(invalidFile).writeString("log_collection.enabled", "invalid")
+
+            assertFalse(JvmFileLogCollectionPreferenceStore(JvmFilePreferencesStore(invalidFile)).enabled.value)
         }
 
     @Test
@@ -113,9 +122,9 @@ class JvmFileSettingsStoresTest {
             val file = blockedParent.resolve("preferences.json")
             val store = JvmFileLogCollectionPreferenceStore(JvmFilePreferencesStore(file))
 
-            assertTrue(store.enabled.value)
-            assertFailsWith<Exception> { store.setEnabled(false) }
-            assertTrue(store.enabled.value)
+            assertFalse(store.enabled.value)
+            assertFailsWith<Exception> { store.setEnabled(true) }
+            assertFalse(store.enabled.value)
         }
 
     @Test

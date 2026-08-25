@@ -28,7 +28,7 @@ struct SettingsFormView: View {
             }
 
             Section("Diagnostics") {
-                Text("Safe, sanitized breadcrumbs are retained in a bounded on-device store. Collection is enabled by default only when no preference has been saved. Upload occurs only when you press Send to your Jellyfin server. Turning collection off deletes retained safe diagnostics.")
+                Text("Safe, sanitized breadcrumbs are retained in a bounded on-device store. Collection is disabled by default. Upload occurs only when you press Send to your Jellyfin server. Turning collection off deletes retained safe diagnostics.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 LabeledContent("Captured entries", value: String(model.state.diagnosticEntryCount))

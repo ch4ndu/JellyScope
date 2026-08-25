@@ -329,13 +329,13 @@ Current entry-point responsibilities:
   selector admits ExoPlayer, mpv, and LibVLC (beta). Android mpv requires
   API 26+ and refuses via typed availability on older devices.
 - iOS wires AVPlayer, persistent session/settings storage, and Apple lifecycle
-  integrations. Session credentials use the shared Apple Keychain store with
-  device-only, non-synchronizable accessibility; UserDefaults remains for
-  non-credential preferences.
+  integrations. Session credentials and selected preferences use app-owned
+  `NSUserDefaults`; Room remains the store for the data families bound below,
+  and application credential persistence never accesses Keychain.
 - Desktop wires the Compose window, Koin, window-level fullscreen/key/cursor
-  capability bridges, macOS Keychain credentials for signed macOS releases,
-  an explicit JSON-backed development fallback on non-macOS JVM hosts, and
-  the JNA `libmpv` player.
+  capability bridges, the app-owned plaintext JSON secure store under
+  `~/.jellyscope`, and the JNA `libmpv` player. macOS application credentials do
+  not access Keychain; release signing credentials are a separate concern.
 - tvOS wires Koin, presenter factories, and dev prefill through `TvosEntry`
   (the entire Swift-facing surface). Apple-family implementations live in
   `appleMain` (`Apple*`-named); only the store-directory choice (iOS

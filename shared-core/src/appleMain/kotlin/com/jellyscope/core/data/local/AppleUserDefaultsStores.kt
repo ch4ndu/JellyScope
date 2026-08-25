@@ -63,14 +63,7 @@ internal class AppleUserDefaultsLogCollectionPreferenceStore(
     synchronizeDefaults: (() -> Boolean)? = null,
 ) : LogCollectionPreferenceStore {
     private val synchronizeWriter: () -> Boolean = synchronizeDefaults ?: { defaults.synchronize() }
-    private val _enabled =
-        MutableStateFlow(
-            if (defaults.objectForKey(LOG_COLLECTION_ENABLED_KEY) == null) {
-                true
-            } else {
-                defaults.boolForKey(LOG_COLLECTION_ENABLED_KEY)
-            },
-        )
+    private val _enabled = MutableStateFlow(defaults.boolForKey(LOG_COLLECTION_ENABLED_KEY))
     private val _verboseLogcatEnabled = MutableStateFlow(defaults.boolForKey(VERBOSE_LOGCAT_ENABLED_KEY))
     private val _playbackInfoAtStartEnabled = MutableStateFlow(defaults.boolForKey(PLAYBACK_INFO_AT_START_ENABLED_KEY))
 

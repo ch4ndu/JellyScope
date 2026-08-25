@@ -28,7 +28,6 @@ import com.jellyscope.core.data.local.LibraryViewPreferencesStore
 import com.jellyscope.core.data.local.LocalSubtitleAssetStore
 import com.jellyscope.core.data.local.LocalSubtitleFileStore
 import com.jellyscope.core.data.local.LogCollectionPreferenceStore
-import com.jellyscope.core.data.local.MacKeychainSecureStore
 import com.jellyscope.core.data.local.PictureInPictureStore
 import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlaybackSelectionStore
@@ -81,13 +80,9 @@ fun desktopCoreModule() =
     module {
         single { CoreConfig(enableHttpLogging = false) }
         single<SecureStore> {
-            val legacyFile = File(jellyscopeDataDirectory(), DESKTOP_PLAINTEXT_SECURE_STORE_FILE_NAME)
-            if (isMacOs()) {
-                MacKeychainSecureStore(legacyFile = legacyFile)
-            } else {
-                // Explicit development-only fallback for non-macOS JVM hosts.
-                JvmPlainFileSecureStore(file = legacyFile)
-            }
+            JvmPlainFileSecureStore(
+                file = File(jellyscopeDataDirectory(), DESKTOP_PLAINTEXT_SECURE_STORE_FILE_NAME),
+            )
         }
         single {
             JvmFilePreferencesStore(
@@ -186,8 +181,6 @@ private class DesktopDeviceInfoProvider : DeviceInfoProvider {
 
 private const val DESKTOP_PLAINTEXT_SECURE_STORE_FILE_NAME = "secure-store.json"
 private const val DESKTOP_PREFERENCES_FILE_NAME = "preferences.json"
-
-private fun isMacOs(): Boolean = System.getProperty("os.name", "").contains("mac", ignoreCase = true)
 
 internal fun desktopMpvPresentationPreference(osName: String = System.getProperty("os.name", "")): MpvPresentationPreference =
     if (osName.contains("mac", ignoreCase = true)) {
