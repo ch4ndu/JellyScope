@@ -263,6 +263,7 @@ class PlayerViewModel(
     private var playSessionId = deviceInfoProvider.newDeviceId()
     private var plan: PlaybackPlan? = null
     private var installedPlan: PlaybackPlan? = null
+    private var planReportingAuthority = 0L
     private var selectedMediaSourceId: String? = null
     private var selectedSourceContainer: String? = null
     private var mediaStreams: List<PlaybackMediaStream> = emptyList()
@@ -314,6 +315,12 @@ class PlayerViewModel(
     private var subtitleNotice: PlayerNotice? = null
     private var backendNoticeToken = 0L
     private var backendNotice: PlayerBackendNotice? = null
+    private var backendSwitchNoticeToken = 0L
+    private var backendSwitchNotice: PlayerBackendSwitchNotice? = null
+    private var availableBackendsForSession: Set<PlayerBackend> = emptySet()
+    private var backendSwitchGeneration = 0L
+    private var backendSwitchInProgress = false
+    private var backendSwitchJob: Job? = null
     private var selectedQualityMaxBitrate: Long? = null
     private var selectedQualityPolicy: PlaybackQualityPolicy = PlaybackQualityPolicy.Auto
     private var selectedQualityCapOrigin: PlaybackQualityCapOrigin? = null
@@ -450,6 +457,7 @@ class PlayerViewModel(
 
     fun play() {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         desiredPlayWhenReady = true
         restartPlaybackHealthEvidence()
         playerController.play()
@@ -457,6 +465,7 @@ class PlayerViewModel(
 
     fun pause() {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         desiredPlayWhenReady = false
         restartPlaybackHealthEvidence()
         playerController.pause()
@@ -504,6 +513,7 @@ class PlayerViewModel(
 
     fun seekTo(positionMs: Long) {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         val target = positionMs.coerceAtLeast(0L)
         restartPlaybackHealthEvidence(PlaybackHealthExclusionReason.Seek)
         val currentPlan = plan
@@ -535,6 +545,7 @@ class PlayerViewModel(
 
     fun retry() {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         autoplayGeneration += 1
         _state.update { PlayerUiState.Loading }
         playSessionId = deviceInfoProvider.newDeviceId()
@@ -683,6 +694,8 @@ class PlayerViewModel(
     }
 
     fun setResizeMode(mode: PlayerResizeMode) {
+        if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         resizeMode = mode
         if (state.value is PlayerUiState.Content) {
             publishContent()
@@ -690,7 +703,7 @@ class PlayerViewModel(
     }
 
     fun cycleResizeMode(twoState: Boolean = false) {
-        resizeMode =
+        val nextMode =
             if (twoState) {
                 when (resizeMode) {
                     PlayerResizeMode.Fit -> PlayerResizeMode.Fill
@@ -705,15 +718,14 @@ class PlayerViewModel(
                     PlayerResizeMode.Zoom -> PlayerResizeMode.Fit
                 }
             }
-        if (state.value is PlayerUiState.Content) {
-            publishContent()
-        }
+        setResizeMode(nextMode)
     }
 
     fun shuffleQueue() {
         if (queueIds.size <= 1) {
             return
         }
+        invalidateBackendSwitch()
         val currentId = currentItemId
         val existingItemsById = playlist?.items.orEmpty().associateBy { item -> item.id }
         queueIds = listOf(currentId) + queueIds.filterNot { id -> id == currentId }.shuffled()
@@ -734,6 +746,7 @@ class PlayerViewModel(
     }
 
     fun stop() {
+        invalidateBackendSwitch()
         if (controllerInstallInFlight || controllerInstallMutex.isLocked) {
             stopRequestedDuringControllerInstall = true
             return
@@ -755,6 +768,9 @@ class PlayerViewModel(
     }
 
     fun showPicker(picker: PlayerPicker) {
+        if (picker == PlayerPicker.Backend && !canOpenBackendPicker()) {
+            return
+        }
         publishContent(pickerVisible = picker)
     }
 
@@ -762,8 +778,67 @@ class PlayerViewModel(
         publishContent(pickerVisible = PlayerPicker.None)
     }
 
+    /** Starts a session-only remote backend replacement without touching preferences. */
+    fun selectBackend(targetBackend: PlayerBackend) {
+        val policy = deviceProfileProvider?.backendPolicy ?: return
+        val currentPlan = installedPlan ?: return
+        if (
+            disposed ||
+            backendSwitchInProgress ||
+            controllerInstallInFlight ||
+            queueSwitchInFlight ||
+            currentPlan.streamMode == StreamMode.Offline ||
+            playbackState.value.status in backendSwitchTerminalStatuses ||
+            targetBackend == PlayerBackend.Auto ||
+            targetBackend == backend ||
+            targetBackend !in policy.concreteBackends ||
+            targetBackend !in availableBackendsForSession
+        ) {
+            return
+        }
+
+        replanJob?.cancel()
+        replanJob = null
+
+        val switch =
+            BackendSwitchSnapshot(
+                generation = ++backendSwitchGeneration,
+                launchGeneration = playbackLaunchGeneration,
+                itemId = currentItemId,
+                mediaSourceId = currentPlan.mediaSourceId,
+                activePlan = currentPlan,
+                explicitAudioStreamIndex = explicitAudioStreamIndex,
+                requestedAudioStreamIndex = requestedAudioStreamIndex,
+                requestedSubtitleSelection = requestedSubtitleSelection,
+                requestedLocalSubtitleAsset = requestedLocalSubtitleAsset,
+                qualityPolicy =
+                    if (qualityExplicitlyChosen) {
+                        selectedQualityPolicy
+                    } else {
+                        activePlaybackPreferences.effectiveDefaultQualityPolicy(targetBackend)
+                    },
+                qualityExplicit = qualityExplicitlyChosen,
+                wasPaused = playbackState.value.status == PlaybackStatus.Paused || !desiredPlayWhenReady,
+                playbackSpeed = playbackSpeed,
+                subtitleStyle = subtitleStyle,
+                resizeMode = resizeMode,
+                queueIdentity = queueIdentity,
+                targetBackend = targetBackend,
+                defaultBackend = policy.concreteDefaultBackend,
+                planReportingAuthority = planReportingAuthority,
+            )
+        backendSwitchInProgress = true
+        backendSwitchNotice = null
+        publishContent(pickerVisible = PlayerPicker.Backend)
+        backendSwitchJob =
+            viewModelScope.launch {
+                switchBackend(switch)
+            }
+    }
+
     fun selectAudio(streamIndex: Int) {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         val option =
             audioOptions(mediaStreams)
                 .firstOrNull { track -> track.streamIndex == streamIndex }
@@ -899,6 +974,7 @@ class PlayerViewModel(
 
     fun selectSubtitle(streamIndex: Int?) {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         val option =
             streamIndex?.let { selectedIndex ->
                 subtitleOptions(mediaStreams)
@@ -999,6 +1075,7 @@ class PlayerViewModel(
 
     fun selectLocalSubtitle(assetId: String) {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return
         val context = LocalSubtitleContext(session.serverId, session.userId, currentItemId, sourceId)
@@ -1030,6 +1107,7 @@ class PlayerViewModel(
 
     fun selectQuality(maxBitrateBps: Long?) {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         playbackHealthCoordinator.dismissGuidance()
         pendingRecoveredPlaybackGuidanceItemId = null
@@ -1055,6 +1133,7 @@ class PlayerViewModel(
 
     fun selectQuality(policy: PlaybackQualityPolicy) {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val normalized = policy.normalized()
         playbackHealthCoordinator.dismissGuidance()
@@ -1073,6 +1152,7 @@ class PlayerViewModel(
 
     fun acceptAutoPlayback() {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         playbackActionNotice = null
         pendingRecoveredAutoQualityBps = null
@@ -1087,6 +1167,7 @@ class PlayerViewModel(
 
     fun clearQualityOverride() {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val inheritedPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend)
         playbackActionNotice = null
@@ -1103,6 +1184,7 @@ class PlayerViewModel(
 
     fun keepRecoveredQualityForSession() {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val bitrate = autoRecoveryState.runtimeQualityCapBps ?: selectedQualityMaxBitrate ?: return
         selectedQualityPolicy = PlaybackQualityPolicy.fixed(bitrate)
@@ -1117,6 +1199,7 @@ class PlayerViewModel(
 
     fun tryHigherQualityOrOriginal() {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         // Clear recovery state before an explicit uncapped retry.
         pendingRecoveredAutoQualityBps = null
@@ -1137,6 +1220,7 @@ class PlayerViewModel(
 
     fun retryPlaybackFromNotice() {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         playbackActionNotice = null
         playbackSessionRecoveryState =
             playbackSessionRecoveryPolicy.reset(playbackLaunchGeneration, currentItemId)
@@ -1184,6 +1268,7 @@ class PlayerViewModel(
 
     fun setPlaybackSpeed(speed: Float) {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         if (!speed.isFinite()) {
             return
         }
@@ -1195,6 +1280,7 @@ class PlayerViewModel(
 
     fun setSubtitleStyle(style: SubtitleStyle) {
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         subtitleStyle = style
         plan = plan?.copy(subtitleStyle = subtitleStyle)
         playerController.setSubtitleStyle(style)
@@ -1263,6 +1349,7 @@ class PlayerViewModel(
 
     fun dispose() {
         if (disposed) return
+        invalidateBackendSwitch()
         disposed = true
         cancelAndInvalidateSubtitleFallback()
         emitPlaybackHealthSummary()
@@ -1324,6 +1411,7 @@ class PlayerViewModel(
         startPositionTicks: Long,
         resetReporting: Boolean,
     ): Boolean {
+        invalidateBackendSwitch()
         emitPlaybackHealthSummary()
         activePlaybackTimelineFacts = null
         playbackLaunchGeneration += 1L
@@ -2333,6 +2421,7 @@ class PlayerViewModel(
             }
         // Android may lazily construct LibVLC while resolving backends.
         val availableBackends = withContext(workDispatcher) { profileProvider.availableBackends }
+        availableBackendsForSession = availableBackends
         val resolvedBackend =
             requestedBackend.takeIf { candidate -> candidate in availableBackends }
                 ?: profileProvider.backendPolicy.defaultBackend
@@ -2547,6 +2636,508 @@ class PlayerViewModel(
         backendResolvedForSession = false
         playerController.release()
     }
+
+    private fun canOpenBackendPicker(): Boolean =
+        !disposed &&
+            !backendSwitchInProgress &&
+            !controllerInstallInFlight &&
+            !queueSwitchInFlight &&
+            hasBackendSwitchTarget()
+
+    private fun hasBackendSwitchTarget(): Boolean {
+        val policy = deviceProfileProvider?.backendPolicy ?: return false
+        val currentPlan = installedPlan ?: return false
+        return !disposed &&
+            currentPlan.streamMode != StreamMode.Offline &&
+            playbackState.value.status !in backendSwitchTerminalStatuses &&
+            policy.concreteBackends.any { candidate -> candidate != backend }
+    }
+
+    private fun backendSwitchChoices(): List<PlayerBackendSwitchChoice> {
+        val policy = deviceProfileProvider?.backendPolicy ?: return emptyList()
+        return policy.concreteBackends.map { candidate ->
+            PlayerBackendSwitchChoice(
+                backend = candidate,
+                available = candidate in availableBackendsForSession,
+            )
+        }
+    }
+
+    private fun invalidateBackendSwitch() {
+        backendSwitchGeneration += 1L
+        if (!controllerInstallInFlight) {
+            backendSwitchJob?.cancel()
+        }
+        backendSwitchJob = null
+        if (!backendSwitchInProgress) return
+        backendSwitchInProgress = false
+        if (state.value is PlayerUiState.Content) {
+            publishContent(
+                pickerVisible =
+                    currentPicker().takeUnless { picker -> picker == PlayerPicker.Backend }
+                        ?: PlayerPicker.None,
+            )
+        }
+    }
+
+    private fun finishBackendSwitch(switch: BackendSwitchSnapshot) {
+        if (backendSwitchGeneration != switch.generation) return
+        backendSwitchInProgress = false
+        backendSwitchJob = null
+    }
+
+    private fun isCurrentBackendSwitch(switch: BackendSwitchSnapshot): Boolean =
+        !disposed &&
+            backendSwitchGeneration == switch.generation &&
+            playbackLaunchGeneration == switch.launchGeneration &&
+            currentItemId == switch.itemId &&
+            queueIdentity == switch.queueIdentity &&
+            planReportingAuthority == switch.planReportingAuthority &&
+            !queueSwitchInFlight
+
+    private fun abortBackendSwitchInstallation(
+        switch: BackendSwitchSnapshot,
+        candidateOwner: ControllerCandidateOwner,
+        replacementControllerTransferred: Boolean,
+    ) {
+        candidateOwner.releaseUntransferred()
+        if (replacementControllerTransferred) {
+            releaseOwnedPlayerController()
+        }
+        drainStopRequestedDuringControllerInstall(stopController = false)
+        finishBackendSwitch(switch)
+    }
+
+    private suspend fun switchBackend(switch: BackendSwitchSnapshot) {
+        planBackendSwitch(
+            switch = switch,
+            requestedBackend = switch.targetBackend,
+            startPositionMs = switch.activePlan.startPositionMs,
+        ) ?: run {
+            keepCurrentPlaybackAfterBackendSwitchFailure(switch)
+            return
+        }
+        if (!isCurrentBackendSwitch(switch)) return
+        installBackendSwitchController(switch)
+    }
+
+    /** Plans against fresh backend facts while the current controller remains healthy and installed. */
+    private suspend fun planBackendSwitch(
+        switch: BackendSwitchSnapshot,
+        requestedBackend: PlayerBackend,
+        startPositionMs: Long,
+    ): PlaybackPlan? {
+        if (!isCurrentBackendSwitch(switch)) return null
+        val qualityPolicy =
+            if (switch.qualityExplicit) {
+                switch.qualityPolicy
+            } else {
+                activePlaybackPreferences.effectiveDefaultQualityPolicy(requestedBackend)
+            }
+        val qualityCapOrigin =
+            if (switch.qualityExplicit) {
+                PlaybackQualityCapOrigin.ExplicitSessionChoice.takeIf {
+                    qualityPolicy.mode == PlaybackQualityMode.Fixed
+                }
+            } else {
+                PlaybackQualityCapOrigin.SettingsDefault.takeIf {
+                    qualityPolicy.mode == PlaybackQualityMode.Fixed
+                }
+            }
+        val requestPolicy =
+            PlaybackInfoRequestPolicy(
+                backend = requestedBackend,
+                diagnosticSessionSequence = switch.launchGeneration,
+            )
+        val playbackPlan =
+            try {
+                withContext(workDispatcher) {
+                    playbackInfoPlanner.plan(
+                        session = session,
+                        itemId = switch.itemId,
+                        mediaSourceId = switch.mediaSourceId,
+                        startPositionTicks = millisecondsToTicks(startPositionMs),
+                        audioStreamIndex = switch.requestedAudioStreamIndex,
+                        detailMediaStreams = mediaStreams,
+                        subtitleSelection = switch.requestedSubtitleSelection,
+                        localSubtitleAsset = switch.requestedLocalSubtitleAsset?.toPlaybackAsset(),
+                        maxStreamingBitrate = qualityPolicy.maxBitrateBps,
+                        qualityPolicy = qualityPolicy,
+                        qualityCapOrigin = qualityCapOrigin,
+                        requestPolicy = requestPolicy,
+                        sourceContainer = selectedSourceContainer,
+                    )
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Throwable) {
+                if (isCurrentBackendSwitch(switch)) {
+                    logPlannerAttemptFailure(
+                        exception = exception,
+                        requestPolicy = requestPolicy,
+                        qualityPolicy = qualityPolicy,
+                        qualityCapOrigin = qualityCapOrigin,
+                        requestCapBitrateBps = qualityPolicy.maxBitrateBps,
+                    )
+                }
+                return null
+            }
+        if (!isCurrentBackendSwitch(switch) || !preservesBackendSwitchIntent(playbackPlan, switch)) return null
+        val enriched =
+            enrichPlaybackPlan(
+                playbackPlan = playbackPlan,
+                requestedMediaSourceId = switch.mediaSourceId,
+                generation = switch.launchGeneration,
+                itemId = switch.itemId,
+                activationRequestId = nextSubtitleActivationRequestId(),
+                selectedSubtitle = selectedSubtitleMediaStream(),
+            ) ?: return null
+        return enriched.copy(
+            playbackSpeed = switch.playbackSpeed,
+            subtitleStyle = switch.subtitleStyle,
+            qualityPolicy = qualityPolicy,
+            qualityCapOrigin = qualityCapOrigin,
+        )
+    }
+
+    private fun preservesBackendSwitchIntent(
+        playbackPlan: PlaybackPlan,
+        switch: BackendSwitchSnapshot,
+    ): Boolean {
+        if (playbackPlan.itemId != switch.itemId || playbackPlan.mediaSourceId != switch.mediaSourceId) return false
+        if (
+            switch.explicitAudioStreamIndex != null &&
+            playbackPlan.selectedAudioStreamIndex != switch.explicitAudioStreamIndex
+        ) {
+            return false
+        }
+        return when (val selection = switch.requestedSubtitleSelection) {
+            SubtitleSelectionIntent.Unspecified -> true
+            SubtitleSelectionIntent.Off -> playbackPlan.plannedSubtitle is PlannedSubtitle.Off
+            is SubtitleSelectionIntent.Track ->
+                (playbackPlan.plannedSubtitle as? PlannedSubtitle.Track)?.streamIndex == selection.streamIndex
+            is SubtitleSelectionIntent.LocalAsset ->
+                playbackPlan.subtitleAsset?.let { asset ->
+                    asset is SubtitleAsset.LocalFile && asset.assetId == selection.assetId
+                } == true
+        }
+    }
+
+    private fun keepCurrentPlaybackAfterBackendSwitchFailure(switch: BackendSwitchSnapshot) {
+        if (!isCurrentBackendSwitch(switch)) return
+        finishBackendSwitch(switch)
+        backendSwitchNotice = PlayerBackendSwitchNotice(token = ++backendSwitchNoticeToken)
+        publishContent(pickerVisible = PlayerPicker.None)
+    }
+
+    /**
+     * Commits an explicit switch only after target planning succeeds. This intentionally does not
+     * share the automatic Android health-fallback path, whose ExoPlayer-only contract is unchanged.
+     */
+    private suspend fun installBackendSwitchController(switch: BackendSwitchSnapshot): Boolean =
+        controllerInstallMutex.withLock {
+            currentCoroutineContext().ensureActive()
+            if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                drainStopRequestedDuringControllerInstall(stopController = playerControllerFieldOwned)
+                return@withLock false
+            }
+
+            controllerInstallInFlight = true
+            var previousReportingJob: Job? = null
+            val currentJob = currentCoroutineContext()[Job]
+            val candidateOwner = ControllerCandidateOwner()
+            var releasedHealthyController = false
+            var replacementControllerTransferred = false
+            var transactionSettled = false
+            var keptCurrentPlayback = false
+            var confirmedPositionMs = 0L
+            try {
+                val outgoingWasPlaying = playerController.playbackState.value.status == PlaybackStatus.Playing
+                if (outgoingWasPlaying) {
+                    playerController.pause()
+                }
+                confirmedPositionMs =
+                    playerController.playbackState.value.positionMs
+                        .coerceAtLeast(0L)
+                val targetPlan =
+                    planBackendSwitch(
+                        switch = switch,
+                        requestedBackend = switch.targetBackend,
+                        startPositionMs = confirmedPositionMs,
+                    )
+                if (targetPlan == null) {
+                    if (isCurrentBackendSwitch(switch) && !stopRequestedDuringControllerInstall) {
+                        if (outgoingWasPlaying) {
+                            playerController.play()
+                        }
+                        keepCurrentPlaybackAfterBackendSwitchFailure(switch)
+                        keptCurrentPlayback = true
+                    } else {
+                        drainStopRequestedDuringControllerInstall(stopController = playerControllerFieldOwned)
+                    }
+                    return@withLock false
+                }
+                if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                    drainStopRequestedDuringControllerInstall(stopController = playerControllerFieldOwned)
+                    return@withLock false
+                }
+
+                previousReportingJob = reportingJob
+                reportingJob = null
+                if (previousReportingJob != null && previousReportingJob != currentJob) {
+                    previousReportingJob.cancel()
+                }
+                runtimeDiagnosticsJob?.cancel()
+                runtimeDiagnosticsJob = null
+                droppedFrameMeasurementsJob?.cancel()
+                droppedFrameMeasurementsJob = null
+                videoOutputObservationsJob?.cancel()
+                videoOutputObservationsJob = null
+                playbackTransitionObservationsJob?.cancel()
+                playbackTransitionObservationsJob = null
+                volumeStateJob?.cancel()
+                volumeStateJob = null
+                markPlaybackHealthExclusion(PlaybackHealthExclusionReason.BackendReplacement)
+                _state.value = PlayerUiState.Loading
+                _playbackState.update { current -> current.copy(status = PlaybackStatus.Loading, error = null) }
+                releaseOwnedPlayerController()
+                releasedHealthyController = true
+
+                val replacementController =
+                    try {
+                        withContext(workDispatcher) {
+                            playerControllerFactory(switch.targetBackend).also(candidateOwner::acquire)
+                        }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (_: Throwable) {
+                        if (switch.targetBackend == switch.defaultBackend) throw BackendSwitchInstallationException()
+                        withContext(workDispatcher) {
+                            playerControllerFactory(switch.defaultBackend).also(candidateOwner::acquire)
+                        }
+                    }
+                val actualBackend = replacementController.activeBackend
+                if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                    return@withLock false
+                }
+                if (actualBackend == PlayerBackend.Auto) {
+                    throw BackendSwitchInstallationException()
+                }
+
+                val actualPlan =
+                    if (actualBackend == switch.targetBackend) {
+                        targetPlan
+                    } else {
+                        planBackendSwitch(
+                            switch = switch,
+                            requestedBackend = actualBackend,
+                            startPositionMs = confirmedPositionMs,
+                        )
+                    }
+                if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                    return@withLock false
+                }
+                val replacementPlan = actualPlan ?: throw BackendSwitchInstallationException()
+                val installed =
+                    withContext(Dispatchers.Main.immediate) {
+                        currentCoroutineContext().ensureActive()
+                        if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                            null
+                        } else {
+                            candidateOwner.transferTo { controller ->
+                                playerController = controller
+                                playerControllerFieldOwned = true
+                                replacementControllerTransferred = true
+                                backend = actualBackend
+                                concreteControllerInstalled = true
+                                backendResolvedForSession = true
+                                if (actualBackend != switch.targetBackend) {
+                                    backendNotice =
+                                        PlayerBackendNotice(
+                                            token = ++backendNoticeToken,
+                                            requested = switch.targetBackend,
+                                            active = actualBackend,
+                                        )
+                                }
+                                selectedQualityPolicy = replacementPlan.qualityPolicy
+                                selectedQualityMaxBitrate = replacementPlan.qualityPolicy.maxBitrateBps
+                                selectedQualityCapOrigin = replacementPlan.qualityCapOrigin
+                                qualityExplicitlyChosen = switch.qualityExplicit
+                                resizeMode = switch.resizeMode
+                                autoRecoveryState =
+                                    autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, actualBackend)
+                            }
+                            actualBackend
+                        }
+                    }
+                if (installed == null) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                    return@withLock false
+                }
+
+                if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                    return@withLock false
+                }
+                _playbackState.value = playerController.playbackState.value
+                observeRuntimeDiagnostics()
+                observeVolumeState()
+                observeTimingState()
+                observePlaybackState()
+                if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                    return@withLock false
+                }
+                playbackReportingCoordinator.stopNow(positionMs = confirmedPositionMs)
+                if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                    return@withLock false
+                }
+                installPlan(replacementPlan, resetReporting = true, stabilizesQueueSwitch = false)
+                switch.planReportingAuthority = planReportingAuthority
+                loadTimingOffsets()
+                if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                    return@withLock false
+                }
+                playbackLaunchMarker = null
+                markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
+                logPrepareRequested()
+                if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                    return@withLock false
+                }
+                playerController.prepare(replacementPlan)
+                if (rejectSynchronouslyFailedPrepare()) {
+                    finishBackendSwitch(switch)
+                    drainStopRequestedDuringControllerInstall(stopController = true)
+                    transactionSettled = true
+                    return@withLock false
+                }
+                installedPlan = replacementPlan
+                playerController.runtimeDiagnostics.value.prepareEpoch
+                    ?.let(playbackHealthCoordinator::expectVideoOutput)
+                armFirstVideoOutputDebugState()
+                logPrepareDispatched()
+                applyInitialEmbeddedSelections(replacementPlan)
+                if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                    return@withLock false
+                }
+                if (switch.wasPaused) {
+                    desiredPlayWhenReady = false
+                    playerController.pause()
+                } else {
+                    desiredPlayWhenReady = true
+                    playerController.play()
+                }
+                finishBackendSwitch(switch)
+                publishContent(pickerVisible = PlayerPicker.None)
+                maybeStartInstalledAudioUnavailableFallback(replacementPlan)
+                maybeStartInstalledUnavailableFallback(replacementPlan)
+                previousReportingJob?.cancel()
+                drainStopRequestedDuringControllerInstall(stopController = true)
+                transactionSettled = true
+                installed == actualBackend
+            } catch (exception: CancellationException) {
+                if (releasedHealthyController) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                    transactionSettled = true
+                }
+                throw exception
+            } catch (_: Throwable) {
+                if (releasedHealthyController) {
+                    if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                        abortBackendSwitchInstallation(
+                            switch = switch,
+                            candidateOwner = candidateOwner,
+                            replacementControllerTransferred = replacementControllerTransferred,
+                        )
+                    } else {
+                        playbackReportingCoordinator.stopNow(positionMs = confirmedPositionMs)
+                        if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
+                            abortBackendSwitchInstallation(
+                                switch = switch,
+                                candidateOwner = candidateOwner,
+                                replacementControllerTransferred = replacementControllerTransferred,
+                            )
+                        } else {
+                            finishBackendSwitch(switch)
+                            drainStopRequestedDuringControllerInstall(stopController = true)
+                            _state.value = PlayerUiState.Error(error = PlaybackError.Unknown)
+                            logPlaybackTerminalOutcome(PlaybackTerminalOutcome.Failed, PlaybackError.Unknown)
+                        }
+                    }
+                    transactionSettled = true
+                }
+                false
+            } finally {
+                candidateOwner.releaseUntransferred()
+                if (releasedHealthyController && !transactionSettled) {
+                    abortBackendSwitchInstallation(
+                        switch = switch,
+                        candidateOwner = candidateOwner,
+                        replacementControllerTransferred = replacementControllerTransferred,
+                    )
+                }
+                previousReportingJob?.cancel()
+                controllerInstallInFlight = false
+                if (keptCurrentPlayback) {
+                    publishContent(pickerVisible = PlayerPicker.None)
+                }
+            }
+        }
 
     private fun MediaVersion.backendSourceDescriptor(): BackendSourceDescriptor {
         val videoStream = mediaStreams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
@@ -3139,6 +3730,7 @@ class PlayerViewModel(
         subtitleFallbackGeneration: Long? = null,
         audioRecovery: AudioActivationTarget? = null,
     ) {
+        invalidateBackendSwitch()
         if (controllerInstallInFlight) return
         // Offline plans never enter the remote replan path.
         if (plan?.streamMode == StreamMode.Offline) return
@@ -3448,6 +4040,7 @@ class PlayerViewModel(
             plan = playbackPlan,
             playSessionId = playbackPlan.effectivePlaySessionId(),
         )
+        planReportingAuthority += 1L
     }
 
     private fun rejectSynchronouslyFailedPrepare(): Boolean {
@@ -3509,6 +4102,12 @@ class PlayerViewModel(
                 subtitleStyleable = subtitleStyleable,
                 subtitleNotice = subtitleNotice,
                 backendNotice = backendNotice,
+                backendSwitchNotice = backendSwitchNotice,
+                activeBackend = backend,
+                backendChoices = backendSwitchChoices(),
+                backendSwitchControlVisible = hasBackendSwitchTarget(),
+                backendSwitchControlEnabled = canOpenBackendPicker(),
+                backendSwitchInProgress = backendSwitchInProgress,
                 playbackGuidance = playbackGuidance,
                 playbackActionNotice = playbackActionNotice,
                 resizeMode = resizeMode,
@@ -4605,6 +5204,7 @@ class PlayerViewModel(
         if (queueIds.size <= 1 || index !in queueIds.indices) {
             return
         }
+        invalidateBackendSwitch()
         autoplayGeneration += 1
         // Invalidate identity before async planning so held seeks cancel now.
         queueSwitchInFlight = true
@@ -4821,6 +5421,37 @@ private data class PlaybackTerminalRecovery(
     val autoRecoveryTrigger: AutoPlaybackRecoveryTrigger? = null,
     val recoveryDecision: PlaybackRecoveryDecision? = null,
 )
+
+private data class BackendSwitchSnapshot(
+    val generation: Long,
+    val launchGeneration: Long,
+    val itemId: String,
+    val mediaSourceId: String,
+    val activePlan: PlaybackPlan,
+    val explicitAudioStreamIndex: Int?,
+    val requestedAudioStreamIndex: Int?,
+    val requestedSubtitleSelection: SubtitleSelectionIntent,
+    val requestedLocalSubtitleAsset: LocalSubtitleAsset?,
+    val qualityPolicy: PlaybackQualityPolicy,
+    val qualityExplicit: Boolean,
+    val wasPaused: Boolean,
+    val playbackSpeed: Float,
+    val subtitleStyle: SubtitleStyle,
+    val resizeMode: PlayerResizeMode,
+    val queueIdentity: String,
+    val targetBackend: PlayerBackend,
+    val defaultBackend: PlayerBackend,
+    var planReportingAuthority: Long,
+)
+
+private val backendSwitchTerminalStatuses =
+    setOf(
+        PlaybackStatus.Idle,
+        PlaybackStatus.Failed,
+        PlaybackStatus.Completed,
+    )
+
+private class BackendSwitchInstallationException : IllegalStateException("Backend switch installation failed.")
 
 private data class AutomaticRecoveryDiagnostic(
     val trigger: AutoPlaybackRecoveryTrigger,

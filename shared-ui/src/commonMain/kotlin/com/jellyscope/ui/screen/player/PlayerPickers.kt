@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.semantics.contentDescription
 import com.jellyscope.core.domain.model.LocalSubtitleAsset
@@ -42,6 +43,7 @@ import com.jellyscope.core.domain.playback.Chapter
 import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
 import com.jellyscope.core.domain.playback.PlaybackState
+import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.QualityOption
 import com.jellyscope.core.domain.playback.SubtitleRenderStatus
 import com.jellyscope.core.domain.playback.SubtitleStyle
@@ -51,12 +53,14 @@ import com.jellyscope.ui.component.ChromeDimens
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.detail_back
 import com.jellyscope.ui.generated.resources.player_audio_track
+import com.jellyscope.ui.generated.resources.player_backend_current
 import com.jellyscope.ui.generated.resources.player_chapter_cd
 import com.jellyscope.ui.generated.resources.player_no_audio_tracks
 import com.jellyscope.ui.generated.resources.player_no_chapters
 import com.jellyscope.ui.generated.resources.player_no_subtitle_tracks
 import com.jellyscope.ui.generated.resources.player_picker_close
 import com.jellyscope.ui.generated.resources.player_subtitle_off
+import com.jellyscope.ui.generated.resources.settings_player_backend_unavailable
 import com.jellyscope.ui.platform.LocalPlatformCapabilities
 import com.jellyscope.ui.theme.Dimensions
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +71,7 @@ internal fun PlayerPickerSheet(
     content: PlayerUiState.Content,
     playbackStateFlow: StateFlow<PlaybackState>,
     onHidePicker: () -> Unit,
+    onSelectBackend: (PlayerBackend) -> Unit = {},
     onSeekTo: (Long) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onAdjustAudioTiming: (Long) -> Unit = {},
@@ -158,6 +163,16 @@ internal fun PlayerPickerSheet(
                 PlayerPickerDivider()
                 when (content.pickerVisible) {
                     PlayerPicker.None -> Unit
+                    PlayerPicker.Backend ->
+                        BackendPicker(
+                            choices = content.backendChoices,
+                            activeBackend = content.activeBackend,
+                            switchInProgress = content.backendSwitchInProgress,
+                            onSelectBackend = { backend ->
+                                onKeepControlsAlive()
+                                onSelectBackend(backend)
+                            },
+                        )
                     PlayerPicker.Chapters ->
                         ChapterPicker(
                             chapters = content.chapters,
@@ -287,6 +302,61 @@ internal fun PlayerPickerSheet(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackendPicker(
+    choices: List<PlayerBackendSwitchChoice>,
+    activeBackend: PlayerBackend,
+    switchInProgress: Boolean,
+    onSelectBackend: (PlayerBackend) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.heightIn(max = Dimensions.playerPickerListMaxHeight),
+        verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing),
+    ) {
+        itemsIndexed(
+            items = choices,
+            key = { _, choice -> "backend-${choice.backend.name}" },
+        ) { _, choice ->
+            val current = choice.backend == activeBackend
+            val selectable = choice.available && !current && !switchInProgress
+            if (selectable) {
+                PickerRow(
+                    selected = false,
+                    title = playerBackendLabel(choice.backend),
+                    onClick = { onSelectBackend(choice.backend) },
+                )
+            } else {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .alpha(0.55f)
+                            .padding(Dimensions.contentSpacing),
+                    verticalArrangement = Arrangement.spacedBy(Dimensions.badgeVerticalPadding),
+                ) {
+                    Text(
+                        text = playerBackendLabel(choice.backend),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text =
+                            stringResource(
+                                if (current) {
+                                    Res.string.player_backend_current
+                                } else {
+                                    Res.string.settings_player_backend_unavailable
+                                },
+                            ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         }

@@ -35,6 +35,14 @@ data class PlayerBackendPolicy(
 
     /** Converts nullable/legacy persisted values to a backend the platform can own. */
     fun normalizePersisted(value: PlayerBackend?): PlayerBackend = value?.takeIf { backend -> backend in visibleBackends } ?: defaultBackend
+
+    /** Concrete backends that can be selected for an already-running session. */
+    val concreteBackends: List<PlayerBackend>
+        get() = visibleBackends.filterNot { backend -> backend == PlayerBackend.Auto }
+
+    /** The platform fallback target after an explicit active-session switch. */
+    val concreteDefaultBackend: PlayerBackend
+        get() = defaultBackend.takeUnless { backend -> backend == PlayerBackend.Auto } ?: concreteBackends.first()
 }
 
 fun androidPlayerBackendPolicy(): PlayerBackendPolicy =

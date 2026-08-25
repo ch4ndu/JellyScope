@@ -51,7 +51,6 @@ import com.jellyscope.core.domain.playback.PlaybackHealthGuidance
 import com.jellyscope.core.domain.playback.PlaybackHealthGuidanceReason
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
-import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.detail_retry
 import com.jellyscope.ui.generated.resources.player_action_accept_auto
@@ -67,6 +66,7 @@ import com.jellyscope.ui.generated.resources.player_action_try_higher
 import com.jellyscope.ui.generated.resources.player_action_try_original
 import com.jellyscope.ui.generated.resources.player_audio_unavailable
 import com.jellyscope.ui.generated.resources.player_backend_fallback
+import com.jellyscope.ui.generated.resources.player_backend_switch_kept
 import com.jellyscope.ui.generated.resources.player_debug_overlay
 import com.jellyscope.ui.generated.resources.player_dismiss
 import com.jellyscope.ui.generated.resources.player_error
@@ -222,10 +222,40 @@ internal fun BackendFallbackBanner(
                 text =
                     stringResource(
                         Res.string.player_backend_fallback,
-                        notice.requested.displayLabel(),
-                        notice.active.displayLabel(),
+                        playerBackendLabel(notice.requested),
+                        playerBackendLabel(notice.active),
                     ),
                 modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun BackendSwitchKeptBanner(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.widthIn(max = Dimensions.playerDialogMaxWidth),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = PLAYER_NOTICE_SURFACE_ALPHA),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Row(
+            modifier = Modifier.padding(Dimensions.contentSpacing),
+            horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(Dimensions.playerControlIconSize),
+            )
+            Text(
+                text = stringResource(Res.string.player_backend_switch_kept),
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 2,
@@ -493,16 +523,6 @@ private fun playerErrorMessage(error: PlaybackError?): StringResource =
         PlaybackError.Unknown,
         null,
         -> Res.string.player_error
-    }
-
-private fun PlayerBackend.displayLabel(): String =
-    when (this) {
-        PlayerBackend.Auto -> "Auto"
-        PlayerBackend.AVPlayer -> "AVPlayer"
-        PlayerBackend.VlcKit -> "VLCKit"
-        PlayerBackend.ExoPlayer -> "ExoPlayer"
-        PlayerBackend.Mpv -> "mpv"
-        PlayerBackend.LibVlc -> "LibVLC"
     }
 
 @Composable

@@ -603,11 +603,26 @@ enforceable in source.
   inline because extracting them would be a redesign of coupled ViewModel state
   and re-entrant replan rather than a mechanical move.
 - Android backend selection is a concrete server-scoped setting resolved before
-  planning and pinned for a playback session; the selected backend is passed to
-  the planner and device profile. `docs/guides/playback-architecture.md` owns
-  the backend policy itself — defaults, `Auto` normalization, and the visible
-  per-shell order. A selected mpv or LibVLC construction failure triggers a
-  fresh ExoPlayer-qualified replan rather than mutating a live controller.
+  initial planning. That durable initial choice remains authoritative for queue
+  items unless the user makes an explicit session-only switch; the selected
+  backend is passed to the planner and device profile.
+  `docs/guides/playback-architecture.md` owns the backend policy itself —
+  defaults, `Auto` normalization, and the visible per-shell order. A selected
+  mpv or LibVLC construction failure triggers a fresh ExoPlayer-qualified replan
+  rather than mutating a live controller.
+- `PlayerViewModel` additionally owns the narrow explicit remote backend-switch
+  transaction. It holds only session-local UI/generation state, projects the
+  common policy and availability snapshot, plans off Main while the healthy
+  controller remains installed, then uses the existing serialized
+  release-first installer. It revalidates switch, disposal, stop, and
+  installed-plan/reporting authority after its committed suspensions and before
+  reporting installation, `prepare`, and play/pause. It keeps durable backend
+  preference and offline resolution unchanged, and releases each untransferred
+  candidate exactly once. The factory-reported concrete backend, not the
+  request, selects the plan that may reach `prepare`; the switch-only
+  construction fallback is one platform concrete default attempt. Platform
+  controllers/surfaces and tvOS presenter code remain outside this shared
+  transaction.
 - Android mpv keeps `dev.jdtech.mpv.MPVLib` inside the Android engine adapter;
   the class is supplied by the project-owned `android-libmpv` module, whose
   pinned AAR input supplies the unchanged native graph and whose bridge
@@ -951,6 +966,13 @@ what was rejected. Delete an entry when its rule changes.
   `docs/operations/android-native-dependencies.md`.
 
 ### Playback contracts
+
+- **The live backend switch remains inline in `PlayerViewModel`.** It shares
+  launch identity, explicit media intent, controller ownership, reporting, and
+  the serialized installer with normal playback, so a new coordinator would
+  duplicate mutable authority. Rejected: persisting the switch as a Settings
+  change, teaching platform controllers to fetch/replan, a second healthy
+  controller, and extending Android's automatic health fallback to user choice.
 
 - **Launch reads are shared; launch resolution stays owner-specific.** Detail,
   Series, Player, and tvOS previously rebuilt the same source keys and repeated

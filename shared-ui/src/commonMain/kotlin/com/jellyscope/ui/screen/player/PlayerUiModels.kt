@@ -80,6 +80,12 @@ sealed interface PlayerUiState {
         val subtitleStyleable: Boolean = subtitleRenderInfo.styleable,
         val subtitleNotice: PlayerNotice? = null,
         val backendNotice: PlayerBackendNotice? = null,
+        val backendSwitchNotice: PlayerBackendSwitchNotice? = null,
+        val activeBackend: PlayerBackend = PlayerBackend.Auto,
+        val backendChoices: List<PlayerBackendSwitchChoice> = emptyList(),
+        val backendSwitchControlVisible: Boolean = false,
+        val backendSwitchControlEnabled: Boolean = false,
+        val backendSwitchInProgress: Boolean = false,
         val playbackGuidance: PlaybackHealthGuidance? = null,
         val playbackActionNotice: PlaybackActionNotice? = null,
         val resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
@@ -108,6 +114,17 @@ data class PlayerBackendNotice(
     val token: Long,
     val requested: PlayerBackend,
     val active: PlayerBackend,
+)
+
+/** Session-only backend projection from the platform policy and availability snapshot. */
+data class PlayerBackendSwitchChoice(
+    val backend: PlayerBackend,
+    val available: Boolean,
+)
+
+/** A target plan could not replace healthy playback, so the current session stayed installed. */
+data class PlayerBackendSwitchNotice(
+    val token: Long,
 )
 
 // Static debug fields; live fields come from playbackState.
@@ -230,6 +247,7 @@ enum class PlayerPicker {
     Chapters,
     Subtitles,
     Audio,
+    Backend,
     Quality,
     Speed,
     SubtitleStyle,

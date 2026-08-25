@@ -44,6 +44,7 @@ import com.jellyscope.core.domain.playback.PlaybackAction
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlaybackStatus
+import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.SubtitleRenderStatus
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.ui.screen.detail.requestFocusSafely
@@ -126,6 +127,7 @@ internal fun TvPlayerContent(
     onStop: () -> Unit = {},
     onShowPicker: (PlayerPicker) -> Unit,
     onHidePicker: () -> Unit,
+    onSelectBackend: (PlayerBackend) -> Unit = {},
     onSelectAudio: (Int) -> Unit,
     onAdjustAudioTiming: (Long) -> Unit = {},
     onResetAudioTiming: () -> Unit = {},
@@ -165,6 +167,7 @@ internal fun TvPlayerContent(
     var audioNoticeVisible by remember { mutableStateOf(false) }
     var subtitleNoticeVisible by remember { mutableStateOf(false) }
     var backendNoticeVisible by remember { mutableStateOf(false) }
+    var backendSwitchNoticeVisible by remember { mutableStateOf(false) }
     val playerRequester = remember { FocusRequester() }
     val playFocusRequester = remember { FocusRequester() }
     val autoHideScope = rememberCoroutineScope()
@@ -342,6 +345,15 @@ internal fun TvPlayerContent(
             backendNoticeVisible = false
         } else {
             backendNoticeVisible = false
+        }
+    }
+    LaunchedEffect(content?.backendSwitchNotice?.token) {
+        if (content?.backendSwitchNotice != null) {
+            backendSwitchNoticeVisible = true
+            delay(BACKEND_FALLBACK_NOTICE_MS)
+            backendSwitchNoticeVisible = false
+        } else {
+            backendSwitchNoticeVisible = false
         }
     }
     LaunchedEffect(content?.subtitleOptions?.size, content?.chapters?.size, content?.subtitleRenderInfo?.styleable, localMenuVisible) {
@@ -612,6 +624,13 @@ internal fun TvPlayerContent(
                             TvBackendFallbackBanner(notice = notice)
                         }
                     }
+                    AnimatedVisibility(
+                        visible = backendSwitchNoticeVisible,
+                        enter = slideInVertically { height -> -height } + fadeIn(),
+                        exit = slideOutVertically { height -> -height } + fadeOut(),
+                    ) {
+                        TvBackendSwitchKeptBanner()
+                    }
                 }
                 val noticePlacement =
                     Modifier
@@ -806,6 +825,7 @@ internal fun TvPlayerContent(
                     TvPickerOverlay(
                         content = state,
                         onHidePicker = onHidePicker,
+                        onSelectBackend = onSelectBackend,
                         onSelectAudio = onSelectAudio,
                         onAdjustAudioTiming = onAdjustAudioTiming,
                         onResetAudioTiming = onResetAudioTiming,

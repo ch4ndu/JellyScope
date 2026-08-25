@@ -7,7 +7,7 @@
 JellyScope is a Jellyfin client written in Kotlin with Compose Multiplatform.
 It runs on Android phones and tablets, Android TV, Google TV, Fire TV, iPhone,
 iPad, and Apple Silicon Macs. There's also an experimental Apple TV preview.
-The current alpha release is **0.1.0-alpha89**.
+The current alpha release is **0.1.0-alpha90**.
 
 ## Features
 
@@ -19,7 +19,8 @@ The current alpha release is **0.1.0-alpha89**.
   upcoming episodes
 - Movie, show, season, and episode detail with a session-only Version picker
   for alternate sources, plus cast, trailers, and related titles
-- A choice of playback engine on Android, iOS, and macOS
+- A choice of playback engine on Android, iOS, and macOS, switchable from the
+  player without leaving your video
 - Direct play, audio-only conversion, or server transcoding, chosen per title
 - Text and image subtitles, OpenSubtitles downloads, and audio/subtitle timing
   offsets
@@ -78,6 +79,11 @@ packaged releases yet.
 | **VLCKit** — iOS | Wide format range including MKV oddities and Windows Media | No TrueHD; no HDR |
 | **mpv** — macOS default | Wide format range including TrueHD | HDR is tone-mapped in software, so colours differ from a true HDR display; very-high-resolution playback can stutter during continuous pointer movement (LibVLC avoids that specific bottleneck) |
 | **LibVLC (beta)** — macOS | Same wide format range, bundled with the app | Requests server-side HDR-to-SDR conversion; it has an independent very-high-resolution output ceiling and is not a universal fallback |
+
+While watching a video on Android, iPhone, iPad, or macOS, open the video-camera
+button in the player controls to switch to another available player for the
+current session. JellyScope first checks that the new player can preserve the current
+source and track choices; if it cannot, your video keeps playing with the current player.
 
 mpv and the VLC players accept more formats than the system players, sometimes
 through software decoding. A listed codec does not guarantee that every device

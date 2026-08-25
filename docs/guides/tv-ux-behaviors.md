@@ -650,7 +650,14 @@ a behavior must change, update this file in the same commit.
   value — a negative subtitle request on Media3 is stored as zero; changing
   tracks or sources starts from its own stored value.
 - Chapters, trickplay thumbnails, speed, subtitle appearance, and aspect/zoom
-  controls remain D-pad reachable and restore focus to their opener. Adding a
+  controls remain D-pad reachable and restore focus to their opener. The remote
+  **Player backend** control follows the same rule for remote playback: its modal
+  projects policy-ordered concrete choices, keeps current/unavailable choices
+  non-focusable, places first focus on the first selectable target, and supplies
+  a modal-owned localized Close action when no row is selectable (including
+  during switching). It traps focus, dismisses with BACK, and restores the
+  control opener after either dismissal or a target-planning failure. `Auto` is
+  not a player-picker row. Adding a
   `PlayerPicker` value requires updating every exhaustive picker branch.
 
 ## Grid (View All) screens
@@ -989,6 +996,13 @@ Rationale for rules this guide states — the choice, its reason, and the
 rejected alternatives.
 
 ### Related shelf focus
+
+- **TV backend switching reuses the player picker contract.** The existing
+  focus trap, first-selectable target, modal-owned Close fallback, BACK
+  dismissal, and opener restoration already express a bounded D-pad choice.
+  Rejected: a separate backend dialog, focusable unavailable/current rows, an
+  Android-TV-only backend policy, and changing queue/video navigation while the
+  picker is added.
 
 - **TV owns focus and scroll, not related-source policy.** The shared model,
   repository, and detail consumers already establish deterministic shelf

@@ -139,6 +139,7 @@ fun PlayerScreen(
         onRetry = viewModel::retry,
         onShowPicker = viewModel::showPicker,
         onHidePicker = viewModel::hidePicker,
+        onSelectBackend = viewModel::selectBackend,
         onSelectAudio = viewModel::selectAudio,
         onAdjustAudioTiming = viewModel::adjustAudioTiming,
         onResetAudioTiming = viewModel::resetAudioTiming,

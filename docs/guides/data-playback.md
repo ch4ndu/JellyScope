@@ -366,12 +366,24 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   While the probe is still resolving, and if it fails, the picker keeps the full
   policy list rather than showing nothing; a probe that reports no backends
   falls back to the policy default backend.
-  `resolvePlayerBackend` picks one concrete backend once per playback session
+  `resolvePlayerBackend` picks one concrete backend once per initial playback session
   from the server setting, any compatible item override, source descriptor, and
-  runtime availability. The backend is pinned for the session (queue switches
-  reuse it; no live mid-playback switching) and flows into
-  `PlaybackInfoRequestPolicy.backend` so PlaybackInfo uses that backend's device
-  profile. Android's ExoPlayer path is Media3 1.9.0 with decoder fallback and
+  runtime availability. That durable initial backend remains authoritative for
+  queue switches unless the user makes an explicit session-only switch, and
+  flows into `PlaybackInfoRequestPolicy.backend` so PlaybackInfo uses that
+  backend's device profile. An explicit remote in-player switch is a separate
+  session-local replacement: it projects the same concrete policy/availability
+  truth, filters `Auto`, keeps unavailable choices disabled, and preserves the stored
+  preference. A target preflight plan is built with explicit source/audio/
+  subtitle and quality intent before teardown; failure preserves the healthy
+  controller, plan, item/reporting identity, and emits no Stop. For the final
+  commit, the serialized installer pauses an originally playing controller,
+  refreshes confirmed position, and builds a final target-qualified plan before
+  release; a pre-teardown failure restores the prior play/pause intent and
+  keeps that playback. The factory's actual backend requires a matching clean
+  plan; only an explicit target switch
+  may construct the concrete platform default once after target construction
+  fails, never the Android automatic-health fallback. Android's ExoPlayer path is Media3 1.9.0 with decoder fallback and
   the Jellyfin FFmpeg extension (`org.jellyfin.media3:media3-ffmpeg-decoder`
   from Maven Central); FFmpeg is an ExoPlayer decoder extension, not a third
   backend. Media3 is pinned to 1.9.0 because the published decoder's version
@@ -1467,8 +1479,9 @@ rather than porting code. When probing a live server:
 - `docs/guides/playback-architecture.md` owns Android backend policy — the
   default, `Auto` normalization, and the visible per-shell order. Within that
   policy, mpv is the TV opt-in alternate backend and the existing backend
-  dialog is the explicit opt-in; selection is resolved before PlaybackInfo,
-  persisted server-scoped, and pinned for the session.
+  dialog is the explicit opt-in; the persisted server-scoped choice resolves
+  initial PlaybackInfo and remains authoritative across queue items unless the
+  user makes an explicit session-only switch.
 - `AndroidMpvRuntimeAvailability` is a cached, cheap bundled-library check. It
   verifies the OS API level first — mpv requires Android API 26+
   (`ANDROID_MPV_MIN_OS_API`), and older devices get the same typed availability
@@ -3392,9 +3405,10 @@ operative text lives in the body sections above, never here.
 - **tvOS keeps the system player.** `AVPlayerViewController` provides chapters,
   segment skipping, and track menus far more cheaply than a custom overlay.
   A custom overlay, and trickplay thumbnails with it, are deferred behind it.
-- **iOS ships two players; the backend is resolved once per item.** One
-  controller per session; live mid-playback switching was rejected
-  (deferred). AVPlayer stays the default and Auto routes to it — including
+- **iOS ships two players with one guarded session switch.** One controller is
+  authoritative at a time: explicit remote switching plans before teardown and
+  has at most one default-construction fallback, while planning failure leaves
+  the current controller untouched. AVPlayer stays the default and Auto routes to it — including
   HDR/Dolby Vision — falling to VLCKit only when the source needs something
   AVPlayer lacks. VLCKit is iOS-only; tvOS never links it.
 - **iOS VLCKit transition readiness is strict only inside its bounded window.**

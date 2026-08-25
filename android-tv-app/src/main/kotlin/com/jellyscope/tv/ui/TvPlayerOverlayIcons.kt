@@ -26,6 +26,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -43,6 +44,8 @@ internal fun TvCircleButton(
     icon: PlayerButtonIcon,
     modifier: Modifier = Modifier,
     size: androidx.compose.ui.unit.Dp = TvDimens.playerButtonSize,
+    enabled: Boolean = true,
+    focusableWhenDisabled: Boolean = false,
 ) {
     var focused by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -52,13 +55,13 @@ internal fun TvCircleButton(
         if (focused) {
             Color.White
         } else {
-            Color.White.copy(alpha = 0.14f)
+            Color.White.copy(alpha = if (enabled) 0.14f else 0.06f)
         }
     val foreground =
         if (focused) {
             LocalJellyfinPalette.current.onFocusedLight
         } else {
-            LocalJellyfinPalette.current.textPrimary
+            LocalJellyfinPalette.current.textPrimary.copy(alpha = if (enabled) 1f else 0.42f)
         }
 
     Box(
@@ -75,14 +78,16 @@ internal fun TvCircleButton(
                 .focusProperties { up = upRequester }
                 .onFocusChanged { state -> focused = state.isFocused }
                 .clickable(
+                    enabled = enabled,
                     interactionSource = interactionSource,
                     indication = null,
                     role = Role.Button,
                     onClick = onClick,
-                ).focusable()
+                ).focusable(enabled = enabled || focusableWhenDisabled)
                 .semantics {
                     this.contentDescription = contentDescription
                     role = Role.Button
+                    if (!enabled) disabled()
                 },
         contentAlignment = Alignment.Center,
     ) {
@@ -103,6 +108,7 @@ internal fun PlayerIcon(
             when (icon) {
                 PlayerButtonIcon.Subtitles -> TvIcons.Subtitles
                 PlayerButtonIcon.Audio -> TvIcons.MusicNote
+                PlayerButtonIcon.Backend -> TvIcons.Video
                 PlayerButtonIcon.Quality -> TvIcons.QualityHigh
                 PlayerButtonIcon.Chapters -> TvIcons.FormatListBulleted
                 PlayerButtonIcon.Speed -> TvIcons.Speedometer
@@ -121,6 +127,7 @@ internal fun PlayerIcon(
 internal enum class PlayerButtonIcon {
     Subtitles,
     Audio,
+    Backend,
     Quality,
     Chapters,
     Speed,

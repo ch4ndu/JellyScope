@@ -9,6 +9,7 @@ import androidx.compose.ui.res.stringResource
 import com.jellyscope.core.domain.playback.AudioTrackOption
 import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
+import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.QualityOption
 import com.jellyscope.core.domain.playback.QualityTier
 import com.jellyscope.core.domain.playback.SubtitleStyle
@@ -24,6 +25,7 @@ internal fun pickerTitle(picker: PlayerPicker): String =
     when (picker) {
         PlayerPicker.Subtitles -> stringResource(R.string.tv_subtitles)
         PlayerPicker.Audio -> stringResource(R.string.tv_audio)
+        PlayerPicker.Backend -> stringResource(R.string.tv_player_backend)
         PlayerPicker.Quality -> stringResource(R.string.tv_quality)
         PlayerPicker.Chapters -> stringResource(R.string.tv_chapters)
         PlayerPicker.AudioOffset ->
@@ -37,6 +39,19 @@ internal fun pickerTitle(picker: PlayerPicker): String =
         PlayerPicker.Resize,
         -> ""
     }
+
+@Composable
+internal fun playerBackendLabel(backend: PlayerBackend): String =
+    stringResource(
+        when (backend) {
+            PlayerBackend.Auto -> R.string.tv_player_backend_auto
+            PlayerBackend.AVPlayer -> R.string.tv_player_backend_avplayer
+            PlayerBackend.VlcKit -> R.string.tv_player_backend_vlckit
+            PlayerBackend.ExoPlayer -> R.string.tv_settings_player_backend_exoplayer
+            PlayerBackend.Mpv -> R.string.tv_settings_player_backend_mpv
+            PlayerBackend.LibVlc -> R.string.tv_settings_player_backend_libvlc
+        },
+    )
 
 @Composable
 internal fun subtitleSecondary(option: SubtitleTrackOption): String? =

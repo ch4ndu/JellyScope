@@ -42,7 +42,6 @@ import com.jellyscope.core.domain.playback.PlaybackHealthGuidance
 import com.jellyscope.core.domain.playback.PlaybackHealthGuidanceReason
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
-import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.tv.R
 import com.jellyscope.ui.screen.detail.requestFocusSafely
@@ -258,9 +257,37 @@ internal fun TvBackendFallbackBanner(
             text =
                 stringResource(
                     R.string.tv_player_backend_fallback,
-                    notice.requested.tvBackendLabel(),
-                    notice.active.tvBackendLabel(),
+                    playerBackendLabel(notice.requested),
+                    playerBackendLabel(notice.active),
                 ),
+            style = TvBodyStyle.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 2,
+        )
+    }
+}
+
+@Composable
+internal fun TvBackendSwitchKeptBanner(modifier: Modifier = Modifier) {
+    Row(
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(TvDimens.panelRadius))
+                .background(LocalJellyfinPalette.current.surfaceNavy.copy(alpha = 0.94f))
+                .padding(
+                    horizontal = TvDimens.playerPickerPadding,
+                    vertical = TvDimens.formGap,
+                ),
+        horizontalArrangement = Arrangement.spacedBy(TvDimens.playerOverlayGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = TvIcons.InformationOutline,
+            contentDescription = null,
+            tint = LocalJellyfinPalette.current.cyan,
+            modifier = Modifier.size(TvDimens.playerIconSize),
+        )
+        TvText(
+            text = stringResource(R.string.tv_player_backend_switch_kept),
             style = TvBodyStyle.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 2,
         )
@@ -517,16 +544,6 @@ internal fun TvAudioUnavailableGlyph(modifier: Modifier = Modifier) {
         )
     }
 }
-
-private fun PlayerBackend.tvBackendLabel(): String =
-    when (this) {
-        PlayerBackend.Auto -> "Auto"
-        PlayerBackend.AVPlayer -> "AVPlayer"
-        PlayerBackend.VlcKit -> "VLCKit"
-        PlayerBackend.ExoPlayer -> "ExoPlayer"
-        PlayerBackend.Mpv -> "mpv"
-        PlayerBackend.LibVlc -> "LibVLC"
-    }
 
 @Composable
 internal fun TvPlayerError(

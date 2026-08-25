@@ -37,12 +37,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
 import com.jellyscope.core.domain.playback.PlaybackState
+import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.SubtitleRenderStatus
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.core.domain.playback.currentChapterIndex
 import com.jellyscope.tv.R
 import com.jellyscope.tv.ui.focus.TvFocusTrapEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
+import com.jellyscope.ui.screen.player.PlayerBackendSwitchChoice
 import com.jellyscope.ui.screen.player.PlayerPicker
 import com.jellyscope.ui.screen.player.PlayerResizeMode
 import com.jellyscope.ui.screen.player.PlayerUiState
@@ -52,12 +54,15 @@ import com.jellyscope.ui.screen.player.playbackSpeeds
 import com.jellyscope.ui.screen.player.speedLabel
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlinx.coroutines.flow.StateFlow
+import com.jellyscope.ui.component.DetailBodyStyle as TvBodyStyle
+import com.jellyscope.ui.component.DetailSecondaryStyle as TvSecondaryStyle
 import com.jellyscope.ui.component.DetailText as TvText
 
 @Composable
 internal fun TvPickerOverlay(
     content: PlayerUiState.Content,
     onHidePicker: () -> Unit,
+    onSelectBackend: (PlayerBackend) -> Unit = {},
     onSelectAudio: (Int) -> Unit,
     onAdjustAudioTiming: (Long) -> Unit = {},
     onResetAudioTiming: () -> Unit = {},
@@ -74,7 +79,7 @@ internal fun TvPickerOverlay(
     val firstRowRequester = remember(content.pickerVisible) { FocusRequester() }
     TvFocusTrapEffect()
 
-    LaunchedEffect(content.pickerVisible) {
+    LaunchedEffect(content.pickerVisible, content.backendSwitchInProgress) {
         firstRowRequester.requestFocusSafely()
     }
 
@@ -130,6 +135,15 @@ internal fun TvPickerOverlay(
                         .background(Color.White.copy(alpha = 0.12f)),
             )
             when (content.pickerVisible) {
+                PlayerPicker.Backend ->
+                    BackendPickerRows(
+                        choices = content.backendChoices,
+                        activeBackend = content.activeBackend,
+                        switchInProgress = content.backendSwitchInProgress,
+                        firstRowRequester = firstRowRequester,
+                        onHidePicker = onHidePicker,
+                        onSelectBackend = onSelectBackend,
+                    )
                 PlayerPicker.Subtitles ->
                     SubtitlePickerRows(
                         options = content.subtitleOptions,
@@ -192,6 +206,83 @@ internal fun TvPickerOverlay(
                 PlayerPicker.Queue,
                 PlayerPicker.Resize,
                 -> Unit
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackendPickerRows(
+    choices: List<PlayerBackendSwitchChoice>,
+    activeBackend: PlayerBackend,
+    switchInProgress: Boolean,
+    firstRowRequester: FocusRequester,
+    onHidePicker: () -> Unit,
+    onSelectBackend: (PlayerBackend) -> Unit,
+) {
+    val firstSelectableIndex =
+        choices.indexOfFirst { choice ->
+            choice.available && choice.backend != activeBackend && !switchInProgress
+        }
+    LazyColumn(
+        modifier = Modifier.heightIn(max = TvDimens.playerMenuMaxHeight),
+        verticalArrangement = Arrangement.spacedBy(TvDimens.playerBadgeVerticalPadding),
+    ) {
+        if (firstSelectableIndex < 0) {
+            item(key = "backend-dismiss") {
+                TvPickerRow(
+                    title = stringResource(R.string.tv_player_action_close),
+                    selected = false,
+                    focusRequester = firstRowRequester,
+                    onClick = onHidePicker,
+                )
+            }
+        }
+        itemsIndexed(
+            items = choices,
+            key = { _, choice -> "backend-${choice.backend.name}" },
+            contentType = { _, _ -> "backend-row" },
+        ) { index, choice ->
+            val current = choice.backend == activeBackend
+            val selectable = choice.available && !current && !switchInProgress
+            if (selectable) {
+                TvPickerRow(
+                    title = playerBackendLabel(choice.backend),
+                    selected = false,
+                    focusRequester =
+                        firstRowRequester.takeIf { index == firstSelectableIndex },
+                    onClick = { onSelectBackend(choice.backend) },
+                )
+            } else {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = TvDimens.playerPickerPadding,
+                                vertical = TvDimens.formGap,
+                            ),
+                    verticalArrangement = Arrangement.spacedBy(TvDimens.playerBadgeVerticalPadding),
+                ) {
+                    TvText(
+                        text = playerBackendLabel(choice.backend),
+                        style = TvBodyStyle,
+                        color = LocalJellyfinPalette.current.textSecondary,
+                        maxLines = 1,
+                    )
+                    TvText(
+                        text =
+                            stringResource(
+                                if (current) {
+                                    R.string.tv_player_backend_current
+                                } else {
+                                    R.string.tv_settings_player_backend_unavailable
+                                },
+                            ),
+                        style = TvSecondaryStyle,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }

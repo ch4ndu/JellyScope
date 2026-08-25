@@ -62,6 +62,7 @@ import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlaybackStatus
+import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.ui.adaptive.WindowWidthTier
 import com.jellyscope.ui.platform.LocalFullscreenToggle
@@ -94,6 +95,7 @@ fun PlayerContent(
     onRetry: () -> Unit,
     onShowPicker: (PlayerPicker) -> Unit,
     onHidePicker: () -> Unit,
+    onSelectBackend: (PlayerBackend) -> Unit = {},
     onSelectAudio: (Int) -> Unit,
     onAdjustAudioTiming: (Long) -> Unit = {},
     onResetAudioTiming: () -> Unit = {},
@@ -142,6 +144,7 @@ fun PlayerContent(
     var audioNoticeVisible by rememberSaveable { mutableStateOf(false) }
     var subtitleNoticeVisible by rememberSaveable { mutableStateOf(false) }
     var backendNoticeVisible by rememberSaveable { mutableStateOf(false) }
+    var backendSwitchNoticeVisible by rememberSaveable { mutableStateOf(false) }
     val platformCapabilities = LocalPlatformCapabilities.current
     val fullscreenToggle = LocalFullscreenToggle.current
     val playerCursorState = LocalPlayerCursorState.current
@@ -362,6 +365,15 @@ fun PlayerContent(
             backendNoticeVisible = false
         } else {
             backendNoticeVisible = false
+        }
+    }
+    LaunchedEffect(content?.backendSwitchNotice?.token) {
+        if (content?.backendSwitchNotice != null) {
+            backendSwitchNoticeVisible = true
+            delay(BACKEND_FALLBACK_NOTICE_MS)
+            backendSwitchNoticeVisible = false
+        } else {
+            backendSwitchNoticeVisible = false
         }
     }
     PlayerKeyCommandRegistration(
@@ -627,6 +639,26 @@ fun PlayerContent(
                         }
                     }
                     AnimatedVisibility(
+                        visible = !isInPictureInPicture && backendSwitchNoticeVisible,
+                        enter = slideInVertically { height -> -height } + fadeIn(),
+                        exit = slideOutVertically { height -> -height } + fadeOut(),
+                        modifier =
+                            Modifier
+                                .align(Alignment.TopCenter)
+                                .zIndex(PlayerOverlayLayer.POPUP),
+                    ) {
+                        BackendSwitchKeptBanner(
+                            modifier =
+                                Modifier
+                                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                                    .padding(
+                                        start = Dimensions.screenPadding,
+                                        end = Dimensions.screenPadding,
+                                        top = Dimensions.formSpacing,
+                                    ),
+                        )
+                    }
+                    AnimatedVisibility(
                         visible =
                             !isInPictureInPicture &&
                                 (playerContent.playbackActionNotice != null || playerContent.playbackGuidance != null),
@@ -889,6 +921,7 @@ fun PlayerContent(
                                 onHidePicker()
                                 controlsVisible = true
                             },
+                            onSelectBackend = onSelectBackend,
                             onSeekTo = onSeekTo,
                             onSelectAudio = onSelectAudio,
                             onAdjustAudioTiming = onAdjustAudioTiming,

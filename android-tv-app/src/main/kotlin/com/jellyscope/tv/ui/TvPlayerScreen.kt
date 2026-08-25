@@ -189,6 +189,7 @@ fun TvPlayerScreen(
         onStop = onStopAction,
         onShowPicker = viewModel::showPicker,
         onHidePicker = viewModel::hidePicker,
+        onSelectBackend = viewModel::selectBackend,
         onSelectAudio = viewModel::selectAudio,
         onAdjustAudioTiming = viewModel::adjustAudioTiming,
         onResetAudioTiming = viewModel::resetAudioTiming,

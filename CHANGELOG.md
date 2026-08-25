@@ -2,6 +2,13 @@
 
 Notable JellyScope changes, newest first.
 
+## 0.1.0-alpha90 — switch players without leaving playback · week 7 · 2026-08-24
+
+- Android mobile and TV, iPhone, iPad, and macOS can switch to another available playback engine from the video-camera control while watching a video streamed from Jellyfin; the choice applies only to the current session, and unavailable engines remain visible with an explanation.
+- JellyScope checks the requested engine against the current media source, audio track, subtitle track, and playback position before replacing the player. If that plan cannot preserve the active choices, the picker closes and the video keeps playing with the current engine.
+- Successful switches retain play or pause intent, position, quality, tracks, queue and reporting continuity; Android TV keeps D-pad focus inside the picker and restores it to the invoking control after dismissal or a preserved-playback failure.
+- Automated lint, the focused causal test, shared host tests, Android TV tests, both minified Android release assemblies, native-payload and license checks, and iOS framework linkage passed. The maintainer reports that the complete backend-switching flow passed device validation on the targeted surfaces.
+
 ## 0.1.0-alpha89 — harden playback capability and startup ownership · week 6 · 2026-08-23
 
 - Android LibVLC now retains every independently measured finite decoder limit instead of discarding useful evidence when another probe field is unavailable, while Android mpv keeps its stricter complete-probe policy.

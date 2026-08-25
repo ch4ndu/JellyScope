@@ -265,8 +265,17 @@ without resetting Settings scroll or focus.
   the fatal player-error dialog, which reports a stream that cannot play at all.
 - Playback notices use the debug-overlay surface treatment (translucent black with
   white content) rather than an opaque themed surface, so they read as player
-  overlay rather than app chrome. The audio/subtitle/backend-fallback banners keep
-  their themed treatment.
+  overlay rather than app chrome. The audio/subtitle/backend-fallback and timed
+  "current playback was kept" banners keep their themed treatment; failed target
+  planning is distinct from a successful construction fallback.
+- The shared player control strip exposes a **Player backend** picker for
+  eligible remote content whenever policy has a non-current concrete target,
+  including when every alternate is unavailable so the user can inspect the
+  disabled explanations. `Auto` is absent, current and unavailable rows are
+  disabled, and no label is hardcoded in a shell. The control is absent for
+  offline content and disabled rather than rendered as a no-op while a
+  session-local switch is in progress; the ViewModel closes the picker on either
+  committed replacement or pre-teardown failure.
 - The buffering spinner doubles in size on a Compact width tier; its stroke scales
   with it. Size tokens are player-specific and must not change the shared
   `progressIndicatorSize` used by non-player surfaces.
@@ -724,6 +733,14 @@ rejected. An entry is deleted when its rule changes.
   requirement, not a blanket prefix.
 
 ### Player notices and warnings
+
+- **The backend picker is a session control, not Settings in disguise.** Showing
+  policy and availability truth together keeps known disabled targets available
+  for inspection without rewriting a stored preference; the distinct failure
+  notice assures the user that planning preserved playback. Rejected: hiding
+  unavailable choices, exposing `Auto`, an enabled-looking offline or
+  in-progress no-op, optimistic teardown, a persisted write from player
+  controls, and reusing the fallback success copy for target-planning failure.
 
 - **One compact debug projection is shared by every player shell.** Central
   ownership prevents label, formatting, privacy, unavailable-state, and row-order

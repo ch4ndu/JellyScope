@@ -62,6 +62,13 @@ object TvIcons {
         mdiIcon("music-note", "M12 3V13.55C11.41 13.21 10.73 13 10 13C7.79 13 6 14.79 6 17S7.79 21 10 21 14 19.21 14 17V7H18V3H12Z")
     }
 
+    val Video: ImageVector by lazy {
+        mdiIcon(
+            "video",
+            "M17,10.5V7C17,5.9 16.1,5 15,5H5C3.9,5 3,5.9 3,7V17C3,18.1 3.9,19 5,19H15C16.1,19 17,18.1 17,17V13.5L21,17.5V6.5L17,10.5Z",
+        )
+    }
+
     val VolumeOff: ImageVector by lazy {
         mdiIcon(
             "volume-off",

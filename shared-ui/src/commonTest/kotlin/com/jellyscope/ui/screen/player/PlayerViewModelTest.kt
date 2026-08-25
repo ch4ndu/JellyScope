@@ -289,6 +289,45 @@ class PlayerViewModelTest {
         }
 
     @Test
+    fun targetBackendPlanningFailureKeepsHealthyPlaybackAndReportingInstalled() =
+        runPlayerViewModelTest {
+            val fixture =
+                playerFixture(
+                    activeBackend = PlayerBackend.AVPlayer,
+                    deviceProfileProvider = appleOfflineProfileProvider(),
+                    playbackInfoResults =
+                        ArrayDeque(
+                            listOf(
+                                Result.success(directPlayPlaybackInfo),
+                                Result.failure(IllegalStateException("target planning failed")),
+                            ),
+                        ),
+                    playerControllerFactory = { error("target planning failure must not construct a controller") },
+                )
+
+            runCurrent()
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 12_000L)
+            runCurrent()
+            val healthyPlan = assertNotNull(fixture.controller.preparedPlan)
+
+            fixture.viewModel.showPicker(PlayerPicker.Backend)
+            fixture.viewModel.selectBackend(PlayerBackend.VlcKit)
+            runCurrent()
+
+            val content = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
+            assertSame(fixture.controller, fixture.viewModel.currentPlayerController)
+            assertSame(healthyPlan, fixture.controller.preparedPlan)
+            assertEquals(PlayerBackend.AVPlayer, content.activeBackend)
+            assertEquals("item-1", content.playbackItemId)
+            assertEquals(PlayerPicker.None, content.pickerVisible)
+            assertNotNull(content.backendSwitchNotice)
+            assertEquals(0, fixture.controller.releaseCount)
+            assertTrue(fixture.reporter.reports.none { report -> report is Report.Stopped })
+
+            fixture.viewModel.dispose()
+        }
+
+    @Test
     fun requestedConstructionFailureFallsBackOnlyAfterOutgoingReleaseAndRecordsActualBackend() =
         runPlayerViewModelTest {
             val fallbackController = FakePlayerController(confirmInitialAudio = true)

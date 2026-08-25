@@ -79,6 +79,7 @@ internal fun TvPlayerOverlay(
     val seekRequester = remember { FocusRequester() }
     val subtitlesRequester = remember { FocusRequester() }
     val audioRequester = remember { FocusRequester() }
+    val backendRequester = remember { FocusRequester() }
     val qualityRequester = remember { FocusRequester() }
     val chaptersRequester = remember { FocusRequester() }
     val speedRequester = remember { FocusRequester() }
@@ -91,6 +92,8 @@ internal fun TvPlayerOverlay(
     // Timing support alone does not mean the item has subtitles.
     val showSubtitleButton = content.hasSubtitlePickerChoice()
     val showAudioButton = content.audioOptions.size > 1 || content.timingState.audio.isSupported
+    val showBackendButton = content.backendSwitchControlVisible
+    val backendButtonEnabled = content.backendSwitchControlEnabled
     val showSubtitleStyleButton = content.subtitleStyleable
     val showChaptersButton = content.chapters.isNotEmpty()
     var seekFocused by remember { mutableStateOf(false) }
@@ -103,6 +106,7 @@ internal fun TvPlayerOverlay(
                 when {
                     initialFocusPicker == PlayerPicker.Subtitles && showSubtitleButton -> subtitlesRequester
                     initialFocusPicker == PlayerPicker.Audio && showAudioButton -> audioRequester
+                    initialFocusPicker == PlayerPicker.Backend && showBackendButton -> backendRequester
                     initialFocusPicker == PlayerPicker.Quality -> qualityRequester
                     initialFocusMenu == TvPlayerLocalMenu.Chapters && showChaptersButton -> chaptersRequester
                     initialFocusMenu == TvPlayerLocalMenu.Speed -> speedRequester
@@ -208,6 +212,7 @@ internal fun TvPlayerOverlay(
                         ) {
                             val onSubtitlesClick = remember(onShowPicker) { { onShowPicker(PlayerPicker.Subtitles) } }
                             val onAudioClick = remember(onShowPicker) { { onShowPicker(PlayerPicker.Audio) } }
+                            val onBackendClick = remember(onShowPicker) { { onShowPicker(PlayerPicker.Backend) } }
                             val onQualityClick = remember(onShowPicker) { { onShowPicker(PlayerPicker.Quality) } }
                             val onChaptersClick = remember(onShowLocalMenu) { { onShowLocalMenu(TvPlayerLocalMenu.Chapters) } }
                             val onSpeedClick = remember(onShowLocalMenu) { { onShowLocalMenu(TvPlayerLocalMenu.Speed) } }
@@ -238,6 +243,18 @@ internal fun TvPlayerOverlay(
                                         onClick = onAudioClick,
                                         icon = PlayerButtonIcon.Audio,
                                         size = TvDimens.playerOptionButtonSize,
+                                    )
+                                }
+                                if (showBackendButton) {
+                                    TvCircleButton(
+                                        contentDescription = stringResource(R.string.tv_player_backend),
+                                        focusRequester = backendRequester,
+                                        upRequester = seekRequester,
+                                        onClick = onBackendClick,
+                                        icon = PlayerButtonIcon.Backend,
+                                        size = TvDimens.playerOptionButtonSize,
+                                        enabled = backendButtonEnabled,
+                                        focusableWhenDisabled = true,
                                     )
                                 }
                                 TvCircleButton(

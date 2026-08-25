@@ -50,6 +50,28 @@ The following rules are non-negotiable:
   the immutable plan is installed. Native resource configuration may make an
   already-selected backend safer to execute, but it cannot change DirectPlay
   eligibility, the user quality policy, a device profile, or the wire request.
+- A remote current playback may take one explicit, session-local concrete-backend
+  switch. The ViewModel projects `PlayerBackendPolicy` in policy order, excludes
+  `Auto`, leaves known unavailable choices visible but disabled, and never writes
+  the persisted backend preference. It first builds and validates a clean
+  target-qualified plan while the healthy controller remains installed. The
+  switch captures explicit source/audio/subtitle/quality intent, play/pause,
+  speed, subtitle style, resize mode, queue identity, and installed-plan/
+  reporting authority; it never carries outgoing decoder, health, dropped-frame,
+  recovery, or runtime bitrate facts into the target request. A preflight
+  planning or explicit-intent failure closes the picker and presents the timed
+  "current playback was kept" notice without a Stop or teardown. For the final
+  commit, the serialized installer revalidates authority, pauses an originally
+  playing outgoing controller, refreshes confirmed position, and builds a final
+  target-qualified plan while the controller and reporting session remain
+  installed; a final planning or explicit-intent failure restores its prior
+  play/pause intent and keeps that playback. After the final plan succeeds, the
+  release-first installation revalidates authority after its committed
+  suspensions and before reporting, prepare, and play/pause. Construction may fall back once to the platform
+  concrete default only for that explicit switch; the factory-reported backend
+  is authoritative and receives a clean matching plan before prepare. Offline
+  sessions, queue changes, stop, disposal, unavailable/current choices, later
+  plan/reporting installation, and stale switch generations cannot commit.
 
 ### Quality semantics
 
@@ -410,7 +432,8 @@ surface, and focus shell; unlike Android mobile, it does not own a MediaSession.
 The Android domain policy supplies the backend order ExoPlayer, mpv, LibVLC
 (beta) and the ExoPlayer default. The server-scoped backend dialog consumes
 that policy projection directly; mpv is an ordinary explicit opt-in and the
-choice applies to the next playback session. ExoPlayer, LibVLC, and mpv retain
+durable choice applies to the next playback session. The player overlay also
+uses the same projection for a session-only live switch. ExoPlayer, LibVLC, and mpv retain
 their backend-specific capability/evidence rules from Android mobile. The TV
 notice is a persistent, dismissible bottom action surface above visible
 controls; it never steals focus on appearance. Its explicit actions are
@@ -422,8 +445,8 @@ their own Advisory bindings.
 
 ### iOS
 
-iOS Compose selects AVPlayer or VLCKit for a session; the choice is resolved
-before planning and is not switched live by UI code. AVPlayer uses the narrow
+iOS Compose selects AVPlayer or VLCKit before initial planning and also exposes
+the shared explicit remote session switch. AVPlayer uses the narrow
 ready-for-display bridge from its native presentation surface. VLCKit reports a
 positive displayed-picture counter. AVPlayer/VideoToolbox capability facts and
 VLCKit engine facts are separate: one backend's hardware probe cannot erase a
@@ -503,6 +526,18 @@ minified-release-build rule in `docs/guides/workflow.md`.
 
 Durable product choices and their rejected alternatives. Each entry explains a
 rule the body above states; the body remains authoritative for the rule itself.
+
+- **An explicit backend switch is a guarded replacement, not a preference
+  write or recovery path.** Planning before teardown means a bad target leaves
+  proven playback and reporting intact; plan/reporting authority and the
+  release-first installation preserve one controller owner after a switch has
+  committed. Reusing Android's automatic health fallback would conflate a user
+  choice with decoder recovery and hardcode ExoPlayer. Reusing runtime caps or
+  health facts would turn an outgoing-controller observation into target
+  capability. Retrying construction beyond the one concrete platform default,
+  retaining a second controller while preparing it, or adding a recovery state
+  machine were rejected because each obscures the one authoritative
+  controller/session.
 
 - **Player quality is session-only, resolved by one precedence chain.** A
   fresh playback resolves its quality as: explicit choice made in the current
@@ -607,8 +642,9 @@ rule the body above states; the body remains authoritative for the rule itself.
   and native command order into common code.
 
 - **Android backend policy and capability facts stay concrete-backend owned.**
-  Auto normalizes to ExoPlayer; the concrete backend is selected before
-  PlaybackInfo and pinned for the session, with mpv and LibVLC (beta) as
+  Auto normalizes to ExoPlayer; the durable initial concrete backend is selected
+  before PlaybackInfo and remains authoritative across queue items unless the
+  user makes an explicit session-only switch, with mpv and LibVLC (beta) as
   explicit alternates. TV exposes mpv as an explicit alternate, while
   availability and native readiness remain typed runtime concerns. MediaCodec
   candidates stay coherent through selection because combining the largest

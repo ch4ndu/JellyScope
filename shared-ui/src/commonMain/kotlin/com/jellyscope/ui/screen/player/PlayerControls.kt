@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,6 +70,7 @@ import com.jellyscope.ui.adaptive.LocalWindowWidthTier
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.detail_back
 import com.jellyscope.ui.generated.resources.player_audio
+import com.jellyscope.ui.generated.resources.player_backend
 import com.jellyscope.ui.generated.resources.player_chapters
 import com.jellyscope.ui.generated.resources.player_debug_overlay
 import com.jellyscope.ui.generated.resources.player_fullscreen_enter_cd
@@ -337,6 +339,7 @@ private fun PlayerControlStrip(
     val subtitlesContentDescription = stringResource(Res.string.player_subtitles)
     val audioContentDescription = stringResource(Res.string.player_audio)
     val qualityContentDescription = stringResource(Res.string.player_quality)
+    val backendContentDescription = stringResource(Res.string.player_backend)
     val chaptersContentDescription = stringResource(Res.string.player_chapters)
     val speedContentDescription = stringResource(Res.string.player_speed)
     val subtitleStyleContentDescription = stringResource(Res.string.player_subtitle_style)
@@ -418,6 +421,14 @@ private fun PlayerControlStrip(
                 icon = Icons.Filled.HighQuality,
                 contentDescription = qualityContentDescription,
                 onClick = { showPicker(PlayerPicker.Quality) },
+            )
+        }
+        if (content.backendSwitchControlVisible) {
+            PlayerControlIconButton(
+                icon = Icons.Filled.Videocam,
+                contentDescription = backendContentDescription,
+                onClick = { showPicker(PlayerPicker.Backend) },
+                enabled = content.backendSwitchControlEnabled,
             )
         }
         if (showChapterControl) {
@@ -626,6 +637,7 @@ private fun PlayerControlIconButton(
     onClick: () -> Unit,
     prominent: Boolean = false,
     active: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val size =
         if (prominent) {
@@ -633,21 +645,23 @@ private fun PlayerControlIconButton(
         } else {
             Dimensions.minTouchTarget
         }
+    val enabledAlpha = if (enabled) 1f else 0.38f
     val containerColor =
         if (prominent || active) {
-            MaterialTheme.colorScheme.primary.copy(alpha = PLAYER_PRIMARY_CONTROL_BACKGROUND_ALPHA)
+            MaterialTheme.colorScheme.primary.copy(alpha = PLAYER_PRIMARY_CONTROL_BACKGROUND_ALPHA * enabledAlpha)
         } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = PLAYER_CONTROL_BACKGROUND_ALPHA)
+            MaterialTheme.colorScheme.onSurface.copy(alpha = PLAYER_CONTROL_BACKGROUND_ALPHA * enabledAlpha)
         }
     val iconColor =
         if (prominent || active) {
-            MaterialTheme.colorScheme.primary
+            MaterialTheme.colorScheme.primary.copy(alpha = enabledAlpha)
         } else {
-            MaterialTheme.colorScheme.onSurface
+            MaterialTheme.colorScheme.onSurface.copy(alpha = enabledAlpha)
         }
 
     IconButton(
         onClick = onClick,
+        enabled = enabled,
         modifier =
             Modifier
                 .size(size)

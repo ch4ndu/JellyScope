@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
+import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.QualityOption
 import com.jellyscope.core.domain.playback.QualityTier
 import com.jellyscope.core.domain.playback.SubtitleStyle
@@ -18,6 +19,7 @@ import com.jellyscope.core.domain.playback.mbpsLabel
 import com.jellyscope.core.domain.playback.qualityRungForBitrate
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.player_audio
+import com.jellyscope.ui.generated.resources.player_backend
 import com.jellyscope.ui.generated.resources.player_chapters
 import com.jellyscope.ui.generated.resources.player_quality
 import com.jellyscope.ui.generated.resources.player_quality_auto
@@ -40,6 +42,12 @@ import com.jellyscope.ui.generated.resources.player_speed
 import com.jellyscope.ui.generated.resources.player_subtitle_style
 import com.jellyscope.ui.generated.resources.player_subtitles
 import com.jellyscope.ui.generated.resources.player_timing_offset_action
+import com.jellyscope.ui.generated.resources.settings_player_backend_auto
+import com.jellyscope.ui.generated.resources.settings_player_backend_avplayer
+import com.jellyscope.ui.generated.resources.settings_player_backend_exoplayer
+import com.jellyscope.ui.generated.resources.settings_player_backend_libvlc
+import com.jellyscope.ui.generated.resources.settings_player_backend_mpv
+import com.jellyscope.ui.generated.resources.settings_player_backend_vlckit
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -49,6 +57,7 @@ internal fun pickerTitle(picker: PlayerPicker): String =
         PlayerPicker.Chapters -> stringResource(Res.string.player_chapters)
         PlayerPicker.Subtitles -> stringResource(Res.string.player_subtitles)
         PlayerPicker.Audio -> stringResource(Res.string.player_audio)
+        PlayerPicker.Backend -> stringResource(Res.string.player_backend)
         PlayerPicker.Quality -> stringResource(Res.string.player_quality)
         PlayerPicker.Speed -> stringResource(Res.string.player_speed)
         PlayerPicker.SubtitleStyle -> stringResource(Res.string.player_subtitle_style)
@@ -59,6 +68,19 @@ internal fun pickerTitle(picker: PlayerPicker): String =
         PlayerPicker.SubtitleOffset ->
             "${stringResource(Res.string.player_subtitles)} · ${stringResource(Res.string.player_timing_offset_action)}"
     }
+
+@Composable
+internal fun playerBackendLabel(backend: PlayerBackend): String =
+    stringResource(
+        when (backend) {
+            PlayerBackend.Auto -> Res.string.settings_player_backend_auto
+            PlayerBackend.AVPlayer -> Res.string.settings_player_backend_avplayer
+            PlayerBackend.VlcKit -> Res.string.settings_player_backend_vlckit
+            PlayerBackend.ExoPlayer -> Res.string.settings_player_backend_exoplayer
+            PlayerBackend.Mpv -> Res.string.settings_player_backend_mpv
+            PlayerBackend.LibVlc -> Res.string.settings_player_backend_libvlc
+        },
+    )
 
 @Composable
 internal fun resizeModeLabel(
