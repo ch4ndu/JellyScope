@@ -200,6 +200,11 @@ Before publishing a platform artifact:
 Contributor and trademark policies are separate governance work. Signing,
 notarization, store terms, privacy declarations, and device smoke tests remain
 release operations; they are not third-party license-inventory entries.
+The owner-approved Apple application credential-persistence policy is owned by
+the [data and playback guide](../guides/data-playback.md#persistence). Its
+accepted plaintext-at-rest tradeoff is not a project licensing or binary-
+inventory blocker and must not be reopened by these gates; a newly applicable
+external store requirement remains a separate release review.
 
 ## Rejected Alternatives
 

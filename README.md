@@ -4,10 +4,14 @@
 [![Compose Multiplatform](https://img.shields.io/badge/Compose-Multiplatform-4285F4?logo=jetpackcompose&logoColor=white)](https://www.jetbrains.com/compose-multiplatform/)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL%202.0-blue.svg)](LICENSE)
 
+JellyScope is a third-party client for Jellyfin. It is not affiliated with,
+endorsed by, or maintained by the Jellyfin Project. Jellyfin is a trademark of
+Jellyfin, Inc.
+
 JellyScope is a Jellyfin client written in Kotlin with Compose Multiplatform.
 It runs on Android phones and tablets, Android TV, Google TV, Fire TV, iPhone,
 iPad, and Apple Silicon Macs. There's also an experimental Apple TV preview.
-The current alpha release is **0.1.0-alpha90**.
+The current alpha release is **0.1.0-alpha91**.
 
 ## Features
 

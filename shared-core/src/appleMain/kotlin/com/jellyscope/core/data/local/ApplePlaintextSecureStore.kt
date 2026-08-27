@@ -48,7 +48,8 @@ internal class ApplePlaintextSecureStore(
     }
 
     private fun readMap(): Map<String, String> =
-        defaults.stringForKey(APPLE_PLAINTEXT_SECURE_STORE_KEY)
+        defaults
+            .stringForKey(APPLE_PLAINTEXT_SECURE_STORE_KEY)
             ?.let { encoded ->
                 runCatching { json.decodeFromString<Map<String, String>>(encoded) }.getOrNull()
             }.orEmpty()

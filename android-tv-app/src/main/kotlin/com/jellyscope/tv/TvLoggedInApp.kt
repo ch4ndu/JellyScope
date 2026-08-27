@@ -71,6 +71,7 @@ import com.jellyscope.ui.screen.downloads.DownloadsViewModel
 import com.jellyscope.ui.screen.find.FindViewModel
 import com.jellyscope.ui.screen.grid.GridViewModel
 import com.jellyscope.ui.screen.home.HomeRow
+import com.jellyscope.ui.screen.home.HomeViewModel
 import com.jellyscope.ui.screen.library.LibraryBrowseViewModel
 import com.jellyscope.ui.screen.library.LibraryHubViewModel
 import com.jellyscope.ui.theme.LocalAppBackgroundBrush
@@ -1088,6 +1089,12 @@ internal fun TvLoggedInApp(
                                             ?.scopes
                                             ?.firstOrNull { scope -> scope.startsWith("row:") }
                                             ?.removePrefix("row:")
+                                    val homeViewModel =
+                                        koinViewModel<HomeViewModel>(
+                                            viewModelStoreOwner = topLevelViewModelStoreOwner,
+                                            key = tvTopLevelViewModelKey(session, "home"),
+                                            parameters = { parametersOf(session) },
+                                        )
                                     TvHomeScreen(
                                         session = session,
                                         restoredFocusItemId =
@@ -1118,6 +1125,7 @@ internal fun TvLoggedInApp(
                                         onAmbientPresentationChanged = { presentation ->
                                             drawerAmbientPresentation = presentation
                                         },
+                                        viewModel = homeViewModel,
                                     )
                                 }
                             }

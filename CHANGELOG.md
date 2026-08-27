@@ -2,6 +2,14 @@
 
 Notable JellyScope changes, newest first.
 
+## 0.1.0-alpha91 — harden sessions and Android TV lifecycle · week 7 · 2026-08-26
+
+- Android TV Home now replaces its account-scoped state immediately after a server or account switch, so posters use the current session without requiring an app restart; Android TV and mobile also retire Media3 HTTPS connections off the UI thread, preventing the demo-server player-dismiss crash.
+- Saved Jellyfin sessions on Apple platforms and macOS now use app-owned storage without Keychain or Security.framework prompts. The accepted plaintext-at-rest tradeoff is documented as a product constraint rather than a licensing or recurring audit blocker.
+- Diagnostic collection is disabled by default when no preference has been saved, sign-in tolerates accidental trailing whitespace, and Android mpv subtitles return to their native bottom margin when player chrome is hidden.
+- The README identifies JellyScope as an independent third-party Jellyfin client and records the Jellyfin trademark without implying affiliation or endorsement.
+- Automated lint, shared-core and shared-UI host tests, Android TV tests, both minified Android release assemblies, native-payload and Android license-readiness checks, and the iOS Simulator framework link passed. Not device-validated — the demo-server dismissal, account-switch poster, Apple credential-storage, sign-in, diagnostics, and subtitle runtime paths remain unperformed.
+
 ## 0.1.0-alpha90 — switch players without leaving playback · week 7 · 2026-08-24
 
 - Android mobile and TV, iPhone, iPad, and macOS can switch to another available playback engine from the video-camera control while watching a video streamed from Jellyfin; the choice applies only to the current session, and unavailable engines remain visible with an explanation.

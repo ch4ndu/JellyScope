@@ -101,6 +101,7 @@ class Media3PlayerController(
 ) : PlayerController,
     AndroidMedia3SubtitleTimingBridge {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val httpCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
     private var released = false
@@ -964,9 +965,15 @@ class Media3PlayerController(
         detachedOfflineLease?.release()
         offlinePath = null
         offlineSidecarPath = null
-        media3HttpClient.dispatcher.executorService.shutdown()
-        media3HttpClient.connectionPool.evictAll()
         scope.cancel()
+        httpCleanupScope.launch {
+            try {
+                runCatching { media3HttpClient.dispatcher.executorService.shutdown() }
+                runCatching { media3HttpClient.connectionPool.evictAll() }
+            } finally {
+                httpCleanupScope.cancel()
+            }
+        }
     }
 
     override fun recordLaunchToFirstFrame(

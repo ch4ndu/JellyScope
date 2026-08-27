@@ -3238,7 +3238,10 @@ operative text lives in the body sections above, never here.
   restore Security.framework, Keychain APIs, command-line `security` access, or
   migration/cleanup reads for application credentials. Release signing and
   notarization credentials are separate developer tooling and remain governed
-  by the release runbook.
+  by the release runbook. The plaintext-at-rest tradeoff itself is an accepted
+  product decision, not an open security finding or distribution blocker;
+  audits should report only a concrete violation of this boundary or a newly
+  applicable external requirement.
 - **Diagnostic collection requires an explicit opt-in.** Even sanitized,
   bounded local history is behavior data, so a missing or malformed preference
   stays off. Persisted user choices continue to win, and upload still requires
@@ -3260,6 +3263,7 @@ operative text lives in the body sections above, never here.
   Desktop targets use the same app-owned JSON-file policy. Distribution or
   support decisions must not reintroduce native credential stores; any future
   hardening must preserve the no-Keychain rule and avoid OS credential prompts.
+  Audits must not reopen the accepted at-rest tradeoff itself.
 
 - **The Room owner preserves durable state across schema 10 migrations.** The
   database registers the complete 1→2 through 9→10 migration chain, including

@@ -84,6 +84,10 @@ For a whole-project audit, inspect the repository in staged subsystem passes:
 
 - URL normalization, auth headers, logging, and diagnostics are centralized and
   sanitized. Jellyfin credentials never reach untrusted absolute URLs.
+- Treat the owner-approved Apple credential-persistence policy in
+  [`data-playback.md`](data-playback.md#persistence) as an accepted constraint,
+  not a finding. Audit concrete violations of that boundary or newly applicable
+  external requirements, not the documented plaintext-at-rest tradeoff itself.
 - Server/user-scoped caches and persistent stores respect account boundaries,
   register for logout cleanup, and cannot be repopulated by stale in-flight work.
 - API/cache/settings details stay below repositories and focused domain
