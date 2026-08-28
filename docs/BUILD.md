@@ -34,6 +34,29 @@ runbook; its exact `dev.jdtech.mpv:libmpv:1.0.0` input pin is Android-only and
 does not change the desktop libmpv path. The AAR is extracted during the
 `android-libmpv` build and its original bridge is not packaged directly.
 
+## Local developer prefill
+
+An optional repo-root `developer.properties` can prefill one private server and
+an OpenSubtitles consumer key for local development. Start from the committed
+example and keep the copied file untracked:
+
+```bash
+cp developer.properties.example developer.properties
+```
+
+Its only supported keys are `devServerUrl`, `devUsername`, `devPassword`, and
+`openSubtitlesApiKey`. Leave unused values blank. `local.properties` remains
+Android SDK configuration only; do not put developer credentials in it.
+
+The file is read by local Android Debug/Release, iOS Debug/Release Run/Test,
+tvOS Debug, and desktop/macOS builds. `CI=true` or `CI=1` (case-insensitive),
+`StoreRelease`, and an explicit `-PjellyscopeDeveloperPropertiesEnabled=false`
+compile empty values without reading it; `CI=false` remains local mode. Release
+tooling also force-disables the file before Gradle, which remains authoritative
+even when a user or project Gradle property requests enablement. A persisted
+OpenSubtitles key remains authoritative; the local value is an unpersisted
+fallback only and is never displayed or logged.
+
 ## Android mobile
 
 ```bash
@@ -50,10 +73,9 @@ does not change the desktop libmpv path. The AAR is extracted during the
 ./gradlew :android-tv-app:bundleRelease
 ```
 
-Debug builds can read optional developer server prefill values from the private
-`~/Private/Keystores/dev-server.properties` file. Release builds always compile
-empty prefill values and fall back to debug signing when no release keystore is
-configured; see [`RELEASE.md`](RELEASE.md).
+Android Debug and local Release builds may consume the optional developer
+prefill described above. Both still fall back to debug signing when no release
+keystore is configured; see [`RELEASE.md`](RELEASE.md).
 
 LibVLC playback is degraded on debug builds. Test playback on a release build.
 The release candidate also carries the pinned Android mpv native payload and
@@ -110,6 +132,13 @@ xcodebuild -project ios-app/iosApp.xcodeproj -scheme iosApp \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
 ```
 
+Use the `devRelease` scheme for local Release Run/Test. Every archive must use
+the `storeRelease` scheme and its `StoreRelease` configuration; it exports the
+Release Kotlin framework build type and disables developer properties before
+Gradle. An archive or install action under ordinary `Release` stops before
+Gradle. The StoreRelease package-license phase applies the iOS release-ready
+check, while ordinary local Release uses the non-distribution check.
+
 ## tvOS
 
 `tvos-app/` hosts the native SwiftUI shell over the `SharedTv` framework
@@ -121,6 +150,9 @@ xcodebuild -project tvos-app/tvosApp.xcodeproj -scheme tvosApp \
   -configuration Debug \
   -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' build
 ```
+
+Only tvOS Debug uses the optional developer server prefill; tvOS Release always
+uses empty values.
 
 ## Local verification
 
@@ -171,12 +203,6 @@ platform path against its owning contract.
 
 Layers, platform seams, and source-layout rules are owned by
 [`guides/architecture.md`](guides/architecture.md).
-
-## Local server notes
-
-Keep private Jellyfin server details (URLs, accounts, credentials) in
-untracked files under `.local/`. Do not commit real server URLs or
-credentials.
 
 Code conventions and pull-request expectations are in
 [`../CONTRIBUTING.md`](../CONTRIBUTING.md).

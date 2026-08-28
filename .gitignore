@@ -34,6 +34,7 @@ build/
 # AGP external-native-build (CMake) working directories
 .cxx/
 local.properties
+/developer.properties
 .kotlin/
 
 # Release credentials and signing material must never enter the repository.
@@ -45,7 +46,6 @@ local.properties
 *.mobileprovision
 keystore.properties
 macos-signing.properties
-dev-server.properties
 
 # IDE
 .idea/

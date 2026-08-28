@@ -76,9 +76,14 @@ import java.io.File
 import java.util.UUID
 
 /** Desktop DI for the browse shell and its platform-specific persistence. */
-fun desktopCoreModule() =
+fun desktopCoreModule(developerOpenSubtitlesApiKey: String? = null) =
     module {
-        single { CoreConfig(enableHttpLogging = false) }
+        single {
+            CoreConfig(
+                enableHttpLogging = false,
+                developerOpenSubtitlesApiKey = developerOpenSubtitlesApiKey,
+            )
+        }
         single<SecureStore> {
             JvmPlainFileSecureStore(
                 file = File(jellyscopeDataDirectory(), DESKTOP_PLAINTEXT_SECURE_STORE_FILE_NAME),

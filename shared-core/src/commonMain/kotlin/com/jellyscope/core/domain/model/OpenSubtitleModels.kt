@@ -11,6 +11,7 @@ data class OpenSubtitleSearchRequest(
     val episodeNumber: Int?,
     val language: String,
     val sourceReleaseBasename: String? = null,
+    val seriesTitle: String? = null,
 )
 
 enum class OpenSubtitleResultPreference {

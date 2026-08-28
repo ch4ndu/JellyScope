@@ -96,6 +96,8 @@ command -v spctl >/dev/null 2>&1 || die "Required command is missing: spctl"
 command -v xcrun >/dev/null 2>&1 || die "Required command is missing: xcrun"
 
 cd "$repo_root"
+export JELLYSCOPE_FORCE_DISABLE_DEVELOPER_PROPERTIES=true
+export ORG_GRADLE_PROJECT_jellyscopeDeveloperPropertiesEnabled=false
 trap stop_gradle EXIT
 
 echo "==> Verifying clean release source binding"

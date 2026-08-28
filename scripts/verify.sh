@@ -16,8 +16,9 @@ echo "==> Checking the project-owned Android mpv wrapper source"
 bash scripts/check-android-mpv-wrapper-source.sh
 
 echo "==> Running ktlint, shared tests, TV route tests, and Android release assemblies"
-./gradlew ktlintCheck :shared-core:testAndroidHostTest :shared-ui:testAndroidHostTest \
+./gradlew ktlintCheck verifyDeveloperPropertiesIsolation :shared-core:testAndroidHostTest :shared-ui:testAndroidHostTest \
     :shared-ui:verifyReleaseDevServerConfig \
+    :shared-tvos:verifyDevServerLiteralEscaping \
     :android-tv-app:testDebugUnitTest :android-app:assembleRelease :android-tv-app:assembleRelease
 
 echo "==> Checking Compose resources are packaged in both release APKs"

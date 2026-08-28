@@ -205,9 +205,10 @@ fun main() {
                 LocalPlayerKeyCommandBridge provides playerKeyCommandBridge,
                 LocalInputDiagnosticsSink provides inputDiagnostics,
             ) {
-                // No server prefill: the field starts empty, matching Android/iOS
-                // release behavior. The user enters their own Jellyfin server.
                 JellyScopeApp(
+                    initialServerUrl = DesktopDeveloperConfig.SERVER_URL.ifBlank { null },
+                    prefillUsername = DesktopDeveloperConfig.USERNAME,
+                    prefillPassword = DesktopDeveloperConfig.PASSWORD,
                     initialPlaybackItemId = desktopInitialPlaybackItemId(),
                     initialDetailEvent = initialDetailEvent,
                     onInitialDetailEventConsumed = detailDeepLinkOwner::acknowledge,
@@ -222,7 +223,10 @@ private fun ensureKoin() {
     if (!koinStarted) {
         startKoin {
             modules(
-                desktopCoreModule(),
+                desktopCoreModule(
+                    developerOpenSubtitlesApiKey =
+                        DesktopDeveloperConfig.OPEN_SUBTITLES_API_KEY.takeIf(String::isNotBlank),
+                ),
                 downloadsModule,
                 coreModule,
                 module {

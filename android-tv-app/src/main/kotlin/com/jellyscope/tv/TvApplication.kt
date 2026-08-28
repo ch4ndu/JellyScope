@@ -42,7 +42,11 @@ class TvApplication : Application() {
         startKoin {
             androidContext(this@TvApplication)
             modules(
-                androidCoreModule(this@TvApplication),
+                androidCoreModule(
+                    context = this@TvApplication,
+                    developerOpenSubtitlesApiKey =
+                        TvDeveloperConfig.OPEN_SUBTITLES_API_KEY.takeIf(String::isNotBlank),
+                ),
                 tvAppModule,
                 downloadsModule,
                 coreModule,

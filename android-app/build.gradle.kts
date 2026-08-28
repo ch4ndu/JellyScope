@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitivity
 import java.io.File
 import java.util.Properties
 
@@ -8,28 +14,98 @@ plugins {
     alias(libs.plugins.kotlin.plugin.compose)
 }
 
-// Debug-only developer prefill. Release builds always compile empty strings.
-val devServerPropertiesFile = File(System.getProperty("user.home"), "Private/Keystores/dev-server.properties")
-val devServerProperties =
-    Properties().apply {
-        if (devServerPropertiesFile.isFile) {
-            devServerPropertiesFile.inputStream().use { load(it) }
-        }
-    }
+abstract class GenerateAndroidDeveloperConfig : DefaultTask() {
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+}
 
-fun devProperty(key: String): String = devServerProperties.getProperty(key, "")
+@Suppress("UNCHECKED_CAST")
+val developerProperties = rootProject.extra["developerProperties"] as Provider<Map<String, String>>
 
-fun escapeJavaStringLiteral(value: String): String =
+@Suppress("UNCHECKED_CAST")
+val developerPropertiesEnabled = rootProject.extra["developerPropertiesEnabled"] as Provider<Boolean>
+
+val developerPropertiesFile = rootProject.extra["developerPropertiesFile"] as RegularFile
+val developerPropertiesInput =
+    files(
+        providers.provider {
+            if (!developerPropertiesEnabled.get()) {
+                emptyList()
+            } else {
+                developerPropertiesFile.asFile
+                    .takeIf(File::isFile)
+                    ?.let(::listOf)
+                    .orEmpty()
+            }
+        },
+    )
+
+fun escapeKotlinStringLiteral(value: String): String =
     buildString(value.length) {
         value.forEach { character ->
             when (character) {
                 '\\' -> append('\\').append('\\')
                 '"' -> append('\\').append('"')
+                '$' -> append('\\').append('$')
                 '\n' -> append('\\').append('n')
                 '\r' -> append('\\').append('r')
                 '\t' -> append('\\').append('t')
                 else -> append(character)
             }
+        }
+    }
+
+fun writeAndroidDeveloperConfig(
+    target: File,
+    includeDeveloperProperties: Boolean,
+    serverUrl: String,
+    username: String,
+    password: String,
+    openSubtitlesApiKey: String,
+) {
+    target.parentFile.mkdirs()
+    val generatedServerUrl = if (includeDeveloperProperties) serverUrl else ""
+    val generatedUsername = if (includeDeveloperProperties) username else ""
+    val generatedPassword = if (includeDeveloperProperties) password else ""
+    val generatedOpenSubtitlesApiKey = if (includeDeveloperProperties) openSubtitlesApiKey else ""
+    target.writeText(
+        """
+        |// SPDX-License-Identifier: MPL-2.0
+        |// Generated local developer prefill.
+        |package com.jellyscope.android
+        |
+        |internal object AndroidDeveloperConfig {
+        |    const val SERVER_URL: String = "${escapeKotlinStringLiteral(generatedServerUrl)}"
+        |    const val USERNAME: String = "${escapeKotlinStringLiteral(generatedUsername)}"
+        |    const val PASSWORD: String = "${escapeKotlinStringLiteral(generatedPassword)}"
+        |    const val OPEN_SUBTITLES_API_KEY: String = "${escapeKotlinStringLiteral(generatedOpenSubtitlesApiKey)}"
+        |}
+        |
+        """.trimMargin(),
+    )
+}
+
+val generateAndroidDeveloperConfig =
+    tasks.register<GenerateAndroidDeveloperConfig>("generateAndroidDeveloperConfig") {
+        inputs.files(developerPropertiesInput).withPathSensitivity(PathSensitivity.RELATIVE)
+        inputs.property("developerPropertiesEnabled", developerPropertiesEnabled)
+        outputDirectory.set(layout.buildDirectory.dir("generated/androidDeveloperConfig/kotlin"))
+        outputs.cacheIf { false }
+        doLast {
+            val includeDeveloperProperties = developerPropertiesEnabled.get()
+            val properties = if (includeDeveloperProperties) developerProperties.get() else emptyMap()
+            writeAndroidDeveloperConfig(
+                target =
+                    outputDirectory
+                        .get()
+                        .file("com/jellyscope/android/AndroidDeveloperConfig.kt")
+                        .asFile,
+                includeDeveloperProperties = includeDeveloperProperties,
+                serverUrl = properties["devServerUrl"].orEmpty(),
+                username = properties["devUsername"].orEmpty(),
+                password = properties["devPassword"].orEmpty(),
+                openSubtitlesApiKey = properties["openSubtitlesApiKey"].orEmpty(),
+            )
         }
     }
 
@@ -119,15 +195,7 @@ android {
     }
 
     buildTypes {
-        debug {
-            buildConfigField("String", "DEV_SERVER_URL", "\"${escapeJavaStringLiteral(devProperty("devServerUrl"))}\"")
-            buildConfigField("String", "DEV_USERNAME", "\"${escapeJavaStringLiteral(devProperty("devUsername"))}\"")
-            buildConfigField("String", "DEV_PASSWORD", "\"${escapeJavaStringLiteral(devProperty("devPassword"))}\"")
-        }
         release {
-            buildConfigField("String", "DEV_SERVER_URL", "\"\"")
-            buildConfigField("String", "DEV_USERNAME", "\"\"")
-            buildConfigField("String", "DEV_PASSWORD", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -150,6 +218,15 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.java?.addGeneratedSourceDirectory(
+            generateAndroidDeveloperConfig,
+            GenerateAndroidDeveloperConfig::outputDirectory,
+        )
+    }
+}
+
 tasks.named("preBuild").configure {
     dependsOn(rootProject.tasks.named("prepareAndroidReleaseLicenseAssets"))
 }
@@ -163,8 +240,8 @@ tasks.configureEach {
 tasks.register("verifyDevServerLiteralEscaping") {
     doLast {
         val value = "slash\\quote\"dollar${'$'}line\r\n雪"
-        check(escapeJavaStringLiteral(value) == "slash\\\\quote\\\"dollar${'$'}line\\r\\n雪") {
-            "Java build-config escaping changed"
+        check(escapeKotlinStringLiteral(value) == "slash\\\\quote\\\"dollar\\${'$'}line\\r\\n雪") {
+            "Kotlin developer-config escaping changed"
         }
     }
 }

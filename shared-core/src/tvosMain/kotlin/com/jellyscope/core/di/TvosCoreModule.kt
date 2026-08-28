@@ -10,8 +10,12 @@ import org.koin.core.module.Module
  * exists for future tvOS-specific overrides (e.g. Apple TV device-profile
  * tuning) without touching the iOS module.
  */
-fun tvosCoreModule(displaySupportsHdr: Boolean = false): Module =
+fun tvosCoreModule(
+    displaySupportsHdr: Boolean = false,
+    developerOpenSubtitlesApiKey: String? = null,
+): Module =
     appleCoreModule(
         diagnosticPlatform = PlaybackDiagnosticPlatform.TvOs,
         displaySupportsHdr = displaySupportsHdr,
+        developerOpenSubtitlesApiKey = developerOpenSubtitlesApiKey,
     )

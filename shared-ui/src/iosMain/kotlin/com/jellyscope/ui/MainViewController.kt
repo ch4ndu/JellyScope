@@ -26,7 +26,6 @@ import org.koin.dsl.module
 import platform.Foundation.NSBundle
 import platform.UIKit.UIViewController
 
-// Local Debug builds may prefill the first server entry; Release stays empty.
 private val DEFAULT_SERVER_URL = DevServerConfig.SERVER_URL.ifBlank { null }
 
 private var koinStarted = false
@@ -40,7 +39,11 @@ private fun ensureKoin() {
             startKoin {
                 allowOverride(true)
                 modules(
-                    appleCoreModule(displaySupportsHdr = displaySupportsHdr),
+                    appleCoreModule(
+                        displaySupportsHdr = displaySupportsHdr,
+                        developerOpenSubtitlesApiKey =
+                            DevServerConfig.OPEN_SUBTITLES_API_KEY.takeIf(String::isNotBlank),
+                    ),
                     iosCoreModule,
                     downloadsModule,
                     coreModule,

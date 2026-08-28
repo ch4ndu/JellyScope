@@ -2,8 +2,11 @@
 
 import org.gradle.api.GradleException
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.Sync
 import org.gradle.process.JavaForkOptions
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
@@ -15,6 +18,93 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.plugin.compose)
 }
+
+@Suppress("UNCHECKED_CAST")
+val developerProperties = rootProject.extra["developerProperties"] as Provider<Map<String, String>>
+
+@Suppress("UNCHECKED_CAST")
+val developerPropertiesEnabled = rootProject.extra["developerPropertiesEnabled"] as Provider<Boolean>
+
+val developerPropertiesFile = rootProject.extra["developerPropertiesFile"] as RegularFile
+val developerPropertiesInput =
+    files(
+        providers.provider {
+            if (!developerPropertiesEnabled.get()) {
+                emptyList()
+            } else {
+                developerPropertiesFile.asFile
+                    .takeIf(File::isFile)
+                    ?.let(::listOf)
+                    .orEmpty()
+            }
+        },
+    )
+
+fun escapeKotlinStringLiteral(value: String): String =
+    buildString(value.length) {
+        value.forEach { character ->
+            when (character) {
+                '\\' -> append('\\').append('\\')
+                '"' -> append('\\').append('"')
+                '$' -> append('\\').append('$')
+                '\n' -> append('\\').append('n')
+                '\r' -> append('\\').append('r')
+                '\t' -> append('\\').append('t')
+                else -> append(character)
+            }
+        }
+    }
+
+fun writeDesktopDeveloperConfig(
+    target: File,
+    includeDeveloperProperties: Boolean,
+    serverUrl: String,
+    username: String,
+    password: String,
+    openSubtitlesApiKey: String,
+) {
+    target.parentFile.mkdirs()
+    val generatedServerUrl = if (includeDeveloperProperties) serverUrl else ""
+    val generatedUsername = if (includeDeveloperProperties) username else ""
+    val generatedPassword = if (includeDeveloperProperties) password else ""
+    val generatedOpenSubtitlesApiKey = if (includeDeveloperProperties) openSubtitlesApiKey else ""
+    target.writeText(
+        """
+        |// SPDX-License-Identifier: MPL-2.0
+        |// Generated local developer prefill.
+        |package com.jellyscope.desktop
+        |
+        |internal object DesktopDeveloperConfig {
+        |    const val SERVER_URL: String = "${escapeKotlinStringLiteral(generatedServerUrl)}"
+        |    const val USERNAME: String = "${escapeKotlinStringLiteral(generatedUsername)}"
+        |    const val PASSWORD: String = "${escapeKotlinStringLiteral(generatedPassword)}"
+        |    const val OPEN_SUBTITLES_API_KEY: String = "${escapeKotlinStringLiteral(generatedOpenSubtitlesApiKey)}"
+        |}
+        |
+        """.trimMargin(),
+    )
+}
+
+val generateDesktopDeveloperConfig =
+    tasks.register("generateDesktopDeveloperConfig") {
+        val outputDir = layout.buildDirectory.dir("generated/desktopDeveloperConfig/kotlin")
+        inputs.files(developerPropertiesInput).withPathSensitivity(PathSensitivity.RELATIVE)
+        inputs.property("developerPropertiesEnabled", developerPropertiesEnabled)
+        outputs.dir(outputDir)
+        outputs.cacheIf { false }
+        doLast {
+            val includeDeveloperProperties = developerPropertiesEnabled.get()
+            val properties = if (includeDeveloperProperties) developerProperties.get() else emptyMap()
+            writeDesktopDeveloperConfig(
+                target = outputDir.get().file("com/jellyscope/desktop/DesktopDeveloperConfig.kt").asFile,
+                includeDeveloperProperties = includeDeveloperProperties,
+                serverUrl = properties["devServerUrl"].orEmpty(),
+                username = properties["devUsername"].orEmpty(),
+                password = properties["devPassword"].orEmpty(),
+                openSubtitlesApiKey = properties["openSubtitlesApiKey"].orEmpty(),
+            )
+        }
+    }
 
 val desktopVersion = providers.gradleProperty("jellyscope.desktop.version").orElse("0.1.0")
 val desktopPackageVersion = providers.gradleProperty("jellyscope.desktop.packageVersion").orElse("1.0.0")
@@ -448,6 +538,8 @@ kotlin {
             .get()
             .toInt(),
     )
+
+    sourceSets.getByName("main").kotlin.srcDir(generateDesktopDeveloperConfig)
 }
 
 compose.desktop {

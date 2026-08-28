@@ -2,6 +2,10 @@
 
 package com.jellyscope.core.data.remote
 
+import com.jellyscope.core.util.DiagnosticOperation
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.safeDiagnosticType
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -16,6 +20,7 @@ import io.ktor.http.URLBuilder
 import io.ktor.http.Url
 import io.ktor.http.appendPathSegments
 import io.ktor.utils.io.readAvailable
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -39,7 +44,35 @@ internal class OpenSubtitlesApi(
                     query.episodeNumber?.let { parameters.append("episode_number", it.toString()) }
                     parameters.append("languages", query.language)
                 }.buildString()
-        return apiClient.get(url) { openSubtitlesHeaders(apiKey) }.checked().body()
+        val requestKind = query.diagnosticKind()
+        var currentUrl = Url(url)
+        repeat(MAX_API_SEARCH_REDIRECTS + 1) { redirectCount ->
+            val response = apiClient.get(currentUrl) { openSubtitlesHeaders(apiKey) }
+            if (response.status !in redirectStatuses) {
+                return response.openSubtitlesSearchBody(requestKind)
+            }
+            if (redirectCount == MAX_API_SEARCH_REDIRECTS) {
+                return response.openSubtitlesSearchBody(requestKind)
+            }
+            val location = response.headers[HttpHeaders.Location]
+            val redirectedUrl = location?.let { value -> resolveRedirect(currentUrl, value) }
+            response.bodyAsChannel().cancel(null)
+            if (redirectedUrl == null || !redirectedUrl.isSafeApiSearchRedirect()) {
+                val exception = OpenSubtitlesException.UnsafeRedirect
+                openSubtitlesApiLogger.w {
+                    "stage=api event=redirect-rejected operation=${DiagnosticOperation.OpenSubtitleSearch.wireValue} " +
+                        "requestKind=$requestKind httpCode=${response.status.value} " +
+                        "exceptionType=${exception.safeDiagnosticType()}"
+                }
+                throw exception
+            }
+            openSubtitlesApiLogger.i {
+                "stage=api event=redirect-followed operation=${DiagnosticOperation.OpenSubtitleSearch.wireValue} " +
+                    "requestKind=$requestKind httpCode=${response.status.value}"
+            }
+            currentUrl = redirectedUrl
+        }
+        error("OpenSubtitles search exceeded its redirect limit.")
     }
 
     suspend fun createDownload(
@@ -51,8 +84,10 @@ internal class OpenSubtitlesApi(
                 openSubtitlesHeaders(apiKey)
                 header(HttpHeaders.ContentType, "application/json")
                 setBody(OpenSubtitlesDownloadRequest(fileId))
-            }.checked()
-            .body()
+            }.openSubtitlesBody(
+                operation = DiagnosticOperation.OpenSubtitleDownload,
+                requestKind = "DownloadMetadata",
+            )
 
     suspend fun download(url: String): ByteArray {
         var currentUrl = Url(url).also(::requireSafeDownloadUrl)
@@ -67,7 +102,7 @@ internal class OpenSubtitlesApi(
                     return channel.readBoundedSubtitle()
                 }
                 if (response.status !in redirectStatuses || redirectCount == MAX_DOWNLOAD_REDIRECTS) {
-                    response.checked()
+                    response.checked(DiagnosticOperation.OpenSubtitleDownload)
                 }
                 val location =
                     response.headers[HttpHeaders.Location]
@@ -190,29 +225,29 @@ internal data class OpenSubtitlesQuery(
 )
 
 @Serializable internal data class OpenSubtitlesSearchResponse(
-    val data: List<OpenSubtitlesResultDto> = emptyList(),
+    val data: List<OpenSubtitlesResultDto?>? = null,
 )
 
 @Serializable internal data class OpenSubtitlesResultDto(
-    val id: String = "",
-    val attributes: OpenSubtitlesAttributesDto = OpenSubtitlesAttributesDto(),
+    val id: String? = null,
+    val attributes: OpenSubtitlesAttributesDto? = null,
 )
 
 @Serializable internal data class OpenSubtitlesAttributesDto(
-    val language: String = "",
+    val language: String? = null,
     @SerialName("release") val releaseName: String? = null,
-    @SerialName("hearing_impaired") val hearingImpaired: Boolean = false,
-    @SerialName("foreign_parts_only") val forced: Boolean = false,
-    @SerialName("from_trusted") val trusted: Boolean = false,
+    @SerialName("hearing_impaired") val hearingImpaired: Boolean? = null,
+    @SerialName("foreign_parts_only") val forced: Boolean? = null,
+    @SerialName("from_trusted") val trusted: Boolean? = null,
     val ratings: Double? = null,
     val fps: Double? = null,
     @SerialName("download_count") val downloadCount: Long? = null,
-    val files: List<OpenSubtitlesFileDto> = emptyList(),
+    val files: List<OpenSubtitlesFileDto?>? = null,
 )
 
 @Serializable internal data class OpenSubtitlesFileDto(
-    @SerialName("file_id") val fileId: Int,
-    @SerialName("file_name") val fileName: String,
+    @SerialName("file_id") val fileId: Int? = null,
+    @SerialName("file_name") val fileName: String? = null,
 )
 
 @Serializable internal data class OpenSubtitlesDownloadRequest(
@@ -227,15 +262,86 @@ internal data class OpenSubtitlesQuery(
     @SerialName("reset_time") val resetTime: String? = null,
 )
 
-private suspend fun HttpResponse.checked(): HttpResponse {
-    if (status.value !in 200..299) {
-        throw when (status.value) {
-            401, 403 -> OpenSubtitlesException.InvalidApiKey
-            406, 429 -> OpenSubtitlesException.RateLimited
-            else -> OpenSubtitlesException.ServerError(status.value)
+private suspend inline fun <reified T> HttpResponse.openSubtitlesBody(
+    operation: DiagnosticOperation,
+    requestKind: String,
+): T {
+    checked(operation, requestKind)
+    return try {
+        body()
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Throwable) {
+        openSubtitlesApiLogger.w {
+            buildString {
+                append("stage=api event=response-decode-failed")
+                append(" operation=${operation.wireValue}")
+                append(" requestKind=$requestKind")
+                append(" httpCode=${status.value}")
+                append(" responseContentType=${responseContentTypeCategory()}")
+                append(" exceptionType=${exception.safeDiagnosticType()}")
+                append(" causeType=${exception.cause?.safeDiagnosticType() ?: "None"}")
+            }
         }
+        throw exception
+    }
+}
+
+private suspend fun HttpResponse.openSubtitlesSearchBody(requestKind: String): OpenSubtitlesSearchResponse {
+    val response =
+        openSubtitlesBody<OpenSubtitlesSearchResponse>(
+            operation = DiagnosticOperation.OpenSubtitleSearch,
+            requestKind = requestKind,
+        )
+    openSubtitlesApiLogger.i {
+        "stage=api event=response-decoded operation=${DiagnosticOperation.OpenSubtitleSearch.wireValue} " +
+            "requestKind=$requestKind httpCode=${status.value} resultCount=${response.data.orEmpty().size}"
+    }
+    return response
+}
+
+private suspend fun HttpResponse.checked(
+    operation: DiagnosticOperation,
+    requestKind: String = "SubtitleFile",
+): HttpResponse {
+    if (status.value !in 200..299) {
+        val exception =
+            when (status.value) {
+                401, 403 -> OpenSubtitlesException.InvalidApiKey
+                406, 429 -> OpenSubtitlesException.RateLimited
+                else -> OpenSubtitlesException.ServerError(status.value)
+            }
+        openSubtitlesApiLogger.w {
+            buildString {
+                append("stage=api event=response-rejected")
+                append(" operation=${operation.wireValue}")
+                append(" requestKind=$requestKind")
+                append(" httpCode=${status.value}")
+                append(" responseContentType=${responseContentTypeCategory()}")
+                append(" exceptionType=${exception.safeDiagnosticType()}")
+            }
+        }
+        throw exception
     }
     return this
+}
+
+private fun OpenSubtitlesQuery.diagnosticKind(): String =
+    when {
+        imdbId != null && seasonNumber != null -> "ImdbEpisode"
+        imdbId != null -> "Imdb"
+        seasonNumber != null -> "TitleEpisode"
+        else -> "Title"
+    }
+
+private fun HttpResponse.responseContentTypeCategory(): String {
+    val value = headers[HttpHeaders.ContentType]?.substringBefore(';')?.trim()?.lowercase() ?: return "Missing"
+    return when {
+        value == "application/json" || value.endsWith("+json") -> "Json"
+        value == "text/html" -> "Html"
+        value.startsWith("text/") -> "Text"
+        else -> "Other"
+    }
 }
 
 sealed class OpenSubtitlesException(
@@ -245,10 +351,18 @@ sealed class OpenSubtitlesException(
 
     data object RateLimited : OpenSubtitlesException("OpenSubtitles download quota is exhausted.")
 
+    data object UnsafeRedirect : OpenSubtitlesException("OpenSubtitles returned an unsafe API redirect.")
+
     data class ServerError(
         val statusCode: Int,
     ) : OpenSubtitlesException("OpenSubtitles returned HTTP $statusCode.")
 }
+
+private fun Url.isSafeApiSearchRedirect(): Boolean =
+    protocol.name == "https" &&
+        host.equals(OPEN_SUBTITLES_API_HOST, ignoreCase = true) &&
+        port == protocol.defaultPort &&
+        encodedPath == OPEN_SUBTITLES_SEARCH_PATH
 
 private fun requireSafeDownloadUrl(url: Url) {
     require(url.protocol.name == "https") { "OpenSubtitles download must use HTTPS." }
@@ -259,10 +373,13 @@ private fun requireSafeDownloadUrl(url: Url) {
 }
 
 private const val OPEN_SUBTITLES_API = "https://api.opensubtitles.com/api/v1"
+private const val OPEN_SUBTITLES_API_HOST = "api.opensubtitles.com"
+private const val OPEN_SUBTITLES_SEARCH_PATH = "/api/v1/subtitles"
 private const val INITIAL_SUBTITLE_BUFFER_BYTES = 16 * 1024
 private const val MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024
 private const val DOWNLOAD_SIZE_ERROR = "Subtitle download exceeds the 5 MiB limit."
 private const val MAX_DOWNLOAD_REDIRECTS = 3
+private const val MAX_API_SEARCH_REDIRECTS = 1
 private val redirectStatuses =
     setOf(
         HttpStatusCode.MovedPermanently,
@@ -271,3 +388,4 @@ private val redirectStatuses =
         HttpStatusCode.TemporaryRedirect,
         HttpStatusCode.PermanentRedirect,
     )
+private val openSubtitlesApiLogger = diagnosticLogger(DiagnosticTag.OpenSubtitles)

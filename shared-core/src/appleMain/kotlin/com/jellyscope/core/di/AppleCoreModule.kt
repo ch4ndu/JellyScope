@@ -71,8 +71,14 @@ import platform.UIKit.UIDevice
 fun appleCoreModule(
     diagnosticPlatform: PlaybackDiagnosticPlatform = PlaybackDiagnosticPlatform.Ios,
     displaySupportsHdr: Boolean = false,
+    developerOpenSubtitlesApiKey: String? = null,
 ) = module {
-    single { CoreConfig(enableHttpLogging = false) }
+    single {
+        CoreConfig(
+            enableHttpLogging = false,
+            developerOpenSubtitlesApiKey = developerOpenSubtitlesApiKey,
+        )
+    }
     single<SecureStore> { ApplePlaintextSecureStore() }
     single<DeviceInfoProvider> { AppleDeviceInfoProvider() }
     single<DiagnosticsEnvironment> { AppleDiagnosticsEnvironment(diagnosticPlatform) }

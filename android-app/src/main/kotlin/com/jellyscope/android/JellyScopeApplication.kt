@@ -32,7 +32,11 @@ class JellyScopeApplication : Application() {
         startKoin {
             androidContext(this@JellyScopeApplication)
             modules(
-                androidCoreModule(this@JellyScopeApplication),
+                androidCoreModule(
+                    context = this@JellyScopeApplication,
+                    developerOpenSubtitlesApiKey =
+                        AndroidDeveloperConfig.OPEN_SUBTITLES_API_KEY.takeIf(String::isNotBlank),
+                ),
                 androidAppModule,
                 downloadsModule,
                 coreModule,

@@ -180,6 +180,7 @@ fun DetailScreen(
                             episodeNumber = detail.episodeNumber,
                             language = detail.subtitleSearchLanguage,
                             sourceReleaseBasename = detail.selectedSourceReleaseBasename,
+                            seriesTitle = detail.seriesName,
                         ),
                     onInstalled = { asset ->
                         installedAssetId = asset.id

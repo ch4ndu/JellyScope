@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.android.library) apply false
@@ -10,6 +12,157 @@ plugins {
     alias(libs.plugins.kotlin.plugin.compose) apply false
     alias(libs.plugins.kotlin.plugin.serialization) apply false
     alias(libs.plugins.ktlint)
+}
+
+val developerPropertyKeys =
+    listOf(
+        "devServerUrl",
+        "devUsername",
+        "devPassword",
+        "openSubtitlesApiKey",
+    )
+val developerPropertiesFile = layout.projectDirectory.file("developer.properties")
+
+fun isDeveloperPropertiesDisabledByEnvironment(value: String?): Boolean = value?.trim()?.lowercase() in setOf("true", "1")
+
+fun developerPropertiesAreEnabled(
+    forceDisableValue: String?,
+    requestedValue: String?,
+    ciValue: String?,
+): Boolean =
+    when {
+        isDeveloperPropertiesDisabledByEnvironment(forceDisableValue) -> false
+        requestedValue?.trim().equals("false", ignoreCase = true) -> false
+        isDeveloperPropertiesDisabledByEnvironment(ciValue) -> false
+        else -> true
+    }
+
+fun loadDeveloperProperties(
+    enabled: Boolean,
+    fileExists: Boolean,
+    reader: () -> Properties,
+): Map<String, String> {
+    if (!enabled || !fileExists) return emptyMap()
+    val properties = reader()
+    return developerPropertyKeys.associateWith { key -> properties.getProperty(key).orEmpty() }
+}
+
+val developerPropertiesEnabled =
+    providers.provider {
+        val forceDisableValue = providers.environmentVariable("JELLYSCOPE_FORCE_DISABLE_DEVELOPER_PROPERTIES").orNull
+        if (isDeveloperPropertiesDisabledByEnvironment(forceDisableValue)) {
+            false
+        } else {
+            developerPropertiesAreEnabled(
+                forceDisableValue = forceDisableValue,
+                requestedValue = providers.gradleProperty("jellyscopeDeveloperPropertiesEnabled").orNull,
+                ciValue = providers.environmentVariable("CI").orNull,
+            )
+        }
+    }
+val developerProperties =
+    developerPropertiesEnabled.map { enabled ->
+        if (!enabled) {
+            emptyMap()
+        } else {
+            loadDeveloperProperties(
+                enabled = true,
+                fileExists = developerPropertiesFile.asFile.isFile,
+            ) {
+                Properties().apply {
+                    developerPropertiesFile.asFile.inputStream().use(::load)
+                }
+            }
+        }
+    }
+
+extra["developerPropertiesFile"] = developerPropertiesFile
+extra["developerPropertiesEnabled"] = developerPropertiesEnabled
+extra["developerProperties"] = developerProperties
+
+tasks.register("verifyDeveloperPropertiesIsolation") {
+    group = "verification"
+    description = "Verifies developer-property gating and in-memory loading without reading local credentials."
+    doLast {
+        check(
+            !developerPropertiesAreEnabled(
+                forceDisableValue = "true",
+                requestedValue = "true",
+                ciValue = "false",
+            ),
+        )
+        check(
+            !developerPropertiesAreEnabled(
+                forceDisableValue = null,
+                requestedValue = "false",
+                ciValue = "false",
+            ),
+        )
+        check(
+            !developerPropertiesAreEnabled(
+                forceDisableValue = null,
+                requestedValue = null,
+                ciValue = "TrUe",
+            ),
+        )
+        check(
+            !developerPropertiesAreEnabled(
+                forceDisableValue = null,
+                requestedValue = null,
+                ciValue = "1",
+            ),
+        )
+        check(
+            developerPropertiesAreEnabled(
+                forceDisableValue = null,
+                requestedValue = null,
+                ciValue = "false",
+            ),
+        )
+
+        var readerInvoked = false
+        val reader = {
+            readerInvoked = true
+            Properties()
+        }
+        val forceDisabled =
+            developerPropertiesAreEnabled(
+                forceDisableValue = "true",
+                requestedValue = "true",
+                ciValue = "false",
+            )
+        check(loadDeveloperProperties(enabled = forceDisabled, fileExists = true, reader = reader).isEmpty())
+        check(!readerInvoked)
+        check(loadDeveloperProperties(enabled = false, fileExists = true, reader = reader).isEmpty())
+        check(!readerInvoked)
+        check(loadDeveloperProperties(enabled = true, fileExists = false, reader = reader).isEmpty())
+        check(!readerInvoked)
+
+        val inMemoryProperties =
+            Properties().apply {
+                setProperty("devServerUrl", "https://developer.example")
+                setProperty("devUsername", "developer")
+                setProperty("devPassword", "password")
+                setProperty("openSubtitlesApiKey", "subtitle-key")
+                setProperty("unsupportedKey", "must-not-leak")
+            }
+        val normalized =
+            loadDeveloperProperties(
+                enabled = true,
+                fileExists = true,
+                reader = { inMemoryProperties },
+            )
+        check(normalized.keys == developerPropertyKeys.toSet())
+        check(
+            normalized ==
+                mapOf(
+                    "devServerUrl" to "https://developer.example",
+                    "devUsername" to "developer",
+                    "devPassword" to "password",
+                    "openSubtitlesApiKey" to "subtitle-key",
+                ),
+        )
+    }
 }
 
 val releaseLicenseMetadataDir = layout.buildDirectory.dir("generated/release-license-metadata")

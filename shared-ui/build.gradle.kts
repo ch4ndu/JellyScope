@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.PathSensitivity
 import java.io.File
-import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -10,16 +12,31 @@ plugins {
     alias(libs.plugins.kotlin.plugin.compose)
 }
 
-// Dev-only server prefill for targets without BuildConfig.
-val devServerPropertiesFile = File(System.getProperty("user.home"), "Private/Keystores/dev-server.properties")
-val devServerProperties =
-    Properties().apply {
-        if (devServerPropertiesFile.isFile) {
-            devServerPropertiesFile.inputStream().use { load(it) }
-        }
-    }
+@Suppress("UNCHECKED_CAST")
+val developerProperties = rootProject.extra["developerProperties"] as Provider<Map<String, String>>
 
-fun devProperty(key: String): String = devServerProperties.getProperty(key, "")
+@Suppress("UNCHECKED_CAST")
+val developerPropertiesEnabled = rootProject.extra["developerPropertiesEnabled"] as Provider<Boolean>
+
+val developerPropertiesFile = rootProject.extra["developerPropertiesFile"] as RegularFile
+val xcodeConfiguration = providers.environmentVariable("CONFIGURATION").orElse("Release")
+val developerPropertiesAllowed =
+    providers.provider {
+        developerPropertiesEnabled.get() && !xcodeConfiguration.get().equals("StoreRelease", ignoreCase = true)
+    }
+val developerPropertiesInput =
+    files(
+        providers.provider {
+            if (!developerPropertiesAllowed.get()) {
+                emptyList()
+            } else {
+                developerPropertiesFile.asFile
+                    .takeIf(File::isFile)
+                    ?.let(::listOf)
+                    .orEmpty()
+            }
+        },
+    )
 
 fun escapeKotlinStringLiteral(value: String): String =
     buildString(value.length) {
@@ -39,25 +56,29 @@ fun escapeKotlinStringLiteral(value: String): String =
 fun writeDevServerConfig(
     target: File,
     configuration: String,
+    includeDeveloperProperties: Boolean,
     serverUrl: String,
     username: String,
     password: String,
+    openSubtitlesApiKey: String,
 ) {
     target.parentFile.mkdirs()
     val isDebugBuild = configuration.equals("Debug", ignoreCase = true)
-    val generatedServerUrl = if (isDebugBuild) serverUrl else ""
-    val generatedUsername = if (isDebugBuild) username else ""
-    val generatedPassword = if (isDebugBuild) password else ""
+    val generatedServerUrl = if (includeDeveloperProperties) serverUrl else ""
+    val generatedUsername = if (includeDeveloperProperties) username else ""
+    val generatedPassword = if (includeDeveloperProperties) password else ""
+    val generatedOpenSubtitlesApiKey = if (includeDeveloperProperties) openSubtitlesApiKey else ""
     target.writeText(
         """
         |// SPDX-License-Identifier: MPL-2.0
-        |// Generated local dev-server prefill; empty outside Debug.
+        |// Generated local developer prefill.
         |package com.jellyscope.ui
         |
         |internal object DevServerConfig {
         |    const val SERVER_URL: String = "${escapeKotlinStringLiteral(generatedServerUrl)}"
         |    const val USERNAME: String = "${escapeKotlinStringLiteral(generatedUsername)}"
         |    const val PASSWORD: String = "${escapeKotlinStringLiteral(generatedPassword)}"
+        |    const val OPEN_SUBTITLES_API_KEY: String = "${escapeKotlinStringLiteral(generatedOpenSubtitlesApiKey)}"
         |    const val IS_DEBUG_BUILD: Boolean = $isDebugBuild
         |}
         |
@@ -68,23 +89,24 @@ fun writeDevServerConfig(
 val generateDevServerConfig =
     tasks.register("generateDevServerConfig") {
         val outputDir = layout.buildDirectory.dir("generated/devServerConfig/kotlin")
-        val serverUrl = devProperty("devServerUrl")
-        val username = devProperty("devUsername")
-        val password = devProperty("devPassword")
-        val xcodeConfiguration = providers.environmentVariable("CONFIGURATION").orElse("Release")
-        inputs.property("serverUrl", serverUrl)
-        inputs.property("username", username)
-        inputs.property("password", password)
+        inputs.files(developerPropertiesInput).withPathSensitivity(PathSensitivity.RELATIVE)
+        inputs.property("developerPropertiesEnabled", developerPropertiesEnabled)
         inputs.property("xcodeConfiguration", xcodeConfiguration)
         outputs.dir(outputDir)
+        outputs.cacheIf { false }
         doLast {
+            val configuration = xcodeConfiguration.get()
+            val includeDeveloperProperties = developerPropertiesAllowed.get()
+            val properties = if (includeDeveloperProperties) developerProperties.get() else emptyMap()
             val target = outputDir.get().file("com/jellyscope/ui/DevServerConfig.kt").asFile
             writeDevServerConfig(
                 target = target,
-                configuration = xcodeConfiguration.get(),
-                serverUrl = serverUrl,
-                username = username,
-                password = password,
+                configuration = configuration,
+                includeDeveloperProperties = includeDeveloperProperties,
+                serverUrl = properties["devServerUrl"].orEmpty(),
+                username = properties["devUsername"].orEmpty(),
+                password = properties["devPassword"].orEmpty(),
+                openSubtitlesApiKey = properties["openSubtitlesApiKey"].orEmpty(),
             )
         }
     }
@@ -122,32 +144,59 @@ val generateDistributionBuildInfo =
 val verifyReleaseDevServerConfig =
     tasks.register("verifyReleaseDevServerConfig") {
         group = "verification"
-        description = "Verifies that iOS Release dev-server config cannot contain developer credentials."
+        description = "Verifies local and StoreRelease developer-config generation."
         val outputDir = layout.buildDirectory.dir("verification/devServerConfig")
         outputs.dir(outputDir)
         doLast {
             val sentinelServerUrl = "https://sentinel.invalid\\path\"${'$'}server\r\n雪"
             val sentinelUsername = "sentinel-${'$'}user"
             val sentinelPassword = "sentinel-password\t雪"
-            val releaseTarget = outputDir.get().file("release/DevServerConfig.kt").asFile
+            val sentinelOpenSubtitlesApiKey = "sentinel-open-subtitles-${'$'}key"
+            val localReleaseTarget = outputDir.get().file("local-release/DevServerConfig.kt").asFile
+            val storeReleaseTarget = outputDir.get().file("store-release/DevServerConfig.kt").asFile
+            val disabledTarget = outputDir.get().file("disabled/DevServerConfig.kt").asFile
             val debugTarget = outputDir.get().file("debug/DevServerConfig.kt").asFile
 
             writeDevServerConfig(
-                target = releaseTarget,
+                target = localReleaseTarget,
                 configuration = "Release",
+                includeDeveloperProperties = true,
                 serverUrl = sentinelServerUrl,
                 username = sentinelUsername,
                 password = sentinelPassword,
+                openSubtitlesApiKey = sentinelOpenSubtitlesApiKey,
+            )
+            writeDevServerConfig(
+                target = storeReleaseTarget,
+                configuration = "StoreRelease",
+                includeDeveloperProperties = false,
+                serverUrl = sentinelServerUrl,
+                username = sentinelUsername,
+                password = sentinelPassword,
+                openSubtitlesApiKey = sentinelOpenSubtitlesApiKey,
+            )
+            writeDevServerConfig(
+                target = disabledTarget,
+                configuration = "Release",
+                includeDeveloperProperties = false,
+                serverUrl = sentinelServerUrl,
+                username = sentinelUsername,
+                password = sentinelPassword,
+                openSubtitlesApiKey = sentinelOpenSubtitlesApiKey,
             )
             writeDevServerConfig(
                 target = debugTarget,
                 configuration = "Debug",
+                includeDeveloperProperties = true,
                 serverUrl = sentinelServerUrl,
                 username = sentinelUsername,
                 password = sentinelPassword,
+                openSubtitlesApiKey = sentinelOpenSubtitlesApiKey,
             )
 
-            val releaseSource = releaseTarget.readText()
+            val localReleaseSource = localReleaseTarget.readText()
+            val storeReleaseSource = storeReleaseTarget.readText()
+            val disabledSource = disabledTarget.readText()
             val debugSource = debugTarget.readText()
 
             fun credentialValues(
@@ -159,16 +208,21 @@ val verifyReleaseDevServerConfig =
                     .map { match -> match.groupValues[1] }
                     .toList()
 
-            check(sentinelServerUrl !in releaseSource) { "Release SERVER_URL verification failed" }
-            check(sentinelUsername !in releaseSource) { "Release USERNAME verification failed" }
-            check(sentinelPassword !in releaseSource) { "Release PASSWORD verification failed" }
-            listOf("SERVER_URL", "USERNAME", "PASSWORD").forEach { field ->
-                check(credentialValues(releaseSource, field) == listOf("")) {
-                    "Release $field emptiness verification failed"
+            listOf("SERVER_URL", "USERNAME", "PASSWORD", "OPEN_SUBTITLES_API_KEY").forEach { field ->
+                check(credentialValues(localReleaseSource, field).single().isNotEmpty()) {
+                    "Local Release $field verification failed"
+                }
+                listOf(storeReleaseSource, disabledSource).forEach { source ->
+                    check(credentialValues(source, field) == listOf("")) {
+                        "$field emptiness verification failed"
+                    }
                 }
             }
-            check("const val IS_DEBUG_BUILD: Boolean = false" in releaseSource) {
+            check("const val IS_DEBUG_BUILD: Boolean = false" in localReleaseSource) {
                 "Release IS_DEBUG_BUILD verification failed"
+            }
+            check("const val IS_DEBUG_BUILD: Boolean = false" in storeReleaseSource) {
+                "StoreRelease IS_DEBUG_BUILD verification failed"
             }
             check("const val SERVER_URL: String = \"${escapeKotlinStringLiteral(sentinelServerUrl)}\"" in debugSource) {
                 "Debug SERVER_URL escaping verification failed"
@@ -178,6 +232,14 @@ val verifyReleaseDevServerConfig =
             }
             check("const val PASSWORD: String = \"${escapeKotlinStringLiteral(sentinelPassword)}\"" in debugSource) {
                 "Debug PASSWORD escaping verification failed"
+            }
+            val expectedOpenSubtitlesApiKey =
+                "const val OPEN_SUBTITLES_API_KEY: String = " +
+                    "\"${escapeKotlinStringLiteral(sentinelOpenSubtitlesApiKey)}\""
+            check(
+                expectedOpenSubtitlesApiKey in debugSource,
+            ) {
+                "Debug OPEN_SUBTITLES_API_KEY escaping verification failed"
             }
             check("const val IS_DEBUG_BUILD: Boolean = true" in debugSource) {
                 "Debug IS_DEBUG_BUILD verification failed"

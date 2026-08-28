@@ -1,0 +1,5 @@
+# Optional local developer prefill. Copy to developer.properties and fill only the values you need.
+devServerUrl=
+devUsername=
+devPassword=
+openSubtitlesApiKey=

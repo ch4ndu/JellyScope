@@ -8,4 +8,5 @@ package com.jellyscope.core.di
  */
 data class CoreConfig(
     val enableHttpLogging: Boolean,
+    val developerOpenSubtitlesApiKey: String? = null,
 )

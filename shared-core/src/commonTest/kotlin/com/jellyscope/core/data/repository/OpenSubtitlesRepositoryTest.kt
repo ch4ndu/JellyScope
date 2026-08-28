@@ -15,6 +15,7 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
+import io.ktor.http.Url
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -24,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OpenSubtitlesRepositoryTest {
@@ -202,6 +204,33 @@ class OpenSubtitlesRepositoryTest {
         }
 
     @Test
+    fun persistedApiKeyOverridesDeveloperFallback() =
+        runTest {
+            val secureStore = FakeSecureStore()
+            val settings = OpenSubtitlesSettingsStore(secureStore)
+            val requestedApiKeys = mutableListOf<String>()
+            val repository =
+                repository(
+                    settings = settings,
+                    dispatcher = StandardTestDispatcher(testScheduler),
+                    requestedApiKeys = requestedApiKeys,
+                    developerApiKey = "developer-key",
+                )
+
+            val request = searchRequest().copy(imdbId = null, seasonNumber = null, episodeNumber = null)
+            assertNull(settings.apiKey())
+            repository.search(request)
+            settings.setApiKey("persisted-key")
+            assertEquals("persisted-key", settings.apiKey())
+            repository.search(request)
+            settings.setApiKey(" ")
+            assertNull(settings.apiKey())
+            repository.search(request)
+
+            assertEquals(listOf("developer-key", "persisted-key", "developer-key"), requestedApiKeys)
+        }
+
+    @Test
     fun repositoryPreservesQueryPriorityDeduplicatesFirstEncounterAndKeepsBasenameLocal() =
         runTest {
             val settings = OpenSubtitlesSettingsStore(FakeSecureStore())
@@ -215,10 +244,19 @@ class OpenSubtitlesRepositoryTest {
                     querySpecificResponses = true,
                 )
 
-            val results = repository.search(searchRequest(sourceReleaseBasename = "Private.Release.Name.mkv"))
+            val results =
+                repository.search(
+                    searchRequest(sourceReleaseBasename = "Private.Release.Name.mkv").copy(
+                        title = "Anime Episode Name",
+                        seriesTitle = "Anime Series Name",
+                    ),
+                )
+            val titleQuery = requestedUrls.map(::Url).single { url -> url.parameters["query"] != null }
 
             assertEquals(1, results.count { it.fileId == "10" })
             assertEquals("10", results.first().fileId)
+            assertEquals("Anime Series Name", titleQuery.parameters["query"])
+            assertEquals(null, titleQuery.parameters["year"])
             assertTrue(requestedUrls.isNotEmpty())
             assertFalse(requestedUrls.any { url -> "Private.Release.Name" in url || "sourceReleaseBasename" in url })
         }
@@ -228,11 +266,14 @@ private fun repository(
     settings: OpenSubtitlesSettingsStore,
     dispatcher: kotlinx.coroutines.CoroutineDispatcher,
     requestedUrls: MutableList<String> = mutableListOf(),
+    requestedApiKeys: MutableList<String> = mutableListOf(),
     querySpecificResponses: Boolean = false,
+    developerApiKey: String? = null,
 ): DefaultOpenSubtitlesRepository {
     val engine =
         MockEngine { request ->
             requestedUrls += request.url.toString()
+            requestedApiKeys += request.headers["Api-Key"].orEmpty()
             val isTitleQuery = request.url.parameters["query"] != null
             val body =
                 if (querySpecificResponses) {
@@ -254,7 +295,12 @@ private fun repository(
             downloadClient = HttpClient(MockEngine { error("download is not expected") }),
             userAgent = "JellyScope test",
         )
-    return DefaultOpenSubtitlesRepository(api, settings, dispatcher)
+    return DefaultOpenSubtitlesRepository(
+        api = api,
+        settings = settings,
+        dispatcher = dispatcher,
+        developerApiKey = developerApiKey,
+    )
 }
 
 private fun searchRequest(sourceReleaseBasename: String? = "Movie.Release.mkv") =
@@ -272,7 +318,9 @@ private fun searchRequest(sourceReleaseBasename: String? = "Movie.Release.mkv") 
 private val preferenceResponse =
     """
     {"data":[
-      {"id":"normal-subtitle","attributes":{"language":"en","release":"Movie.Release","files":[{"file_id":1,"file_name":"normal.srt"}]}},
+      null,
+      {"id":null,"attributes":null},
+      {"id":"normal-subtitle","attributes":{"language":"en","release":"Movie.Release","hearing_impaired":null,"from_trusted":null,"files":[null,{"file_id":null,"file_name":"incomplete.srt"},{"file_id":1,"file_name":"normal.srt"}]}},
       {"id":"forced-subtitle","attributes":{"language":"en","release":"Unrelated","foreign_parts_only":true,"files":[{"file_id":2,"file_name":"forced.srt"}]}}
     ]}
     """.trimIndent()

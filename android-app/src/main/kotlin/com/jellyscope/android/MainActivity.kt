@@ -27,9 +27,9 @@ class MainActivity : ComponentActivity() {
                 LocalPlatformCapabilities provides PlatformCapabilities.Mobile,
             ) {
                 JellyScopeApp(
-                    initialServerUrl = BuildConfig.DEV_SERVER_URL.ifBlank { null },
-                    prefillUsername = BuildConfig.DEV_USERNAME,
-                    prefillPassword = BuildConfig.DEV_PASSWORD,
+                    initialServerUrl = AndroidDeveloperConfig.SERVER_URL.ifBlank { null },
+                    prefillUsername = AndroidDeveloperConfig.USERNAME,
+                    prefillPassword = AndroidDeveloperConfig.PASSWORD,
                 )
             }
         }

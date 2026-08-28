@@ -170,6 +170,7 @@ fun AdaptiveDetailScreen(
                             episodeNumber = detail.episodeNumber,
                             language = detail.subtitleSearchLanguage,
                             sourceReleaseBasename = detail.selectedSourceReleaseBasename,
+                            seriesTitle = detail.seriesName,
                         ),
                     onInstalled = { asset ->
                         selectedLocalAssetId = asset.id

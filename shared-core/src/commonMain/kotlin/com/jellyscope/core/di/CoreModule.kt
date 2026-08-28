@@ -195,7 +195,13 @@ val coreModule =
                 userAgent = "${get<ClientInfo>().clientName} v${get<ClientInfo>().versionName}",
             )
         }
-        single<OpenSubtitlesRepository> { DefaultOpenSubtitlesRepository(api = get(), settings = get()) }
+        single<OpenSubtitlesRepository> {
+            DefaultOpenSubtitlesRepository(
+                api = get(),
+                settings = get(),
+                developerApiKey = get<CoreConfig>().developerOpenSubtitlesApiKey,
+            )
+        }
         single(createdAtStart = true) {
             LocalSubtitleMutationCoordinator(
                 assetStore = get<LocalSubtitleAssetStore>(),

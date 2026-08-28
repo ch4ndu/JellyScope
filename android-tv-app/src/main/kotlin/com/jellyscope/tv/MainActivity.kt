@@ -121,7 +121,7 @@ private fun TvApp(
                     val serverInfo = validatedServerInfo
                     if (serverInfo == null) {
                         TvServerEntryScreen(
-                            initialServerUrl = state.serverUrl ?: BuildConfig.DEV_SERVER_URL.ifBlank { null },
+                            initialServerUrl = state.serverUrl ?: TvDeveloperConfig.SERVER_URL.ifBlank { null },
                             onServerValidated = { validated -> validatedServerInfo = validated },
                         )
                     } else {
@@ -129,8 +129,8 @@ private fun TvApp(
                             serverInfo = serverInfo,
                             onLoggedIn = { validatedServerInfo = null },
                             onBackToServer = { validatedServerInfo = null },
-                            prefillUsername = BuildConfig.DEV_USERNAME,
-                            prefillPassword = BuildConfig.DEV_PASSWORD,
+                            prefillUsername = TvDeveloperConfig.USERNAME,
+                            prefillPassword = TvDeveloperConfig.PASSWORD,
                         )
                     }
                 }

@@ -59,11 +59,72 @@ class OpenSubtitlesApiTest {
             assertEquals(
                 42,
                 response.data
+                    .orEmpty()
                     .single()
-                    .attributes.files
+                    ?.attributes
+                    ?.files
+                    .orEmpty()
                     .single()
-                    .fileId,
+                    ?.fileId,
             )
+        }
+
+    @Test
+    fun searchFollowsOnlySameOriginCanonicalRedirectWithConsumerKey() =
+        runTest {
+            var canonicalCalls = 0
+            val canonicalApi =
+                OpenSubtitlesApi(
+                    apiClient =
+                        mockClient(
+                            MockEngine { request ->
+                                canonicalCalls += 1
+                                assertEquals("consumer-key", request.headers["Api-Key"])
+                                if (canonicalCalls == 1) {
+                                    respond(
+                                        content = "canonical",
+                                        status = HttpStatusCode.MovedPermanently,
+                                        headers =
+                                            headersOf(
+                                                HttpHeaders.Location,
+                                                "/api/v1/subtitles?episode_number=3&languages=en&query=example",
+                                            ),
+                                    )
+                                } else {
+                                    assertEquals("/api/v1/subtitles", request.url.encodedPath)
+                                    respondJson("""{"data":[]}""")
+                                }
+                            },
+                        ),
+                    downloadClient = mockClient(MockEngine { error("unused") }),
+                    userAgent = "JellyScope v1",
+                )
+
+            canonicalApi.search("consumer-key", OpenSubtitlesQuery(title = "Example", language = "en"))
+            assertEquals(2, canonicalCalls)
+
+            var unsafeCalls = 0
+            val unsafeApi =
+                OpenSubtitlesApi(
+                    apiClient =
+                        mockClient(
+                            MockEngine {
+                                unsafeCalls += 1
+                                respond(
+                                    content = "redirect",
+                                    status = HttpStatusCode.MovedPermanently,
+                                    headers = headersOf(HttpHeaders.Location, "https://example.com/api/v1/subtitles"),
+                                )
+                            },
+                        ),
+                    downloadClient = mockClient(MockEngine { error("unused") }),
+                    userAgent = "JellyScope v1",
+                )
+
+            assertFailsWith<OpenSubtitlesException.UnsafeRedirect> {
+                unsafeApi.search("consumer-key", OpenSubtitlesQuery(title = "Example", language = "en"))
+            }
+            assertEquals(1, unsafeCalls)
         }
 
     @Test
@@ -182,10 +243,37 @@ class OpenSubtitlesApiTest {
                     ),
                     "JellyScope v1",
                 )
+            val nullableFieldsApi =
+                OpenSubtitlesApi(
+                    mockClient(
+                        MockEngine {
+                            respondJson(
+                                """
+                                {"data":[{"id":"sub-1","attributes":{"language":"en","hearing_impaired":null,
+                                "foreign_parts_only":null,"from_trusted":null,
+                                "files":[null,{"file_id":42,"file_name":"Movie.srt"}]}}]}
+                                """.trimIndent(),
+                            )
+                        },
+                    ),
+                    mockClient(MockEngine { error("unused") }),
+                    "JellyScope v1",
+                )
 
-            assertFailsWith<Throwable> {
-                malformedApi.search("key", OpenSubtitlesQuery(title = "Movie", language = "en"))
-            }
+            val malformedFailure =
+                assertFailsWith<Throwable> {
+                    malformedApi.search("key", OpenSubtitlesQuery(title = "Movie", language = "en"))
+                }
+            assertTrue(malformedFailure::class.simpleName?.contains("Json") == true)
+            val nullableAttributes =
+                nullableFieldsApi
+                    .search("key", OpenSubtitlesQuery(imdbId = "tt123", language = "en"))
+                    .data
+                    .orEmpty()
+                    .single()
+                    ?.attributes
+            assertNull(nullableAttributes?.trusted)
+            assertEquals(2, nullableAttributes?.files?.size)
             assertFailsWith<IllegalArgumentException> {
                 oversizedApi.download("https://dl.opensubtitles.com/movie.srt")
             }

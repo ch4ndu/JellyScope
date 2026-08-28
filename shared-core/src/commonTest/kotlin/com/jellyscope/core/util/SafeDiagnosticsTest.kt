@@ -125,6 +125,16 @@ class SafeDiagnosticsTest {
                 message = "stage=probe event=surfaceTiming frames=1 renderMaxMicros=2 presentMaxMicros=3",
             ),
         )
+        val openSubtitlesResponseFailure =
+            "stage=api event=response-decode-failed operation=openSubtitleSearch requestKind=ImdbEpisode httpCode=200 " +
+                "responseContentType=Json exceptionType=JsonConvertException causeType=JsonDecodingException"
+        assertEquals(
+            openSubtitlesResponseFailure,
+            LogScrubber.capture(
+                tag = DiagnosticTag.OpenSubtitles.wireValue,
+                message = openSubtitlesResponseFailure,
+            ),
+        )
     }
 
     @Test

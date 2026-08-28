@@ -519,29 +519,41 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 
 - JellyScope talks directly to `https://api.opensubtitles.com/api/v1` through a
   dedicated `OpenSubtitlesApi`/repository boundary. API requests send only the
-  user-supplied consumer key and JellyScope User-Agent; the separate download
+  persisted user-supplied consumer key, or the local developer fallback when no
+  persisted key exists, and the JellyScope User-Agent; the separate download
   client never receives OpenSubtitles or Jellyfin credentials. Download links
   must remain HTTPS on an allowlisted OpenSubtitles host across at most three
-  redirects, and neither URLs, keys, response bodies, titles, nor file paths may
-  be logged.
+  redirects. Search follows at most one canonical redirect only when it remains
+  HTTPS on the exact API host and search path; the consumer key is never sent to
+  an unvalidated destination. Neither URLs, keys, response bodies, titles, nor
+  file paths may be logged. Search diagnostics may log only the closed request
+  operation and identity-free query shape, numeric HTTP status, coarse
+  content-type category, result and query counts, and exception and
+  immediate-cause type names.
 - OpenSubtitles configuration is device-global and survives Jellyfin logout.
   The consumer key is the only secret value; the result-order preference is
   persisted beside it as `NoPreference`, `PreferHearingImpaired`, or
   `PreferForced`, with missing or unknown values falling back to `NoPreference`.
   It uses the existing platform `SecureStore` implementations, including their
-  documented platform limitations. Search starts from movie or concrete episode
-  detail, prefers IMDb plus season/episode identity, falls back to title/year,
-  normalizes the preferred language to OpenSubtitles codes, and keeps search out
-  of the in-player picker.
+  documented platform limitations. The optional ignored repo-root developer
+  property is a local runtime fallback only: it never changes the persisted
+  getter or settings surface, and it is never logged. Search starts from movie
+  or concrete episode detail, prefers IMDb plus season/episode identity, falls back to movie
+  title/year or series title/season/episode identity, normalizes the preferred
+  language to OpenSubtitles codes, and keeps search out of the in-player picker.
+  Episode title fallback omits the episode's production year because the
+  provider interprets a title-query year as the series year.
 - Results are ranked before display, never left in server order: query
   specificity first (IMDb plus season/episode outranks IMDb alone, which
-  outranks the title/year fallback), then installable results ahead of
+  outranks the title fallback), then installable results ahead of
   unavailable ones, then an explicit hearing-impaired or forced preference
   match, normalized release-name similarity to the selected source basename,
   OpenSubtitles' trusted flag, rating, download count, and original API
   encounter order as the final deterministic tie-breaker. Preference and
   basename evidence are neutral when absent. The preference only reorders; it
-  never filters results. The selected source's full path is reduced to a
+  never filters results. Nullable optional provider flags default false at the
+  DTO boundary, and incomplete result or file rows are skipped without failing
+  valid siblings. The selected source's full path is reduced to a
   basename at the DTO-to-domain boundary and is never sent to OpenSubtitles,
   logged, diagnosed, displayed, or persisted. The first result is only the
   best-ranked candidate. JellyScope never presents it as a confirmed match for
@@ -3576,12 +3588,13 @@ operative text lives in the body sections above, never here.
 
 ### Subtitles and OpenSubtitles
 
-- **The OpenSubtitles consumer key is user-supplied, not app-owned.** A key
-  embedded in a client binary is inherently extractable, and its quota is
-  abusable against the whole install base. A project-owned or pro key would
-  need OpenSubtitles
-  consumer/subscription terms, quota, key rotation, revocation, and
-  app-identification review before distribution.
+- **The OpenSubtitles consumer key is user- or developer-supplied, never
+  app-owned.** A key embedded in a distributable client binary is inherently
+  extractable, and its quota is abusable against the whole install base. The
+  ignored local developer fallback only helps a developer build and never
+  persists or appears in settings. A project-owned or pro key would need
+  OpenSubtitles consumer/subscription terms, quota, key rotation, revocation,
+  and app-identification review before distribution.
 - **A sealed `SubtitleAsset` exists instead of reusing the Jellyfin
   external-subtitle URL type** because the Jellyfin-remote type is
   credential-bearing (iOS attaches Jellyfin auth headers; desktop rejects URLs

@@ -70,74 +70,79 @@ import kotlinx.coroutines.SupervisorJob
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 
-fun androidCoreModule(context: Context) =
-    module {
-        single {
-            val debuggable =
-                (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-            CoreConfig(enableHttpLogging = debuggable)
-        }
-        single<SecureStore> { AndroidKeystoreSecureStore(context = context.applicationContext) }
-        single<DeviceInfoProvider> { AndroidDeviceInfoProvider() }
-        single<DiagnosticsEnvironment> {
-            AndroidDiagnosticsEnvironment(appVersion = get<ClientInfo>().versionName)
-        }
-        single<NativeDiagnosticLogSource> { AndroidMpvDiagnosticLogSource(context = androidContext()) }
-        single<DeviceProfileProvider> { AndroidDeviceProfileProvider(context = androidContext()) }
-        single { AndroidAudioFocusCoordinator(context = androidContext()) }
-        single<CoroutineScope> { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
-        single<AppThemeStore> { SharedPreferencesAppThemeStore(context = androidContext()) }
-        single<TileSizeStore> { SharedPreferencesTileSizeStore(context = androidContext()) }
-        single<PictureInPictureStore> { SharedPreferencesPictureInPictureStore(context = androidContext()) }
-        single<LogCollectionPreferenceStore> { SharedPreferencesLogCollectionPreferenceStore(context = androidContext()) }
-        single<DiagnosticBreadcrumbStore> { createDiagnosticBreadcrumbStore(androidContext()) }
-        single<PreviousRunFailureStore> { AndroidPreviousRunFailureStore(androidContext()) }
-        single<PlayerDeviceSettingsStore> { SharedPreferencesPlayerDeviceSettingsStore(context = androidContext()) }
-        single<LibrarySortStore>(createdAtStart = true) {
-            SharedPreferencesLibrarySortStore(androidContext())
-        }
-        single<LibraryViewPreferencesStore>(createdAtStart = true) {
-            SharedPreferencesLibraryViewPreferencesStore(androidContext())
-        }
-        single<GridSortStore>(createdAtStart = true) {
-            SharedPreferencesGridSortStore(androidContext())
-        }
-        single<DownloadDatabaseFactory> { AndroidDownloadDatabaseFactory(context) }
-        single<DownloadArtifactStore> { AndroidDownloadArtifactStore(context) }
-        single { DownloadExecutionRecovery(queueCoordinator = get(), driver = get()) }
-        single {
-            AndroidDownloadScheduler(
-                context = context,
-                driver = get(),
-                queueCoordinator = get(),
-                recovery = get(),
-                scope = get(),
-            )
-        }
-        single<DownloadExecutionHost> { get<AndroidDownloadScheduler>() }
-        single<DownloadLifecycleHost> { get<AndroidDownloadScheduler>() }
-        single { createJellyfinStoreDatabase(context.applicationContext) }
-        single { get<com.jellyscope.core.data.local.JellyfinStoreDatabase>().jellyfinStoreDao() }
-        single<LocalSubtitleFileStore> { AndroidLocalSubtitleFileStore(androidContext()) }
-        single<LocalSubtitleAssetStore> { RoomLocalSubtitleAssetStore(dao = get()) }
-        single<PlaybackPreferencesStore> {
-            RoomPlaybackPreferencesStore(
-                dao = get(),
-                defaultVlcTranscodeBitrateBps = ANDROID_VLC_DEFAULT_TRANSCODE_BITRATE_BPS,
-            )
-        }
-        single<PlaybackSelectionStore> { RoomPlaybackSelectionStore(dao = get()) }
-        single<PlaybackTimingStore> { RoomPlaybackTimingStore(dao = get()) }
-        single<PlayerBackendOverrideStore> {
-            RoomPlayerBackendOverrideStore(dao = get())
-        }
-        single<SubtitleSelectionStore>(localSubtitleSelectionPersistenceQualifier) {
-            RoomSubtitleSelectionStore(dao = get())
-        }
-        single<RecentSearchStore> {
-            RoomRecentSearchStore(dao = get())
-        }
-        single<WatchNextSyncStore> {
-            RoomWatchNextSyncStore(dao = get())
-        }
+fun androidCoreModule(
+    context: Context,
+    developerOpenSubtitlesApiKey: String? = null,
+) = module {
+    single {
+        val debuggable =
+            (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        CoreConfig(
+            enableHttpLogging = debuggable,
+            developerOpenSubtitlesApiKey = developerOpenSubtitlesApiKey,
+        )
     }
+    single<SecureStore> { AndroidKeystoreSecureStore(context = context.applicationContext) }
+    single<DeviceInfoProvider> { AndroidDeviceInfoProvider() }
+    single<DiagnosticsEnvironment> {
+        AndroidDiagnosticsEnvironment(appVersion = get<ClientInfo>().versionName)
+    }
+    single<NativeDiagnosticLogSource> { AndroidMpvDiagnosticLogSource(context = androidContext()) }
+    single<DeviceProfileProvider> { AndroidDeviceProfileProvider(context = androidContext()) }
+    single { AndroidAudioFocusCoordinator(context = androidContext()) }
+    single<CoroutineScope> { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+    single<AppThemeStore> { SharedPreferencesAppThemeStore(context = androidContext()) }
+    single<TileSizeStore> { SharedPreferencesTileSizeStore(context = androidContext()) }
+    single<PictureInPictureStore> { SharedPreferencesPictureInPictureStore(context = androidContext()) }
+    single<LogCollectionPreferenceStore> { SharedPreferencesLogCollectionPreferenceStore(context = androidContext()) }
+    single<DiagnosticBreadcrumbStore> { createDiagnosticBreadcrumbStore(androidContext()) }
+    single<PreviousRunFailureStore> { AndroidPreviousRunFailureStore(androidContext()) }
+    single<PlayerDeviceSettingsStore> { SharedPreferencesPlayerDeviceSettingsStore(context = androidContext()) }
+    single<LibrarySortStore>(createdAtStart = true) {
+        SharedPreferencesLibrarySortStore(androidContext())
+    }
+    single<LibraryViewPreferencesStore>(createdAtStart = true) {
+        SharedPreferencesLibraryViewPreferencesStore(androidContext())
+    }
+    single<GridSortStore>(createdAtStart = true) {
+        SharedPreferencesGridSortStore(androidContext())
+    }
+    single<DownloadDatabaseFactory> { AndroidDownloadDatabaseFactory(context) }
+    single<DownloadArtifactStore> { AndroidDownloadArtifactStore(context) }
+    single { DownloadExecutionRecovery(queueCoordinator = get(), driver = get()) }
+    single {
+        AndroidDownloadScheduler(
+            context = context,
+            driver = get(),
+            queueCoordinator = get(),
+            recovery = get(),
+            scope = get(),
+        )
+    }
+    single<DownloadExecutionHost> { get<AndroidDownloadScheduler>() }
+    single<DownloadLifecycleHost> { get<AndroidDownloadScheduler>() }
+    single { createJellyfinStoreDatabase(context.applicationContext) }
+    single { get<com.jellyscope.core.data.local.JellyfinStoreDatabase>().jellyfinStoreDao() }
+    single<LocalSubtitleFileStore> { AndroidLocalSubtitleFileStore(androidContext()) }
+    single<LocalSubtitleAssetStore> { RoomLocalSubtitleAssetStore(dao = get()) }
+    single<PlaybackPreferencesStore> {
+        RoomPlaybackPreferencesStore(
+            dao = get(),
+            defaultVlcTranscodeBitrateBps = ANDROID_VLC_DEFAULT_TRANSCODE_BITRATE_BPS,
+        )
+    }
+    single<PlaybackSelectionStore> { RoomPlaybackSelectionStore(dao = get()) }
+    single<PlaybackTimingStore> { RoomPlaybackTimingStore(dao = get()) }
+    single<PlayerBackendOverrideStore> {
+        RoomPlayerBackendOverrideStore(dao = get())
+    }
+    single<SubtitleSelectionStore>(localSubtitleSelectionPersistenceQualifier) {
+        RoomSubtitleSelectionStore(dao = get())
+    }
+    single<RecentSearchStore> {
+        RoomRecentSearchStore(dao = get())
+    }
+    single<WatchNextSyncStore> {
+        RoomWatchNextSyncStore(dao = get())
+    }
+}

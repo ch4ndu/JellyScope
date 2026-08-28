@@ -66,6 +66,12 @@ object LogScrubber {
                 "transitionState",
                 "transitionTargetPositionMs",
                 "transitionNativePositionMs",
+                // Identity-free OpenSubtitles response-shape diagnostics.
+                "requestKind",
+                "responseContentType",
+                "causeType",
+                "queryCount",
+                "resultCount",
             )
     private val url = Regex("(?i)https?://[^\\s]+")
     private val credential =

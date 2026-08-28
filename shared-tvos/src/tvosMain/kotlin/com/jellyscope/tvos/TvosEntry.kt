@@ -50,7 +50,11 @@ object TvosEntry {
         val displaySupportsHdr = detectDisplaySupportsHdr()
         startKoin {
             modules(
-                tvosCoreModule(displaySupportsHdr = displaySupportsHdr),
+                tvosCoreModule(
+                    displaySupportsHdr = displaySupportsHdr,
+                    developerOpenSubtitlesApiKey =
+                        TvDevServerConfig.OPEN_SUBTITLES_API_KEY.takeIf(String::isNotBlank),
+                ),
                 coreModule,
                 module {
                     single { ClientInfo(versionName = bundleVersionName()) }
