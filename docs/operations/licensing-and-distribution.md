@@ -158,12 +158,12 @@ from the macOS manifest.
 
 ## Contributors, Provenance, And Product Identity
 
-Murali Vipparla is the sole human contributor to the JellyScope-owned material
+Murali Vipparla is the sole contributor to the JellyScope-owned material
 currently in this repository. The project owner has confirmed that he owns, or
 has written relicensing permission for, all JellyScope-authored source and
 non-brand assets, including work produced in an employment or client context
 and material adapted from another source. Git author names or aliases do not
-represent additional human contributors.
+represent additional contributors.
 
 That confirmation is the ownership and provenance record relied on for this
 source-only cutover. It does not claim ownership of imported code, generated

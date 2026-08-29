@@ -225,7 +225,7 @@ Use [`data-playback.md`](data-playback.md) for behavior and
 [`playback-architecture.md`](playback-architecture.md) for ownership. Platform
 bridges must remain narrow, lifecycle-safe, and replaceable.
 
-## 4. Write Code A Person Can Read
+## 4. Write Clear, Maintainable Code
 
 Names and structure should explain the normal path. Comments and KDoc are for a
 non-obvious contract, invariant, rationale, lifecycle or concurrency constraint,
@@ -313,8 +313,8 @@ cover the risk.
 Every implementation plan and handoff names the shortest exact manual path:
 platform, setup, user actions, and expected result. Unless the current request
 explicitly authorizes a device, emulator, simulator, or other live runtime
-check, an AI agent supplies that checklist and reports it as unperformed rather
-than running it.
+check, supply that checklist and report it as unperformed rather than running
+it.
 
 Do not add unit tests for Compose layout, visual styling, formatting,
 localization, navigation, focus, buttons, icons, interaction, or screenshots by

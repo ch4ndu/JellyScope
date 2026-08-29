@@ -10,7 +10,7 @@ never copy another document's rules into a second file.
 | [`../README.md`](../README.md) | User-facing capabilities per platform: what the app does, players, formats, subtitles |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Contributor entry point: build pointers, code conventions, PR expectations |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | What shipped in which release |
-| [`../AGENTS.md`](../AGENTS.md) | Agent instruction router, always-on engineering rules, and the documentation update rule |
+| [`../AGENTS.md`](../AGENTS.md) | Project instruction router, always-on engineering rules, and the documentation update rule |
 | [`BUILD.md`](BUILD.md) | Toolchain, per-platform build commands, verification baseline, module map |
 | [`RELEASE.md`](RELEASE.md) | Release runbook: Android and Apple signing setup, release builds, smoke-test checklist |
 | [`guides/architecture.md`](guides/architecture.md) | Layers, state/events, source layout, platform boundaries, known duplication |

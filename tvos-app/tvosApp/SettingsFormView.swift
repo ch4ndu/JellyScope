@@ -28,7 +28,7 @@ struct SettingsFormView: View {
             }
 
             Section("Diagnostics") {
-                Text("Safe, sanitized breadcrumbs are retained in a bounded on-device store. Collection is disabled by default. Upload occurs only when you press Send to your Jellyfin server. Turning collection off deletes retained safe diagnostics.")
+                Text("Collection is off by default. Sanitized logs stay on this device until you send them to your Jellyfin server. Turning collection off deletes stored logs.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 LabeledContent("Captured entries", value: String(model.state.diagnosticEntryCount))

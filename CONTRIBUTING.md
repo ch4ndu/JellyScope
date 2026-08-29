@@ -1,7 +1,7 @@
 # Contributing To JellyScope
 
-Thanks for taking a look. [`README.md`](README.md) describes the app for the
-people using it; this file is for people changing it.
+Thanks for taking a look. [`README.md`](README.md) describes the application;
+this file covers contributing changes.
 
 JellyScope is Kotlin Multiplatform with Compose Multiplatform UI: shared domain
 and UI code, with platform shells for Android mobile, Android TV, iOS, macOS

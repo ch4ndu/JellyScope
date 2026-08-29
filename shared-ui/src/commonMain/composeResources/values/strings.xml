@@ -602,7 +602,7 @@
     <string name="settings_local_subtitles_clear_success">Downloaded subtitles cleared.</string>
     <string name="settings_diagnostics">Diagnostics</string>
     <string name="settings_diagnostics_collect">Collect diagnostic logs</string>
-    <string name="settings_diagnostics_collect_detail">Safe diagnostic breadcrumbs are retained in a bounded on-device store, sanitized, and uploaded only after you press Send to your Jellyfin server—not to any third party. Collection is disabled by default; turning it off deletes retained safe diagnostics. On desktop, collection includes detailed playback probes.</string>
+    <string name="settings_diagnostics_collect_detail">Collection is off by default. Sanitized logs stay on this device until you send them to your Jellyfin server. Turning collection off deletes stored logs. Desktop collection also includes playback probes.</string>
     <string name="settings_diagnostics_collect_error">Couldn’t update diagnostic log collection. Try again.</string>
     <string name="settings_diagnostics_verbose_logcat">Verbose system logging</string>
     <string name="settings_diagnostics_playback_info_at_start">Show playback info at start</string>

@@ -70,7 +70,7 @@
     <string name="tv_settings_services_about">Services &amp; About</string>
     <string name="tv_settings_diagnostics">Diagnostics</string>
     <string name="tv_settings_collect_logs">Collect diagnostic logs</string>
-    <string name="tv_settings_collect_logs_guidance">Safe diagnostic breadcrumbs are retained in a bounded on-device store, sanitized, and uploaded only after you press Send to your Jellyfin server—not to any third party. Collection is disabled by default; turning it off deletes retained safe diagnostics.</string>
+    <string name="tv_settings_collect_logs_guidance">Collection is off by default. Sanitized logs stay on this device until you send them to your Jellyfin server. Turning collection off deletes stored logs.</string>
     <string name="tv_settings_collect_logs_error">Couldn’t update collection. Try again.</string>
     <string name="tv_settings_verbose_logcat">Verbose system logging</string>
     <string name="tv_settings_verbose_logcat_description">Writes UNSANITIZED logs to the system log. Use only while reproducing a bug on a release build.</string>
