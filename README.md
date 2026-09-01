@@ -11,7 +11,7 @@ Jellyfin, Inc.
 JellyScope is a Jellyfin client written in Kotlin with Compose Multiplatform.
 It runs on Android phones and tablets, Android TV, Google TV, Fire TV, iPhone,
 iPad, and Apple Silicon Macs. There's also an experimental Apple TV preview.
-The current alpha release is **0.1.0-alpha92**.
+The current alpha release is **0.1.0-alpha93**.
 
 ## Features
 

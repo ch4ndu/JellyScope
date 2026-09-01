@@ -2,6 +2,12 @@
 
 Notable JellyScope changes, newest first.
 
+## 0.1.0-alpha93 — modularize playback orchestration · week 8 · 2026-09-01
+
+- Playback orchestration is split into focused diagnostics, debug, timeline, offline, queue, plan-transform, quality, Still Watching, and first-video-output responsibilities while retaining the ViewModel as the sole owner of launch, controller, backend, recovery, reporting, persistence, queue-switching, and UI-publication effects.
+- The PlayerViewModel test suite is divided into focused playback areas with all 170 existing cases and assertions preserved, making failures and future changes easier to locate without changing playback behavior.
+- Automated lint, shared host tests, Android release assemblies, desktop compilation, and the iOS Simulator framework link passed. The maintainer reports that all targeted playback regression paths also passed device validation.
+
 ## 0.1.0-alpha92 — enable resilient offline downloads · week 8 · 2026-08-31
 
 - Movies and individual episodes can be downloaded at Original quality or a selected converted quality from their detail actions, then managed and played from the Downloads screen on Android, Android TV, iOS, and macOS. Transfers remain serial, interrupted work is resumable as a group, and storage allocation uses decimal MB and GB units.
