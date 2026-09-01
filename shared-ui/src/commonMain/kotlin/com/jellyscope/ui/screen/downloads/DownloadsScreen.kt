@@ -45,15 +45,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GIB
+import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GB
 import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadQuality
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.Session
-import com.jellyscope.core.domain.model.wholeGibDownloadQuotaBytes
+import com.jellyscope.core.domain.model.wholeGbDownloadQuotaBytes
+import com.jellyscope.core.domain.playback.formatBitrateMbps
 import com.jellyscope.ui.component.AppTopBar
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.component.appNavigationBarContentPadding
@@ -65,11 +67,10 @@ import com.jellyscope.ui.generated.resources.download_action_pause
 import com.jellyscope.ui.generated.resources.download_action_play
 import com.jellyscope.ui.generated.resources.download_action_resume
 import com.jellyscope.ui.generated.resources.download_action_retry
-import com.jellyscope.ui.generated.resources.download_action_start
 import com.jellyscope.ui.generated.resources.downloads_allocation
 import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_cancel
 import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_confirm
-import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_gib
+import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_gb
 import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_invalid
 import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_title
 import com.jellyscope.ui.generated.resources.downloads_artifact_in_use
@@ -88,18 +89,19 @@ import com.jellyscope.ui.generated.resources.downloads_failure_size
 import com.jellyscope.ui.generated.resources.downloads_failure_source
 import com.jellyscope.ui.generated.resources.downloads_failure_storage
 import com.jellyscope.ui.generated.resources.downloads_failure_unsupported
+import com.jellyscope.ui.generated.resources.downloads_interrupted
 import com.jellyscope.ui.generated.resources.downloads_item_details
 import com.jellyscope.ui.generated.resources.downloads_item_duration
 import com.jellyscope.ui.generated.resources.downloads_item_episode
 import com.jellyscope.ui.generated.resources.downloads_item_movie
-import com.jellyscope.ui.generated.resources.downloads_manage
+import com.jellyscope.ui.generated.resources.downloads_manage_allocation
 import com.jellyscope.ui.generated.resources.downloads_other_accounts_stored
 import com.jellyscope.ui.generated.resources.downloads_over_allocation
 import com.jellyscope.ui.generated.resources.downloads_quality_fixed
 import com.jellyscope.ui.generated.resources.downloads_quality_original
 import com.jellyscope.ui.generated.resources.downloads_remaining_quota
 import com.jellyscope.ui.generated.resources.downloads_reservations
-import com.jellyscope.ui.generated.resources.downloads_schedule_retry_error
+import com.jellyscope.ui.generated.resources.downloads_resume_all
 import com.jellyscope.ui.generated.resources.downloads_section_completed
 import com.jellyscope.ui.generated.resources.downloads_section_downloading
 import com.jellyscope.ui.generated.resources.downloads_section_failed
@@ -122,6 +124,7 @@ fun DownloadsScreen(
     onBack: () -> Unit,
     onPlayOffline: (DownloadRecord) -> Unit,
     modifier: Modifier = Modifier,
+    bottomContentPadding: Dp = Dimensions.zero,
     viewModel: DownloadsViewModel =
         koinViewModel(
             parameters = { parametersOf(session) },
@@ -130,21 +133,25 @@ fun DownloadsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var allocationDialogVisible by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<DownloadRecord?>(null) }
-    OnResumeEffect(viewModel::refresh)
+    OnResumeEffect {
+        viewModel.refresh()
+        viewModel.wakeQueueOnScreenResume()
+    }
 
     DownloadsContent(
         state = state,
         onBack = onBack,
         onPause = viewModel::pause,
         onResume = viewModel::resume,
+        onResumePausedDownloads = viewModel::resumePausedDownloads,
         onRetry = viewModel::retry,
-        onRetryScheduling = viewModel::retryScheduling,
         onCancel = viewModel::cancel,
         onDelete = { downloadId ->
             pendingDelete = state.records.firstOrNull { record -> record.downloadId.value == downloadId }
         },
         onPlayOffline = onPlayOffline,
         onOpenAllocation = { allocationDialogVisible = true },
+        bottomContentPadding = bottomContentPadding,
         modifier = modifier,
     )
     if (allocationDialogVisible) {
@@ -176,15 +183,21 @@ internal fun DownloadsContent(
     onBack: () -> Unit,
     onPause: (String) -> Unit,
     onResume: (String) -> Unit,
+    onResumePausedDownloads: () -> Unit,
     onRetry: (String) -> Unit,
-    onRetryScheduling: (String) -> Unit,
     onCancel: (String) -> Unit,
     onDelete: (String) -> Unit,
     onPlayOffline: (DownloadRecord) -> Unit,
     onOpenAllocation: () -> Unit,
+    bottomContentPadding: Dp = Dimensions.zero,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
+    val listBottomContentPadding =
+        maxOf(
+            appNavigationBarContentPadding(),
+            Dimensions.screenPadding + bottomContentPadding,
+        )
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
@@ -194,7 +207,7 @@ internal fun DownloadsContent(
                     start = Dimensions.screenPadding,
                     top = appTopBarContentPadding(),
                     end = Dimensions.screenPadding,
-                    bottom = appNavigationBarContentPadding(),
+                    bottom = listBottomContentPadding,
                 ),
             verticalArrangement = Arrangement.spacedBy(Dimensions.detailSectionSpacing),
         ) {
@@ -203,6 +216,14 @@ internal fun DownloadsContent(
                     state = state,
                     onOpenAllocation = onOpenAllocation,
                 )
+            }
+            if (state.records.any { record -> record.state == DownloadState.Paused }) {
+                item(key = "interrupted-downloads") {
+                    DownloadsInterruptedCard(
+                        busy = state.isBulkResumeInFlight,
+                        onResume = onResumePausedDownloads,
+                    )
+                }
             }
             if (state.isLoading && state.records.isEmpty()) {
                 item(key = "loading") {
@@ -232,12 +253,11 @@ internal fun DownloadsContent(
                     ) { record ->
                         DownloadRecordCard(
                             record = record,
-                            busy = state.inFlightDownloadId == record.downloadId.value,
+                            busy = state.isBulkResumeInFlight || state.inFlightDownloadId == record.downloadId.value,
                             artifactLeased = state.leasedDownloadIds.contains(record.downloadId.value),
                             onPause = { onPause(record.downloadId.value) },
                             onResume = { onResume(record.downloadId.value) },
                             onRetry = { onRetry(record.downloadId.value) },
-                            onRetryScheduling = { onRetryScheduling(record.downloadId.value) },
                             onCancel = { onCancel(record.downloadId.value) },
                             onDelete = { onDelete(record.downloadId.value) },
                             onPlayOffline = { onPlayOffline(record) },
@@ -253,7 +273,6 @@ internal fun DownloadsContent(
                                 when (error) {
                                     DownloadsUiError.LoadFailed -> Res.string.downloads_error
                                     DownloadsUiError.CommandRejected -> Res.string.downloads_usage_error
-                                    DownloadsUiError.SchedulingRetryRejected -> Res.string.downloads_schedule_retry_error
                                     DownloadsUiError.QuotaRejected -> Res.string.downloads_usage_error
                                     DownloadsUiError.ArtifactInUse -> Res.string.downloads_artifact_in_use
                                 },
@@ -270,6 +289,36 @@ internal fun DownloadsContent(
             onBack = onBack,
             modifier = Modifier.align(Alignment.TopCenter),
         )
+    }
+}
+
+@Composable
+private fun DownloadsInterruptedCard(
+    busy: Boolean,
+    onResume: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(Dimensions.formSpacing),
+            horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(Res.string.downloads_interrupted),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            if (busy) {
+                CircularProgressIndicator(modifier = Modifier.size(Dimensions.controlButtonIconSize))
+            } else {
+                OutlinedButton(onClick = onResume) {
+                    Text(stringResource(Res.string.downloads_resume_all))
+                }
+            }
+        }
     }
 }
 
@@ -301,7 +350,7 @@ private fun DownloadsUsageCard(
                 IconButton(onClick = onOpenAllocation) {
                     Icon(
                         imageVector = Icons.Filled.Download,
-                        contentDescription = stringResource(Res.string.downloads_manage),
+                        contentDescription = stringResource(Res.string.downloads_manage_allocation),
                     )
                 }
             }
@@ -349,7 +398,7 @@ private fun DownloadsUsageCard(
                 onClick = onOpenAllocation,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(stringResource(Res.string.downloads_manage))
+                Text(stringResource(Res.string.downloads_manage_allocation))
             }
         }
     }
@@ -374,7 +423,6 @@ private fun DownloadRecordCard(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onRetry: () -> Unit,
-    onRetryScheduling: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
     onPlayOffline: () -> Unit,
@@ -423,7 +471,7 @@ private fun DownloadRecordCard(
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                text = stringResource(record.state.statusResource()),
+                text = stringResource(record.state.labelResource()),
                 color = if (record.state == DownloadState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelLarge,
             )
@@ -462,13 +510,7 @@ private fun DownloadRecordCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 when (record.state) {
-                    DownloadState.Queued ->
-                        DownloadActionButton(
-                            icon = Icons.Filled.PlayArrow,
-                            label = stringResource(Res.string.download_action_start),
-                            enabled = !busy,
-                            onClick = onRetryScheduling,
-                        )
+                    DownloadState.Queued -> Unit
                     DownloadState.Downloading ->
                         DownloadActionButton(
                             icon = Icons.Filled.Pause,
@@ -554,10 +596,10 @@ private fun DownloadAllocationDialog(
     onConfirm: (Long?) -> Unit,
 ) {
     var value by remember(initialQuotaBytes) {
-        mutableStateOf(initialQuotaBytes?.let { bytes -> (bytes / DOWNLOAD_BYTES_PER_GIB).toString() }.orEmpty())
+        mutableStateOf(initialQuotaBytes?.let { bytes -> (bytes / DOWNLOAD_BYTES_PER_GB).toString() }.orEmpty())
     }
-    val parsedGib = value.trim().toLongOrNull()
-    val parsedBytes = parsedGib?.let(::wholeGibDownloadQuotaBytes)
+    val parsedGb = value.trim().toLongOrNull()
+    val parsedBytes = parsedGb?.let(::wholeGbDownloadQuotaBytes)
     val allocationValid = parsedBytes == null || maximumQuotaBytes == null || parsedBytes <= maximumQuotaBytes
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -567,7 +609,7 @@ private fun DownloadAllocationDialog(
                 OutlinedTextField(
                     value = value,
                     onValueChange = { next -> value = next.filter(Char::isDigit) },
-                    label = { Text(stringResource(Res.string.downloads_allocation_dialog_gib)) },
+                    label = { Text(stringResource(Res.string.downloads_allocation_dialog_gb)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                 )
@@ -625,7 +667,7 @@ private fun snapshotDetails(record: DownloadRecord): String {
             is DownloadQuality.Fixed ->
                 stringResource(
                     Res.string.downloads_quality_fixed,
-                    downloadQuality.maxBitrateBps,
+                    formatBitrateMbps(downloadQuality.maxBitrateBps),
                 )
         }
     return stringResource(Res.string.downloads_item_details, type, duration, quality)

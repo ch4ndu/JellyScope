@@ -31,9 +31,10 @@ import com.jellyscope.core.domain.action.EnqueueDownloadAction
 import com.jellyscope.core.domain.action.EnqueueFixedDownloadAction
 import com.jellyscope.core.domain.action.PauseDownloadAction
 import com.jellyscope.core.domain.action.ResumeDownloadAction
+import com.jellyscope.core.domain.action.ResumePausedDownloadsAction
 import com.jellyscope.core.domain.action.RetryDownloadAction
-import com.jellyscope.core.domain.action.RetryDownloadSchedulingAction
 import com.jellyscope.core.domain.action.UpdateDownloadedPlaybackAction
+import com.jellyscope.core.domain.action.WakeDownloadsQueueAction
 import com.jellyscope.core.domain.usecase.DownloadRemovalAuthorizationIssuer
 import com.jellyscope.core.domain.usecase.DownloadRemovalPreviewReader
 import com.jellyscope.core.domain.usecase.DownloadRemovalPreviewReleaser
@@ -103,6 +104,9 @@ val downloadsModule =
                 jellyfinApi = get(),
                 localSubtitleAssetStore = get(),
                 localSubtitleFileStore = get(),
+                playbackPreferencesStore = get(),
+                playerBackendOverrideStore = get(),
+                deviceProfileProvider = get(),
             )
         }
         single<FixedDownloadAdmission> {
@@ -172,8 +176,9 @@ val downloadsModule =
         single { EnqueueFixedDownloadAction(repository = get(), lifecycleHost = get(), admission = get()) }
         single { PauseDownloadAction(commandCoordinator = get(), lifecycleHost = get()) }
         single { ResumeDownloadAction(repository = get(), lifecycleHost = get()) }
+        single { ResumePausedDownloadsAction(repository = get(), lifecycleHost = get()) }
         single { RetryDownloadAction(repository = get(), lifecycleHost = get()) }
-        single { RetryDownloadSchedulingAction(lifecycleHost = get()) }
+        single { WakeDownloadsQueueAction(lifecycleHost = get()) }
         single { CancelDownloadAction(commandCoordinator = get(), lifecycleHost = get()) }
         single { DeleteDownloadAction(repository = get()) }
         single { UpdateDownloadedPlaybackAction(repository = get()) }

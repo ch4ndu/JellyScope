@@ -4,12 +4,16 @@ package com.jellyscope.core.data.remote
 
 import com.jellyscope.core.domain.model.DownloadSubtitleSelection
 import com.jellyscope.core.domain.model.estimateFixedDownloadBytes
+import com.jellyscope.core.domain.playback.BackendSourceDescriptor
 import com.jellyscope.core.domain.playback.EffectivePlayerDevicePolicy
 import com.jellyscope.core.domain.playback.PlaybackInfoRequestPolicy
 import com.jellyscope.core.domain.playback.resolveServerRelativeUrl
 import com.jellyscope.core.domain.playback.subtitleHonestTranscodingUrl
 import com.jellyscope.core.domain.playback.ticksToMilliseconds
 import com.jellyscope.core.security.CredentialOriginGuard
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.safeDiagnosticType
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeoutConfig
@@ -100,6 +104,7 @@ class KtorJellyfinApi(
                             mediaSourceId = mediaSourceId,
                             totalBytes = range.totalBytes,
                             lastModified = validator,
+                            backendSource = validation.backendSource,
                             audioStreamIndices = validation.audioStreamIndices,
                             embeddedSubtitleStreamIndices = validation.embeddedSubtitleStreamIndices,
                             externalSubtitleStreamIndices = validation.externalSubtitleStreamIndices,
@@ -251,38 +256,92 @@ class KtorJellyfinApi(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
-                return FixedDownloadPreflightResult.Rejected(failure.toFixedDownloadFailure())
+                return fixedDownloadPreflightRejected(
+                    failure = failure.toFixedDownloadFailure(),
+                    reason = FixedDownloadDiagnosticReason.PlaybackInfoRequestFailed,
+                    requestKind = request.requestKind,
+                    throwable = failure,
+                )
             }
+        val matchingSources = response.mediaSources.filter { source -> source.id == request.mediaSourceId }
         val mediaSource =
-            response.mediaSources.singleOrNull { source -> source.id == request.mediaSourceId }
-                ?: return FixedDownloadPreflightResult.Rejected(FixedDownloadFailure.SourceChanged)
+            matchingSources.singleOrNull()
+                ?: return fixedDownloadPreflightRejected(
+                    failure = FixedDownloadFailure.SourceChanged,
+                    reason =
+                        if (matchingSources.isEmpty()) {
+                            FixedDownloadDiagnosticReason.PlaybackMediaSourceMissing
+                        } else {
+                            FixedDownloadDiagnosticReason.PlaybackMediaSourceDuplicated
+                        },
+                    candidateCount = matchingSources.size,
+                    requestKind = request.requestKind,
+                )
         if (!mediaSource.supportsTranscoding) {
-            return FixedDownloadPreflightResult.Rejected(FixedDownloadFailure.UnsupportedArtifact)
+            return fixedDownloadPreflightRejected(
+                failure = FixedDownloadFailure.UnsupportedArtifact,
+                reason = FixedDownloadDiagnosticReason.TranscodingUnsupported,
+                requestKind = request.requestKind,
+            )
         }
         val rawUrl =
             mediaSource.transcodingUrl?.trim()
-                ?: return FixedDownloadPreflightResult.Rejected(FixedDownloadFailure.ServerUnavailable)
-        if (!mediaSource.transcodingSubProtocol.equals("hls", ignoreCase = true) ||
-            !mediaSource.transcodingContainer.isFixedHlsContainer() &&
+                ?: return fixedDownloadPreflightRejected(
+                    failure = FixedDownloadFailure.ServerUnavailable,
+                    reason = FixedDownloadDiagnosticReason.TranscodingUrlMissing,
+                    requestKind = request.requestKind,
+                )
+        if (!mediaSource.transcodingSubProtocol.equals("hls", ignoreCase = true)) {
+            return fixedDownloadPreflightRejected(
+                failure = FixedDownloadFailure.UnsupportedArtifact,
+                reason = FixedDownloadDiagnosticReason.TranscodingProtocolUnsupported,
+                requestKind = request.requestKind,
+            )
+        }
+        if (!mediaSource.transcodingContainer.isFixedHlsContainer() &&
             !rawUrl.substringBefore('?').endsWith(".m3u8", ignoreCase = true)
         ) {
-            return FixedDownloadPreflightResult.Rejected(FixedDownloadFailure.UnsupportedArtifact)
+            return fixedDownloadPreflightRejected(
+                failure = FixedDownloadFailure.UnsupportedArtifact,
+                reason = FixedDownloadDiagnosticReason.TranscodingContainerUnsupported,
+                requestKind = request.requestKind,
+            )
         }
         val honestUrl = subtitleHonestTranscodingUrl(rawUrl, effectiveRequest.subtitleStreamIndex)
         val resourceUrl =
             resolveFixedResourceUrl(context, honestUrl)
-                ?: return FixedDownloadPreflightResult.Rejected(FixedDownloadFailure.SourceChanged)
+                ?: return fixedDownloadPreflightRejected(
+                    failure = FixedDownloadFailure.SourceChanged,
+                    reason = FixedDownloadDiagnosticReason.TranscodingUrlRejected,
+                    requestKind = request.requestKind,
+                )
         val deviceId =
             fixedDownloadQueryParameter(resourceUrl, "deviceId")
-                ?: return FixedDownloadPreflightResult.Rejected(FixedDownloadFailure.SourceChanged)
+                ?: return fixedDownloadPreflightRejected(
+                    failure = FixedDownloadFailure.SourceChanged,
+                    reason = FixedDownloadDiagnosticReason.DeviceIdMissing,
+                    requestKind = request.requestKind,
+                )
         val playSessionId =
             response.playSessionId
                 ?.trim()
                 ?.takeIf { value -> value.isBoundedDownloadIdentity() }
-                ?: return FixedDownloadPreflightResult.Rejected(FixedDownloadFailure.SourceChanged)
+                ?: return fixedDownloadPreflightRejected(
+                    failure = FixedDownloadFailure.SourceChanged,
+                    reason = FixedDownloadDiagnosticReason.PlaySessionIdMissing,
+                    requestKind = request.requestKind,
+                )
         val estimate =
             estimateFixedDownloadBytes(request.quality.maxBitrateBps, validation.durationMs)
-                ?: return FixedDownloadPreflightResult.Rejected(FixedDownloadFailure.SizeUnavailable)
+                ?: return fixedDownloadPreflightRejected(
+                    failure = FixedDownloadFailure.SizeUnavailable,
+                    reason = FixedDownloadDiagnosticReason.EstimateUnavailable,
+                    requestKind = request.requestKind,
+                )
+
+        fixedDownloadLogger.i {
+            "stage=fixed-download event=preflight-ready requestKind=${request.requestKind.name} result=Ready"
+        }
 
         return FixedDownloadPreflightResult.Ready(
             FixedDownloadSource(
@@ -308,11 +367,17 @@ class KtorJellyfinApi(
         consume: suspend (FixedDownloadResource) -> T,
     ): FixedDownloadResourceResult<T> {
         if (maxBytes <= 0L || !resourceUrl.isBoundedResourceUrl()) {
-            return FixedDownloadResourceResult.Rejected(FixedDownloadFailure.SourceChanged)
+            return FixedDownloadResourceResult.Rejected(
+                failure = FixedDownloadFailure.SourceChanged,
+                reason = FixedDownloadResourceRejectReason.InvalidRequest,
+            )
         }
         val trustedUrl =
             resolveFixedResourceUrl(context, resourceUrl)
-                ?: return FixedDownloadResourceResult.Rejected(FixedDownloadFailure.SourceChanged)
+                ?: return FixedDownloadResourceResult.Rejected(
+                    failure = FixedDownloadFailure.SourceChanged,
+                    reason = FixedDownloadResourceRejectReason.UntrustedResourceUrl,
+                )
         return try {
             val authorization = authHeaderProvider.authHeader(token = context.accessToken)
             downloadClient
@@ -326,11 +391,27 @@ class KtorJellyfinApi(
                 }.execute { response ->
                     val responseFailure = response.fixedDownloadStatusFailure()
                     if (responseFailure != null) {
-                        return@execute FixedDownloadResourceResult.Rejected(responseFailure)
+                        return@execute FixedDownloadResourceResult.Rejected(
+                            failure = responseFailure,
+                            reason = FixedDownloadResourceRejectReason.HttpStatusRejected,
+                        )
                     }
-                    val contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-                    if (contentLength != null && (contentLength < 0L || contentLength > maxBytes)) {
-                        return@execute FixedDownloadResourceResult.Rejected(FixedDownloadFailure.PayloadTooLarge)
+                    val declaredLength = response.headers[HttpHeaders.ContentLength]
+                    val contentLength =
+                        declaredLength
+                            ?.takeIf { value -> value.isNotEmpty() && value.all { character -> character in '0'..'9' } }
+                            ?.toLongOrNull()
+                    if (declaredLength != null && contentLength == null) {
+                        return@execute FixedDownloadResourceResult.Rejected(
+                            failure = FixedDownloadFailure.SourceChanged,
+                            reason = FixedDownloadResourceRejectReason.InvalidDeclaredLength,
+                        )
+                    }
+                    if (contentLength != null && contentLength > maxBytes) {
+                        return@execute FixedDownloadResourceResult.Rejected(
+                            failure = FixedDownloadFailure.PayloadTooLarge,
+                            reason = FixedDownloadResourceRejectReason.DeclaredLengthTooLarge,
+                        )
                     }
                     val resource =
                         FixedDownloadResource(
@@ -356,9 +437,15 @@ class KtorJellyfinApi(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: IOException) {
-            FixedDownloadResourceResult.Rejected(FixedDownloadFailure.Network)
+            FixedDownloadResourceResult.Rejected(
+                failure = FixedDownloadFailure.Network,
+                reason = FixedDownloadResourceRejectReason.NetworkFailure,
+            )
         } catch (_: Throwable) {
-            FixedDownloadResourceResult.Rejected(FixedDownloadFailure.ServerUnavailable)
+            FixedDownloadResourceResult.Rejected(
+                failure = FixedDownloadFailure.ServerUnavailable,
+                reason = FixedDownloadResourceRejectReason.UnexpectedTransportFailure,
+            )
         }
     }
 
@@ -1065,7 +1152,11 @@ class KtorJellyfinApi(
         request: FixedDownloadRequest,
     ): FixedSourceValidation {
         if (context.serverUrl.isBlank() || context.userId.isBlank() || context.accessToken.isBlank()) {
-            return FixedSourceValidation.Rejected(FixedDownloadFailure.AccountUnauthorized)
+            return fixedDownloadSourceRejected(
+                failure = FixedDownloadFailure.AccountUnauthorized,
+                reason = FixedDownloadDiagnosticReason.AuthenticationContextInvalid,
+                requestKind = request.requestKind,
+            )
         }
         val user =
             try {
@@ -1073,13 +1164,26 @@ class KtorJellyfinApi(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
-                return FixedSourceValidation.Rejected(failure.toFixedDownloadFailure())
+                return fixedDownloadSourceRejected(
+                    failure = failure.toFixedDownloadFailure(),
+                    reason = FixedDownloadDiagnosticReason.CurrentUserRequestFailed,
+                    requestKind = request.requestKind,
+                    throwable = failure,
+                )
             }
         if (user.id != context.userId) {
-            return FixedSourceValidation.Rejected(FixedDownloadFailure.AccountUnauthorized)
+            return fixedDownloadSourceRejected(
+                failure = FixedDownloadFailure.AccountUnauthorized,
+                reason = FixedDownloadDiagnosticReason.CurrentUserMismatch,
+                requestKind = request.requestKind,
+            )
         }
         if (user.policy?.enableContentDownloading != true) {
-            return FixedSourceValidation.Rejected(FixedDownloadFailure.PermissionDenied)
+            return fixedDownloadSourceRejected(
+                failure = FixedDownloadFailure.PermissionDenied,
+                reason = FixedDownloadDiagnosticReason.DownloadPermissionDenied,
+                requestKind = request.requestKind,
+            )
         }
         val item =
             try {
@@ -1096,25 +1200,46 @@ class KtorJellyfinApi(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: Throwable) {
-                return FixedSourceValidation.Rejected(failure.toFixedDownloadFailure())
+                return fixedDownloadSourceRejected(
+                    failure = failure.toFixedDownloadFailure(),
+                    reason = FixedDownloadDiagnosticReason.ItemRequestFailed,
+                    requestKind = request.requestKind,
+                    throwable = failure,
+                )
             }
         if (item == null ||
             item.id != request.itemId ||
             item.isLive == true ||
             item.type !in ORIGINAL_DOWNLOAD_ITEM_TYPES
         ) {
-            return FixedSourceValidation.Rejected(FixedDownloadFailure.SourceUnavailable)
+            return fixedDownloadSourceRejected(
+                failure = FixedDownloadFailure.SourceUnavailable,
+                reason = FixedDownloadDiagnosticReason.ItemUnavailable,
+                requestKind = request.requestKind,
+            )
         }
         val mediaSource =
             item.mediaSources.singleOrNull { source -> source.id == request.mediaSourceId }
-                ?: return FixedSourceValidation.Rejected(FixedDownloadFailure.SourceUnavailable)
+                ?: return fixedDownloadSourceRejected(
+                    failure = FixedDownloadFailure.SourceUnavailable,
+                    reason = FixedDownloadDiagnosticReason.ItemMediaSourceUnavailable,
+                    requestKind = request.requestKind,
+                )
         if (mediaSource.isInfiniteStream == true) {
-            return FixedSourceValidation.Rejected(FixedDownloadFailure.SourceUnavailable)
+            return fixedDownloadSourceRejected(
+                failure = FixedDownloadFailure.SourceUnavailable,
+                reason = FixedDownloadDiagnosticReason.InfiniteStreamUnsupported,
+                requestKind = request.requestKind,
+            )
         }
         val durationTicks = item.runTimeTicks ?: mediaSource.runTimeTicks
         val durationMs =
             durationTicks?.takeIf { ticks -> ticks > 0L }?.let(::ticksToMilliseconds)
-                ?: return FixedSourceValidation.Rejected(FixedDownloadFailure.SizeUnavailable)
+                ?: return fixedDownloadSourceRejected(
+                    failure = FixedDownloadFailure.SizeUnavailable,
+                    reason = FixedDownloadDiagnosticReason.DurationUnavailable,
+                    requestKind = request.requestKind,
+                )
         val audioStreams =
             mediaSource.mediaStreams.filter { stream ->
                 stream.type.equals("Audio", ignoreCase = true) && stream.index != null && stream.index >= 0
@@ -1123,9 +1248,17 @@ class KtorJellyfinApi(
             request.audioStreamIndex
                 ?: audioStreams.firstOrNull { stream -> stream.isDefault == true }?.index
                 ?: audioStreams.firstOrNull()?.index
-                ?: return FixedSourceValidation.Rejected(FixedDownloadFailure.SourceChanged)
+                ?: return fixedDownloadSourceRejected(
+                    failure = FixedDownloadFailure.SourceChanged,
+                    reason = FixedDownloadDiagnosticReason.AudioStreamUnavailable,
+                    requestKind = request.requestKind,
+                )
         if (audioStreams.none { stream -> stream.index == audioIndex }) {
-            return FixedSourceValidation.Rejected(FixedDownloadFailure.SourceChanged)
+            return fixedDownloadSourceRejected(
+                failure = FixedDownloadFailure.SourceChanged,
+                reason = FixedDownloadDiagnosticReason.AudioStreamChanged,
+                requestKind = request.requestKind,
+            )
         }
         val subtitleFormat =
             when (val selection = request.subtitleSelection) {
@@ -1135,16 +1268,33 @@ class KtorJellyfinApi(
                         mediaSource.mediaStreams.singleOrNull { candidate ->
                             candidate.type.equals("Subtitle", ignoreCase = true) &&
                                 candidate.index == selection.streamIndex
-                        } ?: return FixedSourceValidation.Rejected(FixedDownloadFailure.SourceChanged)
+                        } ?: return fixedDownloadSourceRejected(
+                            failure = FixedDownloadFailure.SourceChanged,
+                            reason = FixedDownloadDiagnosticReason.SubtitleStreamChanged,
+                            requestKind = request.requestKind,
+                        )
                     if (stream.isExternal == true) {
-                        return FixedSourceValidation.Rejected(FixedDownloadFailure.UnsupportedArtifact)
+                        return fixedDownloadSourceRejected(
+                            failure = FixedDownloadFailure.UnsupportedArtifact,
+                            reason = FixedDownloadDiagnosticReason.ExternalSubtitleUnsupported,
+                            requestKind = request.requestKind,
+                        )
                     }
                     fixedTextSubtitleFormat(stream)
-                        ?: return FixedSourceValidation.Rejected(FixedDownloadFailure.UnsupportedArtifact)
+                        ?: return fixedDownloadSourceRejected(
+                            failure = FixedDownloadFailure.UnsupportedArtifact,
+                            reason = FixedDownloadDiagnosticReason.SubtitleFormatUnsupported,
+                            requestKind = request.requestKind,
+                        )
                 }
                 is DownloadSubtitleSelection.ExternalTextSidecar,
                 is DownloadSubtitleSelection.ExternalServerTextSidecar,
-                -> return FixedSourceValidation.Rejected(FixedDownloadFailure.UnsupportedArtifact)
+                ->
+                    return fixedDownloadSourceRejected(
+                        failure = FixedDownloadFailure.UnsupportedArtifact,
+                        reason = FixedDownloadDiagnosticReason.ExternalSubtitleUnsupported,
+                        requestKind = request.requestKind,
+                    )
             }
         return FixedSourceValidation.Ready(
             durationMs = durationMs,
@@ -1430,27 +1580,23 @@ class KtorJellyfinApi(
         if (sources.size != 1 || sources.single().isInfiniteStream == true) {
             return OriginalSourceValidation.Rejected(OriginalDownloadFailure.SourceUnavailable)
         }
+        val source = sources.single()
         return OriginalSourceValidation.Ready(
-            declaredBytes = sources.single().size?.takeIf { size -> size > 0L },
+            declaredBytes = source.size?.takeIf { size -> size > 0L },
+            backendSource = source.toBackendSourceDescriptor(),
             audioStreamIndices =
-                sources
-                    .single()
-                    .mediaStreams
+                source.mediaStreams
                     .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
                     .mapNotNull { stream -> stream.index }
                     .toSet(),
             embeddedSubtitleStreamIndices =
-                sources
-                    .single()
-                    .mediaStreams
+                source.mediaStreams
                     .filter { stream ->
                         stream.type.equals("Subtitle", ignoreCase = true) && stream.isExternal != true
                     }.mapNotNull { stream -> stream.index }
                     .toSet(),
             externalSubtitleStreamIndices =
-                sources
-                    .single()
-                    .mediaStreams
+                source.mediaStreams
                     .filter { stream ->
                         stream.type.equals("Subtitle", ignoreCase = true) &&
                             stream.isExternal == true &&
@@ -1459,9 +1605,7 @@ class KtorJellyfinApi(
                     }.mapNotNull { stream -> stream.index }
                     .toSet(),
             unsupportedExternalSubtitleStreamIndices =
-                sources
-                    .single()
-                    .mediaStreams
+                source.mediaStreams
                     .filter { stream ->
                         stream.type.equals("Subtitle", ignoreCase = true) &&
                             stream.isExternal == true &&
@@ -1469,6 +1613,30 @@ class KtorJellyfinApi(
                             !stream.isOriginalDownloadTextSubtitle()
                     }.mapNotNull { stream -> stream.index }
                     .toSet(),
+        )
+    }
+
+    private fun MediaSourceDto.toBackendSourceDescriptor(): BackendSourceDescriptor {
+        val video = mediaStreams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
+        val audio =
+            mediaStreams
+                .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
+                .firstOrNull { stream -> stream.isDefault == true }
+                ?: mediaStreams.firstOrNull { stream -> stream.type.equals("Audio", ignoreCase = true) }
+        return BackendSourceDescriptor(
+            container = container,
+            videoCodec = video?.codec,
+            audioCodec = audio?.codec,
+            isHdrOrDolbyVision =
+                listOfNotNull(video?.videoRangeType, video?.codec)
+                    .any { value ->
+                        value.contains("hdr", ignoreCase = true) ||
+                            value.contains("dolby", ignoreCase = true) ||
+                            value.contains("vision", ignoreCase = true)
+                    },
+            videoWidth = video?.width,
+            videoHeight = video?.height,
+            videoFrameRate = (video?.realFrameRate ?: video?.averageFrameRate)?.toDouble(),
         )
     }
 
@@ -1592,6 +1760,7 @@ class KtorJellyfinApi(
 private sealed interface OriginalSourceValidation {
     data class Ready(
         val declaredBytes: Long?,
+        val backendSource: BackendSourceDescriptor,
         val audioStreamIndices: Set<Int> = emptySet(),
         val embeddedSubtitleStreamIndices: Set<Int> = emptySet(),
         val externalSubtitleStreamIndices: Set<Int> = emptySet(),
@@ -1621,6 +1790,80 @@ private sealed interface FixedSourceValidation {
     ) : FixedSourceValidation
 }
 
+private enum class FixedDownloadDiagnosticReason {
+    AuthenticationContextInvalid,
+    CurrentUserRequestFailed,
+    CurrentUserMismatch,
+    DownloadPermissionDenied,
+    ItemRequestFailed,
+    ItemUnavailable,
+    ItemMediaSourceUnavailable,
+    InfiniteStreamUnsupported,
+    DurationUnavailable,
+    AudioStreamUnavailable,
+    AudioStreamChanged,
+    SubtitleStreamChanged,
+    ExternalSubtitleUnsupported,
+    SubtitleFormatUnsupported,
+    PlaybackInfoRequestFailed,
+    PlaybackMediaSourceMissing,
+    PlaybackMediaSourceDuplicated,
+    TranscodingUnsupported,
+    TranscodingUrlMissing,
+    TranscodingProtocolUnsupported,
+    TranscodingContainerUnsupported,
+    TranscodingUrlRejected,
+    DeviceIdMissing,
+    PlaySessionIdMissing,
+    EstimateUnavailable,
+}
+
+private fun fixedDownloadSourceRejected(
+    failure: FixedDownloadFailure,
+    reason: FixedDownloadDiagnosticReason,
+    requestKind: FixedDownloadRequestKind,
+    throwable: Throwable? = null,
+): FixedSourceValidation.Rejected {
+    logFixedDownloadPreflightRejection(failure, reason, requestKind, throwable)
+    return FixedSourceValidation.Rejected(failure)
+}
+
+private fun fixedDownloadPreflightRejected(
+    failure: FixedDownloadFailure,
+    reason: FixedDownloadDiagnosticReason,
+    requestKind: FixedDownloadRequestKind,
+    throwable: Throwable? = null,
+    candidateCount: Int? = null,
+): FixedDownloadPreflightResult.Rejected {
+    logFixedDownloadPreflightRejection(failure, reason, requestKind, throwable, candidateCount)
+    return FixedDownloadPreflightResult.Rejected(failure)
+}
+
+private fun logFixedDownloadPreflightRejection(
+    failure: FixedDownloadFailure,
+    reason: FixedDownloadDiagnosticReason,
+    requestKind: FixedDownloadRequestKind,
+    throwable: Throwable?,
+    candidateCount: Int? = null,
+) {
+    fixedDownloadLogger.w {
+        buildString {
+            append("stage=fixed-download event=preflight-rejected")
+            append(" reason=${reason.name}")
+            append(" requestKind=${requestKind.name}")
+            append(" result=${failure.name}")
+            candidateCount?.let { count -> append(" candidateCount=$count") }
+            throwable?.let { cause ->
+                append(" exceptionType=${cause.safeDiagnosticType()}")
+                cause.cause?.let { nested -> append(" causeType=${nested.safeDiagnosticType()}") }
+                (cause as? JellyfinApiException.ServerError)?.let { serverError ->
+                    append(" httpCode=${serverError.statusCode}")
+                }
+            }
+        }
+    }
+}
+
 private class FixedDownloadResourceConsumerFailure(
     val failure: Throwable,
 ) : Exception()
@@ -1630,6 +1873,7 @@ private class OriginalDownloadConsumerFailure(
 ) : Exception()
 
 private val ORIGINAL_DOWNLOAD_ITEM_TYPES = setOf("Movie", "Episode")
+private val fixedDownloadLogger = diagnosticLogger(DiagnosticTag.FixedDownload)
 private val ORIGINAL_TEXT_SUBTITLE_CODECS =
     setOf(
         "srt",

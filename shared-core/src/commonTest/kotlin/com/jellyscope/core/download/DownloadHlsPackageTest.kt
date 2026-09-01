@@ -16,6 +16,11 @@ class DownloadHlsPackageTest {
                 masterText =
                     """
                     #EXTM3U
+                    # Jellyfin master metadata
+                    #EXT-X-VERSION:6
+                    #EXT-X-INDEPENDENT-SEGMENTS
+                    #EXT-X-SESSION-DATA:DATA-ID="com.jellyfin.test",VALUE="ignored"
+                    #EXT-X-IMAGE-STREAM-INF:BANDWIDTH=1000,URI="trickplay.m3u8"
                     #EXT-X-STREAM-INF:CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1280x720,BANDWIDTH=2500000
                     child/media.m3u8?TranscodeToken=secret
                     """.trimIndent(),
@@ -23,25 +28,39 @@ class DownloadHlsPackageTest {
                     """
                     #EXTM3U
                     #EXT-X-VERSION:3
+                    #EXT-X-INDEPENDENT-SEGMENTS
+                    #EXT-X-ALLOW-CACHE:YES
                     #EXT-X-TARGETDURATION:10
                     #EXT-X-MEDIA-SEQUENCE:7
                     #EXT-X-PLAYLIST-TYPE:VOD
-                    #EXTINF:9.5,first
+                    #EXTINF:9.500499,first
                     chunks/first.ts?token=secret
-                    #EXTINF:10,second
+                    #EXTINF:9.999999,second
                     chunks/second.ts?token=secret
                     #EXT-X-ENDLIST
                     """.trimIndent(),
             )
 
-        val packageValue = assertNotNull((parsed as? DownloadHlsParseResult.Package)?.value)
+        val packageValue =
+            assertNotNull(
+                (parsed as? DownloadHlsParseResult.Package)?.value,
+            )
         assertEquals("child/media.m3u8?TranscodeToken=secret", packageValue.master.childPlaylistUri)
         assertEquals(7L, packageValue.media.mediaSequence)
-        assertEquals(listOf("segment-000000.ts", "segment-000001.ts"), packageValue.media.segments.map { it.localPartKey.value })
+        assertEquals(
+            listOf("segment-000000.ts", "segment-000001.ts"),
+            packageValue.media.segments.map { segment -> segment.localPartKey.value },
+        )
         assertEquals(listOf("9.500", "10.000"), packageValue.media.segments.map { it.durationText })
+        assertEquals(listOf(9_500L, 10_000L), packageValue.media.segments.map { it.durationMillis })
         assertFalse(packageValue.masterText().contains("TranscodeToken"))
         assertFalse(packageValue.mediaText().contains("secret"))
         assertTrue(packageValue.mediaText().contains("segment-000001.ts"))
+
+        val directPackage = DownloadHlsPackage.fromDirectMedia(packageValue.media, maxBitrateBps = 2_500_000L)
+        assertTrue(directPackage.mediaPlaylistIsSource)
+        assertTrue(directPackage.masterText().contains("BANDWIDTH=2500000"))
+        assertTrue(directPackage.masterText().contains("media.m3u8"))
     }
 
     @Test
@@ -65,7 +84,7 @@ class DownloadHlsPackageTest {
             """.trimIndent()
 
         assertEquals(
-            DownloadHlsRejectReason.UnsupportedTag,
+            DownloadHlsRejectReason.UnsupportedMediaEncryption,
             (
                 DownloadHlsPackage.parse(
                     master,
@@ -84,7 +103,23 @@ class DownloadHlsPackageTest {
         )
         assertEquals(
             DownloadHlsRejectReason.MissingRequiredTag,
-            (DownloadHlsPackage.parse(master, baseMedia.replace("#EXT-X-ENDLIST", "")) as DownloadHlsParseResult.Failure).reason,
+            (
+                DownloadHlsPackage.parse(
+                    master,
+                    baseMedia.replace("#EXT-X-ENDLIST", ""),
+                ) as DownloadHlsParseResult.Failure
+            ).reason,
+        )
+        assertEquals(
+            DownloadHlsRejectReason.UnsupportedMasterRendition,
+            (
+                DownloadHlsPackage.parseMasterOnly(
+                    master.replace(
+                        "#EXT-X-STREAM-INF",
+                        "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",URI=\"audio.m3u8\"\n#EXT-X-STREAM-INF",
+                    ),
+                ) as DownloadHlsParseResult.Failure
+            ).reason,
         )
     }
 
@@ -120,7 +155,73 @@ class DownloadHlsPackageTest {
                     """.trimIndent(),
                 mediaText = fixtureMedia.replace("#EXT-X-MEDIA-SEQUENCE:7", "#EXT-X-MEDIA-SEQUENCE:8"),
             )
-        assertFalse(checkpoint.isCompatible(assertNotNull((changed as? DownloadHlsParseResult.Package)?.value)))
+        assertFalse(
+            checkpoint.isCompatible(
+                assertNotNull(
+                    (changed as? DownloadHlsParseResult.Package)?.value,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun largeMediaPlaylistAndCompletedCheckpointShareBoundedEnvelope() {
+        val queryPadding = "q".repeat(110)
+        val mediaText =
+            buildString {
+                append("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n")
+                append("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
+                repeat(8_192) { index ->
+                    append("#EXTINF:1,\nsegments/segment-")
+                    append(index.toString().padStart(6, '0'))
+                    append(".ts?transient-query-marker=")
+                    append(queryPadding)
+                    append('\n')
+                }
+                append("#EXT-X-ENDLIST\n")
+            }
+        assertTrue(mediaText.encodeToByteArray().size > MAX_HLS_MASTER_PLAYLIST_BYTES)
+        assertTrue(mediaText.encodeToByteArray().size <= MAX_HLS_MEDIA_PLAYLIST_BYTES)
+
+        val media =
+            assertNotNull(
+                (DownloadHlsPackage.parseMediaOnly(mediaText) as? DownloadHlsParseResult.Media)?.value,
+            )
+        val packageValue = DownloadHlsPackage.fromDirectMedia(media, maxBitrateBps = 4_000_000L)
+        val completed =
+            packageValue.initialCheckpoint().copy(
+                master =
+                    DownloadHlsCheckpointPart(
+                        "master.m3u8",
+                        packageValue
+                            .masterText()
+                            .encodeToByteArray()
+                            .size
+                            .toLong(),
+                        true,
+                    ),
+                media =
+                    DownloadHlsCheckpointPart(
+                        "media.m3u8",
+                        packageValue
+                            .mediaText()
+                            .encodeToByteArray()
+                            .size
+                            .toLong(),
+                        true,
+                    ),
+                segments =
+                    packageValue.initialCheckpoint().segments.map { part ->
+                        part.copy(lengthBytes = 123_456_789L, complete = true)
+                    },
+            )
+        val encoded = completed.encode()
+        assertTrue(encoded.encodeToByteArray().size > 1_048_576)
+        assertTrue(encoded.encodeToByteArray().size <= MAX_HLS_CHECKPOINT_BYTES)
+        assertFalse(encoded.contains("transient-query-marker"))
+        assertEquals(completed, DownloadHlsCheckpoint.decode(encoded))
+        assertTrue(completed.isCompatible(packageValue))
+        assertTrue(completed.isComplete())
     }
 
     @Test

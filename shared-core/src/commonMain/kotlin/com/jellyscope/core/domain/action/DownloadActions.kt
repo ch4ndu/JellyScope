@@ -85,6 +85,31 @@ class ResumeDownloadAction(
     ): DownloadCommandResult = repository.resume(accountIdentity, downloadId).wakeIfApplied(lifecycleHost)
 }
 
+class ResumePausedDownloadsAction(
+    private val repository: DownloadRepository,
+    private val lifecycleHost: DownloadLifecycleHost,
+) {
+    suspend operator fun invoke(
+        accountIdentity: AccountIdentity,
+        downloadIds: List<DownloadId>,
+    ): DownloadCommandResult {
+        val uniqueDownloadIds = downloadIds.distinct()
+        if (uniqueDownloadIds.isEmpty()) return DownloadCommandResult.InvalidState
+
+        var applied = false
+        var firstRejection: DownloadCommandResult? = null
+        uniqueDownloadIds.forEach { downloadId ->
+            when (val result = repository.resume(accountIdentity, downloadId)) {
+                DownloadCommandResult.Applied -> applied = true
+                else -> if (firstRejection == null) firstRejection = result
+            }
+        }
+        if (!applied) return firstRejection ?: DownloadCommandResult.InvalidState
+        if (wakeRejected(lifecycleHost)) return DownloadCommandResult.SchedulingRejected
+        return DownloadCommandResult.Applied
+    }
+}
+
 class RetryDownloadAction(
     private val repository: DownloadRepository,
     private val lifecycleHost: DownloadLifecycleHost,
@@ -96,14 +121,14 @@ class RetryDownloadAction(
 }
 
 /**
- * Wakes the already-durable queue after a user explicitly asks the app to try scheduling it.
+ * Wakes the already-durable queue when the Downloads screen returns to the foreground.
  *
  * This action intentionally has no repository dependency: a queued record must not be moved
  * through Failed just to retry native scheduling. The host owns the platform admission result,
  * while the durable row remains [com.jellyscope.core.domain.model.DownloadState.Queued] until the
  * normal execution driver observes it.
  */
-class RetryDownloadSchedulingAction(
+class WakeDownloadsQueueAction(
     private val lifecycleHost: DownloadLifecycleHost,
 ) {
     suspend operator fun invoke(): Result<Unit> = lifecycleHost.wakeFromUserAction()

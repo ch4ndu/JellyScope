@@ -3,12 +3,7 @@
 package com.jellyscope.ui.screen.detail
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -120,33 +115,21 @@ fun DetailScreen(
             onToggleFavorite = viewModel::toggleFavorite,
             onSelectMediaVersion = viewModel::selectMediaVersion,
             subtitleActions = subtitleActions,
+            downloadEntryState = downloadEntryState.takeIf { detail != null && viewModel.isDownloadAvailable },
+            downloadActionEnabled = !originalDownloadVisible,
+            downloadFixedAvailable = viewModel.isFixedDownloadAvailable,
+            onDownloadClick = {
+                when (val entry = downloadEntryState) {
+                    DetailDownloadEntryState.Add -> {
+                        viewModel.resetOriginalDownloadState()
+                        originalDownloadVisible = true
+                    }
+                    is DetailDownloadEntryState.Manage -> onOpenDownloads()
+                    is DetailDownloadEntryState.PlayOffline -> onPlayOffline(entry.record)
+                }
+            },
             ambientColorExtractor = ambientColorExtractor,
         )
-        if (detail != null && viewModel.isDownloadAvailable) {
-            OriginalDownloadEntryButton(
-                state = downloadEntryState,
-                enabled = !originalDownloadVisible,
-                fixedAvailable = viewModel.isFixedDownloadAvailable,
-                onClick = {
-                    when (val entry = downloadEntryState) {
-                        DetailDownloadEntryState.Add -> {
-                            viewModel.resetOriginalDownloadState()
-                            originalDownloadVisible = true
-                        }
-                        is DetailDownloadEntryState.Manage -> onOpenDownloads()
-                        is DetailDownloadEntryState.PlayOffline -> onPlayOffline(entry.record)
-                    }
-                },
-                modifier =
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .windowInsetsPadding(
-                            WindowInsets.safeDrawing.only(
-                                WindowInsetsSides.Top + WindowInsetsSides.End,
-                            ),
-                        ),
-            )
-        }
         if (originalDownloadVisible && detail != null) {
             OriginalDownloadDialog(
                 detail = detail,
@@ -159,12 +142,10 @@ fun DetailScreen(
                 },
                 onPreview = viewModel::previewOriginalDownload,
                 onConfirm = viewModel::enqueueOriginalDownload,
-                onSaveQuotaAndConfirm = viewModel::saveQuotaAndEnqueue,
                 onPreviewFixed = viewModel::previewFixedDownload,
                 onConfirmFixedBurnIn = viewModel::confirmFixedBurnIn,
                 onCancelFixedBurnIn = viewModel::cancelFixedBurnIn,
                 onConfirmFixed = viewModel::enqueueFixedDownload,
-                onSaveQuotaAndConfirmFixed = viewModel::saveQuotaAndEnqueueFixed,
             )
         }
         if (detail != null && sourceId != null) {
@@ -208,6 +189,10 @@ fun DetailContent(
     onToggleFavorite: () -> Unit,
     onSelectMediaVersion: (String) -> Unit = {},
     subtitleActions: DetailSubtitlePickerActions? = null,
+    downloadEntryState: DetailDownloadEntryState? = null,
+    downloadActionEnabled: Boolean = true,
+    downloadFixedAvailable: Boolean = false,
+    onDownloadClick: () -> Unit = {},
     ambientColorExtractor: AmbientColorExtractor,
     modifier: Modifier = Modifier,
 ) {
@@ -236,6 +221,10 @@ fun DetailContent(
                 onToggleFavorite = onToggleFavorite,
                 onSelectMediaVersion = onSelectMediaVersion,
                 subtitleActions = subtitleActions,
+                downloadEntryState = downloadEntryState,
+                downloadActionEnabled = downloadActionEnabled,
+                downloadFixedAvailable = downloadFixedAvailable,
+                onDownloadClick = onDownloadClick,
                 ambientColorExtractor = ambientColorExtractor,
                 modifier = modifier,
             )
@@ -254,6 +243,10 @@ private fun DetailBody(
     onToggleFavorite: () -> Unit,
     onSelectMediaVersion: (String) -> Unit,
     subtitleActions: DetailSubtitlePickerActions?,
+    downloadEntryState: DetailDownloadEntryState?,
+    downloadActionEnabled: Boolean,
+    downloadFixedAvailable: Boolean,
+    onDownloadClick: () -> Unit,
     ambientColorExtractor: AmbientColorExtractor,
     modifier: Modifier = Modifier,
 ) {
@@ -273,6 +266,10 @@ private fun DetailBody(
                 onToggleFavorite = onToggleFavorite,
                 onSelectMediaVersion = onSelectMediaVersion,
                 subtitleActions = subtitleActions,
+                downloadEntryState = downloadEntryState,
+                downloadActionEnabled = downloadActionEnabled,
+                downloadFixedAvailable = downloadFixedAvailable,
+                onDownloadClick = onDownloadClick,
                 onRelatedItemSelected = onItemSelected,
                 onPersonSelected = onPersonSelected,
                 ambientColorExtractor = ambientColorExtractor,
@@ -298,6 +295,10 @@ private fun DetailBody(
                 onToggleFavorite = onToggleFavorite,
                 onSelectMediaVersion = onSelectMediaVersion,
                 subtitleActions = subtitleActions,
+                downloadEntryState = downloadEntryState,
+                downloadActionEnabled = downloadActionEnabled,
+                downloadFixedAvailable = downloadFixedAvailable,
+                onDownloadClick = onDownloadClick,
                 onMediaInfoClick = { mediaInfoVisible = true },
                 onBackdropLoaded = { image ->
                     scope.launch {

@@ -206,12 +206,11 @@ acquire the trusted local artifact lease before resolving the resource; the
 offline branch never enters a remote URL or credential-attachment path, and
 deletion must refuse that leased generation.
 
-Original keeps the normally resolved concrete backend. Android and JVM keep
-their resolved backend for a localized HLS package as well. iOS
-`LocalHlsPackage` is the deliberate exception: backend resolution selects
-VLCKit for that session only, never writes a preference, and makes the backend
-required. Missing/wrong/failing VLCKit returns `OfflinePlayerUnavailable`; it
-does not prepare AVPlayer, fall back to it, or delete the artifact. The complete
+Android and JVM keep the normally resolved concrete backend for both artifact
+kinds. iOS selects VLCKit for every offline session, never writes that
+session-only choice to preferences, and makes the backend required. A missing,
+wrong, or failing VLCKit controller returns `OfflinePlayerUnavailable`; it does
+not prepare AVPlayer, fall back to it, or delete the artifact. The complete
 identity, artifact, and progress rules live in
 [Downloads And Offline](data-playback.md#downloads-and-offline).
 
@@ -575,11 +574,10 @@ rule the body above states; the body remains authoritative for the rule itself.
   `PlaybackPlan`, or silently replacing ordinary Play with a local copy was
   rejected because each can contact the server, bypass account/generation
   authority, or expose filesystem identity. The opaque reference plus
-  controller-held lease keeps resolution and deletion coherent. iOS local HLS
-  requires session-only VLCKit because AVPlayer is not an accepted renderer for
-  the app-authored package; automatic AVPlayer fallback would turn a known
-  unsupported path into an apparently successful prepare and hide the real
-  failure.
+  controller-held lease keeps resolution and deletion coherent. iOS requires
+  session-only VLCKit for every offline artifact so one local playback route
+  has one lease-aware native owner; automatic AVPlayer fallback would bypass
+  that ownership decision and reproduce backend-dependent offline failures.
 
 - **No client limit is an honest wire sentinel, never a finite stand-in.** A
   finite "unlimited" guard (for example 100 or 120 Mbps standing in for Auto

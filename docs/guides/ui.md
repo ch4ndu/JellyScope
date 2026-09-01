@@ -226,29 +226,39 @@ without resetting Settings scroll or focus.
   bottom bar; medium-and-larger shared layouts, including JVM desktop, render
   the same destination in the adaptive rail. Android TV's drawer and D-pad
   behavior are owned by
-  [`tv-ux-behaviors.md`](tv-ux-behaviors.md#downloads). The route, screen, and
-  focus contracts remain retained for a separately validated future re-enable.
-- Movie and concrete Episode details expose an explicit Download action only
-  when that effective permission is enabled. The request dialog starts at
+  [`tv-ux-behaviors.md`](tv-ux-behaviors.md#downloads).
+- Movie and concrete Episode details expose Download in the primary action row
+  only when that effective permission is enabled. The request dialog starts at
   Original and presents only the valid per-request Fixed choices and track
   confirmations owned by [the data contract](data-playback.md#downloads-and-offline).
+  Review download size validates the selection and shows its server-derived
+  estimate; Start download then queues it. Preview and enqueue failures replace
+  the request content with a concise reason-specific error. Allocation changes
+  stay in Settings and Downloads instead of appearing inside the detail dialog.
   The normal Play action remains remote; the completed detail Download entry and
   Play on a Completed Downloads row are the only explicit entrances to the
   offline route while Downloads is enabled.
 - The Downloads screen is current-account scoped and keys every list row and
   action by stable `DownloadId`, never by lazy position. Non-empty Completed,
   Downloading (including Finalizing), Queued, Paused/Blocked, and Failed
-  sections preserve every row's exact state and expose only the valid Start,
-  Play/Resume, Pause, Retry, Cancel, or Delete action. Delete asks for
+  sections preserve every row's exact state. Queued rows advance automatically
+  through the single transfer slot and expose only Cancel; other states expose
+  only their valid Play/Resume, Pause, Retry, Cancel, or Delete action. Delete asks for
   confirmation; while that exact artifact is leased for playback, Delete stays
   disabled and a stale deletion request returns `ArtifactInUse` instead of
-  removing the row.
+  removing the row. When at least one row is Paused, an interruption notice
+  offers one Resume action for the data contract's current-account resume-all
+  command. The scrollable's bottom `contentPadding` reserves the larger
+  of the system navigation inset and the compact shell's bottom-bar clearance,
+  so the final action row can rest fully above either overlay without adding a
+  permanent desktop or rail-layout gap.
 - When the effective permission is enabled, Settings and the Downloads usage
   card present the device-wide allocation, total physical bytes, outstanding
   reservations, safe remaining capacity, and over-allocation state, plus
   current-account bytes and one opaque aggregate for all other accounts. They
   never expose another account's title or identity. Allocation is edited in
-  whole GiB and Manage opens the same Downloads destination; no UI promises
+  whole GB and Manage opens the same Downloads destination; storage and bitrate
+  values use familiar MB, GB, and Mbps labels instead of raw byte/bit units. No UI promises
   eviction or automatic cleanup. When it is disabled, Settings omits the
   Downloads section entirely.
 
@@ -646,7 +656,14 @@ rejected. An entry is deleted when its rule changes.
   and progress source the user is using; a second Downloads settings screen was
   rejected because Manage can route to the same stable list and actions. The
   temporary false projection hides the shared navigation, Detail actions, and
-  Settings section without deleting the dormant route or screen contracts.
+  Settings section without deleting the dormant route or screen contracts. The
+  two-step size review keeps the server-derived estimate visible before queueing,
+  while reason-specific failures explain the blocked action without turning a
+  media-detail dialog into a second allocation editor. The shell passes its
+  bottom-bar clearance into the Downloads scrollable because system navigation
+  insets alone cannot keep the final action row above app-owned navigation. A
+  conditional interruption notice makes explicit recovery discoverable without
+  relabeling quota-blocked or failed work as resumable.
 - **Focus-scale room is reserved in the clipping container's
   `contentPadding`.** Lazy layouts clip by default, so a focused item's scale
   and border must be paid for by the list itself — never by outer margins.

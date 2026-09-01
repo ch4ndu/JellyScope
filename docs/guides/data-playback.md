@@ -2036,13 +2036,10 @@ than restating it.
   and retains every artifact; only the current account is eligible to claim
   queued work.
 - The effective Downloads permission is carried by the authenticated `Session`
-  and `StoredSession` projection. During the temporary disablement, password and
-  Quick Connect authentication deliberately project
-  `EnableContentDownloading` to `false` even when the raw `UserPolicyDto` says
-  `true`; the raw DTO and unrelated policy fields, including subtitle
-  management, remain unchanged. Missing stored fields default to `false`, and
-  no policy refresh or synchronization flow is introduced. A future re-enable
-  must revalidate the remote policy before restoring the dormant `true` path.
+  and `StoredSession` projection. Password and Quick Connect authentication
+  project the current Jellyfin `EnableContentDownloading` user policy into that
+  session value. Missing policy and missing stored fields default to `false`,
+  and no policy refresh or synchronization flow is introduced.
 
 ### Admission, quality, and artifacts
 
@@ -2071,6 +2068,11 @@ than restating it.
   `SourceChanged` instead of appending incompatible bytes. The resulting private
   artifact preserves all embedded tracks from the source, and its snapshot
   remembers the selected audio/subtitle intent for offline playback.
+- Original admission also compares authenticated source codec, dimensions, and
+  frame rate with the normally selected offline backend's probed finite decoder
+  bounds. A source proven to exceed those bounds is rejected with guidance to
+  choose a converted download. Missing source facts or unknown decoder limits
+  remain admissible; they are not evidence of incompatibility.
 - Original localizes one selected external text subtitle into the same private
   package, whether it came from a bounded Jellyfin subtitle response or an
   installed local OpenSubtitles asset. It cannot copy an external bitmap
@@ -2086,8 +2088,40 @@ than restating it.
   burned into the video; Fixed never writes a selectable subtitle sidecar. Its
   bitrate-times-duration plus ten-percent admission estimate is not a promised
   final size or per-record limit.
+- Fixed preflight and admission publish identity-free structured diagnostics
+  before each distinct rejection is reduced to a UI decision. The causal record
+  distinguishes session and policy gates, source/track validation, PlaybackInfo
+  request or decode failure, response source cardinality, transcode capability,
+  HLS protocol/container, trusted URL projection, required device/session facts,
+  estimate construction, post-preflight consistency, and snapshot construction;
+  preview, enqueue, and transfer preflights carry distinct request kinds. The
+  transfer chain separately identifies master/media fetch and parse rejection,
+  source/duration consistency, package preparation, and transfer start.
+  Fetch rejection retains its closed transport/body cause until that causal
+  record is emitted, before mapping to the public download failure. Successful
+  stages publish bounded completion markers. Logs retain only closed reasons/
+  results, bounded counts, and exception classes.
 - The Fixed localizer accepts only one bounded relative master variant and a
   finite relative `.ts` media playlist with `PLAYLIST-TYPE:VOD` and `ENDLIST`.
+  Master playlists are limited to 1 MiB, finite media playlists to 4 MiB, and
+  credential-free resume checkpoints to 2 MiB; media still permits at most
+  8,192 segments and every playlist line remains limited to 8,192 characters.
+  Periodic checkpoints scale with the package segment count and reserved bytes,
+  targeting at most roughly 128 routine full-manifest rewrites while preserving
+  final and interruption checkpoints. Each bounded checkpoint manifest is
+  written and synced in a fixed private-root sibling replacement directory,
+  then atomically replaces its staging member; stale replacement data is never
+  inside a package or visible to staging/completed enumeration. Media and
+  segment truncation remains writer-owned rather than using that replacement
+  operation.
+  A Jellyfin transcoding URL may project either the master or that finite media
+  playlist directly; both shapes produce the same deterministic local package.
+  Metadata-only master `VERSION`, `INDEPENDENT-SEGMENTS`, session-data,
+  trickplay image variants, and inert comments are accepted but not retained;
+  media `INDEPENDENT-SEGMENTS`, validated `ALLOW-CACHE`, and inert comments are
+  also accepted. Rendition/resource-bearing and unknown tags remain rejected.
+  Jellyfin/FFmpeg `EXTINF` values may carry bounded sub-millisecond precision;
+  the localizer rounds that precision to the package's millisecond identity.
   It rewrites the completed package to deterministic local relative names and
   rejects encryption/key, map/init-segment, absolute or cross-origin resource,
   traversal, live/low-latency HLS, and every other unverified tag or resource
@@ -2102,13 +2136,26 @@ than restating it.
   the only claim candidate; a quota-blocked head blocks later rows for that
   account. Pause checkpoints the item and requires explicit Resume. Cancel
   removes the record and partial artifact; Retry increments the attempt
-  generation before reusing a failed record.
-- The user must configure a device-wide hard allocation in positive whole GiB,
-  with a 1 GiB minimum. Admission and every durable transfer checkpoint account
-  for completed and partial physical bytes plus outstanding reservations, and
+  generation before reusing a failed record. Only an `UnsupportedArtifact`
+  failed Local HLS package deletes its staging area before that requeue; all
+  other staging remains resumable, and `MissingArtifact` retains its guarded
+  completed-area cleanup. The explicit current-account resume-all command
+  moves every `Paused` row, but not `BlockedByQuota` or `Failed`, back to the
+  FIFO and issues one platform wake after any row applies. Each shared or TV
+  Downloads-screen resume also requests one queue-level wake without targeting
+  a row; a lifecycle wake failure is safe-diagnostic-only and never a UI error.
+  Passive app start never wakes the queue.
+- The user must configure a device-wide hard allocation in positive whole
+  decimal GB, with a 1 GB minimum. Admission and every durable transfer
+  checkpoint account for completed and partial physical bytes plus outstanding
+  reservations, and
   retain the Finalizing reservation until Completed commits. The safe maximum
-  also preserves 1 GiB of filesystem free space. Lowering the allocation below
-  committed/reserved use shows over-allocation and blocks new work; JellyScope
+  also preserves 1 GB of filesystem free space. Download database migration
+  1-to-2 preserves a valid legacy whole-number selection by converting only its
+  configured quota from binary GiB to decimal GB; malformed legacy quota values
+  become unconfigured, while downloaded-byte facts remain unchanged. Lowering
+  the allocation below committed/reserved use shows over-allocation and blocks
+  new work; JellyScope
   never evicts or automatically deletes another download. Before a writer can
   exceed its reservation, it extends that reservation transactionally under
   both limits or stops at the next bounded pre-write boundary as
@@ -2116,19 +2163,31 @@ than restating it.
 - Android uses exactly one OS execution family: API 34+ user-initiated data
   transfer work, or API 33-and-lower foreground WorkManager work. A vanished
   API 34+ job is paused for explicit Resume rather than silently restarted after
-  a possible Task Manager stop. iOS and JVM desktop transfer only while the app
-  is active/open; suspension or graceful exit checkpoints the active attempt
+  a possible Task Manager stop. On API 33+, each Android app shell makes a
+  best-effort notification-permission request immediately before an Original or
+  Fixed Start action. The permission result affects notification visibility, not
+  Jellyfin authorization, enqueue eligibility, or transfer execution. iOS and
+  JVM desktop transfer only while the app is active/open; suspension or
+  graceful exit checkpoints the active attempt
   back to the runnable queue, and the next active launch recovers it. Neither
   platform promises a background daemon or closed-app transfer.
 - Original byte checkpoints and Fixed package checkpoints are generation-bound.
-  Fixed resume re-fetches and authenticates the finite playlists, then requires
-  the same normalized variant, media sequence, and segment identity. Its
+  Original active-attempt settlement is non-throwing: a checkpoint failure
+  retains the registration's last durable facts, both sidecar and main writers
+  are independently best-effort closed under non-cancellable cleanup, and only
+  the exception class enters the Original diagnostic tag before the registration
+  clears for later FIFO work. Fixed resume re-fetches and authenticates the
+  finite playlists, then requires the same normalized variant, media sequence,
+  and segment identity. Its
   checkpoint persists only relative local part names, lengths, and completion
   facts; completed parts may be retained, an incomplete segment restarts, and a
   remote-shape mismatch fails instead of persisting a token-bearing URL.
-  Recovery cancels duplicate/stale native work before reassociation, validates
-  staging facts before atomic promotion, and reconciles Finalizing without
-  marking an incomplete/corrupt artifact Completed or starting a duplicate
+  Recovery cancels duplicate/stale native work before reassociation and
+  validates staging facts before atomic promotion. After promotion, the current
+  reservation, physical, and checkpoint facts must pass the canonical completed
+  HLS validator before `Finalizing` can commit `Completed`; an invalid or
+  uncertain result remains finalizing for the existing recovery path. Recovery
+  never marks an incomplete/corrupt artifact Completed or starts a duplicate
   transfer. Missing/corrupt completed artifacts fail visibly and remain
   explicitly deletable rather than being trusted by metadata alone.
 - Download metadata uses an isolated `DownloadDatabase`, separate from the
@@ -2148,8 +2207,8 @@ than restating it.
 - Controllers receive only a generation-bound `OfflineArtifactRef` and must
   acquire a project-owned artifact lease before resolving a local resource.
   Delete and account cleanup return `ArtifactInUse` while that generation is
-  leased. Original preserves the normally resolved platform backend. On iOS
-  only, `LocalHlsPackage` requires VLCKit for that playback session without
+  leased. Android and JVM preserve the normally resolved platform backend. On
+  iOS, every offline artifact requires VLCKit for that playback session without
   changing the stored backend preference; missing, wrong, or failed VLCKit
   returns `OfflinePlayerUnavailable`, never falls back to AVPlayer, and retains
   the artifact.
@@ -3307,27 +3366,48 @@ operative text lives in the body sections above, never here.
   preflight and before every start or resume fails closed when access or content
   changes without inventing a server guarantee. The effective
   `Session.enableContentDownloading` gate is checked earlier, before lease/API/
-  enqueue work, and does not replace those remote revalidations.
-  The temporary disablement projects the effective content-download value at the
-  authentication/session boundary rather than rewriting the raw DTO or adding
-  an app-wide flag, so the retained route and admission contracts remain
-  dormant until a separately validated re-enable.
+  enqueue work, and does not replace those remote revalidations. Authentication
+  projects Jellyfin's current `EnableContentDownloading` user policy into the
+  effective session value, while a missing policy fails closed.
 - **Original and Fixed are two closed artifact contracts, not one adaptive
   download mode.** Original preserves the selected source and embedded tracks;
   Fixed deliberately converts one canonical rung/audio/subtitle choice into the
   small finite HLS-TS/H.264/AAC subset JellyScope can validate and localize.
   Auto/custom quality, progressive transcode output, OS-managed HLS packages,
   and a general HLS parser were rejected because they make artifact identity,
-  resumption, completeness, or offline backend behavior ambiguous. AVPlayer is
-  not used for app-authored local HLS; iOS selects VLCKit for that session only
-  and fails visibly when the required backend is unavailable.
+  resumption, completeness, or offline backend behavior ambiguous. A proven
+  Original decoder mismatch is rejected before transfer rather than retaining
+  bytes the selected device/backend cannot play; unknown limits remain allowed.
+  Fixed keeps the master envelope small while allowing a larger finite media
+  envelope for long valid segment lists; the independent segment/line caps and
+  credential-free checkpoint ceiling keep parsing and persistence bounded.
+  Package-scaled progress checkpoints retain the existing cadence for small
+  downloads without turning the largest bounded manifest into gigabytes of
+  routine metadata writes. A fixed private-root sibling replacement file gives
+  the checkpoint manifest one same-filesystem atomic boundary without turning
+  package writes into a general transaction system; media writers retain their
+  bounded rewrite/truncation contract.
+  iOS selects VLCKit for every offline session and fails visibly when the
+  required backend is unavailable.
 - **One active transfer and one hard device allocation keep resource use
   explainable.** Parallel workers, per-account quotas, automatic eviction, and
   best-effort overage were rejected: concurrency races reservations, per-account
   limits hide a shared filesystem, and eviction can silently delete another
-  account's media. One global slot, current-account eligibility, whole-GiB
-  allocation, outstanding reservations, and a free-space floor make every
-  admission and block visible.
+  account's media. One global slot, current-account eligibility, whole decimal-GB
+  allocation, outstanding reservations, and a 1 GB free-space floor make every
+  admission and block visible. A visible resume-all command preserves explicit
+  recovery after an Android system stop while returning all paused work to that
+  same FIFO with one scheduler wake. A Downloads-screen resume can request the
+  same queue-level wake on active hosts, with scheduling failure logged but not
+  presented as a row error; silently restarting on launch and waking once per
+  row were rejected.
+- **Android notification permission is an app-shell visibility concern, not a
+  download admission rule.** Requesting it at the two explicit Start boundaries
+  gives Android 13+ a timely opportunity to show transfer progress and Cancel
+  without moving platform policy into shared state. Blocking enqueue on Allow,
+  retaining prompt history, or treating denial as Jellyfin authorization were
+  rejected because a transfer remains valid when Android suppresses its
+  notification.
 - **Offline progress is local truth with an optional online side effect.** A
   reachability monitor, reporting outbox, server overlay, and conflict resolver
   were rejected because none can promise acknowledgement or define which device
@@ -3666,6 +3746,16 @@ operative text lives in the body sections above, never here.
   because the two had silently drifted, dropping whole classes of diagnostic —
   a tag that is permitted but always dropped. Broadening the allowlist while
   leaving messages unstructured was rejected for the same reason.
+- **Fixed-download diagnostics retain each admission and transfer decision
+  before generic projection.** An HTTP success alone cannot distinguish decode,
+  response-shape, trust, estimate, post-preflight, playlist, or preparation
+  rejection, and the same preflight can run for preview, enqueue, and transfer.
+  Preserving the closed fetch cause until its causal record is written prevents
+  declared size, streamed size, trust, HTTP, network, and content mismatch from
+  collapsing into the same public failure. Closed caller kinds, reasons, and
+  completion markers were chosen over raw PlaybackInfo/playlists, URLs,
+  identifiers, and throwable text so release logs remain both actionable and
+  safe to retain.
 - **The verbose platform-writer opt-in enables release-equivalent capture.**
   Debug builds already install the raw platform writer, but they do not
   reproduce release-only native playback behavior faithfully; the opt-in

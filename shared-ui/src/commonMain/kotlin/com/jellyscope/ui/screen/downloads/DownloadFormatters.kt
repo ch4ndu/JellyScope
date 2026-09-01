@@ -11,16 +11,7 @@ import com.jellyscope.ui.generated.resources.download_state_failed
 import com.jellyscope.ui.generated.resources.download_state_finalizing
 import com.jellyscope.ui.generated.resources.download_state_paused
 import com.jellyscope.ui.generated.resources.download_state_queued
-import com.jellyscope.ui.generated.resources.downloads_waiting_for_app
 import org.jetbrains.compose.resources.StringResource
-
-internal fun DownloadState.statusResource(): StringResource =
-    if (this == DownloadState.Queued) {
-        // Queued work is waiting for the platform runner.
-        Res.string.downloads_waiting_for_app
-    } else {
-        labelResource()
-    }
 
 internal fun DownloadState.labelResource(): StringResource =
     when (this) {

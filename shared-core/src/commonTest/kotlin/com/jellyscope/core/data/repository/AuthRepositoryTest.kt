@@ -118,7 +118,7 @@ class AuthRepositoryTest {
             assertEquals("token-1", session.accessToken)
             assertEquals("Home Jellyfin", session.serverName)
             assertEquals("device-1", session.deviceId)
-            assertFalse(session.enableContentDownloading)
+            assertTrue(session.enableContentDownloading)
             assertEquals(session.toStored(), fixture.sessionStore.readSession())
             assertEquals(
                 SessionState.LoggedIn(session, boundaryEpoch = 1L),
@@ -300,7 +300,7 @@ class AuthRepositoryTest {
             assertIs<QuickConnectLoginUpdate.Polling>(successfulUpdates[2])
             val success = assertIs<QuickConnectLoginUpdate.Success>(successfulUpdates[3])
             assertEquals("token-1", success.session.accessToken)
-            assertFalse(success.session.enableContentDownloading)
+            assertTrue(success.session.enableContentDownloading)
             assertEquals(success.session.toStored(), fixture.sessionStore.readSession())
             assertEquals(
                 SessionState.LoggedIn(success.session, boundaryEpoch = 1L),

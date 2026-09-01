@@ -25,7 +25,9 @@ internal class JvmDownloadLifecycleHost(
     override fun start() {
         if (started) return
         started = true
-        launchWake()
+        scope.launch(Dispatchers.Default) {
+            recovery.recoverBeforeFirstWake(this@JvmDownloadLifecycleHost)
+        }
     }
 
     /** Performs the bounded writer checkpoint before the desktop process exits. */
@@ -48,10 +50,6 @@ internal class JvmDownloadLifecycleHost(
         } else {
             Result.success(Unit)
         }
-
-    private fun launchWake() {
-        scope.launch(Dispatchers.Default) { scheduleWake() }
-    }
 
     private suspend fun scheduleWake(): Result<Unit> = wakeGate.launch { recoverBeforeFirstWakeThenWake() }
 

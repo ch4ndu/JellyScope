@@ -7,8 +7,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -25,6 +27,8 @@ internal enum class DetailActionIcon {
     Favorite,
     FavoriteOutline,
     Info,
+    Download,
+    Play,
     Version,
     Audio,
     Subtitles,
@@ -47,6 +51,8 @@ internal fun DetailIcon(
                 DetailActionIcon.Favorite -> DetailIcons.Heart
                 DetailActionIcon.FavoriteOutline -> DetailIcons.HeartOutline
                 DetailActionIcon.Info -> DetailIcons.InformationOutline
+                DetailActionIcon.Download -> Icons.Filled.Download
+                DetailActionIcon.Play -> Icons.Filled.PlayArrow
                 DetailActionIcon.Version -> Icons.Filled.Movie
                 DetailActionIcon.Audio -> Icons.Filled.Audiotrack
                 DetailActionIcon.Subtitles -> Icons.Filled.ClosedCaption

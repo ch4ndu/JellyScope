@@ -38,6 +38,15 @@ class OfflinePlaybackBackendResolutionTest {
         assertEquals(
             PlayerBackend.VlcKit,
             resolveOfflinePlaybackBackend(
+                platform = PlayerBackendPlatform.Apple,
+                artifactKind = DownloadArtifactKind.OriginalFile,
+                resolvedBackend = PlayerBackend.AVPlayer,
+                requiredBackend = PlayerBackend.VlcKit,
+            ),
+        )
+        assertEquals(
+            PlayerBackend.VlcKit,
+            resolveOfflinePlaybackBackend(
                 PlayerBackendPlatform.Apple,
                 DownloadArtifactKind.LocalHlsPackage,
                 PlayerBackend.AVPlayer,
@@ -79,6 +88,13 @@ class OfflinePlaybackBackendResolutionTest {
             offlineControllerFallbackAllowed(
                 artifactKind = DownloadArtifactKind.LocalHlsPackage,
                 resolvedBackend = PlayerBackend.LibVlc,
+            ),
+        )
+        assertFalse(
+            offlineControllerFallbackAllowed(
+                artifactKind = DownloadArtifactKind.OriginalFile,
+                resolvedBackend = PlayerBackend.VlcKit,
+                requiredBackend = PlayerBackend.VlcKit,
             ),
         )
         assertFalse(

@@ -11,8 +11,11 @@ import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import androidx.sqlite.execSQL
 import com.jellyscope.core.coroutines.platformIoDispatcher
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.BeginDownloadRemovalResult
@@ -39,7 +42,20 @@ import com.jellyscope.core.domain.model.saturatingAddNonNegative
 import kotlinx.coroutines.flow.Flow
 
 internal const val DOWNLOAD_DATABASE_FILE_NAME = "download-store.db"
-internal const val DOWNLOAD_DATABASE_SCHEMA_VERSION = 1
+internal const val DOWNLOAD_DATABASE_SCHEMA_VERSION = 2
+
+private val DOWNLOAD_DATABASE_MIGRATION_1_2 =
+    object : Migration(1, 2) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL(
+                "UPDATE `download_settings` SET `quotaBytes` = CASE " +
+                    "WHEN `quotaBytes` IS NULL THEN NULL " +
+                    "WHEN `quotaBytes` >= 1073741824 AND `quotaBytes` % 1073741824 = 0 " +
+                    "THEN (`quotaBytes` / 1073741824) * 1000000000 " +
+                    "ELSE NULL END",
+            )
+        }
+    }
 
 @Dao
 internal interface DownloadDao {
@@ -941,6 +957,7 @@ internal expect object DownloadDatabaseConstructor : RoomDatabaseConstructor<Dow
 
 internal fun RoomDatabase.Builder<DownloadDatabase>.buildDownloadDatabase(driver: SQLiteDriver = BundledSQLiteDriver()): DownloadDatabase =
     setDriver(driver)
+        .addMigrations(DOWNLOAD_DATABASE_MIGRATION_1_2)
         .setQueryCoroutineContext(platformIoDispatcher())
         .build()
 

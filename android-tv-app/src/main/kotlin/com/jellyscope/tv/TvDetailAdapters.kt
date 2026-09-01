@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.ui.component.MediaCardUi
@@ -28,6 +29,8 @@ internal fun TvDetailAdapter(
     onRelatedItemSelected: (MediaCardUi) -> Unit,
     onPlayRelatedDirect: (MediaCardUi) -> Unit,
     onPersonSelected: (String) -> Unit,
+    onOpenDownloads: () -> Unit,
+    onPlayOffline: (DownloadRecord) -> Unit,
     viewModel: DetailViewModel,
 ) {
     CompositionLocalProvider(LocalDetailInteractionMode provides DetailInteractionMode.Dpad) {
@@ -40,6 +43,8 @@ internal fun TvDetailAdapter(
             onRelatedItemSelected = onRelatedItemSelected,
             onPlayRelatedDirect = onPlayRelatedDirect,
             onPersonSelected = onPersonSelected,
+            onOpenDownloads = onOpenDownloads,
+            onPlayOffline = onPlayOffline,
             viewModel = viewModel,
         )
     }

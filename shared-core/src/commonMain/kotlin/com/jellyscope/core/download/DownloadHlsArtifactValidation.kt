@@ -31,21 +31,21 @@ internal suspend fun DownloadArtifactStore.isCanonicalLocalHlsArtifact(
             artifactKey = record.request.artifactKey,
             area = area,
             partKey = DownloadHlsPartNames.MASTER,
-            maxBytes = MAX_HLS_PLAYLIST_READ_BYTES,
+            maxBytes = MAX_HLS_MASTER_PLAYLIST_BYTES,
         ) ?: return false
     val mediaBytes =
         readPart(
             artifactKey = record.request.artifactKey,
             area = area,
             partKey = DownloadHlsPartNames.MEDIA,
-            maxBytes = MAX_HLS_PLAYLIST_READ_BYTES,
+            maxBytes = MAX_HLS_MEDIA_PLAYLIST_BYTES,
         ) ?: return false
     val checkpointBytes =
         readPart(
             artifactKey = record.request.artifactKey,
             area = area,
             partKey = DownloadHlsPartNames.CHECKPOINT,
-            maxBytes = MAX_HLS_CHECKPOINT_READ_BYTES,
+            maxBytes = MAX_HLS_CHECKPOINT_BYTES,
         ) ?: return false
 
     val packageValue =
@@ -91,6 +91,3 @@ private fun DownloadRecord.hasCanonicalLocalHlsRecordFacts(
     if (physicalBytes <= 0L || checkpointBytes != physicalBytes || inspection.totalBytes != physicalBytes) return false
     return reservationBytes >= physicalBytes
 }
-
-private const val MAX_HLS_PLAYLIST_READ_BYTES = 1_048_576
-private const val MAX_HLS_CHECKPOINT_READ_BYTES = 1_048_576

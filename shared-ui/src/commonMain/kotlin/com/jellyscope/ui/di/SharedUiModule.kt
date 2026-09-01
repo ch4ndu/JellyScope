@@ -221,8 +221,9 @@ val sharedUiModule =
                 configureDownloadQuotaAction = get(),
                 pauseDownloadAction = get(),
                 resumeDownloadAction = get(),
+                resumePausedDownloadsAction = get(),
                 retryDownloadAction = get(),
-                retryDownloadSchedulingAction = get(),
+                wakeDownloadsQueueAction = get(),
                 cancelDownloadAction = get(),
                 deleteDownloadAction = get(),
                 isDownloadArtifactLeasedUseCase = getOrNull(),
@@ -249,9 +250,6 @@ val sharedUiModule =
                 previewFixedDownloadUseCase = getOrNull(),
                 enqueueFixedDownloadAction = getOrNull(),
                 fixedDownloadCapability = getOrNull(),
-                getDownloadSettingsUseCase = getOrNull(),
-                getDownloadUsageUseCase = getOrNull(),
-                configureDownloadQuotaAction = getOrNull(),
                 observeDownloadsUseCase = getOrNull(),
             )
         }

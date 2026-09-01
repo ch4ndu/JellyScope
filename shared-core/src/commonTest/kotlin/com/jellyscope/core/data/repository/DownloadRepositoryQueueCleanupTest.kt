@@ -9,6 +9,7 @@ import com.jellyscope.core.data.local.DownloadArtifactArea
 import com.jellyscope.core.data.local.DownloadArtifactCapacity
 import com.jellyscope.core.data.local.DownloadArtifactCheckpoint
 import com.jellyscope.core.data.local.DownloadArtifactInspection
+import com.jellyscope.core.data.local.DownloadArtifactPartCheckpoint
 import com.jellyscope.core.data.local.DownloadArtifactPartInspection
 import com.jellyscope.core.data.local.DownloadArtifactPartKey
 import com.jellyscope.core.data.local.DownloadArtifactStore
@@ -136,7 +137,7 @@ class DownloadRepositoryQueueCleanupTest {
                     initialFacts =
                         com.jellyscope.core.data.repository
                             .DownloadCheckpointFacts(100L, 80L),
-                    checkpointAndCloseWriter = {
+                    checkpointAndCloseWriter = { _ ->
                         writerClosed += 1
                         com.jellyscope.core.data.repository
                             .DownloadCheckpointFacts(120L, 110L)
@@ -161,7 +162,7 @@ class DownloadRepositoryQueueCleanupTest {
                     initialFacts =
                         com.jellyscope.core.data.repository
                             .DownloadCheckpointFacts(100L, 80L),
-                    checkpointAndCloseWriter = {
+                    checkpointAndCloseWriter = { _ ->
                         com.jellyscope.core.data.repository
                             .DownloadCheckpointFacts(120L, 110L)
                     },
@@ -201,7 +202,7 @@ class DownloadRepositoryQueueCleanupTest {
                     lease = lease,
                     attempt = DownloadAttemptIdentity(DownloadId("download_a"), 1L),
                     initialFacts = DownloadCheckpointFacts(100L, 100L),
-                    checkpointAndCloseWriter = {
+                    checkpointAndCloseWriter = { _ ->
                         writerClosed += 1
                         DownloadCheckpointFacts(120L, 110L)
                     },
@@ -221,7 +222,7 @@ class DownloadRepositoryQueueCleanupTest {
                     lease = lease,
                     attempt = DownloadAttemptIdentity(DownloadId("download_a"), 2L),
                     initialFacts = DownloadCheckpointFacts(120L, 110L),
-                    checkpointAndCloseWriter = {
+                    checkpointAndCloseWriter = { _ ->
                         writerClosed += 1
                         DownloadCheckpointFacts(140L, 130L)
                     },
@@ -251,7 +252,7 @@ class DownloadRepositoryQueueCleanupTest {
                     lease = AccountWorkLease(account, boundaryEpoch = 1L, generation = 1L),
                     attempt = attempt,
                     initialFacts = DownloadCheckpointFacts(100L, 100L),
-                    checkpointAndCloseWriter = { DownloadCheckpointFacts(120L, 120L) },
+                    checkpointAndCloseWriter = { _ -> DownloadCheckpointFacts(120L, 120L) },
                 )
 
             assertTrue(coordinator.registerActiveAttempt(registration))
@@ -357,7 +358,7 @@ class DownloadRepositoryQueueCleanupTest {
                     lease = AccountWorkLease(account, boundaryEpoch = 1L, generation = 1L),
                     attempt = DownloadAttemptIdentity(DownloadId("download_a"), 4L),
                     initialFacts = DownloadCheckpointFacts(100L, 100L),
-                    checkpointAndCloseWriter = {
+                    checkpointAndCloseWriter = { _ ->
                         writerClosed += 1
                         DownloadCheckpointFacts(140L, 120L)
                     },
@@ -808,6 +809,14 @@ internal class FakeArtifactStore(
         partKey: DownloadArtifactPartKey,
         maxBytes: Int,
     ): ByteArray? = null
+
+    override suspend fun replaceStagingMetadata(
+        artifactKey: DownloadArtifactKey,
+        partKey: DownloadArtifactPartKey,
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): DownloadArtifactPartCheckpoint = error("unused")
 
     override suspend fun validateStagingCheckpoint(
         artifactKey: DownloadArtifactKey,

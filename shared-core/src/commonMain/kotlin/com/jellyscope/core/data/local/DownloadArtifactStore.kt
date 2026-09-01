@@ -15,8 +15,11 @@ import com.jellyscope.core.domain.model.DownloadSubtitleSelection
  */
 const val DOWNLOAD_ARTIFACT_MAX_WRITE_CHUNK_BYTES: Int = 64 * 1024
 
-/** Maximum bounded replacement size for the small HLS checkpoint metadata part. */
+/** Maximum bounded in-place writer rewrite size for recovery truncation. */
 const val DOWNLOAD_ARTIFACT_MAX_REWRITE_BYTES: Int = 1 * 1024 * 1024
+
+/** Maximum bounded atomic replacement size for an HLS checkpoint manifest. */
+const val DOWNLOAD_ARTIFACT_MAX_STAGING_METADATA_REPLACEMENT_BYTES: Int = 2 * 1024 * 1024
 
 /** A validated, opaque, single-segment name inside one artifact package. */
 class DownloadArtifactPartKey private constructor(
@@ -183,7 +186,7 @@ interface DownloadArtifactWriter {
     /** Flushes this part to stable storage and returns its exact length. */
     suspend fun checkpoint(): DownloadArtifactPartCheckpoint
 
-    /** Replaces a bounded metadata part in place. Media writers never call this operation. */
+    /** Replaces or truncates one bounded open part in place during transfer recovery. */
     suspend fun rewrite(
         buffer: ByteArray,
         offset: Int = 0,
@@ -238,6 +241,20 @@ internal interface DownloadArtifactStore {
         maxBytes: Int,
     ): ByteArray?
 
+    /**
+     * Atomically replaces one small HLS checkpoint manifest in staging.
+     *
+     * Implementations use a fixed temporary location beside the staging and completed roots, so
+     * an interrupted replacement can never become a package member or an enumerated artifact.
+     */
+    suspend fun replaceStagingMetadata(
+        artifactKey: DownloadArtifactKey,
+        partKey: DownloadArtifactPartKey,
+        buffer: ByteArray,
+        offset: Int = 0,
+        length: Int = buffer.size - offset,
+    ): DownloadArtifactPartCheckpoint
+
     /** Exact checkpoint validation; unexpected, missing, or differently sized parts fail. */
     suspend fun validateStagingCheckpoint(
         artifactKey: DownloadArtifactKey,
@@ -284,7 +301,20 @@ internal fun requireValidRewriteSlice(
 ) {
     require(offset >= 0 && length >= 0 && offset <= bufferSize - length) { "Invalid artifact rewrite slice." }
     require(length <= DOWNLOAD_ARTIFACT_MAX_REWRITE_BYTES) {
-        "Artifact rewrite exceeds the bounded metadata limit."
+        "Artifact rewrite exceeds the bounded recovery limit."
+    }
+}
+
+internal fun requireValidStagingMetadataReplacementSlice(
+    bufferSize: Int,
+    offset: Int,
+    length: Int,
+) {
+    require(offset >= 0 && length >= 0 && offset <= bufferSize - length) {
+        "Invalid artifact staging metadata replacement slice."
+    }
+    require(length <= DOWNLOAD_ARTIFACT_MAX_STAGING_METADATA_REPLACEMENT_BYTES) {
+        "Artifact staging metadata replacement exceeds the HLS checkpoint limit."
     }
 }
 

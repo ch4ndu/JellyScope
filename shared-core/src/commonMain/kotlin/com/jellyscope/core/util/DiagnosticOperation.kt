@@ -88,6 +88,7 @@ enum class DiagnosticOperation(
     DownloadQuota("downloadQuota"),
     DownloadPause("downloadPause"),
     DownloadResume("downloadResume"),
+    DownloadResumeAll("downloadResumeAll"),
     DownloadRetry("downloadRetry"),
     DownloadSchedulingWake("downloadSchedulingWake"),
     DownloadCancel("downloadCancel"),

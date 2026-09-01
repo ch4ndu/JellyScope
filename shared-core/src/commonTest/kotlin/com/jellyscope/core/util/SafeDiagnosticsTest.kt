@@ -102,6 +102,9 @@ class SafeDiagnosticsTest {
                 "WatchNextSyncWorker",
                 "SettingsViewModel",
                 "DownloadsViewModel",
+                "FixedDownload",
+                "OriginalDownload",
+                "DownloadNotificationPermission",
                 "TvPlaybackSessionPresenter",
                 "TvDisplayMode",
                 "JellyScopePlaybackProbe",
@@ -133,6 +136,25 @@ class SafeDiagnosticsTest {
             LogScrubber.capture(
                 tag = DiagnosticTag.OpenSubtitles.wireValue,
                 message = openSubtitlesResponseFailure,
+            ),
+        )
+        val fixedDownloadRejection =
+            "stage=fixed-download event=playlist-rejected reason=DeclaredLengthTooLarge " +
+                "requestKind=MediaPlaylist failure=PayloadTooLarge result=UnsupportedArtifact"
+        assertEquals(
+            fixedDownloadRejection,
+            LogScrubber.capture(
+                tag = DiagnosticTag.FixedDownload.wireValue,
+                message = fixedDownloadRejection,
+            ),
+        )
+        val originalDownloadSettlementFailure =
+            "stage=original-download event=checkpoint-failed exceptionType=IllegalStateException"
+        assertEquals(
+            originalDownloadSettlementFailure,
+            LogScrubber.capture(
+                tag = DiagnosticTag.OriginalDownload.wireValue,
+                message = originalDownloadSettlementFailure,
             ),
         )
     }

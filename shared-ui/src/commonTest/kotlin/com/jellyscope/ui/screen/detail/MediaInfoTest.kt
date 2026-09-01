@@ -47,7 +47,7 @@ class MediaInfoTest {
                 sizeBytes = 4_509_715_660,
             )
 
-        assertEquals("4.2 GB", info?.fileLine)
+        assertEquals("4.5 GB", info?.fileLine)
         assertEquals(listOf("1080p · H264 · 8.0 Mbps"), info?.videoLines)
         assertEquals(listOf("English · AAC · 5.1"), info?.audioLines)
         assertEquals(listOf("English · SRT · External"), info?.subtitleLines)

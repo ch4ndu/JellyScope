@@ -2,13 +2,18 @@
 
 package com.jellyscope.tv
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color.TRANSPARENT
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -21,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.model.SessionState
@@ -28,6 +34,8 @@ import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.usecase.ObserveAppThemeUseCase
 import com.jellyscope.core.domain.usecase.ObserveSessionStateUseCase
 import com.jellyscope.core.domain.usecase.ObserveTileSizeUseCase
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.tv.ui.LocalTvFocusZoomEnabled
 import com.jellyscope.tv.ui.TvLoginScreen
 import com.jellyscope.tv.ui.TvSafeAreaContent
@@ -38,6 +46,7 @@ import com.jellyscope.ui.adaptive.LocalTileScale
 import com.jellyscope.ui.adaptive.tvTileScaleFor
 import com.jellyscope.ui.component.launch.AmbientLaunchScaffold
 import com.jellyscope.ui.image.InstallJellyfinImageLoader
+import com.jellyscope.ui.platform.LocalDownloadNotificationPermissionRequester
 import com.jellyscope.ui.screen.detail.DetailInteractionMode
 import com.jellyscope.ui.screen.detail.LocalDetailFocusZoomEnabled
 import com.jellyscope.ui.screen.detail.LocalDetailInteractionMode
@@ -67,6 +76,39 @@ class MainActivity : ComponentActivity() {
         val tvUiPreferencesStore = get<TvUiPreferencesStore>()
 
         setContent {
+            val notificationPermissionLauncher =
+                rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    downloadNotificationPermissionLogger.i {
+                        if (granted) {
+                            "stage=notification-permission event=result-granted"
+                        } else {
+                            "stage=notification-permission event=result-denied"
+                        }
+                    }
+                }
+            val requestDownloadNotificationPermission = {
+                when {
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ->
+                        downloadNotificationPermissionLogger.i {
+                            "stage=notification-permission event=skipped-below-33"
+                        }
+
+                    ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        Manifest.permission.POST_NOTIFICATIONS,
+                    ) == PackageManager.PERMISSION_GRANTED ->
+                        downloadNotificationPermissionLogger.i {
+                            "stage=notification-permission event=skipped-already-granted"
+                        }
+
+                    else -> {
+                        downloadNotificationPermissionLogger.i {
+                            "stage=notification-permission event=request-launched"
+                        }
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            }
             val appTheme by observeAppThemeUseCase().collectAsStateWithLifecycle()
             val tileSize by observeTileSizeUseCase().collectAsStateWithLifecycle()
             val focusZoomEnabled by tvUiPreferencesStore.focusedCardZoomEnabled.collectAsStateWithLifecycle()
@@ -77,6 +119,7 @@ class MainActivity : ComponentActivity() {
                     LocalTvFocusZoomEnabled provides focusZoomEnabled,
                     LocalDetailFocusZoomEnabled provides focusZoomEnabled,
                     LocalDetailInteractionMode provides DetailInteractionMode.Dpad,
+                    LocalDownloadNotificationPermissionRequester provides requestDownloadNotificationPermission,
                 ) {
                     TvApp(
                         observeSessionStateUseCase = observeSessionStateUseCase,
@@ -95,6 +138,8 @@ class MainActivity : ComponentActivity() {
         pendingWatchNextPayload = intent.watchNextPayload()
     }
 }
+
+private val downloadNotificationPermissionLogger = diagnosticLogger(DiagnosticTag.DownloadNotificationPermission)
 
 @Composable
 private fun TvApp(

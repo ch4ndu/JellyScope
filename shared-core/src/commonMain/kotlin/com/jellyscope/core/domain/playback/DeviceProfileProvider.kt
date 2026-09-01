@@ -232,6 +232,9 @@ interface DeviceProfileProvider {
                 ?.toSet()
                 ?: setOf(backendPolicy.defaultBackend)
 
+    val requiredOfflineBackend: PlayerBackend?
+        get() = null
+
     fun capabilities(backend: PlayerBackend = PlayerBackend.AVPlayer): DeviceDecodingCapabilities
 
     fun refreshCapabilities(backend: PlayerBackend = PlayerBackend.AVPlayer): DeviceDecodingCapabilities = capabilities(backend)

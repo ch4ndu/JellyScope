@@ -74,6 +74,10 @@ internal fun DetailBodyCompact(
     onToggleFavorite: () -> Unit,
     onSelectMediaVersion: (String) -> Unit,
     subtitleActions: DetailSubtitlePickerActions?,
+    downloadEntryState: DetailDownloadEntryState?,
+    downloadActionEnabled: Boolean,
+    downloadFixedAvailable: Boolean,
+    onDownloadClick: () -> Unit,
     onMediaInfoClick: () -> Unit,
     onBackdropLoaded: (Image) -> Unit,
     modifier: Modifier = Modifier,
@@ -111,6 +115,10 @@ internal fun DetailBodyCompact(
                 onToggleFavorite = onToggleFavorite,
                 onSelectMediaVersion = onSelectMediaVersion,
                 subtitleActions = subtitleActions,
+                downloadEntryState = downloadEntryState,
+                downloadActionEnabled = downloadActionEnabled,
+                downloadFixedAvailable = downloadFixedAvailable,
+                onDownloadClick = onDownloadClick,
                 onMediaInfoClick = onMediaInfoClick,
             )
         }
@@ -174,6 +182,10 @@ private fun HeaderBlock(
     onToggleFavorite: () -> Unit,
     onSelectMediaVersion: (String) -> Unit,
     subtitleActions: DetailSubtitlePickerActions?,
+    downloadEntryState: DetailDownloadEntryState?,
+    downloadActionEnabled: Boolean,
+    downloadFixedAvailable: Boolean,
+    onDownloadClick: () -> Unit,
     onMediaInfoClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -257,6 +269,10 @@ private fun HeaderBlock(
             onPlayClick = onPlayClick,
             onToggleWatched = onToggleWatched,
             onToggleFavorite = onToggleFavorite,
+            downloadEntryState = downloadEntryState,
+            downloadActionEnabled = downloadActionEnabled,
+            downloadFixedAvailable = downloadFixedAvailable,
+            onDownloadClick = onDownloadClick,
             onMediaInfoClick = onMediaInfoClick,
         )
     }
@@ -316,6 +332,10 @@ private fun ActionButtons(
     onPlayClick: (String, Long, String?, Int?, SubtitleSelectionIntent) -> Unit,
     onToggleWatched: () -> Unit,
     onToggleFavorite: () -> Unit,
+    downloadEntryState: DetailDownloadEntryState?,
+    downloadActionEnabled: Boolean,
+    downloadFixedAvailable: Boolean,
+    onDownloadClick: () -> Unit,
     onMediaInfoClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -384,6 +404,14 @@ private fun ActionButtons(
                 detail = detail,
                 onToggleFavorite = onToggleFavorite,
             )
+            downloadEntryState?.let { entryState ->
+                OriginalDownloadEntryButton(
+                    state = entryState,
+                    enabled = downloadActionEnabled,
+                    fixedAvailable = downloadFixedAvailable,
+                    onClick = onDownloadClick,
+                )
+            }
             if (detail.mediaInfo?.hasAnything == true) {
                 val infoLabel = stringResource(Res.string.media_info_action)
                 SecondaryActionButton(

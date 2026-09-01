@@ -213,8 +213,7 @@ a behavior must change, update this file in the same commit.
   destinations (top to bottom) are Search, Home, Favorites, Downloads, then the
   user's real media libraries (from `GetUserLibrariesUseCase`), then Discover,
   then Settings. When it is disabled, the Downloads destination is omitted and
-  the ordinary Downloads route is not rendered; the retained route and focus
-  contracts stay dormant for a separately validated re-enable.
+  the ordinary Downloads route is not rendered.
   Search opens `TvFindScreen`, Discover opens `TvDiscoverScreen`, Favorites opens
   the favorite-filtered library browse, a library item opens its `TvLibraryScreen`
   browse (drawer stays available, current library marked selected). The drawer
@@ -835,17 +834,24 @@ a behavior must change, update this file in the same commit.
   the user's media libraries. It keeps one shared
   `DownloadsViewModel` keyed by session inside the route's saveable scope; the
   screen must not add a second rail, queue, or transfer-policy implementation.
-- One route focus scope owns the Manage allocation control and one stable row
-  target per opaque `DownloadId`. Initial loading parks focus in content;
+- Movie and concrete Episode details place Download in the primary action row
+  alongside watched, favorite, and media information actions. The action opens
+  the shared request dialog, opens Downloads for retained work, or starts the
+  completed local item through the offline player route.
+- One route focus scope owns the Manage allocation control, the conditional
+  interruption Resume action, and one stable row target per opaque `DownloadId`.
+  Resume is the preferred entry target while it is present. Initial loading parks focus in content;
   subsequent entry and restoration reveal the semantic target before requesting
   it and fall back through the remaining controls when a row disappears.
   DPAD-LEFT or BACK opens the drawer with Downloads selected.
 - SELECT on a row opens the focus-trapping action dialog. Dismissal and the
   Cancel/Delete confirmation flow return to the invoking stable row when it
-  still exists, while a leased artifact leaves Delete disabled. The media PLAY
+  still exists, while a leased artifact leaves Delete disabled. A Queued row
+  waits for the single transfer slot and offers Cancel rather than a manual
+  Start action. The media PLAY
   key on a Completed row invokes the same explicit offline-play action without
   opening the dialog. The allocation dialog offers policy-accepted presets and
-  a capacity-bounded custom numeric whole-GiB input; its nested editor stays
+  a capacity-bounded custom numeric whole-GB input; its nested editor stays
   focus-trapped, and BACK leaves text editing before it can dismiss the dialog.
 
 Transfer, artifact, authorization, quota, and offline-resolution semantics are
@@ -1048,8 +1054,10 @@ rejected alternatives.
   focus memory, direct destructive row actions, and focusable section headers
   were rejected because each introduces a competing navigation owner or makes
   ordinary list changes redirect a destructive action. A false effective
-  permission hides the drawer destination and ordinary route rendering while
-  retaining this dormant contract for a separately validated re-enable.
+  permission hides the drawer destination and ordinary route rendering. The
+  conditional Resume action is another stable semantic key, rather than a
+  transient unfocusable banner, so interrupted work is immediately actionable
+  and focus can recover when the action disappears.
 - **Lazy prefetch and media transport keys do not bypass the focus/input
   contracts.** Enlarging a lazy-layout cache window can compose or attach items
   around an active pending-focus transaction, so it requires specific proof of

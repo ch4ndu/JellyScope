@@ -7,6 +7,7 @@ import com.jellyscope.core.data.local.DownloadArtifactArea
 import com.jellyscope.core.data.local.DownloadArtifactCapacity
 import com.jellyscope.core.data.local.DownloadArtifactCheckpoint
 import com.jellyscope.core.data.local.DownloadArtifactInspection
+import com.jellyscope.core.data.local.DownloadArtifactPartCheckpoint
 import com.jellyscope.core.data.local.DownloadArtifactPartInspection
 import com.jellyscope.core.data.local.DownloadArtifactPartKey
 import com.jellyscope.core.data.local.DownloadArtifactStore
@@ -333,6 +334,14 @@ private class HlsRecoveryArtifactStore(
         (if (area == DownloadArtifactArea.Staging) staging else completed)[partKey]
             ?.takeIf { bytes -> bytes.size <= maxBytes }
             ?.copyOf()
+
+    override suspend fun replaceStagingMetadata(
+        artifactKey: DownloadArtifactKey,
+        partKey: DownloadArtifactPartKey,
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): DownloadArtifactPartCheckpoint = error("unused")
 
     override suspend fun validateStagingCheckpoint(
         artifactKey: DownloadArtifactKey,

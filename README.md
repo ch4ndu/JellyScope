@@ -11,7 +11,7 @@ Jellyfin, Inc.
 JellyScope is a Jellyfin client written in Kotlin with Compose Multiplatform.
 It runs on Android phones and tablets, Android TV, Google TV, Fire TV, iPhone,
 iPad, and Apple Silicon Macs. There's also an experimental Apple TV preview.
-The current alpha release is **0.1.0-alpha91**.
+The current alpha release is **0.1.0-alpha92**.
 
 ## Features
 
@@ -30,8 +30,8 @@ The current alpha release is **0.1.0-alpha91**.
   offsets
 - Chapters, segment skipping, autoplay next, and a playback queue
 - HDR handling, refresh-rate matching on Android TV, and Picture-in-Picture
-- Offline downloads are currently unavailable while the existing Android, iOS,
-  and macOS support is re-evaluated
+- Offline downloads for individual movies and episodes on Android, iOS, and
+  macOS, when enabled for the Jellyfin account
 - Three dark themes, three tile sizes, and a layout that adapts from phone to TV
 - Fire TV Watch Next, lock-screen and Control Center controls, and macOS media
   keys

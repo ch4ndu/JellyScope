@@ -12,8 +12,9 @@ import com.jellyscope.core.domain.action.ConfigureDownloadQuotaAction
 import com.jellyscope.core.domain.action.DeleteDownloadAction
 import com.jellyscope.core.domain.action.PauseDownloadAction
 import com.jellyscope.core.domain.action.ResumeDownloadAction
+import com.jellyscope.core.domain.action.ResumePausedDownloadsAction
 import com.jellyscope.core.domain.action.RetryDownloadAction
-import com.jellyscope.core.domain.action.RetryDownloadSchedulingAction
+import com.jellyscope.core.domain.action.WakeDownloadsQueueAction
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadArtifactKey
 import com.jellyscope.core.domain.model.DownloadArtifactKind
@@ -82,8 +83,9 @@ class DownloadsViewModelTest {
                         configureDownloadQuotaAction = ConfigureDownloadQuotaAction(repository),
                         pauseDownloadAction = PauseDownloadAction(commandCoordinator),
                         resumeDownloadAction = ResumeDownloadAction(repository, lifecycleHost),
+                        resumePausedDownloadsAction = ResumePausedDownloadsAction(repository, lifecycleHost),
                         retryDownloadAction = RetryDownloadAction(repository, lifecycleHost),
-                        retryDownloadSchedulingAction = RetryDownloadSchedulingAction(lifecycleHost),
+                        wakeDownloadsQueueAction = WakeDownloadsQueueAction(lifecycleHost),
                         cancelDownloadAction = CancelDownloadAction(commandCoordinator),
                         deleteDownloadAction = DeleteDownloadAction(repository),
                         workDispatcher = dispatcher,
@@ -96,70 +98,6 @@ class DownloadsViewModelTest {
                 assertEquals(repository.usage, viewModel.state.value.usage)
                 assertEquals(repository.settings, viewModel.state.value.settings)
                 assertEquals(false, viewModel.state.value.isLoading)
-            } finally {
-                Dispatchers.resetMain()
-            }
-        }
-
-    @Test
-    fun schedulingRejectionLeavesQueuedRowForDirectUserWake() =
-        runTest {
-            val dispatcher = StandardTestDispatcher(testScheduler)
-            Dispatchers.setMain(dispatcher)
-            try {
-                val repository = TestDownloadRepository()
-                val queued = testDownloadRecord(DownloadState.Queued)
-                repository.records.value = listOf(queued)
-                val lifecycleHost =
-                    TestDownloadLifecycleHost(
-                        wakeResults =
-                            listOf(
-                                Result.failure<Unit>(IllegalStateException("native scheduling rejected")),
-                                Result.success(Unit),
-                            ),
-                    )
-                val schedulingAction = RetryDownloadSchedulingAction(lifecycleHost)
-
-                // The enqueue path has already persisted this row; a rejected native wake does
-                // not change its durable Queued state.
-                assertEquals(false, schedulingAction().isSuccess)
-                assertEquals(
-                    DownloadState.Queued,
-                    repository.records.value
-                        .single()
-                        .state,
-                )
-
-                val account = testSession()
-                val viewModel =
-                    DownloadsViewModel(
-                        session = account,
-                        observeDownloadsUseCase = ObserveDownloadsUseCase(repository),
-                        getDownloadUsageUseCase = GetDownloadUsageUseCase(repository),
-                        getDownloadSettingsUseCase = GetDownloadSettingsUseCase(repository),
-                        configureDownloadQuotaAction = ConfigureDownloadQuotaAction(repository),
-                        pauseDownloadAction = PauseDownloadAction(TestDownloadCommandCoordinator()),
-                        resumeDownloadAction = ResumeDownloadAction(repository, lifecycleHost),
-                        retryDownloadAction = RetryDownloadAction(repository, lifecycleHost),
-                        retryDownloadSchedulingAction = schedulingAction,
-                        cancelDownloadAction = CancelDownloadAction(TestDownloadCommandCoordinator()),
-                        deleteDownloadAction = DeleteDownloadAction(repository),
-                        workDispatcher = dispatcher,
-                    )
-
-                advanceUntilIdle()
-                viewModel.retryScheduling(queued.downloadId.value)
-                advanceUntilIdle()
-
-                assertEquals(2, lifecycleHost.wakeCount)
-                assertEquals(0, repository.retryCalls)
-                assertEquals(
-                    DownloadState.Queued,
-                    viewModel.state.value.records
-                        .single()
-                        .state,
-                )
-                assertEquals(null, viewModel.state.value.error)
             } finally {
                 Dispatchers.resetMain()
             }
@@ -203,8 +141,9 @@ class DownloadsViewModelTest {
                                 ),
                             ),
                         resumeDownloadAction = ResumeDownloadAction(repository, lifecycleHost),
+                        resumePausedDownloadsAction = ResumePausedDownloadsAction(repository, lifecycleHost),
                         retryDownloadAction = RetryDownloadAction(repository, lifecycleHost),
-                        retryDownloadSchedulingAction = RetryDownloadSchedulingAction(lifecycleHost),
+                        wakeDownloadsQueueAction = WakeDownloadsQueueAction(lifecycleHost),
                         cancelDownloadAction = CancelDownloadAction(TestDownloadCommandCoordinator()),
                         deleteDownloadAction = DeleteDownloadAction(repository),
                         workDispatcher = dispatcher,
@@ -224,6 +163,53 @@ class DownloadsViewModelTest {
             assertFalse(message.contains("download identity message"))
             assertTrue(message.contains("exceptionType=IllegalStateException"))
         }
+
+    @Test
+    fun resumePausedDownloadsAppliesSiblingRowsAndWakesOnceAfterOneRejection() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            try {
+                val repository = TestDownloadRepository()
+                val firstPaused = testDownloadRecord(DownloadState.Paused, "download-paused-a")
+                val quotaBlocked = testDownloadRecord(DownloadState.BlockedByQuota, "download-blocked")
+                val secondPaused = testDownloadRecord(DownloadState.Paused, "download-paused-b")
+                repository.records.value = listOf(firstPaused, quotaBlocked, secondPaused)
+                repository.rejectedResumeIds += firstPaused.downloadId
+                val lifecycleHost = TestDownloadLifecycleHost()
+                val viewModel =
+                    DownloadsViewModel(
+                        session = testSession(),
+                        observeDownloadsUseCase = ObserveDownloadsUseCase(repository),
+                        getDownloadUsageUseCase = GetDownloadUsageUseCase(repository),
+                        getDownloadSettingsUseCase = GetDownloadSettingsUseCase(repository),
+                        configureDownloadQuotaAction = ConfigureDownloadQuotaAction(repository),
+                        pauseDownloadAction = PauseDownloadAction(TestDownloadCommandCoordinator()),
+                        resumeDownloadAction = ResumeDownloadAction(repository, lifecycleHost),
+                        resumePausedDownloadsAction = ResumePausedDownloadsAction(repository, lifecycleHost),
+                        retryDownloadAction = RetryDownloadAction(repository, lifecycleHost),
+                        wakeDownloadsQueueAction = WakeDownloadsQueueAction(lifecycleHost),
+                        cancelDownloadAction = CancelDownloadAction(TestDownloadCommandCoordinator()),
+                        deleteDownloadAction = DeleteDownloadAction(repository),
+                        workDispatcher = dispatcher,
+                    )
+
+                advanceUntilIdle()
+                viewModel.resumePausedDownloads()
+                advanceUntilIdle()
+
+                assertEquals(listOf(firstPaused.downloadId, secondPaused.downloadId), repository.resumeCalls)
+                assertEquals(1, lifecycleHost.wakeCount)
+                assertEquals(
+                    listOf(DownloadState.Paused, DownloadState.BlockedByQuota, DownloadState.Queued),
+                    viewModel.state.value.records
+                        .map(DownloadRecord::state),
+                )
+                assertEquals(null, viewModel.state.value.error)
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
 }
 
 private fun testSession() =
@@ -237,11 +223,14 @@ private fun testSession() =
         deviceId = "device",
     )
 
-private fun testDownloadRecord(state: DownloadState): DownloadRecord =
+private fun testDownloadRecord(
+    state: DownloadState,
+    downloadId: String = "download-queued",
+): DownloadRecord =
     DownloadRecord(
         request =
             DownloadRequest(
-                downloadId = DownloadId("download-queued"),
+                downloadId = DownloadId(downloadId),
                 businessKey = DownloadBusinessKey(AccountIdentity("server-1", "user-1"), "item-1", "source-1"),
                 quality = DownloadQuality.Original,
                 artifactKind = DownloadArtifactKind.OriginalFile,
@@ -249,7 +238,7 @@ private fun testDownloadRecord(state: DownloadState): DownloadRecord =
                 subtitleSelection = DownloadSubtitleSelection.Off,
                 admissionEstimateBytes = 100L,
                 initialReservationBytes = 100L,
-                artifactKey = DownloadArtifactKey("artifact-queued"),
+                artifactKey = DownloadArtifactKey("artifact-$downloadId"),
                 snapshot =
                     OfflineMediaSnapshot(
                         title = "Queued item",
@@ -326,6 +315,8 @@ private class TestDownloadRepository : DownloadRepository {
     var observedAccount: AccountIdentity? = null
     var usageAccount: AccountIdentity? = null
     var retryCalls: Int = 0
+    val resumeCalls = mutableListOf<DownloadId>()
+    val rejectedResumeIds = mutableSetOf<DownloadId>()
 
     override fun observeDownloads(accountIdentity: AccountIdentity): Flow<List<DownloadRecord>> {
         observedAccount = accountIdentity
@@ -357,7 +348,19 @@ private class TestDownloadRepository : DownloadRepository {
     override suspend fun resume(
         accountIdentity: AccountIdentity,
         downloadId: DownloadId,
-    ) = DownloadCommandResult.Applied
+    ): DownloadCommandResult {
+        val index = records.value.indexOfFirst { record -> record.downloadId == downloadId }
+        if (index < 0) return DownloadCommandResult.NotFound
+        resumeCalls += downloadId
+        val record = records.value[index]
+        if (record.businessKey.accountIdentity != accountIdentity) return DownloadCommandResult.AccountNotOwned
+        if (record.state != DownloadState.Paused && record.state != DownloadState.BlockedByQuota) {
+            return DownloadCommandResult.InvalidState
+        }
+        if (downloadId in rejectedResumeIds) return DownloadCommandResult.InvalidState
+        records.value = records.value.toMutableList().also { items -> items[index] = record.copy(state = DownloadState.Queued) }
+        return DownloadCommandResult.Applied
+    }
 
     override suspend fun retry(
         accountIdentity: AccountIdentity,

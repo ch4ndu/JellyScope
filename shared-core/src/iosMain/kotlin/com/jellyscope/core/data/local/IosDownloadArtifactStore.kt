@@ -47,6 +47,8 @@ internal class IosDownloadArtifactStore(
     private val root = rootDirectory.also(::ensurePrivateDirectory)
     private val stagingRoot = areaDirectory(DownloadArtifactArea.Staging)
     private val completedRoot = areaDirectory(DownloadArtifactArea.Completed)
+    private val stagingMetadataReplacementRoot =
+        child(root, "staging-metadata-replacement", isDirectory = true).also(::ensureDirectory)
 
     override suspend fun openStagingWriter(
         artifactKey: DownloadArtifactKey,
@@ -135,6 +137,47 @@ internal class IosDownloadArtifactStore(
             }
         }
 
+    override suspend fun replaceStagingMetadata(
+        artifactKey: DownloadArtifactKey,
+        partKey: DownloadArtifactPartKey,
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): DownloadArtifactPartCheckpoint =
+        withContext(ioDispatcher) {
+            requireValidStagingMetadataReplacementSlice(buffer.size, offset, length)
+            val staging = artifactDirectory(artifactKey, DownloadArtifactArea.Staging)
+            ensureDirectory(staging)
+            val target = child(staging, partKey.value, isDirectory = false)
+            if (attributes(target) != null) regularFileLength(target)
+            val replacement = stagingMetadataReplacementFile(artifactKey, partKey)
+            if (attributes(replacement) != null) {
+                regularFileLength(replacement)
+                check(fileManager.removeItemAtURL(replacement, null)) {
+                    "Unable to remove stale staging metadata replacement."
+                }
+            }
+            val replacementPath = requireNotNull(replacement.path)
+            val file = checkNotNull(fopen(replacementPath, "wbx")) { "Unable to create staging metadata replacement." }
+            try {
+                if (length > 0) {
+                    val written =
+                        buffer.usePinned { pinned ->
+                            fwrite(pinned.addressOf(offset), 1u, length.toULong(), file)
+                        }
+                    check(written == length.toULong()) { "Unable to write staging metadata replacement." }
+                }
+                syncFile(file)
+            } finally {
+                check(fclose(file) == 0) { "Unable to close staging metadata replacement." }
+            }
+            check(rename(replacementPath, requireNotNull(target.path)) == 0) {
+                "Unable to atomically replace staging metadata."
+            }
+            removeEmptyStagingMetadataReplacementDirectory(artifactKey)
+            DownloadArtifactPartCheckpoint(partKey, length.toLong())
+        }
+
     override suspend fun validateStagingCheckpoint(
         artifactKey: DownloadArtifactKey,
         checkpoint: DownloadArtifactCheckpoint,
@@ -203,6 +246,9 @@ internal class IosDownloadArtifactStore(
         withContext(ioDispatcher) {
             val artifact = artifactDirectory(artifactKey, area)
             if (attributes(artifact) != null) deleteContainedPackage(artifact)
+            if (area == DownloadArtifactArea.Staging) {
+                deleteStagingMetadataReplacementDirectory(artifactKey)
+            }
         }
     }
 
@@ -258,6 +304,45 @@ internal class IosDownloadArtifactStore(
             DownloadArtifactArea.Staging -> stagingRoot
             DownloadArtifactArea.Completed -> completedRoot
         }
+
+    private fun stagingMetadataReplacementFile(
+        artifactKey: DownloadArtifactKey,
+        partKey: DownloadArtifactPartKey,
+    ): NSURL {
+        val artifactReplacementDirectory =
+            stagingMetadataReplacementDirectory(artifactKey).also(::ensureDirectory)
+        return child(artifactReplacementDirectory, "${partKey.value}.tmp", isDirectory = false)
+    }
+
+    private fun stagingMetadataReplacementDirectory(artifactKey: DownloadArtifactKey): NSURL =
+        child(stagingMetadataReplacementRoot, artifactKey.value, isDirectory = true)
+
+    private fun removeEmptyStagingMetadataReplacementDirectory(artifactKey: DownloadArtifactKey) {
+        val directory = stagingMetadataReplacementDirectory(artifactKey)
+        if (attributes(directory) == null) return
+        requireDirectory(directory)
+        if (directoryNames(directory).isEmpty()) {
+            check(fileManager.removeItemAtURL(directory, null)) {
+                "Unable to remove empty staging metadata replacement directory."
+            }
+        }
+    }
+
+    private fun deleteStagingMetadataReplacementDirectory(artifactKey: DownloadArtifactKey) {
+        val directory = stagingMetadataReplacementDirectory(artifactKey)
+        if (attributes(directory) == null) return
+        requireDirectory(directory)
+        directoryNames(directory).forEach { name ->
+            val replacement = child(directory, name, isDirectory = false)
+            regularFileLength(replacement)
+            check(fileManager.removeItemAtURL(replacement, null)) {
+                "Unable to delete staging metadata replacement."
+            }
+        }
+        check(fileManager.removeItemAtURL(directory, null)) {
+            "Unable to delete staging metadata replacement directory."
+        }
+    }
 
     private fun ensurePrivateDirectory(directory: NSURL) {
         ensureDirectory(directory)

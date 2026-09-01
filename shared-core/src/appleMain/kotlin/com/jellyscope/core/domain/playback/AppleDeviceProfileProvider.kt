@@ -33,6 +33,8 @@ class AppleDeviceProfileProvider private constructor(
     )
 
     override val backendPolicy: PlayerBackendPolicy = applePlayerBackendPolicy()
+    override val requiredOfflineBackend: PlayerBackend?
+        get() = PlayerBackend.VlcKit.takeIf { platformFamily == ApplePlatformFamily.Ios }
     private val supportsAv1HardwareDecode by lazy { isAv1HardwareDecodeSupported() }
 
     private val cachedCapabilities: DeviceDecodingCapabilities by lazy {

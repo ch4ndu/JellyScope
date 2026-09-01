@@ -61,12 +61,12 @@ internal fun bitrateText(bps: Long?): String? {
 
 internal fun formatFileSize(bytes: Long?): String? {
     val size = bytes?.takeIf { value -> value > 0L } ?: return null
-    return if (size >= BYTES_PER_GIB) {
-        val tenths = (size.toDouble() / BYTES_PER_GIB * 10).roundToLong()
+    return if (size >= BYTES_PER_GB) {
+        val tenths = (size.toDouble() / BYTES_PER_GB * 10).roundToLong()
         "${tenths / 10}.${tenths % 10} GB"
     } else {
-        val mib = (size.toDouble() / BYTES_PER_MIB).roundToLong().coerceAtLeast(1L)
-        "$mib MB"
+        val mb = (size.toDouble() / BYTES_PER_MB).roundToLong().coerceAtLeast(1L)
+        "$mb MB"
     }
 }
 
@@ -103,5 +103,5 @@ private fun String?.clean(): String? = this?.trim()?.takeIf { value -> value.isN
 
 private const val BITS_PER_KILOBIT = 1_000L
 private const val BITS_PER_MEGABIT = 1_000_000L
-private const val BYTES_PER_MIB = 1_024L * 1_024L
-private const val BYTES_PER_GIB = BYTES_PER_MIB * 1_024L
+private const val BYTES_PER_MB = 1_000_000L
+private const val BYTES_PER_GB = 1_000_000_000L

@@ -8,6 +8,7 @@ import com.jellyscope.core.data.remote.AuthenticatedRequestContext
 import com.jellyscope.core.data.remote.FixedDownloadFailure
 import com.jellyscope.core.data.remote.FixedDownloadPreflightResult
 import com.jellyscope.core.data.remote.FixedDownloadRequest
+import com.jellyscope.core.data.remote.FixedDownloadRequestKind
 import com.jellyscope.core.data.remote.JellyfinApi
 import com.jellyscope.core.domain.model.DownloadAdmissionDecision
 import com.jellyscope.core.domain.model.DownloadArtifactKind
@@ -21,6 +22,9 @@ import com.jellyscope.core.domain.model.toFixedDownloadSnapshot
 import com.jellyscope.core.domain.usecase.FixedDownloadAdmission
 import com.jellyscope.core.domain.usecase.FixedDownloadAdmissionResult
 import com.jellyscope.core.download.withFixedDownloadEncodingCleanup
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.safeDiagnosticType
 import kotlinx.coroutines.CancellationException
 
 /** Data-layer owner of the exact-source fixed-quality admission boundary. */
@@ -32,6 +36,7 @@ internal class DefaultFixedDownloadAdmission(
     override suspend fun admit(draft: FixedDownloadDraft): FixedDownloadAdmissionResult =
         admitTrusted(
             draft = draft,
+            requestKind = FixedDownloadRequestKind.AdmissionPreview,
             onRejected = { decision -> FixedDownloadAdmissionResult.Rejected(decision) },
             onReady = { request, _ -> FixedDownloadAdmissionResult.Ready(request) },
         )
@@ -42,6 +47,7 @@ internal class DefaultFixedDownloadAdmission(
     ): DownloadEnqueueResult =
         admitTrusted(
             draft = draft,
+            requestKind = FixedDownloadRequestKind.AdmissionEnqueue,
             onRejected = { decision -> DownloadEnqueueResult.Rejected(decision) },
             onReady = { request, lease ->
                 serverScopedStoreRegistry.withGuardedLease(lease) {
@@ -52,23 +58,56 @@ internal class DefaultFixedDownloadAdmission(
 
     private suspend fun <T> admitTrusted(
         draft: FixedDownloadDraft,
+        requestKind: FixedDownloadRequestKind,
         onRejected: (DownloadAdmissionDecision) -> T,
         onReady: suspend (DownloadRequest, AccountWorkLease) -> T,
     ): T {
+        fun rejected(
+            decision: DownloadAdmissionDecision,
+            reason: FixedDownloadAdmissionDiagnosticReason,
+            throwable: Throwable? = null,
+        ): T {
+            fixedDownloadAdmissionLogger.w {
+                buildString {
+                    append("stage=fixed-download event=admission-rejected")
+                    append(" reason=${reason.name}")
+                    append(" requestKind=${requestKind.name}")
+                    append(" result=${decision.name}")
+                    throwable?.let { cause ->
+                        append(" exceptionType=${cause.safeDiagnosticType()}")
+                        cause.cause?.let { nested -> append(" causeType=${nested.safeDiagnosticType()}") }
+                    }
+                }
+            }
+            return onRejected(decision)
+        }
+
         val loggedIn =
             sessionRepository.sessionState.value as? SessionState.LoggedIn
-                ?: return onRejected(DownloadAdmissionDecision.PermissionDenied)
+                ?: return rejected(
+                    DownloadAdmissionDecision.PermissionDenied,
+                    FixedDownloadAdmissionDiagnosticReason.SessionUnavailable,
+                )
         val session = loggedIn.session
         if (!session.enableContentDownloading) {
-            return onRejected(DownloadAdmissionDecision.PermissionDenied)
+            return rejected(
+                DownloadAdmissionDecision.PermissionDenied,
+                FixedDownloadAdmissionDiagnosticReason.SessionPermissionDenied,
+            )
         }
         val account = session.accountIdentity()
         if (draft.businessKey.accountIdentity != account) {
-            return onRejected(DownloadAdmissionDecision.PermissionDenied)
+            return rejected(
+                DownloadAdmissionDecision.PermissionDenied,
+                FixedDownloadAdmissionDiagnosticReason.AccountMismatch,
+            )
         }
         val lease =
             serverScopedStoreRegistry.acquireWorkLease(account, loggedIn.boundaryEpoch)
-                ?: return onRejected(DownloadAdmissionDecision.PermissionDenied)
+                ?: return rejected(
+                    DownloadAdmissionDecision.PermissionDenied,
+                    FixedDownloadAdmissionDiagnosticReason.WorkLeaseUnavailable,
+                )
         val context = AuthenticatedRequestContext(session.serverUrl, session.userId, session.accessToken)
         val source =
             try {
@@ -83,17 +122,25 @@ internal class DefaultFixedDownloadAdmission(
                                     quality = draft.quality.rung,
                                     audioStreamIndex = draft.selectedAudioStreamIndex,
                                     subtitleSelection = draft.subtitleSelection,
+                                    requestKind = requestKind,
                                 ),
                         )
                 ) {
                     is FixedDownloadPreflightResult.Ready -> result.source
                     is FixedDownloadPreflightResult.Rejected ->
-                        return onRejected(result.failure.toDecision())
+                        return rejected(
+                            result.failure.toDecision(),
+                            FixedDownloadAdmissionDiagnosticReason.RemotePreflightRejected,
+                        )
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (_: Throwable) {
-                return onRejected(DownloadAdmissionDecision.NetworkUnavailable)
+            } catch (failure: Throwable) {
+                return rejected(
+                    DownloadAdmissionDecision.NetworkUnavailable,
+                    FixedDownloadAdmissionDiagnosticReason.RemotePreflightFailed,
+                    failure,
+                )
             }
         return withFixedDownloadEncodingCleanup(
             cleanup = { jellyfinApi.stopFixedDownloadEncoding(context, source) },
@@ -101,8 +148,9 @@ internal class DefaultFixedDownloadAdmission(
             if (source.itemId != draft.businessKey.itemId ||
                 source.mediaSourceId != draft.businessKey.mediaSourceId
             ) {
-                return@withFixedDownloadEncodingCleanup onRejected(
+                return@withFixedDownloadEncodingCleanup rejected(
                     DownloadAdmissionDecision.SourceChanged,
+                    FixedDownloadAdmissionDiagnosticReason.SourceIdentityChanged,
                 )
             }
             if (source.quality != draft.quality.rung ||
@@ -111,16 +159,18 @@ internal class DefaultFixedDownloadAdmission(
                 source.subtitleStreamIndex !=
                 (draft.subtitleSelection as? DownloadSubtitleSelection.Embedded)?.streamIndex
             ) {
-                return@withFixedDownloadEncodingCleanup onRejected(
+                return@withFixedDownloadEncodingCleanup rejected(
                     DownloadAdmissionDecision.SourceChanged,
+                    FixedDownloadAdmissionDiagnosticReason.SelectionChanged,
                 )
             }
             val fixedSnapshot =
                 draft.snapshot
                     .toFixedDownloadSnapshot(source.audioStreamIndex)
                     ?.copy(durationMs = source.durationMs)
-                    ?: return@withFixedDownloadEncodingCleanup onRejected(
+                    ?: return@withFixedDownloadEncodingCleanup rejected(
                         DownloadAdmissionDecision.SourceChanged,
+                        FixedDownloadAdmissionDiagnosticReason.SnapshotUnavailable,
                     )
             val request =
                 DownloadRequest(
@@ -136,6 +186,9 @@ internal class DefaultFixedDownloadAdmission(
                     snapshot = fixedSnapshot,
                     createdAtEpochMs = draft.createdAtEpochMs,
                 )
+            fixedDownloadAdmissionLogger.i {
+                "stage=fixed-download event=admission-ready requestKind=${requestKind.name} result=Ready"
+            }
             onReady(request, lease)
         }
     }
@@ -157,3 +210,17 @@ internal class DefaultFixedDownloadAdmission(
             -> DownloadAdmissionDecision.NetworkUnavailable
         }
 }
+
+private enum class FixedDownloadAdmissionDiagnosticReason {
+    SessionUnavailable,
+    SessionPermissionDenied,
+    AccountMismatch,
+    WorkLeaseUnavailable,
+    RemotePreflightRejected,
+    RemotePreflightFailed,
+    SourceIdentityChanged,
+    SelectionChanged,
+    SnapshotUnavailable,
+}
+
+private val fixedDownloadAdmissionLogger = diagnosticLogger(DiagnosticTag.FixedDownload)

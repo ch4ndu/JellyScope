@@ -312,6 +312,55 @@ class PlayerBackendTest {
         )
     }
 
+    @Test
+    fun originalDownloadRejectsOnlyProvenDecoderIncompatibility() {
+        val capabilities =
+            DeviceDecodingCapabilities(
+                videoCodecs = listOf("av1"),
+                audioCodecs = listOf("aac"),
+                supportsDolbyVision = false,
+                videoResolutionsByCodec =
+                    mapOf(
+                        "av1" to
+                            VideoCodecResolution(
+                                maxWidth = 4096,
+                                maxHeight = 2160,
+                                maxFrameArea = 4096L * 2160L,
+                            ),
+                    ),
+            )
+
+        assertEquals(
+            OriginalDownloadPlaybackCompatibility.Unsupported,
+            evaluateOriginalDownloadPlaybackCompatibility(
+                source =
+                    BackendSourceDescriptor(
+                        container = "webm",
+                        videoCodec = "av1",
+                        audioCodec = "opus",
+                        isHdrOrDolbyVision = false,
+                        videoWidth = 7680,
+                        videoHeight = 4320,
+                    ),
+                capabilities = capabilities,
+            ),
+        )
+        assertEquals(
+            OriginalDownloadPlaybackCompatibility.Compatible,
+            evaluateOriginalDownloadPlaybackCompatibility(
+                source = directPlayableMp4Source.copy(videoCodec = "av1", videoWidth = 1920, videoHeight = 1080),
+                capabilities = capabilities,
+            ),
+        )
+        assertEquals(
+            OriginalDownloadPlaybackCompatibility.Unknown,
+            evaluateOriginalDownloadPlaybackCompatibility(
+                source = directPlayableMp4Source.copy(videoCodec = "av1"),
+                capabilities = capabilities,
+            ),
+        )
+    }
+
     private class FakeBackendPolicyProvider(
         override val backendPolicy: PlayerBackendPolicy,
     ) : DeviceProfileProvider {

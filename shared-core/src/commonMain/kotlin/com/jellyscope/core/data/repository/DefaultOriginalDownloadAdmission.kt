@@ -6,6 +6,8 @@ import com.jellyscope.core.data.local.AccountWorkLease
 import com.jellyscope.core.data.local.LocalSubtitleAssetStore
 import com.jellyscope.core.data.local.LocalSubtitleFileStore
 import com.jellyscope.core.data.local.LocalSubtitlePayloadTooLargeException
+import com.jellyscope.core.data.local.PlaybackPreferencesStore
+import com.jellyscope.core.data.local.PlayerBackendOverrideStore
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.local.checkedArtifactLengthAfterWrite
 import com.jellyscope.core.data.remote.AuthenticatedRequestContext
@@ -25,8 +27,16 @@ import com.jellyscope.core.domain.model.DownloadSubtitleSelection
 import com.jellyscope.core.domain.model.OriginalDownloadDraft
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.playback.BackendSourceDescriptor
+import com.jellyscope.core.domain.playback.DeviceProfileProvider
+import com.jellyscope.core.domain.playback.OriginalDownloadPlaybackCompatibility
+import com.jellyscope.core.domain.playback.PlayerBackend
+import com.jellyscope.core.domain.playback.evaluateOriginalDownloadPlaybackCompatibility
+import com.jellyscope.core.domain.playback.resolvePlayerBackend
 import com.jellyscope.core.domain.usecase.OriginalDownloadAdmission
 import com.jellyscope.core.domain.usecase.OriginalDownloadAdmissionResult
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
 import kotlinx.coroutines.CancellationException
 
 /** Data-layer owner of authenticated Original admission and bounded sidecar localization. */
@@ -36,6 +46,9 @@ internal class DefaultOriginalDownloadAdmission(
     private val jellyfinApi: JellyfinApi,
     private val localSubtitleAssetStore: LocalSubtitleAssetStore,
     private val localSubtitleFileStore: LocalSubtitleFileStore,
+    private val playbackPreferencesStore: PlaybackPreferencesStore? = null,
+    private val playerBackendOverrideStore: PlayerBackendOverrideStore? = null,
+    private val deviceProfileProvider: DeviceProfileProvider? = null,
 ) : OriginalDownloadAdmission {
     override suspend fun admit(draft: OriginalDownloadDraft): OriginalDownloadAdmissionResult =
         when (val result = admitTrusted(draft)) {
@@ -94,6 +107,31 @@ internal class DefaultOriginalDownloadAdmission(
             return TrustedAdmission.Rejected(DownloadAdmissionDecision.SourceChanged)
         }
         source.selectionDecision(draft)?.let { decision -> return TrustedAdmission.Rejected(decision) }
+        val trustedBackendSource = source.backendSource ?: draft.snapshot.backendSource
+        val playbackBackend = resolveOfflinePlaybackBackend(session.serverId, draft.businessKey.itemId, trustedBackendSource)
+        val compatibility =
+            if (playbackBackend != null && deviceProfileProvider != null) {
+                try {
+                    evaluateOriginalDownloadPlaybackCompatibility(
+                        source = trustedBackendSource,
+                        capabilities = deviceProfileProvider.capabilities(playbackBackend),
+                    )
+                } catch (_: Throwable) {
+                    OriginalDownloadPlaybackCompatibility.Unknown
+                }
+            } else {
+                OriginalDownloadPlaybackCompatibility.Unknown
+            }
+        if (
+            playbackBackend != null &&
+            compatibility == OriginalDownloadPlaybackCompatibility.Unsupported
+        ) {
+            originalDownloadLogger.w {
+                "stage=original-download event=admission-rejected reason=PlaybackUnsupported " +
+                    "backend=${playbackBackend.name} result=PlaybackUnsupported"
+            }
+            return TrustedAdmission.Rejected(DownloadAdmissionDecision.PlaybackUnsupported)
+        }
 
         val sidecarBytes =
             try {
@@ -124,10 +162,37 @@ internal class DefaultOriginalDownloadAdmission(
                 expectedSourceBytes = source.totalBytes,
                 sourceValidator = source.lastModified,
                 artifactKey = draft.artifactKey,
-                snapshot = draft.snapshot,
+                snapshot = draft.snapshot.copy(backendSource = trustedBackendSource),
                 createdAtEpochMs = draft.createdAtEpochMs,
             )
         return TrustedAdmission.Ready(request, lease)
+    }
+
+    private suspend fun resolveOfflinePlaybackBackend(
+        serverId: String,
+        itemId: String,
+        source: BackendSourceDescriptor,
+    ): PlayerBackend? {
+        val provider = deviceProfileProvider ?: return null
+        provider.requiredOfflineBackend?.let { backend -> return backend }
+        val preferencesStore = playbackPreferencesStore ?: return null
+        return try {
+            val preferences = preferencesStore.get(serverId).normalized()
+            val itemOverride = playerBackendOverrideStore?.get(serverId, itemId)
+            val requested =
+                resolvePlayerBackend(
+                    defaultBackend = preferences.defaultPlayerBackend,
+                    itemOverride = itemOverride,
+                    source = source,
+                    avPlayerCapabilities = provider.capabilities(PlayerBackend.AVPlayer),
+                    backendPolicy = provider.backendPolicy,
+                )
+            requested.takeIf { backend -> backend in provider.availableBackends } ?: provider.backendPolicy.defaultBackend
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private suspend fun resolveSidecarBytes(
@@ -233,6 +298,8 @@ internal class DefaultOriginalDownloadAdmission(
         val decision: DownloadAdmissionDecision,
         cause: Throwable? = null,
     ) : RuntimeException(cause)
+
+    private val originalDownloadLogger = diagnosticLogger(DiagnosticTag.OriginalDownload)
 
     private companion object {
         const val MAX_SIDECAR_BYTES = 8 * 1024 * 1024

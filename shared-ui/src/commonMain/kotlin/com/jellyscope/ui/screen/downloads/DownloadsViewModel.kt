@@ -10,8 +10,9 @@ import com.jellyscope.core.domain.action.ConfigureDownloadQuotaAction
 import com.jellyscope.core.domain.action.DeleteDownloadAction
 import com.jellyscope.core.domain.action.PauseDownloadAction
 import com.jellyscope.core.domain.action.ResumeDownloadAction
+import com.jellyscope.core.domain.action.ResumePausedDownloadsAction
 import com.jellyscope.core.domain.action.RetryDownloadAction
-import com.jellyscope.core.domain.action.RetryDownloadSchedulingAction
+import com.jellyscope.core.domain.action.WakeDownloadsQueueAction
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadCommandResult
 import com.jellyscope.core.domain.model.DownloadDeletionResult
@@ -95,6 +96,7 @@ data class DownloadsUiState(
     val isLoading: Boolean = true,
     val isRefreshingUsage: Boolean = false,
     val inFlightDownloadId: String? = null,
+    val isBulkResumeInFlight: Boolean = false,
     val leasedDownloadIds: Set<String> = emptySet(),
     val error: DownloadsUiError? = null,
 )
@@ -103,8 +105,6 @@ sealed interface DownloadsUiError {
     data object LoadFailed : DownloadsUiError
 
     data object CommandRejected : DownloadsUiError
-
-    data object SchedulingRetryRejected : DownloadsUiError
 
     data object QuotaRejected : DownloadsUiError
 
@@ -120,8 +120,9 @@ class DownloadsViewModel(
     private val configureDownloadQuotaAction: ConfigureDownloadQuotaAction,
     private val pauseDownloadAction: PauseDownloadAction,
     private val resumeDownloadAction: ResumeDownloadAction,
+    private val resumePausedDownloadsAction: ResumePausedDownloadsAction,
     private val retryDownloadAction: RetryDownloadAction,
-    private val retryDownloadSchedulingAction: RetryDownloadSchedulingAction,
+    private val wakeDownloadsQueueAction: WakeDownloadsQueueAction,
     private val cancelDownloadAction: CancelDownloadAction,
     private val deleteDownloadAction: DeleteDownloadAction,
     private val isDownloadArtifactLeasedUseCase: IsDownloadArtifactLeasedUseCase? = null,
@@ -174,6 +175,29 @@ class DownloadsViewModel(
         requestLeaseRefresh()
     }
 
+    fun wakeQueueOnScreenResume() {
+        viewModelScope.launch {
+            val failure =
+                try {
+                    withContext(workDispatcher) { wakeDownloadsQueueAction().exceptionOrNull() }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (exception: Throwable) {
+                    exception
+                }
+            failure?.let { exception ->
+                downloadsViewModelLogger.w {
+                    formatSafeFailureDiagnostic(
+                        stage = "scheduling-wake",
+                        event = "failed",
+                        operation = DiagnosticOperation.DownloadSchedulingWake,
+                        throwable = exception,
+                    )
+                }
+            }
+        }
+    }
+
     fun configureQuota(quotaBytes: Long?) {
         viewModelScope.launch {
             _state.update { current -> current.copy(isRefreshingUsage = true, error = null) }
@@ -212,19 +236,54 @@ class DownloadsViewModel(
         }
     }
 
+    fun resumePausedDownloads() {
+        if (_state.value.inFlightDownloadId != null || _state.value.isBulkResumeInFlight) return
+        val pausedDownloadIds =
+            _state.value.records
+                .filter { record -> record.state == DownloadState.Paused }
+                .map(DownloadRecord::downloadId)
+        if (pausedDownloadIds.isEmpty()) return
+
+        viewModelScope.launch {
+            _state.update { current -> current.copy(isBulkResumeInFlight = true, error = null) }
+            val result =
+                try {
+                    withContext(workDispatcher) { resumePausedDownloadsAction(accountIdentity, pausedDownloadIds) }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (exception: Throwable) {
+                    downloadsViewModelLogger.w {
+                        formatSafeFailureDiagnostic(
+                            stage = "bulk-resume",
+                            event = "failed",
+                            operation = DiagnosticOperation.DownloadResumeAll,
+                            throwable = exception,
+                        )
+                    }
+                    null
+                }
+            if (result != null && result != DownloadCommandResult.Applied) {
+                downloadsViewModelLogger.w {
+                    "stage=bulk-resume event=rejected operation=${DiagnosticOperation.DownloadResumeAll.wireValue} " +
+                        "result=${result.diagnosticValue()}"
+                }
+            }
+            _state.update { current ->
+                current.copy(
+                    isBulkResumeInFlight = false,
+                    error = if (result == DownloadCommandResult.Applied) null else DownloadsUiError.CommandRejected,
+                )
+            }
+            requestUsageRefresh()
+        }
+    }
+
     fun retry(downloadId: String) {
         findRecord(downloadId)?.let { record ->
             runCommand(downloadId, DiagnosticOperation.DownloadRetry) {
                 retryDownloadAction(accountIdentity, record.downloadId)
             }
         }
-    }
-
-    /** Wakes native scheduling for an already queued row; [retry] requeues failures. */
-    fun retryScheduling(downloadId: String) {
-        findRecord(downloadId)
-            ?.takeIf { record -> record.state == DownloadState.Queued }
-            ?.let { record -> runSchedulingRetry(record.downloadId.value, DiagnosticOperation.DownloadSchedulingWake) }
     }
 
     fun cancel(downloadId: String) {
@@ -251,7 +310,7 @@ class DownloadsViewModel(
         operation: DiagnosticOperation,
         command: suspend () -> DownloadCommandResult,
     ) {
-        if (_state.value.inFlightDownloadId != null) {
+        if (_state.value.inFlightDownloadId != null || _state.value.isBulkResumeInFlight) {
             return
         }
         viewModelScope.launch {
@@ -282,46 +341,12 @@ class DownloadsViewModel(
         }
     }
 
-    private fun runSchedulingRetry(
-        downloadId: String,
-        operation: DiagnosticOperation,
-    ) {
-        if (_state.value.inFlightDownloadId != null) {
-            return
-        }
-        viewModelScope.launch {
-            _state.update { current -> current.copy(inFlightDownloadId = downloadId, error = null) }
-            val result =
-                try {
-                    withContext(workDispatcher) { retryDownloadSchedulingAction() }
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (exception: Throwable) {
-                    downloadsViewModelLogger.w {
-                        formatSafeFailureDiagnostic(
-                            stage = "scheduling-wake",
-                            event = "failed",
-                            operation = operation,
-                            throwable = exception,
-                        )
-                    }
-                    Result.failure<Unit>(exception)
-                }
-            _state.update { current ->
-                current.copy(
-                    inFlightDownloadId = null,
-                    error = if (result.isSuccess) null else DownloadsUiError.SchedulingRetryRejected,
-                )
-            }
-        }
-    }
-
     private fun runDeletion(
         downloadId: String,
         operation: DiagnosticOperation,
         command: suspend () -> DownloadDeletionResult,
     ) {
-        if (_state.value.inFlightDownloadId != null) {
+        if (_state.value.inFlightDownloadId != null || _state.value.isBulkResumeInFlight) {
             return
         }
         viewModelScope.launch {
@@ -435,5 +460,16 @@ class DownloadsViewModel(
         }
     }
 }
+
+private fun DownloadCommandResult.diagnosticValue(): String =
+    when (this) {
+        DownloadCommandResult.Applied -> "Applied"
+        DownloadCommandResult.NotFound -> "NotFound"
+        DownloadCommandResult.AccountNotOwned -> "AccountNotOwned"
+        DownloadCommandResult.RemovalInProgress -> "RemovalInProgress"
+        DownloadCommandResult.ActiveAttemptUnavailable -> "ActiveAttemptUnavailable"
+        DownloadCommandResult.SchedulingRejected -> "SchedulingRejected"
+        DownloadCommandResult.InvalidState -> "InvalidState"
+    }
 
 private val downloadsViewModelLogger = diagnosticLogger(DiagnosticTag.DownloadsViewModel)

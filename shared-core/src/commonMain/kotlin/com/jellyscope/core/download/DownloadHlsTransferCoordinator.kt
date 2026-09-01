@@ -17,7 +17,9 @@ import com.jellyscope.core.data.remote.AuthenticatedRequestContext
 import com.jellyscope.core.data.remote.FixedDownloadFailure
 import com.jellyscope.core.data.remote.FixedDownloadPreflightResult
 import com.jellyscope.core.data.remote.FixedDownloadRequest
+import com.jellyscope.core.data.remote.FixedDownloadRequestKind
 import com.jellyscope.core.data.remote.FixedDownloadResource
+import com.jellyscope.core.data.remote.FixedDownloadResourceRejectReason
 import com.jellyscope.core.data.remote.FixedDownloadResourceResult
 import com.jellyscope.core.data.remote.FixedDownloadSource
 import com.jellyscope.core.data.remote.JellyfinApi
@@ -30,6 +32,11 @@ import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadReservationExtensionResult
 import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.DownloadSubtitleSelection
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.formatSafeFailureDiagnostic
+import com.jellyscope.core.util.safeDiagnosticType
+import io.ktor.utils.io.errors.IOException
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -82,7 +89,11 @@ internal class DownloadHlsTransferCoordinator(
                 }
                 else -> result
             }
-        } catch (_: Throwable) {
+        } catch (failure: Throwable) {
+            fixedDownloadTransferLogger.w {
+                "stage=fixed-download event=transfer-rejected reason=UnhandledFailure " +
+                    "requestKind=Transfer result=ServerUnavailable exceptionType=${failure.safeDiagnosticType()}"
+            }
             failUnregisteredOrRegistered(attempt, DownloadFailure.ServerUnavailable, lease)
         }
 
@@ -95,7 +106,12 @@ internal class DownloadHlsTransferCoordinator(
     ): DownloadTransferResult {
         val quality =
             record.request.quality as? DownloadQuality.Fixed
-                ?: return settleClaimedFailure(attempt, DownloadFailure.UnsupportedArtifact, lease)
+                ?: return rejectTransfer(
+                    attempt = attempt,
+                    failure = DownloadFailure.UnsupportedArtifact,
+                    reason = FixedDownloadTransferDiagnosticReason.QualityContractMismatch,
+                    lease = lease,
+                )
         val fixedRequest =
             FixedDownloadRequest(
                 itemId = record.businessKey.itemId,
@@ -103,13 +119,22 @@ internal class DownloadHlsTransferCoordinator(
                 quality = quality.rung,
                 audioStreamIndex = record.request.selectedAudioStreamIndex,
                 subtitleSelection = record.request.subtitleSelection,
+                requestKind = FixedDownloadRequestKind.Transfer,
             )
         val source =
             when (val preflight = jellyfinApi.preflightFixedDownload(context, fixedRequest)) {
                 is FixedDownloadPreflightResult.Ready -> preflight.source
                 is FixedDownloadPreflightResult.Rejected ->
-                    return settleClaimedFailure(attempt, preflight.failure.toDownloadFailure(), lease)
+                    return rejectTransfer(
+                        attempt = attempt,
+                        failure = preflight.failure.toDownloadFailure(),
+                        reason = FixedDownloadTransferDiagnosticReason.PreflightRejected,
+                        lease = lease,
+                    )
             }
+        fixedDownloadTransferLogger.i {
+            "stage=fixed-download event=transfer-preflight-ready requestKind=Transfer result=Ready"
+        }
         return withFixedDownloadEncodingCleanup(
             cleanup = { jellyfinApi.stopFixedDownloadEncoding(context, source) },
         ) {
@@ -120,10 +145,11 @@ internal class DownloadHlsTransferCoordinator(
                 record.request.selectedAudioStreamIndex?.let { index -> index != source.audioStreamIndex } == true ||
                 record.request.subtitleSelection.fixedSubtitleIndex() != source.subtitleStreamIndex
             ) {
-                return@withFixedDownloadEncodingCleanup settleClaimedFailure(
-                    attempt,
-                    DownloadFailure.SourceChanged,
-                    lease,
+                return@withFixedDownloadEncodingCleanup rejectTransfer(
+                    attempt = attempt,
+                    failure = DownloadFailure.SourceChanged,
+                    reason = FixedDownloadTransferDiagnosticReason.SourceContractMismatch,
+                    lease = lease,
                 )
             }
 
@@ -131,24 +157,30 @@ internal class DownloadHlsTransferCoordinator(
                 when (val fetched = fetchPackage(context, source)) {
                     is HlsFetchResult.Ready -> fetched.value
                     is HlsFetchResult.ReadyText ->
-                        return@withFixedDownloadEncodingCleanup settleClaimedFailure(
-                            attempt,
-                            DownloadFailure.UnsupportedArtifact,
-                            lease,
+                        return@withFixedDownloadEncodingCleanup rejectTransfer(
+                            attempt = attempt,
+                            failure = DownloadFailure.UnsupportedArtifact,
+                            reason = FixedDownloadTransferDiagnosticReason.PackageProjectionMismatch,
+                            lease = lease,
                         )
                     is HlsFetchResult.Failed ->
-                        return@withFixedDownloadEncodingCleanup settleClaimedFailure(
-                            attempt,
-                            fetched.failure,
-                            lease,
+                        return@withFixedDownloadEncodingCleanup rejectTransfer(
+                            attempt = attempt,
+                            failure = fetched.failure,
+                            reason = FixedDownloadTransferDiagnosticReason.PlaylistRejected,
+                            lease = lease,
                         )
                 }
             if (!hlsDurationMatchesSource(packageValue, source.durationMs)) {
-                return@withFixedDownloadEncodingCleanup settleClaimedFailure(
-                    attempt,
-                    DownloadFailure.SourceChanged,
-                    lease,
+                return@withFixedDownloadEncodingCleanup rejectTransfer(
+                    attempt = attempt,
+                    failure = DownloadFailure.SourceChanged,
+                    reason = FixedDownloadTransferDiagnosticReason.DurationMismatch,
+                    lease = lease,
                 )
+            }
+            fixedDownloadTransferLogger.i {
+                "stage=fixed-download event=package-ready requestKind=Transfer result=Ready"
             }
             val prepared =
                 when (
@@ -159,14 +191,18 @@ internal class DownloadHlsTransferCoordinator(
                 ) {
                     is HlsPreparation.Ready -> preparation.value
                     is HlsPreparation.Failed ->
-                        return@withFixedDownloadEncodingCleanup settleClaimedFailure(
-                            attempt,
-                            preparation.failure,
-                            lease,
+                        return@withFixedDownloadEncodingCleanup rejectTransfer(
+                            attempt = attempt,
+                            failure = preparation.failure,
+                            reason = FixedDownloadTransferDiagnosticReason.PreparationRejected,
+                            lease = lease,
                         )
                     HlsPreparation.BoundaryChanged ->
                         return@withFixedDownloadEncodingCleanup DownloadTransferResult.BoundaryChanged
                 }
+            fixedDownloadTransferLogger.i {
+                "stage=fixed-download event=transfer-started requestKind=Transfer result=Ready"
+            }
             transferPackage(prepared, context, source, packageValue)
         }
     }
@@ -176,39 +212,173 @@ internal class DownloadHlsTransferCoordinator(
         source: FixedDownloadSource,
     ): HlsFetchResult {
         val masterText =
-            when (val result = readPlaylist(context, source, source.transcodingUrl)) {
-                is HlsFetchResult.Failed -> return result
+            when (
+                val result =
+                    readPlaylist(
+                        context = context,
+                        source = source,
+                        url = source.transcodingUrl,
+                        maxBytes = MAX_HLS_MEDIA_PLAYLIST_BYTES,
+                    )
+            ) {
+                is HlsFetchResult.Failed -> {
+                    logPlaylistRejection(
+                        requestKind = FixedDownloadPlaylistKind.SourcePlaylist,
+                        reason = result.fetchReason ?: FixedDownloadPlaylistFetchRejectReason.UnexpectedTransportFailure,
+                        failure = result.failure,
+                        fixedFailure = result.fixedFailure,
+                    )
+                    return result
+                }
                 is HlsFetchResult.ReadyText -> result.text
-                is HlsFetchResult.Ready -> return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                is HlsFetchResult.Ready -> {
+                    logPlaylistRejection(
+                        requestKind = FixedDownloadPlaylistKind.MasterPlaylist,
+                        reason = FixedDownloadTransferDiagnosticReason.PackageProjectionMismatch,
+                        failure = DownloadFailure.UnsupportedArtifact,
+                    )
+                    return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                }
             }
         val master =
             when (val parsed = DownloadHlsPackage.parseMasterOnly(masterText)) {
                 is DownloadHlsParseResult.Master -> parsed.value
-                is DownloadHlsParseResult.Failure -> return HlsFetchResult.Failed(parsed.reason.toDownloadFailure())
-                else -> return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                is DownloadHlsParseResult.Failure -> {
+                    when (val directMedia = DownloadHlsPackage.parseMediaOnly(masterText)) {
+                        is DownloadHlsParseResult.Media -> {
+                            fixedDownloadTransferLogger.i {
+                                "stage=fixed-download event=direct-media-playlist-ready " +
+                                    "requestKind=Transfer result=Ready"
+                            }
+                            return HlsFetchResult.Ready(
+                                DownloadHlsPackage.fromDirectMedia(
+                                    media = directMedia.value,
+                                    maxBitrateBps = source.quality.maxBitrateBps,
+                                ),
+                            )
+                        }
+                        is DownloadHlsParseResult.Failure -> {
+                            val masterFailure = parsed.reason.toDownloadFailure()
+                            logPlaylistRejection(
+                                requestKind = FixedDownloadPlaylistKind.MasterPlaylist,
+                                reason = parsed.reason,
+                                failure = masterFailure,
+                            )
+                            val failure = directMedia.reason.toDownloadFailure()
+                            logPlaylistRejection(
+                                requestKind = FixedDownloadPlaylistKind.DirectMediaPlaylist,
+                                reason = directMedia.reason,
+                                failure = failure,
+                            )
+                            return HlsFetchResult.Failed(failure)
+                        }
+                        else -> {
+                            val failure = parsed.reason.toDownloadFailure()
+                            logPlaylistRejection(
+                                requestKind = FixedDownloadPlaylistKind.MasterPlaylist,
+                                reason = parsed.reason,
+                                failure = failure,
+                            )
+                            return HlsFetchResult.Failed(failure)
+                        }
+                    }
+                }
+                else -> {
+                    logPlaylistRejection(
+                        requestKind = FixedDownloadPlaylistKind.MasterPlaylist,
+                        reason = FixedDownloadTransferDiagnosticReason.PackageProjectionMismatch,
+                        failure = DownloadFailure.UnsupportedArtifact,
+                    )
+                    return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                }
             }
         val mediaUrl =
             resolveHlsResourceUrl(source.transcodingUrl, master.childPlaylistUri)
-                ?: return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                ?: run {
+                    logPlaylistRejection(
+                        requestKind = FixedDownloadPlaylistKind.MediaPlaylist,
+                        reason = FixedDownloadTransferDiagnosticReason.PlaylistUrlRejected,
+                        failure = DownloadFailure.UnsupportedArtifact,
+                    )
+                    return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                }
         val mediaText =
-            when (val result = readPlaylist(context, source, mediaUrl)) {
-                is HlsFetchResult.Failed -> return result
+            when (
+                val result =
+                    readPlaylist(
+                        context = context,
+                        source = source,
+                        url = mediaUrl,
+                        maxBytes = MAX_HLS_MEDIA_PLAYLIST_BYTES,
+                    )
+            ) {
+                is HlsFetchResult.Failed -> {
+                    logPlaylistRejection(
+                        requestKind = FixedDownloadPlaylistKind.MediaPlaylist,
+                        reason = result.fetchReason ?: FixedDownloadPlaylistFetchRejectReason.UnexpectedTransportFailure,
+                        failure = result.failure,
+                        fixedFailure = result.fixedFailure,
+                    )
+                    return result
+                }
                 is HlsFetchResult.ReadyText -> result.text
-                is HlsFetchResult.Ready -> return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                is HlsFetchResult.Ready -> {
+                    logPlaylistRejection(
+                        requestKind = FixedDownloadPlaylistKind.MediaPlaylist,
+                        reason = FixedDownloadTransferDiagnosticReason.PackageProjectionMismatch,
+                        failure = DownloadFailure.UnsupportedArtifact,
+                    )
+                    return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                }
             }
         val media =
             when (val parsed = DownloadHlsPackage.parseMediaOnly(mediaText)) {
                 is DownloadHlsParseResult.Media -> parsed.value
-                is DownloadHlsParseResult.Failure -> return HlsFetchResult.Failed(parsed.reason.toDownloadFailure())
-                else -> return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                is DownloadHlsParseResult.Failure -> {
+                    val failure = parsed.reason.toDownloadFailure()
+                    logPlaylistRejection(
+                        requestKind = FixedDownloadPlaylistKind.MediaPlaylist,
+                        reason = parsed.reason,
+                        failure = failure,
+                    )
+                    return HlsFetchResult.Failed(failure)
+                }
+                else -> {
+                    logPlaylistRejection(
+                        requestKind = FixedDownloadPlaylistKind.MediaPlaylist,
+                        reason = FixedDownloadTransferDiagnosticReason.PackageProjectionMismatch,
+                        failure = DownloadFailure.UnsupportedArtifact,
+                    )
+                    return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
+                }
             }
+        fixedDownloadTransferLogger.i {
+            "stage=fixed-download event=playlists-ready requestKind=Transfer result=Ready"
+        }
         return HlsFetchResult.Ready(DownloadHlsPackage(master = master, media = media))
+    }
+
+    private fun <T : Enum<T>> logPlaylistRejection(
+        requestKind: FixedDownloadPlaylistKind,
+        reason: T,
+        failure: DownloadFailure,
+        fixedFailure: FixedDownloadFailure? = null,
+    ) {
+        fixedDownloadTransferLogger.w {
+            buildString {
+                append("stage=fixed-download event=playlist-rejected reason=${reason.name} ")
+                append("requestKind=${requestKind.name}")
+                fixedFailure?.let { value -> append(" failure=${value.name}") }
+                append(" result=${failure.name}")
+            }
+        }
     }
 
     private suspend fun readPlaylist(
         context: AuthenticatedRequestContext,
         source: FixedDownloadSource,
         url: String,
+        maxBytes: Int,
     ): HlsFetchResult {
         var outcome: HlsFetchResult? = null
         val streamed =
@@ -216,15 +386,25 @@ internal class DownloadHlsTransferCoordinator(
                 context = context,
                 source = source,
                 resourceUrl = url,
-                maxBytes = MAX_HLS_PLAYLIST_BYTES.toLong(),
+                maxBytes = maxBytes.toLong(),
             ) { resource ->
-                outcome = readBoundedText(resource, MAX_HLS_PLAYLIST_BYTES)
+                outcome = readBoundedText(resource, maxBytes)
                 Unit
             }
         outcome?.let { value -> return value }
         return when (streamed) {
-            is FixedDownloadResourceResult.Rejected -> HlsFetchResult.Failed(streamed.failure.toDownloadFailure())
-            is FixedDownloadResourceResult.Success -> HlsFetchResult.Failed(DownloadFailure.ServerUnavailable)
+            is FixedDownloadResourceResult.Rejected ->
+                HlsFetchResult.Failed(
+                    failure = streamed.failure.toDownloadFailure(),
+                    fetchReason = streamed.reason.toPlaylistFetchRejectReason(),
+                    fixedFailure = streamed.failure,
+                )
+            is FixedDownloadResourceResult.Success ->
+                HlsFetchResult.Failed(
+                    failure = DownloadFailure.ServerUnavailable,
+                    fetchReason = FixedDownloadPlaylistFetchRejectReason.UnexpectedTransportFailure,
+                    fixedFailure = FixedDownloadFailure.ServerUnavailable,
+                )
         }
     }
 
@@ -235,16 +415,36 @@ internal class DownloadHlsTransferCoordinator(
         val bytes = ByteArray(maxBytes)
         var count = 0
         val buffer = ByteArray(DOWNLOAD_ARTIFACT_MAX_WRITE_CHUNK_BYTES)
-        while (true) {
-            val read = resource.body.readAvailable(buffer, 0, buffer.size)
-            if (read < 0) break
-            if (read == 0) continue
-            if (read > maxBytes - count) return HlsFetchResult.Failed(DownloadFailure.UnsupportedArtifact)
-            buffer.copyInto(bytes, destinationOffset = count, startIndex = 0, endIndex = read)
-            count += read
+        try {
+            while (true) {
+                val read = resource.body.readAvailable(buffer, 0, buffer.size)
+                if (read < 0) break
+                if (read == 0) continue
+                if (read > maxBytes - count) {
+                    return HlsFetchResult.Failed(
+                        failure = DownloadFailure.UnsupportedArtifact,
+                        fetchReason = FixedDownloadPlaylistFetchRejectReason.StreamedBodyTooLarge,
+                        fixedFailure = FixedDownloadFailure.PayloadTooLarge,
+                    )
+                }
+                buffer.copyInto(bytes, destinationOffset = count, startIndex = 0, endIndex = read)
+                count += read
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: IOException) {
+            return HlsFetchResult.Failed(
+                failure = DownloadFailure.Network,
+                fetchReason = FixedDownloadPlaylistFetchRejectReason.NetworkFailure,
+                fixedFailure = FixedDownloadFailure.Network,
+            )
         }
         if (resource.contentLength?.let { length -> length != count.toLong() } == true) {
-            return HlsFetchResult.Failed(DownloadFailure.SourceChanged)
+            return HlsFetchResult.Failed(
+                failure = DownloadFailure.SourceChanged,
+                fetchReason = FixedDownloadPlaylistFetchRejectReason.ContentLengthMismatch,
+                fixedFailure = FixedDownloadFailure.SourceChanged,
+            )
         }
         return HlsFetchResult.ReadyText(bytes.copyOf(count).decodeToString())
     }
@@ -333,7 +533,9 @@ internal class DownloadHlsTransferCoordinator(
                 lease = lease,
                 attempt = attempt,
                 initialFacts = DownloadCheckpointFacts(actualTotal, actualTotal),
-                checkpointAndCloseWriter = { checkpointAndClose(active) },
+                checkpointAndCloseWriter = { currentFacts ->
+                    checkpointAndClose(active, currentFacts)
+                },
             )
         if (!queueCoordinator.registerActiveAttempt(registration)) {
             active.writers.values.forEach { writer -> writer.close() }
@@ -377,8 +579,12 @@ internal class DownloadHlsTransferCoordinator(
             if (partKey in active.completedParts) return@forEach
             openWriter(active, partKey)
             val mediaBaseUrl =
-                resolveHlsResourceUrl(source.transcodingUrl, packageValue.master.childPlaylistUri)
-                    ?: return settleFailure(active, DownloadFailure.UnsupportedArtifact)
+                if (packageValue.mediaPlaylistIsSource) {
+                    source.transcodingUrl
+                } else {
+                    resolveHlsResourceUrl(source.transcodingUrl, packageValue.master.childPlaylistUri)
+                        ?: return settleFailure(active, DownloadFailure.UnsupportedArtifact)
+                }
             val resourceUrl =
                 resolveHlsResourceUrl(mediaBaseUrl, segment.remoteUri)
                     ?: return settleFailure(active, DownloadFailure.UnsupportedArtifact)
@@ -549,7 +755,19 @@ internal class DownloadHlsTransferCoordinator(
     ): DownloadTransferResult? {
         active.segmentsSincePersist += 1
         active.bytesSincePersist = checkedAdd(active.bytesSincePersist, completedPartBytes)
-        if (active.segmentsSincePersist < 4 && active.bytesSincePersist < 1L * 1024L * 1024L) return null
+        val segmentThreshold =
+            scaledCheckpointThreshold(
+                value =
+                    active.packageValue.media.segments.size
+                        .toLong(),
+                minimum = MIN_HLS_SEGMENTS_PER_CHECKPOINT.toLong(),
+            ).toInt()
+        val byteThreshold =
+            scaledCheckpointThreshold(
+                value = active.reservationBytes,
+                minimum = MIN_HLS_BYTES_PER_CHECKPOINT,
+            )
+        if (active.segmentsSincePersist < segmentThreshold && active.bytesSincePersist < byteThreshold) return null
         return persistProgress(active)
     }
 
@@ -625,26 +843,72 @@ internal class DownloadHlsTransferCoordinator(
             } catch (_: Throwable) {
                 return DownloadTransferResult.FinalizingPending
             }
+        val canonicalPromotedArtifact =
+            try {
+                serverScopedStoreRegistry.withGuardedLease(active.lease) {
+                    artifactStore.isCanonicalLocalHlsArtifact(
+                        record =
+                            active.record.copy(
+                                state = DownloadState.Finalizing,
+                                reservationBytes = active.reservationBytes,
+                                physicalBytes = active.physicalBytes,
+                                checkpointBytes = active.physicalBytes,
+                            ),
+                        inspection = promoted,
+                        area = DownloadArtifactArea.Completed,
+                    )
+                } ?: return DownloadTransferResult.BoundaryChanged
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                return DownloadTransferResult.FinalizingPending
+            }
+        if (!canonicalPromotedArtifact) return DownloadTransferResult.FinalizingPending
         val completed =
             serverScopedStoreRegistry.withGuardedLease(active.lease) {
                 queueCoordinator.completeFinalizing(active.attempt)
             } ?: return DownloadTransferResult.BoundaryChanged
-        return if (completed && promoted.matchesHlsCompleted(active.packageValue)) {
+        return if (completed) {
             DownloadTransferResult.Completed
         } else {
             DownloadTransferResult.FinalizingPending
         }
     }
 
-    private suspend fun checkpointAndClose(active: HlsActiveAttempt): DownloadCheckpointFacts =
+    private suspend fun checkpointAndClose(
+        active: HlsActiveAttempt,
+        currentFacts: DownloadCheckpointFacts,
+    ): DownloadCheckpointFacts =
         withContext(NonCancellable) {
-            try {
-                val facts = persistCheckpoint(active, closeWriters = true, allowReservationExtension = false)
-                DownloadCheckpointFacts(facts.physicalBytes, facts.checkpointBytes)
-            } catch (_: Throwable) {
-                active.writers.values.forEach { writer -> writer.close() }
-                DownloadCheckpointFacts(0L, 0L)
+            val durableFacts =
+                try {
+                    val facts = persistCheckpoint(active, closeWriters = true, allowReservationExtension = false)
+                    DownloadCheckpointFacts(facts.physicalBytes, facts.checkpointBytes)
+                } catch (failure: Throwable) {
+                    fixedDownloadTransferLogger.w {
+                        formatSafeFailureDiagnostic(
+                            stage = "fixed-download",
+                            event = "checkpoint-failed",
+                            throwable = failure,
+                        )
+                    }
+                    currentFacts
+                }
+            active.writers.values.toList().forEach { writer ->
+                try {
+                    writer.close()
+                } catch (failure: Throwable) {
+                    fixedDownloadTransferLogger.w {
+                        formatSafeFailureDiagnostic(
+                            stage = "fixed-download",
+                            event = "writer-close-failed",
+                            throwable = failure,
+                        )
+                    }
+                }
             }
+            active.writers.clear()
+            durableFacts
         }
 
     private suspend fun persistCheckpoint(
@@ -682,7 +946,6 @@ internal class DownloadHlsTransferCoordinator(
                 }
                 check(active.partLengths[partKey]?.let { length -> length > 0L } == true)
             }
-        val checkpointWriter = openWriter(active, DownloadHlsPartNames.CHECKPOINT)
         val nextCheckpoint =
             active.checkpoint.copy(
                 master =
@@ -707,7 +970,7 @@ internal class DownloadHlsTransferCoordinator(
                 DownloadTransferResult.Failed(DownloadFailure.UnsupportedArtifact),
             )
         }
-        val checkpointBefore = checkpointWriter.lengthBytes
+        val checkpointBefore = active.partLengths[DownloadHlsPartNames.CHECKPOINT] ?: 0L
         val checkpointGrowth = (encoded.size.toLong() - checkpointBefore).coerceAtLeast(0L)
         if (checkpointGrowth > 0L) {
             if (allowReservationExtension) {
@@ -718,9 +981,14 @@ internal class DownloadHlsTransferCoordinator(
                 }
             }
         }
-        checkpointWriter.rewrite(encoded)
-        replacePartLength(active, DownloadHlsPartNames.CHECKPOINT, checkpointBefore, checkpointWriter.lengthBytes)
-        checkpointWriter.checkpoint()
+        val checkpoint =
+            artifactStore.replaceStagingMetadata(
+                artifactKey = active.record.request.artifactKey,
+                partKey = DownloadHlsPartNames.CHECKPOINT,
+                buffer = encoded,
+            )
+        check(checkpoint.partKey == DownloadHlsPartNames.CHECKPOINT)
+        replacePartLength(active, DownloadHlsPartNames.CHECKPOINT, checkpointBefore, checkpoint.lengthBytes)
         active.checkpoint = nextCheckpoint
         active.durableCompletedParts += active.completedParts
         if (closeWriters) {
@@ -791,6 +1059,19 @@ internal class DownloadHlsTransferCoordinator(
                 queueCoordinator.failClaimedAttempt(attempt, failure)
             } ?: return DownloadTransferResult.BoundaryChanged
         return if (settled) DownloadTransferResult.Failed(failure) else DownloadTransferResult.BoundaryChanged
+    }
+
+    private suspend fun rejectTransfer(
+        attempt: DownloadAttemptIdentity,
+        failure: DownloadFailure,
+        reason: FixedDownloadTransferDiagnosticReason,
+        lease: AccountWorkLease,
+    ): DownloadTransferResult {
+        fixedDownloadTransferLogger.w {
+            "stage=fixed-download event=transfer-rejected reason=${reason.name} " +
+                "requestKind=Transfer result=${failure.name}"
+        }
+        return settleClaimedFailure(attempt, failure, lease)
     }
 
     private suspend fun settleClaimedOrRegisteredFailure(
@@ -927,6 +1208,15 @@ internal class DownloadHlsTransferCoordinator(
         var bytesSincePersist: Long = 0L,
     )
 
+    private fun scaledCheckpointThreshold(
+        value: Long,
+        minimum: Long,
+    ): Long {
+        val scaled = value / TARGET_HLS_PERIODIC_CHECKPOINT_COUNT
+        val roundedUp = scaled + if (value % TARGET_HLS_PERIODIC_CHECKPOINT_COUNT == 0L) 0L else 1L
+        return roundedUp.coerceAtLeast(minimum)
+    }
+
     private data class HlsByteFacts(
         val physicalBytes: Long,
         val checkpointBytes: Long,
@@ -955,6 +1245,8 @@ internal class DownloadHlsTransferCoordinator(
 
         data class Failed(
             val failure: DownloadFailure,
+            val fetchReason: FixedDownloadPlaylistFetchRejectReason? = null,
+            val fixedFailure: FixedDownloadFailure? = null,
         ) : HlsFetchResult
     }
 
@@ -983,16 +1275,6 @@ internal class DownloadHlsTransferCoordinator(
                 }.sortedBy { part -> part.partKey.value }
     }
 
-    private fun DownloadArtifactInspection.matchesHlsCompleted(packageValue: DownloadHlsPackage): Boolean {
-        if (area != DownloadArtifactArea.Completed) return false
-        val expectedKeys =
-            (packageValue.expectedPartKeys() + DownloadHlsPartNames.CHECKPOINT)
-                .sortedBy { partKey -> partKey.value }
-        return parts.size == expectedKeys.size &&
-            parts.map { part -> part.partKey }.sortedBy { partKey -> partKey.value } == expectedKeys &&
-            parts.all { part -> part.lengthBytes > 0L }
-    }
-
     private fun checkedAdd(
         left: Long,
         right: Long,
@@ -1002,11 +1284,56 @@ internal class DownloadHlsTransferCoordinator(
     }
 
     companion object {
-        private const val MAX_HLS_PLAYLIST_BYTES = 1_048_576
-        private const val MAX_HLS_CHECKPOINT_BYTES = 1_048_576
         private const val MAX_HLS_SEGMENT_BYTES = 512L * 1024L * 1024L
+        private const val TARGET_HLS_PERIODIC_CHECKPOINT_COUNT = 128L
+        private const val MIN_HLS_SEGMENTS_PER_CHECKPOINT = 4
+        private const val MIN_HLS_BYTES_PER_CHECKPOINT = 1L * 1024L * 1024L
     }
 }
+
+private enum class FixedDownloadPlaylistKind {
+    SourcePlaylist,
+    MasterPlaylist,
+    MediaPlaylist,
+    DirectMediaPlaylist,
+}
+
+private enum class FixedDownloadPlaylistFetchRejectReason {
+    InvalidRequest,
+    UntrustedResourceUrl,
+    HttpStatusRejected,
+    InvalidDeclaredLength,
+    DeclaredLengthTooLarge,
+    NetworkFailure,
+    UnexpectedTransportFailure,
+    StreamedBodyTooLarge,
+    ContentLengthMismatch,
+}
+
+private fun FixedDownloadResourceRejectReason.toPlaylistFetchRejectReason(): FixedDownloadPlaylistFetchRejectReason =
+    when (this) {
+        FixedDownloadResourceRejectReason.InvalidRequest -> FixedDownloadPlaylistFetchRejectReason.InvalidRequest
+        FixedDownloadResourceRejectReason.UntrustedResourceUrl -> FixedDownloadPlaylistFetchRejectReason.UntrustedResourceUrl
+        FixedDownloadResourceRejectReason.HttpStatusRejected -> FixedDownloadPlaylistFetchRejectReason.HttpStatusRejected
+        FixedDownloadResourceRejectReason.InvalidDeclaredLength -> FixedDownloadPlaylistFetchRejectReason.InvalidDeclaredLength
+        FixedDownloadResourceRejectReason.DeclaredLengthTooLarge -> FixedDownloadPlaylistFetchRejectReason.DeclaredLengthTooLarge
+        FixedDownloadResourceRejectReason.NetworkFailure -> FixedDownloadPlaylistFetchRejectReason.NetworkFailure
+        FixedDownloadResourceRejectReason.UnexpectedTransportFailure ->
+            FixedDownloadPlaylistFetchRejectReason.UnexpectedTransportFailure
+    }
+
+private enum class FixedDownloadTransferDiagnosticReason {
+    QualityContractMismatch,
+    PreflightRejected,
+    SourceContractMismatch,
+    PlaylistUrlRejected,
+    PlaylistRejected,
+    PackageProjectionMismatch,
+    DurationMismatch,
+    PreparationRejected,
+}
+
+private val fixedDownloadTransferLogger = diagnosticLogger(DiagnosticTag.FixedDownload)
 
 /** Small bounded tolerance for decimal EXTINF rounding across a finite VOD playlist. */
 private const val MIN_HLS_DURATION_ROUNDING_TOLERANCE_MS = 1L

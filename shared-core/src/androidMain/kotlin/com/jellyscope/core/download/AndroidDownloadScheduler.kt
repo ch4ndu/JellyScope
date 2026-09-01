@@ -54,22 +54,11 @@ internal class AndroidDownloadScheduler(
     private val applicationContext = context.applicationContext
     private val started = AtomicBoolean(false)
 
-    /** Starts the platform wake path once for this process. */
+    /** Starts the recovery path once for this process. */
     override fun start() {
         if (!started.compareAndSet(false, true)) return
         scope.launch(Dispatchers.Default) {
-            if (recovery.recoverBeforeFirstWake(this@AndroidDownloadScheduler).isFailure) return@launch
-            if (androidDownloadExecutionPath(Build.VERSION.SDK_INT) == AndroidDownloadExecutionPath.WorkManager) {
-                // WorkManager is the supported app-active fallback on older
-                // SDKs. UIDT cannot be scheduled merely because Application
-                // was created; it requires a foreground/user-initiated wake.
-                wake()
-            } else {
-                // Native pending UIDT work, if retained by the OS, will enter
-                // JobService. Recovery handles absence as an explicit-resume
-                // Paused attempt; startup never substitutes WorkManager.
-                queryActiveWork()
-            }
+            recovery.recoverBeforeFirstWake(this@AndroidDownloadScheduler)
         }
     }
 

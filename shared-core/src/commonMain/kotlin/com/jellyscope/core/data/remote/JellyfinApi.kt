@@ -71,7 +71,11 @@ interface JellyfinApi {
         resourceUrl: String,
         maxBytes: Long,
         consume: suspend (FixedDownloadResource) -> T,
-    ): FixedDownloadResourceResult<T> = FixedDownloadResourceResult.Rejected(FixedDownloadFailure.ServerUnavailable)
+    ): FixedDownloadResourceResult<T> =
+        FixedDownloadResourceResult.Rejected(
+            failure = FixedDownloadFailure.ServerUnavailable,
+            reason = FixedDownloadResourceRejectReason.UnexpectedTransportFailure,
+        )
 
     /**
      * Best-effort kill for the ephemeral encoding admitted by [preflightFixedDownload]. The

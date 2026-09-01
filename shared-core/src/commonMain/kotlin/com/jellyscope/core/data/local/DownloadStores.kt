@@ -894,6 +894,9 @@ private data class OfflineSnapshotPayloadV1(
     val videoCodec: String?,
     val audioCodec: String?,
     val hdrOrDolbyVision: Boolean,
+    val videoWidth: Int? = null,
+    val videoHeight: Int? = null,
+    val videoFrameRate: Double? = null,
 )
 
 @Serializable
@@ -931,6 +934,9 @@ private fun OfflineMediaSnapshot.toPayload(): OfflineSnapshotPayloadV1 =
         videoCodec = backendSource.videoCodec,
         audioCodec = backendSource.audioCodec,
         hdrOrDolbyVision = backendSource.isHdrOrDolbyVision,
+        videoWidth = backendSource.videoWidth,
+        videoHeight = backendSource.videoHeight,
+        videoFrameRate = backendSource.videoFrameRate,
     )
 
 private fun OfflineSnapshotPayloadV1.toModel(): OfflineMediaSnapshot =
@@ -947,7 +953,16 @@ private fun OfflineSnapshotPayloadV1.toModel(): OfflineMediaSnapshot =
         embeddedTracks = embeddedTracks.map(OfflineTrackPayloadV1::toModel),
         selectedAudioTrack = selectedAudioTrack?.toModel(),
         selectedSubtitleTrack = selectedSubtitleTrack?.toModel(),
-        backendSource = BackendSourceDescriptor(container, videoCodec, audioCodec, hdrOrDolbyVision),
+        backendSource =
+            BackendSourceDescriptor(
+                container = container,
+                videoCodec = videoCodec,
+                audioCodec = audioCodec,
+                isHdrOrDolbyVision = hdrOrDolbyVision,
+                videoWidth = videoWidth,
+                videoHeight = videoHeight,
+                videoFrameRate = videoFrameRate,
+            ),
     )
 
 private fun OfflineTrackSnapshot.toPayload(): OfflineTrackPayloadV1 =

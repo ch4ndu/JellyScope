@@ -38,7 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Icon
-import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GIB
+import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GB
 import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadQuality
@@ -46,7 +46,7 @@ import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.Session
-import com.jellyscope.core.domain.model.wholeGibDownloadQuotaBytes
+import com.jellyscope.core.domain.model.wholeGbDownloadQuotaBytes
 import com.jellyscope.tv.R
 import com.jellyscope.tv.ui.focus.TvFocusTargetKind
 import com.jellyscope.tv.ui.focus.TvFocusTrapEffect
@@ -70,12 +70,17 @@ import com.jellyscope.ui.component.DetailTitleStyle as TvTitleStyle
 import com.jellyscope.ui.component.FocusableBox as TvFocusableBox
 
 internal const val TV_DOWNLOADS_MANAGE_FOCUS_KEY = "downloads:manage"
+internal const val TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY = "downloads:resume-all"
 
 internal fun tvDownloadFocusKey(downloadId: DownloadId): String = "download:${downloadId.value}"
 
-internal fun tvDownloadSemanticFocusKeys(sections: List<DownloadsSection>): List<String> =
+internal fun tvDownloadSemanticFocusKeys(
+    sections: List<DownloadsSection>,
+    includeResumeAll: Boolean = false,
+): List<String> =
     buildList {
         add(TV_DOWNLOADS_MANAGE_FOCUS_KEY)
+        if (includeResumeAll) add(TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY)
         sections.forEach { section ->
             section.records.forEach { record -> add(tvDownloadFocusKey(record.downloadId)) }
         }
@@ -84,10 +89,13 @@ internal fun tvDownloadSemanticFocusKeys(sections: List<DownloadsSection>): List
 internal fun tvDownloadLazySlotIndex(
     semanticIndex: Int,
     sectionSizes: List<Int>,
+    includeResumeAll: Boolean = false,
 ): Int {
     if (semanticIndex <= 0) return 0
-    var remainingRecordIndex = semanticIndex - 1
-    var slot = 1
+    if (includeResumeAll && semanticIndex == 1) return 1
+    val resumeAllOffset = if (includeResumeAll) 1 else 0
+    var remainingRecordIndex = semanticIndex - 1 - resumeAllOffset
+    var slot = 1 + resumeAllOffset
     sectionSizes.forEach { sectionSize ->
         if (remainingRecordIndex < sectionSize) {
             return slot + 1 + remainingRecordIndex
@@ -98,32 +106,32 @@ internal fun tvDownloadLazySlotIndex(
     return slot
 }
 
-private val TV_DOWNLOAD_QUOTA_PRESETS_GIB = listOf(1L, 2L, 5L, 10L, 20L, 50L, 100L)
+private val TV_DOWNLOAD_QUOTA_PRESETS_GB = listOf(1L, 2L, 5L, 10L, 20L, 50L, 100L)
 
 internal fun tvDownloadQuotaOptions(
     currentQuotaBytes: Long?,
     maximumQuotaBytes: Long,
 ): List<Long> {
-    val maximumWholeGib = maximumQuotaBytes / DOWNLOAD_BYTES_PER_GIB
-    val currentWholeGib = currentQuotaBytes?.div(DOWNLOAD_BYTES_PER_GIB)
-    val wholeGibOptions =
+    val maximumWholeGb = maximumQuotaBytes / DOWNLOAD_BYTES_PER_GB
+    val currentWholeGb = currentQuotaBytes?.div(DOWNLOAD_BYTES_PER_GB)
+    val wholeGbOptions =
         buildSet {
-            TV_DOWNLOAD_QUOTA_PRESETS_GIB
-                .filterTo(this) { preset -> preset <= maximumWholeGib }
-            maximumWholeGib.takeIf { maximum -> maximum >= 1L }?.let(::add)
-            currentWholeGib?.takeIf { current -> current >= 1L }?.let(::add)
+            TV_DOWNLOAD_QUOTA_PRESETS_GB
+                .filterTo(this) { preset -> preset <= maximumWholeGb }
+            maximumWholeGb.takeIf { maximum -> maximum >= 1L }?.let(::add)
+            currentWholeGb?.takeIf { current -> current >= 1L }?.let(::add)
         }
-    return wholeGibOptions
+    return wholeGbOptions
         .sorted()
-        .mapNotNull(::wholeGibDownloadQuotaBytes)
+        .mapNotNull(::wholeGbDownloadQuotaBytes)
 }
 
 internal fun tvDownloadCustomQuotaBytes(
     input: String,
     maximumQuotaBytes: Long,
 ): Long? {
-    val wholeGib = input.trim().toLongOrNull() ?: return null
-    return wholeGibDownloadQuotaBytes(wholeGib)
+    val wholeGb = input.trim().toLongOrNull() ?: return null
+    return wholeGbDownloadQuotaBytes(wholeGb)
         ?.takeIf { quotaBytes -> quotaBytes <= maximumQuotaBytes }
 }
 
@@ -140,7 +148,10 @@ internal fun TvDownloadsScreen(
     var quotaDialogVisible by rememberSaveable(session.serverId, session.userId) { mutableStateOf(false) }
     var returnFocusKey by rememberSaveable(session.serverId, session.userId) { mutableStateOf<String?>(null) }
 
-    OnResumeEffect(viewModel::refresh)
+    OnResumeEffect {
+        viewModel.refresh()
+        viewModel.wakeQueueOnScreenResume()
+    }
 
     val actionRecord = state.records.firstOrNull { record -> record.downloadId.value == actionDownloadId }
     LaunchedEffect(actionDownloadId, actionRecord) {
@@ -157,6 +168,7 @@ internal fun TvDownloadsScreen(
         onReturnFocusConsumed = { returnFocusKey = null },
         onBack = onBack,
         onManageAllocation = { quotaDialogVisible = true },
+        onResumePausedDownloads = viewModel::resumePausedDownloads,
         onOpenActions = { record -> actionDownloadId = record.downloadId.value },
         onPlayOffline = onPlayOffline,
     )
@@ -164,7 +176,7 @@ internal fun TvDownloadsScreen(
     actionRecord?.let { record ->
         TvDownloadActionsDialog(
             record = record,
-            busy = state.inFlightDownloadId != null,
+            busy = state.isBulkResumeInFlight || state.inFlightDownloadId != null,
             artifactLeased = record.downloadId.value in state.leasedDownloadIds,
             onDismiss = {
                 actionDownloadId = null
@@ -174,10 +186,6 @@ internal fun TvDownloadsScreen(
                 actionDownloadId = null
                 when (action) {
                     TvDownloadAction.Play -> onPlayOffline(record)
-                    TvDownloadAction.Start -> {
-                        returnFocusKey = tvDownloadFocusKey(record.downloadId)
-                        viewModel.retryScheduling(record.downloadId.value)
-                    }
                     TvDownloadAction.Pause -> {
                         returnFocusKey = tvDownloadFocusKey(record.downloadId)
                         viewModel.pause(record.downloadId.value)
@@ -252,6 +260,7 @@ private fun TvDownloadsContent(
     onReturnFocusConsumed: () -> Unit,
     onBack: () -> Unit,
     onManageAllocation: () -> Unit,
+    onResumePausedDownloads: () -> Unit,
     onOpenActions: (DownloadRecord) -> Unit,
     onPlayOffline: (DownloadRecord) -> Unit,
 ) {
@@ -261,20 +270,25 @@ private fun TvDownloadsContent(
     val focusScope = rememberTvFocusScopeNode(listOf("downloads", "list"))
     val manageFocusRequester = focusScope.rememberChildRequester(TV_DOWNLOADS_MANAGE_FOCUS_KEY)
     val sections = state.sections
+    val hasPausedDownloads = state.records.any { record -> record.state == DownloadState.Paused }
+    val resumeAllFocusRequester = focusScope.rememberChildRequester(TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY)
     val sectionSizes = remember(sections) { sections.map { section -> section.records.size } }
-    val semanticKeys = remember(sections) { tvDownloadSemanticFocusKeys(sections) }
-    val recordFocusKeys = remember(semanticKeys) { semanticKeys.drop(1) }
+    val semanticKeys = remember(sections, hasPausedDownloads) { tvDownloadSemanticFocusKeys(sections, hasPausedDownloads) }
+    val recordFocusKeys =
+        remember(sections) {
+            sections.flatMap { section -> section.records.map { record -> tvDownloadFocusKey(record.downloadId) } }
+        }
     val semanticIndexByFocusKey =
-        remember(recordFocusKeys) {
-            recordFocusKeys
-                .mapIndexed { index, key -> key to index + 1 }
-                .toMap()
+        remember(semanticKeys, recordFocusKeys) {
+            recordFocusKeys.associateWith(semanticKeys::indexOf)
         }
     val loading = state.isLoading && state.records.isEmpty() && state.usage == null
     val allocationNeedsAttention = state.settings?.quotaBytes == null || state.usage?.overAllocation == true
     val defaultFocusKeys =
-        remember(recordFocusKeys, allocationNeedsAttention) {
+        remember(recordFocusKeys, allocationNeedsAttention, hasPausedDownloads) {
             when {
+                hasPausedDownloads ->
+                    listOf(TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY) + recordFocusKeys + TV_DOWNLOADS_MANAGE_FOCUS_KEY
                 allocationNeedsAttention -> listOf(TV_DOWNLOADS_MANAGE_FOCUS_KEY) + recordFocusKeys
                 recordFocusKeys.isNotEmpty() -> recordFocusKeys + TV_DOWNLOADS_MANAGE_FOCUS_KEY
                 else -> listOf(TV_DOWNLOADS_MANAGE_FOCUS_KEY)
@@ -323,7 +337,9 @@ private fun TvDownloadsContent(
                     focusScope.restoreFocus(
                         request = restoreRequest,
                         semanticKeys = semanticKeys,
-                        lazySlotIndex = { semanticIndex -> tvDownloadLazySlotIndex(semanticIndex, sectionSizes) },
+                        lazySlotIndex = { semanticIndex ->
+                            tvDownloadLazySlotIndex(semanticIndex, sectionSizes, hasPausedDownloads)
+                        },
                         revealCentered = { slot ->
                             listState.scrollToItem(slot)
                             val itemInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { item -> item.index == slot }
@@ -424,6 +440,25 @@ private fun TvDownloadsContent(
                 )
             }
         }
+        if (hasPausedDownloads) {
+            item(key = TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY) {
+                TvDownloadsInterruptedCard(
+                    busy = state.isBulkResumeInFlight,
+                    focusRequester = resumeAllFocusRequester,
+                    onFocusChanged = {
+                        initialContentFocusCompleted = true
+                        focusedKey = TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY
+                        focusScope.onChildFocused(
+                            key = TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY,
+                            kind = TvFocusTargetKind.Action,
+                            semanticIndex = 1,
+                        )
+                    },
+                    onRequestRailFocus = hostedRail::requestRailFocus,
+                    onClick = onResumePausedDownloads,
+                )
+            }
+        }
         if (sections.isEmpty()) {
             item(key = "downloads:empty") {
                 Column(verticalArrangement = Arrangement.spacedBy(TvDimens.settingsValueGap)) {
@@ -457,7 +492,7 @@ private fun TvDownloadsContent(
                     val focusRequester = focusScope.rememberChildRequester(focusKey)
                     TvDownloadRow(
                         record = record,
-                        busy = state.inFlightDownloadId == record.downloadId.value,
+                        busy = state.isBulkResumeInFlight || state.inFlightDownloadId == record.downloadId.value,
                         artifactLeased = record.downloadId.value in state.leasedDownloadIds,
                         focusRequester = focusRequester,
                         onFocusChanged = {
@@ -615,6 +650,59 @@ private fun TvDownloadUsageRow(
             maxLines = 1,
         )
         TvText(text = value, style = TvBodyStyle, maxLines = 1)
+    }
+}
+
+@Composable
+private fun TvDownloadsInterruptedCard(
+    busy: Boolean,
+    focusRequester: FocusRequester,
+    onFocusChanged: () -> Unit,
+    onRequestRailFocus: () -> Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = LocalJellyfinPalette.current
+    TvFocusableBox(
+        onClick = onClick,
+        enabled = !busy,
+        focusableWhenDisabled = true,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+                .onFocusChanged { focusState -> if (focusState.isFocused) onFocusChanged() }
+                .onPreviewKeyEvent { event -> event.requestsRail(onRequestRailFocus) },
+        contentDescription = stringResource(R.string.tv_downloads_resume_all_content_description),
+        focusedScale = 1.02f,
+        backgroundColor = palette.surfaceNavy,
+        focusedBackgroundColor = palette.surfaceRaised,
+        focusedBorderColor = palette.cyan,
+        focusGlowColor = palette.cyan.copy(alpha = TvDimens.SETTINGS_FOCUS_GLOW_ALPHA),
+        focusGlowElevation = TvDimens.settingsPanelFocusGlow,
+        contentPadding = PaddingValues(TvDimens.settingsDialogContentPadding),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(TvDimens.settingsRowIconGap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TvText(
+                text = stringResource(R.string.tv_downloads_interrupted),
+                modifier = Modifier.weight(1f),
+                style = TvTitleStyle,
+                maxLines = 2,
+            )
+            if (busy) {
+                TvSpinner(modifier = Modifier.size(TvDimens.settingsRowIconSize))
+            } else {
+                TvText(
+                    text = stringResource(R.string.tv_downloads_resume_all),
+                    style = TvBodyStyle.copy(fontWeight = FontWeight.SemiBold),
+                    color = palette.cyan,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 
@@ -962,7 +1050,7 @@ private fun TvDownloadQuotaDialog(
                 presetBytes.forEach { quotaBytes -> add(TvDownloadQuotaChoice.Preset(quotaBytes)) }
                 add(TvDownloadQuotaChoice.Custom)
             }
-        val customEnabled = safeMaximum >= DOWNLOAD_BYTES_PER_GIB
+        val customEnabled = safeMaximum >= DOWNLOAD_BYTES_PER_GB
         TvSettingsChoiceDialog(
             title = stringResource(R.string.tv_downloads_quota_dialog_title),
             selected = selectedChoice,
@@ -975,7 +1063,7 @@ private fun TvDownloadQuotaDialog(
                                 label =
                                     stringResource(
                                         R.string.tv_downloads_quota_option,
-                                        choice.quotaBytes / DOWNLOAD_BYTES_PER_GIB,
+                                        choice.quotaBytes / DOWNLOAD_BYTES_PER_GB,
                                     ),
                             )
                         TvDownloadQuotaChoice.Custom ->
@@ -1010,13 +1098,13 @@ private fun TvDownloadCustomQuotaDialog(
     onDismiss: () -> Unit,
     onSelected: (Long) -> Unit,
 ) {
-    val maximumWholeGib = maximumQuotaBytes / DOWNLOAD_BYTES_PER_GIB
-    var wholeGibInput by remember(maximumQuotaBytes) { mutableStateOf("") }
+    val maximumWholeGb = maximumQuotaBytes / DOWNLOAD_BYTES_PER_GB
+    var wholeGbInput by remember(maximumQuotaBytes) { mutableStateOf("") }
     var editing by remember { mutableStateOf(false) }
     var exitEditingRequests by remember { mutableStateOf(0) }
     val inputRequester = remember { FocusRequester() }
     val applyRequester = remember { FocusRequester() }
-    val quotaBytes = tvDownloadCustomQuotaBytes(wholeGibInput, maximumQuotaBytes)
+    val quotaBytes = tvDownloadCustomQuotaBytes(wholeGbInput, maximumQuotaBytes)
 
     LaunchedEffect(inputRequester) {
         requestTvFocusWithRetry { inputRequester.requestFocusSafely() }
@@ -1032,14 +1120,14 @@ private fun TvDownloadCustomQuotaDialog(
         },
     ) {
         TvText(
-            text = stringResource(R.string.tv_downloads_quota_custom_range, maximumWholeGib),
+            text = stringResource(R.string.tv_downloads_quota_custom_range, maximumWholeGb),
             color = LocalJellyfinPalette.current.textSecondary,
             style = TvBodyStyle,
             maxLines = 2,
         )
         TvInputField(
-            value = wholeGibInput,
-            onValueChange = { value -> wholeGibInput = value.filter(Char::isDigit) },
+            value = wholeGbInput,
+            onValueChange = { value -> wholeGbInput = value.filter(Char::isDigit) },
             label = stringResource(R.string.tv_downloads_quota_custom_label),
             modifier =
                 Modifier
@@ -1059,9 +1147,9 @@ private fun TvDownloadCustomQuotaDialog(
             onEditingChange = { isEditing -> editing = isEditing },
             exitEditingRequests = exitEditingRequests,
         )
-        if (wholeGibInput.isNotBlank() && quotaBytes == null) {
+        if (wholeGbInput.isNotBlank() && quotaBytes == null) {
             TvText(
-                text = stringResource(R.string.tv_downloads_quota_custom_invalid, maximumWholeGib),
+                text = stringResource(R.string.tv_downloads_quota_custom_invalid, maximumWholeGb),
                 color = LocalJellyfinPalette.current.error,
                 style = TvBodyStyle,
                 maxLines = 2,
@@ -1098,7 +1186,6 @@ private sealed interface TvDownloadQuotaChoice {
 
 private enum class TvDownloadAction {
     Play,
-    Start,
     Pause,
     Resume,
     Retry,
@@ -1119,7 +1206,7 @@ private fun tvDownloadActions(
 ): List<TvDownloadActionOption> =
     buildList {
         when (record.state) {
-            DownloadState.Queued -> add(TvDownloadActionOption(TvDownloadAction.Start, enabled = !busy))
+            DownloadState.Queued -> Unit
             DownloadState.Downloading -> add(TvDownloadActionOption(TvDownloadAction.Pause, enabled = !busy))
             DownloadState.Paused,
             DownloadState.BlockedByQuota,
@@ -1184,12 +1271,12 @@ private fun tvDownloadBitrateMbps(bitrateBps: Long): String {
 @Composable
 private fun tvDownloadBytes(bytes: Long): String =
     when {
-        bytes >= DOWNLOAD_BYTES_PER_GIB ->
-            stringResource(R.string.tv_downloads_bytes_gib, bytes.toDouble() / DOWNLOAD_BYTES_PER_GIB)
-        bytes >= DOWNLOAD_BYTES_PER_MIB ->
-            stringResource(R.string.tv_downloads_bytes_mib, bytes.toDouble() / DOWNLOAD_BYTES_PER_MIB)
-        bytes >= DOWNLOAD_BYTES_PER_KIB ->
-            stringResource(R.string.tv_downloads_bytes_kib, bytes.toDouble() / DOWNLOAD_BYTES_PER_KIB)
+        bytes >= DOWNLOAD_BYTES_PER_GB ->
+            stringResource(R.string.tv_downloads_bytes_gb, bytes.toDouble() / DOWNLOAD_BYTES_PER_GB)
+        bytes >= DOWNLOAD_BYTES_PER_MB ->
+            stringResource(R.string.tv_downloads_bytes_mb, bytes.toDouble() / DOWNLOAD_BYTES_PER_MB)
+        bytes >= DOWNLOAD_BYTES_PER_KB ->
+            stringResource(R.string.tv_downloads_bytes_kb, bytes.toDouble() / DOWNLOAD_BYTES_PER_KB)
         else -> stringResource(R.string.tv_downloads_bytes_b, bytes)
     }
 
@@ -1224,7 +1311,6 @@ private fun tvDownloadsErrorResource(error: DownloadsUiError): Int =
     when (error) {
         DownloadsUiError.LoadFailed -> R.string.tv_downloads_error
         DownloadsUiError.CommandRejected -> R.string.tv_downloads_command_error
-        DownloadsUiError.SchedulingRetryRejected -> R.string.tv_downloads_schedule_error
         DownloadsUiError.QuotaRejected -> R.string.tv_downloads_quota_error
         DownloadsUiError.ArtifactInUse -> R.string.tv_downloads_artifact_in_use
     }
@@ -1249,7 +1335,6 @@ private fun tvDownloadActionResource(
             } else {
                 R.string.tv_downloads_action_play
             }
-        TvDownloadAction.Start -> R.string.tv_downloads_action_start
         TvDownloadAction.Pause -> R.string.tv_downloads_action_pause
         TvDownloadAction.Resume -> R.string.tv_downloads_action_resume
         TvDownloadAction.Retry -> R.string.tv_downloads_action_retry
@@ -1257,5 +1342,5 @@ private fun tvDownloadActionResource(
         TvDownloadAction.Delete -> R.string.tv_downloads_action_delete
     }
 
-private const val DOWNLOAD_BYTES_PER_KIB = 1_024L
-private const val DOWNLOAD_BYTES_PER_MIB = DOWNLOAD_BYTES_PER_KIB * DOWNLOAD_BYTES_PER_KIB
+private const val DOWNLOAD_BYTES_PER_KB = 1_000L
+private const val DOWNLOAD_BYTES_PER_MB = DOWNLOAD_BYTES_PER_KB * DOWNLOAD_BYTES_PER_KB

@@ -1886,6 +1886,7 @@ class PlayerViewModel(
             !offlineControllerFallbackAllowed(
                 artifactKind = record.request.artifactKind,
                 resolvedBackend = resolvedBackend,
+                requiredBackend = deviceProfileProvider?.requiredOfflineBackend,
             )
         val activeBackend =
             try {
@@ -2020,7 +2021,12 @@ class PlayerViewModel(
                     -> PlayerBackendPlatform.Desktop
                     PlayerBackend.Auto -> PlayerBackendPlatform.Desktop
                 }
-        return resolveOfflinePlaybackBackend(platform, artifactKind, resolved)
+        return resolveOfflinePlaybackBackend(
+            platform = platform,
+            artifactKind = artifactKind,
+            resolvedBackend = resolved,
+            requiredBackend = provider?.requiredOfflineBackend,
+        )
     }
 
     private fun OfflineTrackSnapshot.toPlaybackMediaStream(): PlaybackMediaStream =

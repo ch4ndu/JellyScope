@@ -46,7 +46,9 @@ internal class IosDownloadLifecycleHost(
                 `object` = null,
                 queue = NSOperationQueue.mainQueue,
             ) {
-                launchWake(recoverBeforeFirstWake = false)
+                scope.launch(Dispatchers.Default) {
+                    recovery.recover(this@IosDownloadLifecycleHost)
+                }
             }
         observers +=
             center.addObserverForName(
@@ -59,7 +61,9 @@ internal class IosDownloadLifecycleHost(
                 // the notification boundary.
                 runBlocking(Dispatchers.Default) { cancelWakeAndCheckpoint() }
             }
-        launchWake(recoverBeforeFirstWake = true)
+        scope.launch(Dispatchers.Default) {
+            recovery.recoverBeforeFirstWake(this@IosDownloadLifecycleHost)
+        }
     }
 
     /** Removes notification observers and performs the bounded exit checkpoint. */
@@ -88,12 +92,6 @@ internal class IosDownloadLifecycleHost(
         } else {
             Result.success(Unit)
         }
-
-    private fun launchWake(recoverBeforeFirstWake: Boolean) {
-        scope.launch(Dispatchers.Default) {
-            scheduleWake(recoverBeforeFirstWake)
-        }
-    }
 
     private suspend fun scheduleWake(recoverBeforeFirstWake: Boolean): Result<Unit> =
         wakeGate.launch {

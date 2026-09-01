@@ -5,10 +5,11 @@ package com.jellyscope.core.data.local
 import android.content.Context
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
+import androidx.sqlite.execSQL
 import androidx.test.core.app.ApplicationProvider
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.BeginDownloadRemovalResult
-import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GIB
+import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GB
 import com.jellyscope.core.domain.model.DownloadArtifactKey
 import com.jellyscope.core.domain.model.DownloadArtifactKind
 import com.jellyscope.core.domain.model.DownloadBusinessKey
@@ -61,13 +62,13 @@ class DownloadDatabaseRecoveryTest {
             val accountB = AccountIdentity("server-b", "user-b")
             val zeroDownloadAccount = AccountIdentity("server-c", "user-c")
             val fullLogoutAccounts = listOf(accountA, accountB, zeroDownloadAccount)
-            val availableBytes = 4L * DOWNLOAD_BYTES_PER_GIB
+            val availableBytes = 4L * DOWNLOAD_BYTES_PER_GB
 
             var opened = openDatabase()
             var settingsStore = RoomDownloadSettingsStore(opened.downloadDao())
             var recordStore = RoomDownloadRecordStore(opened.downloadDao())
             var removalStore = RoomDownloadRemovalStore(opened.downloadDao())
-            settingsStore.setQuotaBytes(2L * DOWNLOAD_BYTES_PER_GIB)
+            settingsStore.setQuotaBytes(2L * DOWNLOAD_BYTES_PER_GB)
 
             val requestA = request("a", accountA, reservationBytes = 256L, createdAtEpochMs = 1L)
             val requestB = request("b", accountB, reservationBytes = 512L, createdAtEpochMs = 2L)
@@ -280,14 +281,73 @@ class DownloadDatabaseRecoveryTest {
         }
 
     @Test
+    fun migratingVersionOneQuotaConvertsLegacyWholeUnitsWithoutChangingDownloadByteFacts() =
+        runTest {
+            val account = AccountIdentity("server-migration", "user-migration")
+            val availableBytes = 4L * DOWNLOAD_BYTES_PER_GB
+            val request =
+                request("migration", account, reservationBytes = 700_000_000L, createdAtEpochMs = 1L).copy(
+                    admissionEstimateBytes = 600_000_000L,
+                    expectedSourceBytes = 650_000_000L,
+                )
+            val physicalBytes = 123_456_789L
+            val checkpointBytes = 123_450_000L
+
+            val opened = openDatabase()
+            val settingsStore = RoomDownloadSettingsStore(opened.downloadDao())
+            val recordStore = RoomDownloadRecordStore(opened.downloadDao())
+            settingsStore.setQuotaBytes(2L * DOWNLOAD_BYTES_PER_GB)
+            val created = assertIs<DownloadEnqueueResult.Created>(recordStore.enqueue(request, availableBytes)).record
+            assertNotNull(
+                recordStore.claimOldest(
+                    accountIdentity = account,
+                    platformWorkIdentity = null,
+                    deviceAvailableBytes = availableBytes,
+                    updatedAtEpochMs = 2L,
+                ),
+            )
+            assertTrue(recordStore.updateProgress(created.downloadId, 1L, physicalBytes, checkpointBytes, 3L))
+
+            opened.close()
+            database = null
+            // The data-only migration leaves the v1 and v2 table shapes identical, so restoring
+            // the v1 Room metadata creates the historical production input.
+            val legacyConnection = AndroidSQLiteDriver().open(databaseFile.path)
+            try {
+                legacyConnection.execSQL("UPDATE `download_settings` SET `quotaBytes` = 2147483648 WHERE `id` = 1")
+                legacyConnection.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)")
+                legacyConnection.execSQL(
+                    "INSERT OR REPLACE INTO room_master_table (id, identity_hash) VALUES (42, '5bb3da797f706e1172804ce791352a2b')",
+                )
+                legacyConnection.execSQL("PRAGMA user_version = 1")
+            } finally {
+                legacyConnection.close()
+            }
+
+            val migrated = openDatabase()
+            val migratedSettings = RoomDownloadSettingsStore(migrated.downloadDao()).get()
+            val migratedRecord = assertNotNull(RoomDownloadRecordStore(migrated.downloadDao()).get(created.downloadId))
+
+            assertEquals(2L * DOWNLOAD_BYTES_PER_GB, migratedSettings.quotaBytes)
+            assertEquals(created.downloadId, migratedRecord.downloadId)
+            assertEquals(DownloadState.Downloading, migratedRecord.state)
+            assertEquals(request.expectedSourceBytes, migratedRecord.request.expectedSourceBytes)
+            assertEquals(request.initialReservationBytes, migratedRecord.request.initialReservationBytes)
+            assertEquals(request.admissionEstimateBytes, migratedRecord.request.admissionEstimateBytes)
+            assertEquals(physicalBytes, migratedRecord.physicalBytes)
+            assertEquals(checkpointBytes, migratedRecord.checkpointBytes)
+            assertEquals(700_000_000L, migratedRecord.reservationBytes)
+        }
+
+    @Test
     fun wallClockRollbackKeepsDownloadReadableAndProgressingAcrossAttemptMutations() =
         runTest {
             val account = AccountIdentity("server-clock", "user-clock")
-            val availableBytes = 4L * DOWNLOAD_BYTES_PER_GIB
+            val availableBytes = 4L * DOWNLOAD_BYTES_PER_GB
             var opened = openDatabase()
             var settingsStore = RoomDownloadSettingsStore(opened.downloadDao())
             var recordStore = RoomDownloadRecordStore(opened.downloadDao())
-            settingsStore.setQuotaBytes(2L * DOWNLOAD_BYTES_PER_GIB)
+            settingsStore.setQuotaBytes(2L * DOWNLOAD_BYTES_PER_GB)
 
             val created =
                 assertIs<DownloadEnqueueResult.Created>(
@@ -390,12 +450,12 @@ class DownloadDatabaseRecoveryTest {
         runTest {
             val account = AccountIdentity("server-boundary", "user-boundary")
             val otherAccount = AccountIdentity("server-boundary", "user-other")
-            val availableBytes = 4L * DOWNLOAD_BYTES_PER_GIB
+            val availableBytes = 4L * DOWNLOAD_BYTES_PER_GB
             val opened = openDatabase()
             val settingsStore = RoomDownloadSettingsStore(opened.downloadDao())
             val recordStore = RoomDownloadRecordStore(opened.downloadDao())
             val removalStore = RoomDownloadRemovalStore(opened.downloadDao())
-            settingsStore.setQuotaBytes(2L * DOWNLOAD_BYTES_PER_GIB)
+            settingsStore.setQuotaBytes(2L * DOWNLOAD_BYTES_PER_GB)
 
             val created =
                 assertIs<DownloadEnqueueResult.Created>(

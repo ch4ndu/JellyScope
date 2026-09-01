@@ -170,6 +170,7 @@ internal fun LoggedInNavGraph(
                 DownloadsScreen(
                     session = session,
                     onBack = { navController.popBackStack() },
+                    bottomContentPadding = bottomBarContentPadding,
                     onPlayOffline = { record ->
                         navController.navigate(
                             Routes.player(

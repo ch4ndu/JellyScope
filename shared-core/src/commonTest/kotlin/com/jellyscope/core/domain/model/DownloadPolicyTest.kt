@@ -33,7 +33,7 @@ class DownloadPolicyTest {
 
     @Test
     fun finalizingRetainsReservationUntilCompletedAndBothHardLimitsApply() {
-        val quota = DOWNLOAD_BYTES_PER_GIB
+        val quota = DOWNLOAD_BYTES_PER_GB
         val finalizing = DownloadUsageEntry(DownloadState.Finalizing, physicalBytes = 400L, reservationBytes = 1_000L)
         val completed = DownloadUsageEntry(DownloadState.Completed, physicalBytes = 100L, reservationBytes = 100L)
 
@@ -94,8 +94,8 @@ class DownloadPolicyTest {
         assertEquals(1_100_000L, estimateFixedDownloadBytes(maxBitrateBps = 8_000_000L, durationMs = 1_000L))
         assertEquals(8_798L, estimateFixedDownloadBytes(maxBitrateBps = 7_999L, durationMs = 7_999L))
         assertEquals(Long.MAX_VALUE, estimateFixedDownloadBytes(Long.MAX_VALUE, Long.MAX_VALUE))
-        assertEquals(DOWNLOAD_BYTES_PER_GIB, wholeGibDownloadQuotaBytes(1L))
-        assertNull(wholeGibDownloadQuotaBytes(Long.MAX_VALUE))
+        assertEquals(DOWNLOAD_BYTES_PER_GB, wholeGbDownloadQuotaBytes(1L))
+        assertNull(wholeGbDownloadQuotaBytes(Long.MAX_VALUE))
     }
 
     @Test

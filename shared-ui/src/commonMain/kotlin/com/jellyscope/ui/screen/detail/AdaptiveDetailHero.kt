@@ -238,6 +238,10 @@ internal fun DetailActionRow(
     onPlay: (String, Long, String?, Int?, SubtitleSelectionIntent) -> Unit,
     onToggleWatched: () -> Unit,
     onToggleFavorite: () -> Unit,
+    downloadEntryState: DetailDownloadEntryState?,
+    downloadActionEnabled: Boolean,
+    downloadFixedAvailable: Boolean,
+    onDownloadClick: () -> Unit,
     subtitleActions: DetailSubtitlePickerActions?,
     onMediaInfoClick: () -> Unit,
     versionTrackRequester: FocusRequester,
@@ -322,6 +326,15 @@ internal fun DetailActionRow(
             onClick = onToggleFavorite,
             modifier = actionButtonHeightModifier,
         )
+        downloadEntryState?.let { entryState ->
+            AdaptiveDownloadEntryButton(
+                state = entryState,
+                enabled = downloadActionEnabled,
+                fixedAvailable = downloadFixedAvailable,
+                onClick = onDownloadClick,
+                modifier = actionButtonHeightModifier,
+            )
+        }
         if (detail.mediaInfo?.hasAnything == true) {
             ExpandingActionButton(
                 label = stringResource(Res.string.media_info_action),

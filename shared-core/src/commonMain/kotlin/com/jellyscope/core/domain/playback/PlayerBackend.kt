@@ -72,7 +72,16 @@ data class BackendSourceDescriptor(
     val videoCodec: String?,
     val audioCodec: String?,
     val isHdrOrDolbyVision: Boolean,
+    val videoWidth: Int? = null,
+    val videoHeight: Int? = null,
+    val videoFrameRate: Double? = null,
 )
+
+enum class OriginalDownloadPlaybackCompatibility {
+    Compatible,
+    Unknown,
+    Unsupported,
+}
 
 /**
  * Resolves a user preference and source description to one concrete backend.
@@ -117,17 +126,19 @@ fun resolvePlayerBackend(
 /**
  * Resolves the backend policy for one already-resolved Offline plan.
  *
- * Original files keep the user's normal selected backend on every supported platform. The only
- * special case is a converted local-HLS package on Apple, which must use VLCKit; this helper never
- * authorizes AVPlayer for an app-authored HLS package and never consults or mutates persisted
- * preferences.
+ * A platform-required backend takes ownership of every offline artifact. Without that requirement,
+ * original files keep the resolved backend and Apple local-HLS packages use VLCKit. This helper
+ * never consults or mutates persisted preferences.
  */
 fun resolveOfflinePlaybackBackend(
     platform: PlayerBackendPlatform,
     artifactKind: DownloadArtifactKind,
     resolvedBackend: PlayerBackend,
+    requiredBackend: PlayerBackend? = null,
 ): PlayerBackend {
     require(resolvedBackend != PlayerBackend.Auto) { "Offline backend must already be resolved." }
+    require(requiredBackend != PlayerBackend.Auto) { "Required offline backend must be concrete." }
+    if (requiredBackend != null) return requiredBackend
     return if (
         platform == PlayerBackendPlatform.Apple &&
         artifactKind == DownloadArtifactKind.LocalHlsPackage
@@ -139,14 +150,65 @@ fun resolveOfflinePlaybackBackend(
 }
 
 /**
- * Original-file playback keeps the normal controller replacement fallback ladder. Apple
- * LocalHlsPackage playback has exact VLCKit ownership and must never hand an app-authored HLS
- * package to another native backend. Android and desktop keep their normal fallback behavior.
+ * A platform-required offline backend has exact controller ownership and cannot fall back. Without
+ * that requirement, local-HLS playback resolved to VLCKit also stays on VLCKit while original-file,
+ * Android, and desktop playback retain the normal fallback behavior.
  */
 fun offlineControllerFallbackAllowed(
     artifactKind: DownloadArtifactKind,
     resolvedBackend: PlayerBackend,
-): Boolean = artifactKind != DownloadArtifactKind.LocalHlsPackage || resolvedBackend != PlayerBackend.VlcKit
+    requiredBackend: PlayerBackend? = null,
+): Boolean =
+    requiredBackend == null &&
+        (artifactKind != DownloadArtifactKind.LocalHlsPackage || resolvedBackend != PlayerBackend.VlcKit)
+
+fun evaluateOriginalDownloadPlaybackCompatibility(
+    source: BackendSourceDescriptor,
+    capabilities: DeviceDecodingCapabilities,
+): OriginalDownloadPlaybackCompatibility {
+    val codec = canonicalVideoCodec(source.videoCodec) ?: return OriginalDownloadPlaybackCompatibility.Unknown
+    val declaredCodecs = capabilities.videoCodecs.mapNotNull(::canonicalVideoCodec).toSet()
+    if (declaredCodecs.isNotEmpty() && codec !in declaredCodecs) {
+        return OriginalDownloadPlaybackCompatibility.Unsupported
+    }
+    val bound =
+        capabilities.videoResolutionsByCodec.entries
+            .firstOrNull { (candidate, _) -> canonicalVideoCodec(candidate) == codec }
+            ?.value
+            ?: return OriginalDownloadPlaybackCompatibility.Unknown
+    if (
+        bound.maxWidth == null &&
+        bound.maxHeight == null &&
+        bound.maxFrameArea == null &&
+        bound.maxFrameAreaPerSecond == null
+    ) {
+        return OriginalDownloadPlaybackCompatibility.Unknown
+    }
+    val width =
+        source.videoWidth?.takeIf { value -> value > 0 }
+            ?: return OriginalDownloadPlaybackCompatibility.Unknown
+    val height =
+        source.videoHeight?.takeIf { value -> value > 0 }
+            ?: return OriginalDownloadPlaybackCompatibility.Unknown
+    val frameArea = blockPaddedArea(width, height)
+    if (
+        bound.maxWidth?.let { maximum -> width > maximum } == true ||
+        bound.maxHeight?.let { maximum -> height > maximum } == true ||
+        bound.maxFrameArea?.let { maximum -> frameArea > maximum } == true
+    ) {
+        return OriginalDownloadPlaybackCompatibility.Unsupported
+    }
+    val throughput = bound.maxFrameAreaPerSecond
+    if (throughput != null) {
+        val frameRate =
+            source.videoFrameRate?.takeIf { value -> value.isFinite() && value > 0.0 }
+                ?: return OriginalDownloadPlaybackCompatibility.Unknown
+        if (frameArea.toDouble() * frameRate > throughput.toDouble()) {
+            return OriginalDownloadPlaybackCompatibility.Unsupported
+        }
+    }
+    return OriginalDownloadPlaybackCompatibility.Compatible
+}
 
 private fun DeviceDecodingCapabilities.canDirectPlay(source: BackendSourceDescriptor): Boolean {
     val container = source.container.canonicalBackendValue() ?: return false

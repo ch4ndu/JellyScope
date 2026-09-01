@@ -107,11 +107,11 @@ fun evaluateDownloadAdmission(
     return DownloadAdmissionDecision.Allowed
 }
 
-/** Converts the whole-GiB Settings value without permitting integer wraparound. */
-fun wholeGibDownloadQuotaBytes(wholeGib: Long): Long? =
-    wholeGib
-        .takeIf { value -> value > 0L && value <= Long.MAX_VALUE / DOWNLOAD_BYTES_PER_GIB }
-        ?.times(DOWNLOAD_BYTES_PER_GIB)
+/** Converts the whole-GB Settings value without permitting integer wraparound. */
+fun wholeGbDownloadQuotaBytes(wholeGb: Long): Long? =
+    wholeGb
+        .takeIf { value -> value > 0L && value <= Long.MAX_VALUE / DOWNLOAD_BYTES_PER_GB }
+        ?.times(DOWNLOAD_BYTES_PER_GB)
 
 /** Fixed-quality admission estimate: bitrate x duration plus a conservative ten percent. */
 fun estimateFixedDownloadBytes(

@@ -2,6 +2,14 @@
 
 Notable JellyScope changes, newest first.
 
+## 0.1.0-alpha92 — enable resilient offline downloads · week 8 · 2026-08-31
+
+- Movies and individual episodes can be downloaded at Original quality or a selected converted quality from their detail actions, then managed and played from the Downloads screen on Android, Android TV, iOS, and macOS. Transfers remain serial, interrupted work is resumable as a group, and storage allocation uses decimal MB and GB units.
+- Fixed-quality downloads accept Jellyfin's direct media playlists and large HLS manifests, preserve authenticated media access through transfer and recovery, reject unsupported artifacts with actionable diagnostics, and recover finalizing packages without turning coroutine cancellation into a false failure.
+- Offline playback resolves local artifacts without a server connection, retains local resume progress, forces VLCKit for iOS offline sessions, and reports an unavailable offline backend instead of falling through to AVPlayer. Original and converted artifacts now use bounded, platform-private storage and lifecycle-aware checkpoint recovery.
+- Android 13 and newer request notification permission when a download starts without making permission a transfer requirement; allowed notifications expose progress and cancellation. Android TV adds its Downloads route, D-pad-safe actions and dialogs, bottom content clearance, stable focus, and guarded Home-row position updates.
+- Automated lint, shared-core and shared-UI host tests, Android TV tests, both minified Android release assemblies, native-payload and Android license-readiness checks, and the iOS Simulator framework link passed. The maintainer reports that the remaining Android mobile and Android TV Downloads acceptance paths passed device validation.
+
 ## 0.1.0-alpha91 — harden sessions and Android TV lifecycle · week 7 · 2026-08-26
 
 - Android TV Home now replaces its account-scoped state immediately after a server or account switch, so posters use the current session without requiring an app restart; Android TV and mobile also retire Media3 HTTPS connections off the UI thread, preventing the demo-server player-dismiss crash.

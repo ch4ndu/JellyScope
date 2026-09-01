@@ -261,6 +261,10 @@ private fun MediaVersionUi.toOfflineMediaSnapshot(
                                             value.contains("vision", ignoreCase = true)
                                     }
                         },
+                    videoWidth = streams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }?.width,
+                    videoHeight = streams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }?.height,
+                    videoFrameRate =
+                        streams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }?.realFrameRate,
                 ),
         )
     }.getOrNull()

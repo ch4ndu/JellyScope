@@ -240,15 +240,16 @@ internal data class DownloadCheckpointFacts(
 
 /**
  * Explicit, bounded live-attempt registration.  It deliberately has no timer, heartbeat, or
- * retry job.  The writer callback is invoked once by boundary quiescence and may return only
- * bounded checkpoint facts; it cannot expose a network response or platform task to the queue.
+ * retry job.  The writer callback receives its last durable facts once during boundary
+ * quiescence and may return only bounded checkpoint facts; it cannot expose a network response
+ * or platform task to the queue.
  */
 internal class DownloadActiveAttemptRegistration internal constructor(
     val accountIdentity: AccountIdentity,
     val lease: AccountWorkLease,
     val attempt: DownloadAttemptIdentity,
     initialFacts: DownloadCheckpointFacts,
-    private val checkpointAndCloseWriter: suspend () -> DownloadCheckpointFacts,
+    private val checkpointAndCloseWriter: suspend (DownloadCheckpointFacts) -> DownloadCheckpointFacts,
 ) {
     private var durableFacts: DownloadCheckpointFacts = initialFacts
     private var writerClosed = false
@@ -261,7 +262,7 @@ internal class DownloadActiveAttemptRegistration internal constructor(
 
     suspend fun checkpointAndClose(): DownloadCheckpointFacts {
         if (!writerClosed) {
-            durableFacts = checkpointAndCloseWriter()
+            durableFacts = checkpointAndCloseWriter(durableFacts)
             writerClosed = true
         }
         return durableFacts

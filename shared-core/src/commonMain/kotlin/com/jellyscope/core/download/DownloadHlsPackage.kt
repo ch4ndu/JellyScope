@@ -12,14 +12,16 @@ import kotlinx.serialization.json.Json
 /**
  * The deliberately small HLS subset that can be made into a JellyScope offline package.
  *
- * This is not a general HLS parser.  The server probe established one master variant and one
- * finite HLS-TS VOD media playlist.  Anything outside that shape is rejected before a remote
- * resource is opened.  In particular, remote references are retained only in this in-memory
- * value and never cross the checkpoint boundary.
+ * This is not a general HLS parser. The verified shape is one master variant, supplied by the
+ * server or synthesized for a direct media response, and one finite HLS-TS VOD media playlist.
+ * Anything outside that shape is rejected before a remote resource is opened. Remote references
+ * are retained only in this in-memory value and never cross the checkpoint boundary.
  */
 internal data class DownloadHlsPackage(
     val master: DownloadHlsMasterPlaylist,
     val media: DownloadHlsMediaPlaylist,
+    /** True when Jellyfin projected the authenticated transcoding URL as the media playlist itself. */
+    val mediaPlaylistIsSource: Boolean = false,
 ) {
     val identity: DownloadHlsCheckpointIdentity =
         DownloadHlsCheckpointIdentity(
@@ -101,6 +103,24 @@ internal data class DownloadHlsPackage(
     fun expectedPartKeys(): List<DownloadArtifactPartKey> = localParts.map { part -> part.partKey }
 
     companion object {
+        fun fromDirectMedia(
+            media: DownloadHlsMediaPlaylist,
+            maxBitrateBps: Long,
+        ): DownloadHlsPackage {
+            require(maxBitrateBps > 0L)
+            val attributes = "BANDWIDTH=$maxBitrateBps"
+            return DownloadHlsPackage(
+                master =
+                    DownloadHlsMasterPlaylist(
+                        childPlaylistUri = "",
+                        variantIdentity = attributes,
+                        normalizedAttributes = attributes,
+                    ),
+                media = media,
+                mediaPlaylistIsSource = true,
+            )
+        }
+
         /**
          * Parses a master and its selected child media playlist.  The child URI is checked as a
          * same-origin relative reference by [parseMasterOnly]; the caller resolves it only while the
@@ -198,7 +218,26 @@ internal enum class DownloadHlsRejectReason {
     InvalidMaster,
     InvalidVariant,
     InvalidMedia,
-    UnsupportedTag,
+    UnsupportedMasterRendition,
+    UnsupportedMasterIFrameVariant,
+    UnsupportedMasterSessionData,
+    UnsupportedMasterSessionKey,
+    UnsupportedMasterStart,
+    UnsupportedMasterDefine,
+    UnsupportedMasterContentSteering,
+    UnsupportedMasterTag,
+    UnsupportedMediaPlaylistType,
+    UnsupportedMediaEncryption,
+    UnsupportedMediaInitSegment,
+    UnsupportedMediaByteRange,
+    UnsupportedMediaDiscontinuity,
+    UnsupportedMediaProgramDateTime,
+    UnsupportedMediaDateRange,
+    UnsupportedMediaGap,
+    UnsupportedMediaBitrate,
+    UnsupportedMediaStart,
+    UnsupportedMediaDefine,
+    UnsupportedMediaTag,
     UnsupportedResource,
     MissingRequiredTag,
     InvalidDuration,
@@ -317,10 +356,12 @@ internal data class DownloadHlsCheckpoint(
 }
 
 private const val HLS_CHECKPOINT_FORMAT_VERSION = 1
-private const val MAX_HLS_PLAYLIST_BYTES = 1_048_576
+internal const val MAX_HLS_MASTER_PLAYLIST_BYTES = 1_048_576
+internal const val MAX_HLS_MEDIA_PLAYLIST_BYTES = 4_194_304
 private const val MAX_HLS_LINE_LENGTH = 8_192
 private const val MAX_HLS_SEGMENTS = 8_192
-private const val MAX_HLS_CHECKPOINT_BYTES = 1_048_576
+internal const val MAX_HLS_CHECKPOINT_BYTES = 2_097_152
+private const val MAX_HLS_DURATION_FRACTION_DIGITS = 9
 
 private val HLS_CHECKPOINT_JSON =
     Json {
@@ -330,15 +371,34 @@ private val HLS_CHECKPOINT_JSON =
     }
 
 private fun parseMasterPlaylist(text: String): DownloadHlsParseResult {
-    val lines = playlistLines(text) ?: return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.PlaylistTooLarge)
+    val lines =
+        playlistLines(text, MAX_HLS_MASTER_PLAYLIST_BYTES)
+            ?: return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.PlaylistTooLarge)
     if (lines.isEmpty()) return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.EmptyPlaylist)
     if (lines.first() != "#EXTM3U") return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.MissingExtM3u)
 
     var attributes: String? = null
     var childUri: String? = null
+    var versionSeen = false
+    var independentSegmentsSeen = false
     lines.drop(1).forEach { line ->
         when {
             line.isEmpty() -> Unit
+            line.startsWith("#EXT-X-VERSION:") -> {
+                val version = line.substringAfter(':').toIntOrNull()
+                if (versionSeen || version?.let { value -> value <= 0 } != false) {
+                    return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.InvalidMaster)
+                }
+                versionSeen = true
+            }
+            line == "#EXT-X-INDEPENDENT-SEGMENTS" -> {
+                if (independentSegmentsSeen) {
+                    return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.InvalidMaster)
+                }
+                independentSegmentsSeen = true
+            }
+            line.startsWith("#EXT-X-IMAGE-STREAM-INF:") -> Unit
+            line.startsWith("#EXT-X-SESSION-DATA:") -> Unit
             line.startsWith("#EXT-X-STREAM-INF:") -> {
                 if (attributes != null || childUri != null) return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.InvalidMaster)
                 val rawAttributes = line.substringAfter(':', missingDelimiterValue = "")
@@ -347,7 +407,8 @@ private fun parseMasterPlaylist(text: String): DownloadHlsParseResult {
                         ?: return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.InvalidVariant)
                 attributes = canonical
             }
-            line.startsWith('#') -> return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.UnsupportedTag)
+            line.startsWith('#') && !line.startsWith("#EXT") -> Unit
+            line.startsWith('#') -> return DownloadHlsParseResult.Failure(line.unsupportedMasterTagReason())
             else -> {
                 if (attributes == null || childUri != null || !isSafeRelativeResource(line, extension = "m3u8")) {
                     return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.UnsupportedResource)
@@ -367,8 +428,22 @@ private fun parseMasterPlaylist(text: String): DownloadHlsParseResult {
     )
 }
 
+private fun String.unsupportedMasterTagReason(): DownloadHlsRejectReason =
+    when {
+        startsWith("#EXT-X-MEDIA:") -> DownloadHlsRejectReason.UnsupportedMasterRendition
+        startsWith("#EXT-X-I-FRAME-STREAM-INF:") -> DownloadHlsRejectReason.UnsupportedMasterIFrameVariant
+        startsWith("#EXT-X-SESSION-DATA:") -> DownloadHlsRejectReason.UnsupportedMasterSessionData
+        startsWith("#EXT-X-SESSION-KEY:") -> DownloadHlsRejectReason.UnsupportedMasterSessionKey
+        startsWith("#EXT-X-START:") -> DownloadHlsRejectReason.UnsupportedMasterStart
+        startsWith("#EXT-X-DEFINE:") -> DownloadHlsRejectReason.UnsupportedMasterDefine
+        startsWith("#EXT-X-CONTENT-STEERING:") -> DownloadHlsRejectReason.UnsupportedMasterContentSteering
+        else -> DownloadHlsRejectReason.UnsupportedMasterTag
+    }
+
 private fun parseMediaPlaylist(text: String): DownloadHlsParseResult {
-    val lines = playlistLines(text) ?: return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.PlaylistTooLarge)
+    val lines =
+        playlistLines(text, MAX_HLS_MEDIA_PLAYLIST_BYTES)
+            ?: return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.PlaylistTooLarge)
     if (lines.isEmpty()) return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.EmptyPlaylist)
     if (lines.first() != "#EXTM3U") return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.MissingExtM3u)
 
@@ -377,6 +452,8 @@ private fun parseMediaPlaylist(text: String): DownloadHlsParseResult {
     var mediaSequence: Long? = null
     var playlistTypeVod = false
     var endList = false
+    var independentSegmentsSeen = false
+    var allowCacheSeen = false
     var pendingDuration: ParsedDuration? = null
     val segments = mutableListOf<DownloadHlsSegment>()
 
@@ -408,6 +485,21 @@ private fun parseMediaPlaylist(text: String): DownloadHlsParseResult {
                 if (playlistTypeVod) return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.InvalidMedia)
                 playlistTypeVod = true
             }
+            line.startsWith("#EXT-X-PLAYLIST-TYPE:") ->
+                return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.UnsupportedMediaPlaylistType)
+            line == "#EXT-X-INDEPENDENT-SEGMENTS" -> {
+                if (independentSegmentsSeen) {
+                    return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.InvalidMedia)
+                }
+                independentSegmentsSeen = true
+            }
+            line.startsWith("#EXT-X-ALLOW-CACHE:") -> {
+                val value = line.substringAfter(':')
+                if (allowCacheSeen || value !in setOf("YES", "NO")) {
+                    return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.InvalidMedia)
+                }
+                allowCacheSeen = true
+            }
             line.startsWith("#EXTINF:") -> {
                 if (pendingDuration != null || segments.size >= MAX_HLS_SEGMENTS) {
                     return DownloadHlsParseResult.Failure(
@@ -425,7 +517,8 @@ private fun parseMediaPlaylist(text: String): DownloadHlsParseResult {
                 if (endList || pendingDuration != null) return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.IncompletePlaylist)
                 endList = true
             }
-            line.startsWith('#') -> return DownloadHlsParseResult.Failure(DownloadHlsRejectReason.UnsupportedTag)
+            line.startsWith('#') && !line.startsWith("#EXT") -> Unit
+            line.startsWith('#') -> return DownloadHlsParseResult.Failure(line.unsupportedMediaTagReason())
             else -> {
                 val duration =
                     pendingDuration
@@ -478,6 +571,22 @@ private fun parseMediaPlaylist(text: String): DownloadHlsParseResult {
     )
 }
 
+private fun String.unsupportedMediaTagReason(): DownloadHlsRejectReason =
+    when {
+        startsWith("#EXT-X-KEY:") || startsWith("#EXT-X-SESSION-KEY:") ->
+            DownloadHlsRejectReason.UnsupportedMediaEncryption
+        startsWith("#EXT-X-MAP:") -> DownloadHlsRejectReason.UnsupportedMediaInitSegment
+        startsWith("#EXT-X-BYTERANGE:") -> DownloadHlsRejectReason.UnsupportedMediaByteRange
+        startsWith("#EXT-X-DISCONTINUITY") -> DownloadHlsRejectReason.UnsupportedMediaDiscontinuity
+        startsWith("#EXT-X-PROGRAM-DATE-TIME:") -> DownloadHlsRejectReason.UnsupportedMediaProgramDateTime
+        startsWith("#EXT-X-DATERANGE:") -> DownloadHlsRejectReason.UnsupportedMediaDateRange
+        startsWith("#EXT-X-GAP") -> DownloadHlsRejectReason.UnsupportedMediaGap
+        startsWith("#EXT-X-BITRATE:") -> DownloadHlsRejectReason.UnsupportedMediaBitrate
+        startsWith("#EXT-X-START:") -> DownloadHlsRejectReason.UnsupportedMediaStart
+        startsWith("#EXT-X-DEFINE:") -> DownloadHlsRejectReason.UnsupportedMediaDefine
+        else -> DownloadHlsRejectReason.UnsupportedMediaTag
+    }
+
 private data class ParsedDuration(
     val normalizedText: String,
     val milliseconds: Long,
@@ -497,13 +606,19 @@ private fun parseDuration(raw: String): ParsedDuration? {
     ) {
         return null
     }
-    if (fractionText.length > 3) return null
+    if (fractionText.length > MAX_HLS_DURATION_FRACTION_DIGITS) return null
     val whole = wholeText.toLongOrNull() ?: return null
-    if (whole > (Long.MAX_VALUE - 999L) / 1_000L) return null
-    val milliseconds = whole * 1_000L + fractionText.padEnd(3, '0').toLongOrNull().orZero()
+    if (whole > (Long.MAX_VALUE - 1_000L) / 1_000L) return null
+    val paddedFraction = fractionText.padEnd(4, '0')
+    val fractionalMilliseconds = paddedFraction.take(3).toLongOrNull().orZero()
+    val roundedFractionalMilliseconds =
+        fractionalMilliseconds + if (paddedFraction[3] >= '5') 1L else 0L
+    val milliseconds = whole * 1_000L + roundedFractionalMilliseconds
     if (milliseconds <= 0L) return null
+    val normalizedSeconds = milliseconds / 1_000L
+    val normalizedFraction = (milliseconds % 1_000L).toString().padStart(3, '0')
     return ParsedDuration(
-        normalizedText = "$whole.${fractionText.padEnd(3, '0')}",
+        normalizedText = "$normalizedSeconds.$normalizedFraction",
         milliseconds = milliseconds,
         title = pieces.getOrNull(1).orEmpty(),
     )
@@ -511,9 +626,12 @@ private fun parseDuration(raw: String): ParsedDuration? {
 
 private fun Long?.orZero(): Long = this ?: 0L
 
-private fun playlistLines(text: String): List<String>? {
+private fun playlistLines(
+    text: String,
+    maxBytes: Int,
+): List<String>? {
     if (text.isEmpty()) return emptyList()
-    if (text.encodeToByteArray().size > MAX_HLS_PLAYLIST_BYTES) return null
+    if (text.encodeToByteArray().size > maxBytes) return null
     val lines = text.removePrefix("\uFEFF").split('\n')
     if (lines.any { line -> line.removeSuffix("\r").length > MAX_HLS_LINE_LENGTH }) return null
     return lines.map { line -> line.removeSuffix("\r").trim() }

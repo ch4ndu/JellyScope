@@ -232,6 +232,36 @@ non-obvious contract, invariant, rationale, lifecycle or concurrency constraint,
 security boundary, or platform limitation. Keep them brief and do not narrate
 what the next line already says.
 
+### Build First-Capture Diagnostics
+
+Every new or changed failure-prone boundary must emit enough structured,
+release-available diagnostics to identify the failed stage and distinguish its
+reachable causes from the first captured log session. This includes remote
+requests and response projection, persistence, background work, platform
+bridges, lifecycle transitions, and multi-stage admission or recovery flows.
+
+- Record the causal stage, terminal outcome, and one closed reason for every
+  distinct rejection path before a lower layer collapses it into a generic UI
+  state. Catch paths also record only the exception class.
+- Add bounded start, handoff, and success markers where their absence is needed
+  to distinguish “not invoked,” “still running,” “rejected,” and “completed.”
+  Do not log routine noise that adds no diagnostic decision value.
+- Preserve correlation with identity-free sequence numbers or closed state when
+  an asynchronous flow can overlap, cancel, retry, or become stale.
+- Never log credentials, URLs, account or media identity, titles, local paths,
+  raw server/native responses, throwable messages, or other free-form external
+  data. Use the existing diagnostic tags, scrubber allowlist, and safe failure
+  formatter.
+- Trace the exact release Logcat, Apple unified-log, or desktop-output path and
+  the bounded client-log capture path. A producer is incomplete when its useful
+  fields are filtered out or require an unshipped debug-only logger.
+- When an investigation cannot identify the cause from its first capture,
+  instrument the missing decision boundary as part of the same fix or follow-up
+  before declaring the diagnostic work complete.
+
+A generic “failed,” HTTP status, or top-level exception without the decision
+that consumed it is not sufficient when several reachable causes remain.
+
 Before asking for review, inspect every changed line:
 
 - Every helper, type, abstraction, and defensive branch represents repeated
@@ -608,6 +638,11 @@ its rule changes.
   exposes its incremental value and cost before implementation. This keeps
   coverage focused on durable regressions instead of turning every feature and
   edge case into permanent maintenance work.
+- **Diagnostics preserve decisions at their owning boundaries.** Closed
+  first-capture records were chosen over generic terminal errors because a
+  successful request can still fail during decode, projection, admission, or
+  handoff. Logging raw responses or throwable text was rejected because it
+  cannot provide a durable privacy boundary.
 - **Review converges before the aggregate build.** One integrated review, one
   consolidated repair, and one focused recheck bound speculative reopening.
   Running the broad matrix only after that sequence avoids repeatedly rebuilding

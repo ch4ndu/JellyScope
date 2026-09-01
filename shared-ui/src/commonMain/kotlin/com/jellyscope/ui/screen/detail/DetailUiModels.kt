@@ -93,12 +93,6 @@ sealed interface DetailDownloadState {
         val request: DownloadRequest,
     ) : DetailDownloadState
 
-    data class QuotaRequired(
-        val draft: OriginalDownloadDraft,
-        val request: DownloadRequest,
-        val maximumQuotaBytes: Long?,
-    ) : DetailDownloadState
-
     data class FixedBurnInConfirmation(
         val quality: DownloadQuality.Fixed,
         val selectedAudioStreamIndex: Int?,
@@ -109,12 +103,6 @@ sealed interface DetailDownloadState {
     data class FixedReady(
         val draft: FixedDownloadDraft,
         val request: DownloadRequest,
-    ) : DetailDownloadState
-
-    data class FixedQuotaRequired(
-        val draft: FixedDownloadDraft,
-        val request: DownloadRequest,
-        val maximumQuotaBytes: Long?,
     ) : DetailDownloadState
 
     data class FixedRejected(

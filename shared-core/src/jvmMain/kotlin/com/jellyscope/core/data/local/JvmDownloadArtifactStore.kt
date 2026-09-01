@@ -25,6 +25,8 @@ internal class JvmDownloadArtifactStore(
     private val root = rootDirectory.apply { mkdirs() }.canonicalFile
     private val stagingRoot = areaDirectory(DownloadArtifactArea.Staging)
     private val completedRoot = areaDirectory(DownloadArtifactArea.Completed)
+    private val stagingMetadataReplacementRoot =
+        containedChild(root, "staging-metadata-replacement").also(::ensureDirectory)
 
     override suspend fun openStagingWriter(
         artifactKey: DownloadArtifactKey,
@@ -112,6 +114,43 @@ internal class JvmDownloadArtifactStore(
             bytes
         }
 
+    override suspend fun replaceStagingMetadata(
+        artifactKey: DownloadArtifactKey,
+        partKey: DownloadArtifactPartKey,
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): DownloadArtifactPartCheckpoint =
+        withContext(ioDispatcher) {
+            requireValidStagingMetadataReplacementSlice(buffer.size, offset, length)
+            val staging = artifactDirectory(artifactKey, DownloadArtifactArea.Staging)
+            ensureDirectory(staging)
+            val target = containedChild(staging, partKey.value)
+            if (target.exists()) checkRegularContainedFile(target)
+            val replacement = stagingMetadataReplacementFile(artifactKey, partKey)
+            if (replacement.exists()) {
+                checkRegularContainedFile(replacement)
+                check(replacement.delete()) { "Unable to remove stale staging metadata replacement." }
+            }
+            check(replacement.createNewFile()) { "Unable to create staging metadata replacement." }
+            RandomAccessFile(replacement, "rw").use { file ->
+                file.write(buffer, offset, length)
+                file.fd.sync()
+            }
+            try {
+                Files.move(
+                    replacement.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                error("Atomic staging metadata replacement is unavailable for this storage root.")
+            }
+            removeEmptyStagingMetadataReplacementDirectory(artifactKey)
+            DownloadArtifactPartCheckpoint(partKey, length.toLong())
+        }
+
     override suspend fun validateStagingCheckpoint(
         artifactKey: DownloadArtifactKey,
         checkpoint: DownloadArtifactCheckpoint,
@@ -178,6 +217,9 @@ internal class JvmDownloadArtifactStore(
         withContext(ioDispatcher) {
             val artifact = artifactDirectory(artifactKey, area)
             if (artifact.exists()) deleteContainedTree(artifact)
+            if (area == DownloadArtifactArea.Staging) {
+                deleteStagingMetadataReplacementDirectory(artifactKey)
+            }
         }
     }
 
@@ -227,6 +269,39 @@ internal class JvmDownloadArtifactStore(
             DownloadArtifactArea.Staging -> stagingRoot
             DownloadArtifactArea.Completed -> completedRoot
         }
+
+    private fun stagingMetadataReplacementFile(
+        artifactKey: DownloadArtifactKey,
+        partKey: DownloadArtifactPartKey,
+    ): File {
+        val artifactReplacementDirectory =
+            stagingMetadataReplacementDirectory(artifactKey).also(::ensureDirectory)
+        return containedChild(artifactReplacementDirectory, "${partKey.value}.tmp")
+    }
+
+    private fun stagingMetadataReplacementDirectory(artifactKey: DownloadArtifactKey): File =
+        containedChild(stagingMetadataReplacementRoot, artifactKey.value)
+
+    private fun removeEmptyStagingMetadataReplacementDirectory(artifactKey: DownloadArtifactKey) {
+        val directory = stagingMetadataReplacementDirectory(artifactKey)
+        if (!directory.exists()) return
+        checkContainedDirectory(directory)
+        if (directory.listFiles()?.isEmpty() == true) {
+            check(directory.delete()) { "Unable to remove empty staging metadata replacement directory." }
+        }
+    }
+
+    private fun deleteStagingMetadataReplacementDirectory(artifactKey: DownloadArtifactKey) {
+        val directory = stagingMetadataReplacementDirectory(artifactKey)
+        if (!directory.exists()) return
+        checkContainedDirectory(directory)
+        checkNotNull(directory.listFiles()) { "Unable to inspect staging metadata replacement directory." }
+            .forEach { replacement ->
+                checkRegularContainedFile(replacement)
+                check(replacement.delete()) { "Unable to delete staging metadata replacement." }
+            }
+        check(directory.delete()) { "Unable to delete staging metadata replacement directory." }
+    }
 
     private fun ensureDirectory(directory: File) {
         check(directory.isDirectory || directory.mkdirs()) { "Unable to create artifact storage directory." }

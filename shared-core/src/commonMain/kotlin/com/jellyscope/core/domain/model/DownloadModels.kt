@@ -9,9 +9,9 @@ import kotlin.jvm.JvmInline
 
 const val DOWNLOAD_SNAPSHOT_FORMAT_VERSION = 1
 const val DOWNLOAD_ARTIFACT_FORMAT_VERSION = 1
-const val DOWNLOAD_BYTES_PER_GIB = 1_073_741_824L
-const val DOWNLOAD_MIN_QUOTA_BYTES = DOWNLOAD_BYTES_PER_GIB
-const val DOWNLOAD_DEVICE_SAFETY_RESERVE_BYTES = DOWNLOAD_BYTES_PER_GIB
+const val DOWNLOAD_BYTES_PER_GB = 1_000_000_000L
+const val DOWNLOAD_MIN_QUOTA_BYTES = DOWNLOAD_BYTES_PER_GB
+const val DOWNLOAD_DEVICE_SAFETY_RESERVE_BYTES = DOWNLOAD_BYTES_PER_GB
 
 private const val MAX_OPAQUE_DOWNLOAD_KEY_LENGTH = 128
 private const val MAX_PLATFORM_WORK_IDENTITY_LENGTH = 256
@@ -377,8 +377,8 @@ data class DownloadSettings(
     init {
         require(
             quotaBytes == null ||
-                (quotaBytes >= DOWNLOAD_MIN_QUOTA_BYTES && quotaBytes % DOWNLOAD_BYTES_PER_GIB == 0L),
-        ) { "Configured quota must be a positive whole-GiB allocation of at least 1 GiB." }
+                (quotaBytes >= DOWNLOAD_MIN_QUOTA_BYTES && quotaBytes % DOWNLOAD_BYTES_PER_GB == 0L),
+        ) { "Configured quota must be a positive whole-GB allocation of at least 1 GB." }
         require(nextFifoSequence > 0L) { "Next FIFO sequence must be positive." }
         require(membershipRevision >= 0L) { "Membership revision must be non-negative." }
     }
@@ -435,6 +435,7 @@ enum class DownloadAdmissionDecision {
     SourceChanged,
     NetworkUnavailable,
     UnsupportedArtifact,
+    PlaybackUnsupported,
 }
 
 sealed interface DownloadEnqueueResult {

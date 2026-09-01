@@ -43,7 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.AppColorThemeId
-import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GIB
+import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GB
 import com.jellyscope.core.domain.model.DownloadRemovalPreview
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.model.SendClientLogsResult
@@ -1475,12 +1475,12 @@ private fun TvLogoutRemovalDialog(
 @Composable
 private fun tvLogoutRemovalBytes(bytes: Long): String =
     when {
-        bytes >= DOWNLOAD_BYTES_PER_GIB ->
-            stringResource(R.string.tv_downloads_bytes_gib, bytes.toDouble() / DOWNLOAD_BYTES_PER_GIB)
-        bytes >= TV_LOGOUT_BYTES_PER_MIB ->
-            stringResource(R.string.tv_downloads_bytes_mib, bytes.toDouble() / TV_LOGOUT_BYTES_PER_MIB)
-        bytes >= TV_LOGOUT_BYTES_PER_KIB ->
-            stringResource(R.string.tv_downloads_bytes_kib, bytes.toDouble() / TV_LOGOUT_BYTES_PER_KIB)
+        bytes >= DOWNLOAD_BYTES_PER_GB ->
+            stringResource(R.string.tv_downloads_bytes_gb, bytes.toDouble() / DOWNLOAD_BYTES_PER_GB)
+        bytes >= TV_LOGOUT_BYTES_PER_MB ->
+            stringResource(R.string.tv_downloads_bytes_mb, bytes.toDouble() / TV_LOGOUT_BYTES_PER_MB)
+        bytes >= TV_LOGOUT_BYTES_PER_KB ->
+            stringResource(R.string.tv_downloads_bytes_kb, bytes.toDouble() / TV_LOGOUT_BYTES_PER_KB)
         else -> stringResource(R.string.tv_downloads_bytes_b, bytes)
     }
 
@@ -1519,8 +1519,8 @@ private fun TvLogoutDialog(
     }
 }
 
-private const val TV_LOGOUT_BYTES_PER_KIB = 1_024L
-private const val TV_LOGOUT_BYTES_PER_MIB = TV_LOGOUT_BYTES_PER_KIB * TV_LOGOUT_BYTES_PER_KIB
+private const val TV_LOGOUT_BYTES_PER_KB = 1_000L
+private const val TV_LOGOUT_BYTES_PER_MB = TV_LOGOUT_BYTES_PER_KB * TV_LOGOUT_BYTES_PER_KB
 
 @Composable
 private fun TvClearSubtitlesDialog(

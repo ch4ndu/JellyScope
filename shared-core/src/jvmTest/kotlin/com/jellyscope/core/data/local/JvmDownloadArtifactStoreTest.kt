@@ -54,11 +54,36 @@ class JvmDownloadArtifactStoreTest {
             assertEquals(5L, resumedWriter.checkpoint().lengthBytes)
             resumedWriter.close()
 
+            val checkpointPart = DownloadArtifactPartKey.from("checkpoint.json")
+            assertEquals(
+                DownloadArtifactPartCheckpoint(checkpointPart, 2L),
+                store.replaceStagingMetadata(artifactKey, checkpointPart, byteArrayOf(7, 8)),
+            )
+            assertEquals(
+                DownloadArtifactPartCheckpoint(checkpointPart, 1L),
+                store.replaceStagingMetadata(artifactKey, checkpointPart, byteArrayOf(9)),
+            )
+            assertEquals(
+                byteArrayOf(9).toList(),
+                store
+                    .readPart(artifactKey, DownloadArtifactArea.Staging, checkpointPart, maxBytes = 2)
+                    ?.toList(),
+            )
+            val replacementRoot = tempDirectory.resolve("staging-metadata-replacement")
+            assertFalse(Files.exists(replacementRoot.resolve(artifactKey.value)))
+
             val expectedCheckpoint =
                 DownloadArtifactCheckpoint(
-                    listOf(DownloadArtifactPartCheckpoint(partKey, 5L)),
+                    listOf(
+                        DownloadArtifactPartCheckpoint(partKey, 5L),
+                        DownloadArtifactPartCheckpoint(checkpointPart, 1L),
+                    ),
                 )
             assertTrue(store.validateStagingCheckpoint(artifactKey, expectedCheckpoint))
+            assertEquals(
+                listOf(artifactKey),
+                store.enumerate(DownloadArtifactArea.Staging).map { inspection -> inspection.artifactKey },
+            )
             assertFalse(
                 store.validateStagingCheckpoint(
                     artifactKey,
@@ -85,7 +110,7 @@ class JvmDownloadArtifactStoreTest {
 
             val promoted = store.promote(artifactKey)
             assertEquals(DownloadArtifactArea.Completed, promoted.area)
-            assertEquals(5L, promoted.totalBytes)
+            assertEquals(6L, promoted.totalBytes)
             assertNull(store.inspect(artifactKey, DownloadArtifactArea.Staging))
             assertEquals(listOf(promoted), store.enumerate(DownloadArtifactArea.Completed))
 
@@ -107,6 +132,18 @@ class JvmDownloadArtifactStoreTest {
             store.delete(artifactKey, DownloadArtifactArea.Completed)
             assertNull(store.inspect(artifactKey, DownloadArtifactArea.Completed))
             assertTrue(store.enumerate(DownloadArtifactArea.Completed).isEmpty())
+
+            val staleReplacementDirectory = replacementRoot.resolve(artifactKey.value)
+            val siblingReplacementDirectory = replacementRoot.resolve("artifact_sibling")
+            Files.createDirectories(staleReplacementDirectory)
+            Files.write(staleReplacementDirectory.resolve("${checkpointPart.value}.tmp"), byteArrayOf(1))
+            Files.createDirectories(siblingReplacementDirectory)
+            Files.write(siblingReplacementDirectory.resolve("checkpoint.json.tmp"), byteArrayOf(2))
+
+            store.delete(artifactKey, DownloadArtifactArea.Staging)
+
+            assertFalse(Files.exists(staleReplacementDirectory))
+            assertTrue(Files.exists(siblingReplacementDirectory))
         }
 
     @Test
@@ -133,6 +170,14 @@ class JvmDownloadArtifactStoreTest {
                 otherWriter.write(ByteArray(DOWNLOAD_ARTIFACT_MAX_WRITE_CHUNK_BYTES + 1))
             }
             otherWriter.close()
+
+            assertFailsWith<IllegalArgumentException> {
+                store.replaceStagingMetadata(
+                    artifactKey,
+                    DownloadArtifactPartKey.from("checkpoint.json"),
+                    ByteArray(DOWNLOAD_ARTIFACT_MAX_STAGING_METADATA_REPLACEMENT_BYTES + 1),
+                )
+            }
         }
 
     @Test

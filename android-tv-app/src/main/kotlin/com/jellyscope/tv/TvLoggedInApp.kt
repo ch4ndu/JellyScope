@@ -749,6 +749,15 @@ internal fun TvLoggedInApp(
                                         onRelatedItemSelected = { item -> openDetailRelatedItem(item) },
                                         onPlayRelatedDirect = { item -> playTvItemDirect(item) },
                                         onPersonSelected = { selectedPersonId -> openPerson(selectedPersonId) },
+                                        onOpenDownloads = { resetRoute(TvRoute.Downloads) },
+                                        onPlayOffline = { record ->
+                                            openPlayer(
+                                                itemId = record.businessKey.itemId,
+                                                startTicks = 0L,
+                                                mediaSourceId = record.businessKey.mediaSourceId,
+                                                offlineDownloadId = record.downloadId,
+                                            )
+                                        },
                                         viewModel = detailViewModel,
                                     )
                                 }

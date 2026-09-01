@@ -2,6 +2,7 @@
 
 package com.jellyscope.core.data.remote
 
+import com.jellyscope.core.domain.playback.BackendSourceDescriptor
 import io.ktor.http.fromHttpToGmtDate
 import io.ktor.utils.io.ByteReadChannel
 
@@ -14,6 +15,7 @@ data class OriginalDownloadSource(
     val mediaSourceId: String,
     val totalBytes: Long,
     val lastModified: String,
+    val backendSource: BackendSourceDescriptor? = null,
     val audioStreamIndices: Set<Int> = emptySet(),
     val embeddedSubtitleStreamIndices: Set<Int> = emptySet(),
     val externalSubtitleStreamIndices: Set<Int> = emptySet(),

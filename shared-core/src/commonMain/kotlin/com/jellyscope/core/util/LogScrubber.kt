@@ -72,6 +72,8 @@ object LogScrubber {
                 "causeType",
                 "queryCount",
                 "resultCount",
+                "result",
+                "failure",
             )
     private val url = Regex("(?i)https?://[^\\s]+")
     private val credential =

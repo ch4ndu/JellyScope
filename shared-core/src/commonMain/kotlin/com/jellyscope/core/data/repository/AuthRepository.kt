@@ -230,10 +230,7 @@ private fun com.jellyscope.core.data.remote.AuthenticationResultDto.toSession(
             userName = user.name,
             accessToken = accessToken,
             deviceId = deviceId,
-            // The server policy is intentionally kept raw in the DTO. This client
-            // temporarily projects the effective Downloads permission off at the
-            // session boundary for every authentication path.
-            enableContentDownloading = false,
+            enableContentDownloading = user.policy?.enableContentDownloading == true,
         )
     }
 

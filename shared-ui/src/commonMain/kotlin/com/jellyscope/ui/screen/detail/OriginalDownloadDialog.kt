@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,23 +26,31 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import com.jellyscope.core.domain.model.DownloadAdmissionDecision
 import com.jellyscope.core.domain.model.DownloadQuality
 import com.jellyscope.core.domain.model.DownloadRequest
-import com.jellyscope.core.domain.model.wholeGibDownloadQuotaBytes
 import com.jellyscope.core.domain.playback.QualityRung
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.core.domain.playback.formatBitrateMbps
 import com.jellyscope.ui.component.SecondaryActionButton
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.download_action_play
+import com.jellyscope.ui.generated.resources.download_action_start
 import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_cancel
-import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_confirm
-import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_gib
-import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_invalid
-import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_title
 import com.jellyscope.ui.generated.resources.downloads_already_exists
+import com.jellyscope.ui.generated.resources.downloads_dialog_close
 import com.jellyscope.ui.generated.resources.downloads_download_title
-import com.jellyscope.ui.generated.resources.downloads_enqueue_rejected
+import com.jellyscope.ui.generated.resources.downloads_error_device_storage_low
+import com.jellyscope.ui.generated.resources.downloads_error_generic
+import com.jellyscope.ui.generated.resources.downloads_error_network
+import com.jellyscope.ui.generated.resources.downloads_error_permission
+import com.jellyscope.ui.generated.resources.downloads_error_playback_unsupported
+import com.jellyscope.ui.generated.resources.downloads_error_quota_exceeded
+import com.jellyscope.ui.generated.resources.downloads_error_quota_unconfigured
+import com.jellyscope.ui.generated.resources.downloads_error_size_unavailable
+import com.jellyscope.ui.generated.resources.downloads_error_source_changed
+import com.jellyscope.ui.generated.resources.downloads_error_title
+import com.jellyscope.ui.generated.resources.downloads_error_unsupported
 import com.jellyscope.ui.generated.resources.downloads_fixed_burn_in_confirm
 import com.jellyscope.ui.generated.resources.downloads_fixed_burn_in_message
 import com.jellyscope.ui.generated.resources.downloads_fixed_burn_in_title
@@ -51,17 +58,14 @@ import com.jellyscope.ui.generated.resources.downloads_fixed_estimate
 import com.jellyscope.ui.generated.resources.downloads_fixed_subtitle_external
 import com.jellyscope.ui.generated.resources.downloads_fixed_subtitle_title
 import com.jellyscope.ui.generated.resources.downloads_fixed_subtitle_unsupported
-import com.jellyscope.ui.generated.resources.downloads_fixed_unavailable
 import com.jellyscope.ui.generated.resources.downloads_manage
 import com.jellyscope.ui.generated.resources.downloads_original_audio_title
-import com.jellyscope.ui.generated.resources.downloads_original_confirm
 import com.jellyscope.ui.generated.resources.downloads_original_continue_without_subtitles
 import com.jellyscope.ui.generated.resources.downloads_original_estimate
 import com.jellyscope.ui.generated.resources.downloads_original_subtitle_bitmap
 import com.jellyscope.ui.generated.resources.downloads_original_subtitle_off
 import com.jellyscope.ui.generated.resources.downloads_original_subtitle_title
 import com.jellyscope.ui.generated.resources.downloads_original_title
-import com.jellyscope.ui.generated.resources.downloads_original_unavailable
 import com.jellyscope.ui.generated.resources.downloads_quality_choice_fixed
 import com.jellyscope.ui.generated.resources.downloads_quality_choice_original
 import com.jellyscope.ui.generated.resources.downloads_quality_fixed_label
@@ -70,7 +74,9 @@ import com.jellyscope.ui.generated.resources.downloads_quality_section
 import com.jellyscope.ui.generated.resources.downloads_quality_up_to
 import com.jellyscope.ui.generated.resources.downloads_queued
 import com.jellyscope.ui.generated.resources.downloads_removal_in_progress
+import com.jellyscope.ui.generated.resources.downloads_review_size
 import com.jellyscope.ui.generated.resources.downloads_schedule_rejected
+import com.jellyscope.ui.platform.LocalDownloadNotificationPermissionRequester
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
 
@@ -103,6 +109,33 @@ internal fun OriginalDownloadEntryButton(
 }
 
 @Composable
+internal fun AdaptiveDownloadEntryButton(
+    state: DetailDownloadEntryState,
+    enabled: Boolean,
+    fixedAvailable: Boolean = false,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val (label, icon) =
+        when (state) {
+            DetailDownloadEntryState.Add ->
+                (if (fixedAvailable) Res.string.downloads_download_title else Res.string.downloads_original_title) to
+                    DetailActionIcon.Download
+            is DetailDownloadEntryState.Manage -> Res.string.downloads_manage to DetailActionIcon.Download
+            is DetailDownloadEntryState.PlayOffline -> Res.string.download_action_play to DetailActionIcon.Play
+        }
+    val text = stringResource(label)
+    ExpandingActionButton(
+        label = text,
+        icon = icon,
+        enabled = enabled,
+        onClick = onClick,
+        contentDescription = text,
+        modifier = modifier,
+    )
+}
+
+@Composable
 internal fun OriginalDownloadDialog(
     detail: DetailUi,
     initialLocalAssetId: String?,
@@ -111,14 +144,13 @@ internal fun OriginalDownloadDialog(
     onDismiss: () -> Unit,
     onPreview: (Int?, SubtitleSelectionIntent) -> Unit,
     onConfirm: () -> Unit,
-    onSaveQuotaAndConfirm: (Long?) -> Unit,
     onPreviewFixed: (DownloadQuality.Fixed, Int?, SubtitleSelectionIntent) -> Unit,
     onConfirmFixedBurnIn: () -> Unit,
     onCancelFixedBurnIn: () -> Unit,
     onConfirmFixed: () -> Unit,
-    onSaveQuotaAndConfirmFixed: (Long?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val requestNotificationPermission = LocalDownloadNotificationPermissionRequester.current
     var fixedMode by remember(detail.itemId, detail.selectedMediaSourceId, fixedAvailable) {
         mutableStateOf(false)
     }
@@ -134,7 +166,6 @@ internal fun OriginalDownloadDialog(
     var fixedSubtitleSelection by remember(detail.itemId, detail.selectedMediaSourceId) {
         mutableStateOf<SubtitleSelectionIntent>(SubtitleSelectionIntent.Off)
     }
-    var quotaText by remember { mutableStateOf("") }
     val selectedVersion = detail.versions.selectedMediaVersion(detail.selectedMediaSourceId)
     val fixedChoices = fixedDownloadQualityChoices(selectedVersion)
     val selectedFixedQuality =
@@ -142,15 +173,26 @@ internal fun OriginalDownloadDialog(
     val isFixedState =
         state is DetailDownloadState.FixedBurnInConfirmation ||
             state is DetailDownloadState.FixedReady ||
-            state is DetailDownloadState.FixedQuotaRequired ||
             state is DetailDownloadState.FixedRejected
+    val isErrorState =
+        state is DetailDownloadState.Rejected ||
+            state is DetailDownloadState.FixedRejected ||
+            state is DetailDownloadState.EnqueueRejected ||
+            state is DetailDownloadState.SchedulingRejected ||
+            state is DetailDownloadState.RemovalInProgress
+    val usesCloseButton =
+        isErrorState ||
+            state is DetailDownloadState.Created ||
+            state is DetailDownloadState.Existing
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
                 stringResource(
-                    if (isFixedState || fixedMode) {
+                    if (isErrorState) {
+                        Res.string.downloads_error_title
+                    } else if (isFixedState || fixedMode) {
                         Res.string.downloads_download_title
                     } else {
                         Res.string.downloads_original_title
@@ -295,24 +337,6 @@ internal fun OriginalDownloadDialog(
                     }
                 is DetailDownloadState.Ready ->
                     OriginalDownloadReadyText(state.request)
-                is DetailDownloadState.QuotaRequired ->
-                    Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
-                        OriginalDownloadReadyText(state.request)
-                        Text(stringResource(Res.string.downloads_allocation_dialog_title))
-                        OutlinedTextField(
-                            value = quotaText,
-                            onValueChange = { next -> quotaText = next.filter(Char::isDigit) },
-                            label = { Text(stringResource(Res.string.downloads_allocation_dialog_gib)) },
-                            singleLine = true,
-                        )
-                        val bytes = quotaText.trim().toLongOrNull()?.let(::wholeGibDownloadQuotaBytes)
-                        if (quotaText.isNotBlank() && bytes == null) {
-                            Text(
-                                text = stringResource(Res.string.downloads_allocation_dialog_invalid),
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
                 is DetailDownloadState.FixedBurnInConfirmation ->
                     Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
                         Text(stringResource(Res.string.downloads_fixed_burn_in_title))
@@ -325,28 +349,10 @@ internal fun OriginalDownloadDialog(
                     }
                 is DetailDownloadState.FixedReady ->
                     FixedDownloadReadyText(state.request)
-                is DetailDownloadState.FixedQuotaRequired ->
-                    Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
-                        FixedDownloadReadyText(state.request)
-                        Text(stringResource(Res.string.downloads_allocation_dialog_title))
-                        OutlinedTextField(
-                            value = quotaText,
-                            onValueChange = { next -> quotaText = next.filter(Char::isDigit) },
-                            label = { Text(stringResource(Res.string.downloads_allocation_dialog_gib)) },
-                            singleLine = true,
-                        )
-                        val bytes = quotaText.trim().toLongOrNull()?.let(::wholeGibDownloadQuotaBytes)
-                        if (quotaText.isNotBlank() && bytes == null) {
-                            Text(
-                                text = stringResource(Res.string.downloads_allocation_dialog_invalid),
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
                 is DetailDownloadState.FixedRejected ->
-                    Text(stringResource(Res.string.downloads_fixed_unavailable))
+                    DownloadAdmissionErrorText(state.decision)
                 is DetailDownloadState.Rejected ->
-                    Text(stringResource(Res.string.downloads_original_unavailable))
+                    DownloadAdmissionErrorText(state.decision)
                 is DetailDownloadState.Created ->
                     Text(stringResource(Res.string.downloads_queued))
                 is DetailDownloadState.Existing ->
@@ -354,7 +360,7 @@ internal fun OriginalDownloadDialog(
                 is DetailDownloadState.SchedulingRejected ->
                     Text(stringResource(Res.string.downloads_schedule_rejected))
                 is DetailDownloadState.EnqueueRejected ->
-                    Text(stringResource(Res.string.downloads_enqueue_rejected))
+                    DownloadAdmissionErrorText(state.decision)
                 DetailDownloadState.RemovalInProgress ->
                     Text(stringResource(Res.string.downloads_removal_in_progress))
             }
@@ -374,7 +380,7 @@ internal fun OriginalDownloadDialog(
                             }
                         },
                     ) {
-                        Text(stringResource(Res.string.downloads_original_confirm))
+                        Text(stringResource(Res.string.downloads_review_size))
                     }
                 DetailDownloadState.Previewing -> Unit
                 is DetailDownloadState.BitmapSubtitleConfirmation ->
@@ -382,39 +388,27 @@ internal fun OriginalDownloadDialog(
                         Text(stringResource(Res.string.downloads_original_continue_without_subtitles))
                     }
                 is DetailDownloadState.Ready ->
-                    TextButton(onClick = onConfirm) {
-                        Text(stringResource(Res.string.downloads_original_confirm))
-                    }
-                is DetailDownloadState.QuotaRequired -> {
-                    val bytes = quotaText.trim().toLongOrNull()?.let(::wholeGibDownloadQuotaBytes)
                     TextButton(
-                        enabled =
-                            bytes != null &&
-                                (state.maximumQuotaBytes == null || bytes <= state.maximumQuotaBytes),
-                        onClick = { onSaveQuotaAndConfirm(bytes) },
+                        onClick = {
+                            requestNotificationPermission()
+                            onConfirm()
+                        },
                     ) {
-                        Text(stringResource(Res.string.downloads_allocation_dialog_confirm))
+                        Text(stringResource(Res.string.download_action_start))
                     }
-                }
                 is DetailDownloadState.FixedBurnInConfirmation ->
                     TextButton(onClick = onConfirmFixedBurnIn) {
                         Text(stringResource(Res.string.downloads_fixed_burn_in_confirm))
                     }
                 is DetailDownloadState.FixedReady ->
-                    TextButton(onClick = onConfirmFixed) {
-                        Text(stringResource(Res.string.downloads_original_confirm))
-                    }
-                is DetailDownloadState.FixedQuotaRequired -> {
-                    val bytes = quotaText.trim().toLongOrNull()?.let(::wholeGibDownloadQuotaBytes)
                     TextButton(
-                        enabled =
-                            bytes != null &&
-                                (state.maximumQuotaBytes == null || bytes <= state.maximumQuotaBytes),
-                        onClick = { onSaveQuotaAndConfirmFixed(bytes) },
+                        onClick = {
+                            requestNotificationPermission()
+                            onConfirmFixed()
+                        },
                     ) {
-                        Text(stringResource(Res.string.downloads_allocation_dialog_confirm))
+                        Text(stringResource(Res.string.download_action_start))
                     }
-                }
                 is DetailDownloadState.FixedRejected -> Unit
                 is DetailDownloadState.Rejected,
                 is DetailDownloadState.Created,
@@ -435,7 +429,15 @@ internal fun OriginalDownloadDialog(
                     }
                 },
             ) {
-                Text(stringResource(Res.string.downloads_allocation_dialog_cancel))
+                Text(
+                    stringResource(
+                        if (usesCloseButton) {
+                            Res.string.downloads_dialog_close
+                        } else {
+                            Res.string.downloads_allocation_dialog_cancel
+                        },
+                    ),
+                )
             }
         },
     )
@@ -449,6 +451,24 @@ private fun OriginalDownloadReadyText(request: DownloadRequest) {
 @Composable
 private fun FixedDownloadReadyText(request: DownloadRequest) {
     Text(stringResource(Res.string.downloads_fixed_estimate, formatDownloadBytes(request.admissionEstimateBytes)))
+}
+
+@Composable
+private fun DownloadAdmissionErrorText(decision: DownloadAdmissionDecision) {
+    val message =
+        when (decision) {
+            DownloadAdmissionDecision.QuotaUnconfigured -> Res.string.downloads_error_quota_unconfigured
+            DownloadAdmissionDecision.QuotaExceeded -> Res.string.downloads_error_quota_exceeded
+            DownloadAdmissionDecision.DeviceStorageLow -> Res.string.downloads_error_device_storage_low
+            DownloadAdmissionDecision.PermissionDenied -> Res.string.downloads_error_permission
+            DownloadAdmissionDecision.SizeUnavailable -> Res.string.downloads_error_size_unavailable
+            DownloadAdmissionDecision.SourceChanged -> Res.string.downloads_error_source_changed
+            DownloadAdmissionDecision.NetworkUnavailable -> Res.string.downloads_error_network
+            DownloadAdmissionDecision.UnsupportedArtifact -> Res.string.downloads_error_unsupported
+            DownloadAdmissionDecision.PlaybackUnsupported -> Res.string.downloads_error_playback_unsupported
+            DownloadAdmissionDecision.Allowed -> Res.string.downloads_error_generic
+        }
+    Text(stringResource(message))
 }
 
 @Composable
@@ -497,8 +517,8 @@ private fun initialOriginalSubtitleSelection(
 
 private fun formatDownloadBytes(bytes: Long): String =
     when {
-        bytes >= 1_073_741_824L -> "${(bytes / 1_073_741_824.0).toTenths()} GiB"
-        bytes >= 1_048_576L -> "${(bytes / 1_048_576.0).toTenths()} MiB"
+        bytes >= 1_000_000_000L -> "${(bytes / 1_000_000_000.0).toTenths()} GB"
+        bytes >= 1_000_000L -> "${(bytes / 1_000_000.0).toTenths()} MB"
         else -> "$bytes B"
     }
 

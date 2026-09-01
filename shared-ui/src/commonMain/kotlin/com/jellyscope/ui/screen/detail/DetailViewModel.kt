@@ -4,7 +4,6 @@ package com.jellyscope.ui.screen.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jellyscope.core.domain.action.ConfigureDownloadQuotaAction
 import com.jellyscope.core.domain.action.DeleteLocalSubtitleAction
 import com.jellyscope.core.domain.action.EnqueueDownloadAction
 import com.jellyscope.core.domain.action.EnqueueFixedDownloadAction
@@ -43,8 +42,6 @@ import com.jellyscope.core.domain.playback.resumeDecision
 import com.jellyscope.core.domain.playback.toExplicitSubtitleSelectionIntent
 import com.jellyscope.core.domain.usecase.FixedDownloadAdmissionResult
 import com.jellyscope.core.domain.usecase.FixedDownloadCapability
-import com.jellyscope.core.domain.usecase.GetDownloadSettingsUseCase
-import com.jellyscope.core.domain.usecase.GetDownloadUsageUseCase
 import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackLaunchContextUseCase
 import com.jellyscope.core.domain.usecase.GetRelatedItemsUseCase
@@ -136,9 +133,6 @@ class DetailViewModel(
     private val saveSubtitleSelectionAction: SaveSubtitleSelectionAction? = null,
     private val previewOriginalDownloadUseCase: PreviewOriginalDownloadUseCase? = null,
     private val enqueueDownloadAction: EnqueueDownloadAction? = null,
-    private val getDownloadSettingsUseCase: GetDownloadSettingsUseCase? = null,
-    private val getDownloadUsageUseCase: GetDownloadUsageUseCase? = null,
-    private val configureDownloadQuotaAction: ConfigureDownloadQuotaAction? = null,
     private val downloadIdentityProvider: () -> String = ::newDownloadIdentity,
     private val formatterStringsProvider: suspend () -> DetailFormatterStrings = { detailFormatterStrings() },
     private val workDispatcher: CoroutineDispatcher = Dispatchers.Default,
@@ -255,37 +249,7 @@ class DetailViewModel(
         val enqueue = enqueueDownloadAction ?: return
         val ready = _downloadState.value as? DetailDownloadState.Ready ?: return
         viewModelScope.launch {
-            enqueueIfConfigured(ready.draft, ready.request, enqueue)
-        }
-    }
-
-    fun saveQuotaAndEnqueue(quotaBytes: Long?) {
-        if (!session.enableContentDownloading) return
-        val current = _downloadState.value
-        val draft: OriginalDownloadDraft
-        val request =
-            when (current) {
-                is DetailDownloadState.Ready -> {
-                    draft = current.draft
-                    current.request
-                }
-                is DetailDownloadState.QuotaRequired -> {
-                    draft = current.draft
-                    current.request
-                }
-                else -> return
-            }
-        val configure = configureDownloadQuotaAction ?: return
-        val enqueue = enqueueDownloadAction ?: return
-        viewModelScope.launch {
-            try {
-                withContext(workDispatcher) { configure(quotaBytes) }
-                enqueueIfConfigured(draft, request, enqueue)
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Throwable) {
-                _downloadState.value = DetailDownloadState.Rejected(DownloadAdmissionDecision.QuotaExceeded)
-            }
+            enqueueReadyOriginal(ready.draft, enqueue)
         }
     }
 
@@ -330,41 +294,7 @@ class DetailViewModel(
             return
         }
         viewModelScope.launch {
-            enqueueFixedIfConfigured(ready.draft, ready.request, enqueue)
-        }
-    }
-
-    fun saveQuotaAndEnqueueFixed(quotaBytes: Long?) {
-        if (!session.enableContentDownloading) return
-        val current = _downloadState.value
-        val draft: FixedDownloadDraft
-        val request =
-            when (current) {
-                is DetailDownloadState.FixedReady -> {
-                    draft = current.draft
-                    current.request
-                }
-                is DetailDownloadState.FixedQuotaRequired -> {
-                    draft = current.draft
-                    current.request
-                }
-                else -> return
-            }
-        val previewKey = fixedDownloadPreviewKey ?: return
-        if (!isCurrentFixedDownloadPreview(previewKey) || previewKey != previewKeyFor(draft)) {
-            return
-        }
-        val configure = configureDownloadQuotaAction ?: return
-        val enqueue = enqueueFixedDownloadAction ?: return
-        viewModelScope.launch {
-            try {
-                withContext(workDispatcher) { configure(quotaBytes) }
-                enqueueFixedIfConfigured(draft, request, enqueue)
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Throwable) {
-                _downloadState.value = DetailDownloadState.FixedRejected(DownloadAdmissionDecision.QuotaExceeded)
-            }
+            enqueueReadyFixed(ready.draft, enqueue)
         }
     }
 
@@ -474,33 +404,10 @@ class DetailViewModel(
             subtitleSelection = draft.subtitleSelection,
         )
 
-    private suspend fun enqueueIfConfigured(
+    private suspend fun enqueueReadyOriginal(
         draft: OriginalDownloadDraft,
-        request: com.jellyscope.core.domain.model.DownloadRequest,
         enqueue: EnqueueDownloadAction,
     ) {
-        val settings =
-            try {
-                withContext(workDispatcher) { getDownloadSettingsUseCase?.invoke() }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Throwable) {
-                null
-            }
-        if (settings?.quotaBytes == null && getDownloadSettingsUseCase != null) {
-            val maximum =
-                try {
-                    withContext(workDispatcher) {
-                        getDownloadUsageUseCase?.invoke(session.accountIdentity())?.maximumConfigurableQuotaBytes
-                    }
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (_: Throwable) {
-                    null
-                }
-            _downloadState.value = DetailDownloadState.QuotaRequired(draft, request, maximum)
-            return
-        }
         val result =
             try {
                 withContext(workDispatcher) { enqueue(draft) }
@@ -512,33 +419,10 @@ class DetailViewModel(
         _downloadState.value = result.toDetailDownloadState()
     }
 
-    private suspend fun enqueueFixedIfConfigured(
+    private suspend fun enqueueReadyFixed(
         draft: FixedDownloadDraft,
-        request: com.jellyscope.core.domain.model.DownloadRequest,
         enqueue: EnqueueFixedDownloadAction,
     ) {
-        val settings =
-            try {
-                withContext(workDispatcher) { getDownloadSettingsUseCase?.invoke() }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Throwable) {
-                null
-            }
-        if (settings?.quotaBytes == null && getDownloadSettingsUseCase != null) {
-            val maximum =
-                try {
-                    withContext(workDispatcher) {
-                        getDownloadUsageUseCase?.invoke(session.accountIdentity())?.maximumConfigurableQuotaBytes
-                    }
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (_: Throwable) {
-                    null
-                }
-            _downloadState.value = DetailDownloadState.FixedQuotaRequired(draft, request, maximum)
-            return
-        }
         val result =
             try {
                 withContext(workDispatcher) { enqueue(draft) }

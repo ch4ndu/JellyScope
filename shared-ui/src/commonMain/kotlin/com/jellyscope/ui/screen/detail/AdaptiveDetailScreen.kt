@@ -30,6 +30,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.LocalSubtitleContext
 import com.jellyscope.core.domain.model.OpenSubtitleSearchRequest
 import com.jellyscope.core.domain.model.RELATED_GROUP_DISPLAY_LIMIT
@@ -66,6 +67,8 @@ fun AdaptiveDetailScreen(
     onPersonSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
     onPlayRelatedDirect: ((MediaCardUi) -> Unit)? = null,
+    onOpenDownloads: () -> Unit = {},
+    onPlayOffline: (DownloadRecord) -> Unit = {},
     viewModel: DetailViewModel =
         koinViewModel(
             parameters = { parametersOf(session, itemId) },
@@ -73,7 +76,10 @@ fun AdaptiveDetailScreen(
     ambientColorExtractor: AmbientColorExtractor = koinInject(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
+    val downloadEntryState by viewModel.downloadEntryState.collectAsStateWithLifecycle()
     var searchVisible by remember { mutableStateOf(false) }
+    var originalDownloadVisible by remember { mutableStateOf(false) }
     var subtitleSearchReturnRequest by remember { mutableIntStateOf(0) }
     val contentDetail = (state as? DetailUiState.Content)?.detail
     val selectedSourceId = contentDetail?.selectedMediaSourceId
@@ -151,11 +157,42 @@ fun AdaptiveDetailScreen(
                     onToggleFavorite = viewModel::toggleFavorite,
                     onSelectMediaVersion = viewModel::selectMediaVersion,
                     subtitleActions = subtitleActions,
+                    downloadEntryState = downloadEntryState.takeIf { viewModel.isDownloadAvailable },
+                    downloadActionEnabled = !originalDownloadVisible,
+                    downloadFixedAvailable = viewModel.isFixedDownloadAvailable,
+                    onDownloadClick = {
+                        when (val entry = downloadEntryState) {
+                            DetailDownloadEntryState.Add -> {
+                                viewModel.resetOriginalDownloadState()
+                                originalDownloadVisible = true
+                            }
+                            is DetailDownloadEntryState.Manage -> onOpenDownloads()
+                            is DetailDownloadEntryState.PlayOffline -> onPlayOffline(entry.record)
+                        }
+                    },
                     onRelatedItemSelected = onRelatedItemSelected,
                     onPersonSelected = onPersonSelected,
                     onPlayRelatedDirect = onPlayRelatedDirect,
                     ambientColorExtractor = ambientColorExtractor,
                 )
+        }
+        if (originalDownloadVisible && detail != null) {
+            OriginalDownloadDialog(
+                detail = detail,
+                initialLocalAssetId = selectedLocalAssetId,
+                state = downloadState,
+                fixedAvailable = viewModel.isFixedDownloadAvailable,
+                onDismiss = {
+                    originalDownloadVisible = false
+                    viewModel.resetOriginalDownloadState()
+                },
+                onPreview = viewModel::previewOriginalDownload,
+                onConfirm = viewModel::enqueueOriginalDownload,
+                onPreviewFixed = viewModel::previewFixedDownload,
+                onConfirmFixedBurnIn = viewModel::confirmFixedBurnIn,
+                onCancelFixedBurnIn = viewModel::cancelFixedBurnIn,
+                onConfirmFixed = viewModel::enqueueFixedDownload,
+            )
         }
         if (detail != null && sourceId != null) {
             if (searchVisible) {
@@ -195,6 +232,10 @@ internal fun AdaptiveDetailContent(
     onToggleFavorite: () -> Unit,
     onSelectMediaVersion: (String) -> Unit = {},
     subtitleActions: DetailSubtitlePickerActions? = null,
+    downloadEntryState: DetailDownloadEntryState? = null,
+    downloadActionEnabled: Boolean = true,
+    downloadFixedAvailable: Boolean = false,
+    onDownloadClick: () -> Unit = {},
     onRelatedItemSelected: (MediaCardUi) -> Unit,
     onPersonSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -398,6 +439,10 @@ internal fun AdaptiveDetailContent(
                             onPlay = onPlay,
                             onToggleWatched = onToggleWatched,
                             onToggleFavorite = onToggleFavorite,
+                            downloadEntryState = downloadEntryState,
+                            downloadActionEnabled = downloadActionEnabled,
+                            downloadFixedAvailable = downloadFixedAvailable,
+                            onDownloadClick = onDownloadClick,
                             subtitleActions = subtitleActions,
                             onMediaInfoClick = { mediaInfoVisible = true },
                             versionTrackRequester = versionTrackRequester,

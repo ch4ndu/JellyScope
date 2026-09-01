@@ -2,10 +2,11 @@
 
 package com.jellyscope.tv
 
-import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GIB
+import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GB
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.ui.TV_DOWNLOADS_MANAGE_FOCUS_KEY
+import com.jellyscope.tv.ui.TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY
 import com.jellyscope.tv.ui.TvRailDestination
 import com.jellyscope.tv.ui.TvRailTarget
 import com.jellyscope.tv.ui.toRailTarget
@@ -13,6 +14,7 @@ import com.jellyscope.tv.ui.tvDownloadCustomQuotaBytes
 import com.jellyscope.tv.ui.tvDownloadFocusKey
 import com.jellyscope.tv.ui.tvDownloadLazySlotIndex
 import com.jellyscope.tv.ui.tvDownloadQuotaOptions
+import com.jellyscope.tv.ui.tvDownloadSemanticFocusKeys
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -21,12 +23,12 @@ import kotlin.test.assertTrue
 
 class TvDownloadsRouteFocusTest {
     @Test
-    fun quotaPolicyKeepsPresetsAsShortcutsAndAcceptsAnyCapacityValidWholeGibValue() {
-        val safeMaximum = 12L * DOWNLOAD_BYTES_PER_GIB
+    fun quotaPolicyKeepsPresetsAsShortcutsAndAcceptsAnyCapacityValidWholeGbValue() {
+        val safeMaximum = 12L * DOWNLOAD_BYTES_PER_GB
 
-        assertTrue(5L * DOWNLOAD_BYTES_PER_GIB in tvDownloadQuotaOptions(null, safeMaximum))
-        assertEquals(3L * DOWNLOAD_BYTES_PER_GIB, tvDownloadCustomQuotaBytes("3", safeMaximum))
-        assertEquals(12L * DOWNLOAD_BYTES_PER_GIB, tvDownloadCustomQuotaBytes(" 12 ", safeMaximum))
+        assertTrue(5L * DOWNLOAD_BYTES_PER_GB in tvDownloadQuotaOptions(null, safeMaximum))
+        assertEquals(3L * DOWNLOAD_BYTES_PER_GB, tvDownloadCustomQuotaBytes("3", safeMaximum))
+        assertEquals(12L * DOWNLOAD_BYTES_PER_GB, tvDownloadCustomQuotaBytes(" 12 ", safeMaximum))
         assertNull(tvDownloadCustomQuotaBytes("", safeMaximum))
         assertNull(tvDownloadCustomQuotaBytes("-1", safeMaximum))
         assertNull(tvDownloadCustomQuotaBytes("0", safeMaximum))
@@ -50,6 +52,7 @@ class TvDownloadsRouteFocusTest {
         assertNull(selectedTvRailDestination(TvRoute.Downloads.name, enableContentDownloading = false))
         assertEquals("download:download_01", tvDownloadFocusKey(downloadId))
         assertEquals(TV_DOWNLOADS_MANAGE_FOCUS_KEY, "downloads:manage")
+        assertEquals(TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY, "downloads:resume-all")
 
         // Manage is slot 0. Each non-empty status section inserts one header
         // before its stable download-ID rows.
@@ -60,6 +63,13 @@ class TvDownloadsRouteFocusTest {
         assertEquals(5, tvDownloadLazySlotIndex(semanticIndex = 3, sectionSizes = sectionSizes))
         assertEquals(7, tvDownloadLazySlotIndex(semanticIndex = 4, sectionSizes = sectionSizes))
         assertEquals(8, tvDownloadLazySlotIndex(semanticIndex = 5, sectionSizes = sectionSizes))
+
+        assertEquals(
+            listOf(TV_DOWNLOADS_MANAGE_FOCUS_KEY, TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY),
+            tvDownloadSemanticFocusKeys(emptyList(), includeResumeAll = true),
+        )
+        assertEquals(1, tvDownloadLazySlotIndex(semanticIndex = 1, sectionSizes = sectionSizes, includeResumeAll = true))
+        assertEquals(3, tvDownloadLazySlotIndex(semanticIndex = 2, sectionSizes = sectionSizes, includeResumeAll = true))
 
         assertEquals(downloadId, downloadId.value.toTvOfflineDownloadIdOrNull())
         assertNull("../download".toTvOfflineDownloadIdOrNull())

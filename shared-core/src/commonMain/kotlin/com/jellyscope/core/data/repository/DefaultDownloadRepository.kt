@@ -33,6 +33,7 @@ import com.jellyscope.core.download.isCanonicalLocalHlsArtifact
 import com.jellyscope.core.playback.OfflineArtifactDeletionGuardResult
 import com.jellyscope.core.playback.OfflineArtifactLeaseIdentity
 import com.jellyscope.core.playback.OfflineArtifactLeaseRegistry
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlin.time.Clock
 
@@ -184,7 +185,7 @@ internal class DefaultDownloadRepository(
 
             // A deterministic corrupt completed package must not strand the same directory on
             // every retry. Retry is the explicit user confirmation to remove only that unusable
-            // completed area; resumable staging remains intact for the next Original attempt.
+            // completed area; all staging remains resumable except an unsupported HLS package.
             val completed =
                 if (record.failure == DownloadFailure.MissingArtifact) {
                     artifactStore.inspect(record.request.artifactKey, DownloadArtifactArea.Completed)
@@ -210,6 +211,12 @@ internal class DefaultDownloadRepository(
                     is OfflineArtifactDeletionGuardResult.Granted ->
                         if (guarded.value) DownloadCommandResult.Applied else DownloadCommandResult.InvalidState
                 }
+            }
+            if (
+                record.request.artifactKind == DownloadArtifactKind.LocalHlsPackage &&
+                record.failure == DownloadFailure.UnsupportedArtifact
+            ) {
+                artifactStore.delete(record.request.artifactKey, DownloadArtifactArea.Staging)
             }
             if (
                 recordStore.transition(
@@ -582,6 +589,8 @@ internal class DefaultDownloadRepository(
         val completed =
             try {
                 artifactStore.inspect(record.request.artifactKey, DownloadArtifactArea.Completed)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
             } catch (_: Throwable) {
                 // Visibility/inspection itself is uncertain; retain Finalizing for deterministic
                 // recovery rather than manufacturing a terminal failure.
@@ -597,6 +606,8 @@ internal class DefaultDownloadRepository(
         val staging =
             try {
                 artifactStore.inspect(record.request.artifactKey, DownloadArtifactArea.Staging)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
             } catch (_: Throwable) {
                 return false
             }
@@ -608,12 +619,16 @@ internal class DefaultDownloadRepository(
         }
         try {
             artifactStore.promote(record.request.artifactKey)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (_: Throwable) {
             return false
         }
         val promoted =
             try {
                 artifactStore.inspect(record.request.artifactKey, DownloadArtifactArea.Completed)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
             } catch (_: Throwable) {
                 return false
             }

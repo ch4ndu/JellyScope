@@ -348,6 +348,51 @@ class DownloadTransferCoordinatorTest {
             }
         }
 
+    @Test
+    fun originalCheckpointFailureRetainsDurableFactsAndUnblocksTheNextFifoRow() =
+        runTest {
+            val registry = ServerScopedStoreRegistry()
+            registry.transitionToAccount(account, boundaryEpoch = 4L)
+            val first =
+                queuedRecord(fifoSequence = 1L).copy(
+                    reservationBytes = 4L,
+                    physicalBytes = 2L,
+                    checkpointBytes = 2L,
+                )
+            val next = queuedRecord(downloadId = DownloadId("download_next"), fifoSequence = 2L)
+            val queue = TransferQueueFake(mutableListOf(first, next))
+            val queueCoordinator = DownloadQueueCoordinator(queue)
+            val artifacts =
+                TransferArtifactStore(
+                    initialStagingBytes = "da".encodeToByteArray(),
+                    failCheckpointOnSettlement = true,
+                    failCloseOnSettlement = true,
+                )
+            val fixture = apiFixture(truncatedResume = true)
+            try {
+                val result =
+                    DownloadTransferCoordinator(
+                        sessionRepository = FakeSessionRepository(session),
+                        serverScopedStoreRegistry = registry,
+                        jellyfinApi = fixture.api,
+                        queueCoordinator = queueCoordinator,
+                        artifactStore = artifacts,
+                        localSubtitleAssetStore = EmptyLocalSubtitleAssetStore,
+                        localSubtitleFileStore = EmptyLocalSubtitleFileStore,
+                    ).runOnce()
+
+                assertEquals(DownloadTransferResult.Failed(DownloadFailure.SourceChanged), result)
+                assertEquals(1, artifacts.checkpointAttempts)
+                assertEquals(1, artifacts.closeAttempts)
+                assertEquals(DownloadState.Failed, queue.records.first().state)
+                assertEquals(2L, queue.records.first().physicalBytes)
+                assertEquals(2L, queue.records.first().checkpointBytes)
+                assertEquals(DownloadId("download_next"), queueCoordinator.claimNext(account)?.downloadId)
+            } finally {
+                fixture.client.close()
+            }
+        }
+
     private fun queuedRecord(
         downloadId: DownloadId = DownloadId("download_original"),
         fifoSequence: Long = 1L,
@@ -381,7 +426,10 @@ class DownloadTransferCoordinatorTest {
             updatedAtEpochMs = 1L,
         )
 
-    private fun apiFixture(onTransferRequest: suspend (String?) -> Unit = {}): ApiFixture {
+    private fun apiFixture(
+        truncatedResume: Boolean = false,
+        onTransferRequest: suspend (String?) -> Unit = {},
+    ): ApiFixture {
         val engine =
             MockEngine { request ->
                 when (request.url.encodedPath) {
@@ -393,6 +441,11 @@ class DownloadTransferCoordinatorTest {
                         when (range) {
                             "bytes=0-0" -> respondPartial("a", "bytes 0-0/4")
                             "bytes=0-" -> respondPartial("data", "bytes 0-3/4")
+                            "bytes=2-" ->
+                                respondPartial(
+                                    if (truncatedResume) "t" else "ta",
+                                    "bytes 2-3/4",
+                                )
                             else -> error("Unexpected range")
                         }
                     }
@@ -716,11 +769,19 @@ private object EmptyLocalSubtitleFileStore : LocalSubtitleFileStore {
     override fun resolvePath(fileId: String): String? = null
 }
 
-private class TransferArtifactStore : DownloadArtifactStore {
+private class TransferArtifactStore(
+    initialStagingBytes: ByteArray? = null,
+    private val failCheckpointOnSettlement: Boolean = false,
+    private val failCloseOnSettlement: Boolean = false,
+) : DownloadArtifactStore {
     private val partKey = DOWNLOAD_ORIGINAL_PART_KEY
-    private var staging: MutableList<Byte>? = null
+    private var staging: MutableList<Byte>? = initialStagingBytes?.toMutableList()
     private var completed: MutableList<Byte>? = null
     var writes = 0
+        private set
+    var checkpointAttempts = 0
+        private set
+    var closeAttempts = 0
         private set
 
     fun completedBytes(): ByteArray = completed?.toByteArray() ?: ByteArray(0)
@@ -759,9 +820,15 @@ private class TransferArtifactStore : DownloadArtifactStore {
                 writes += 1
             }
 
-            override suspend fun checkpoint(): DownloadArtifactPartCheckpoint = DownloadArtifactPartCheckpoint(partKey, bytes.size.toLong())
+            override suspend fun checkpoint(): DownloadArtifactPartCheckpoint {
+                checkpointAttempts += 1
+                if (failCheckpointOnSettlement) error("Test writer checkpoint failure.")
+                return DownloadArtifactPartCheckpoint(partKey, bytes.size.toLong())
+            }
 
             override suspend fun close() {
+                closeAttempts += 1
+                if (failCloseOnSettlement) error("Test writer close failure.")
                 closed = true
             }
         }
@@ -792,6 +859,14 @@ private class TransferArtifactStore : DownloadArtifactStore {
         partKey: DownloadArtifactPartKey,
         maxBytes: Int,
     ): ByteArray? = null
+
+    override suspend fun replaceStagingMetadata(
+        artifactKey: DownloadArtifactKey,
+        partKey: DownloadArtifactPartKey,
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): DownloadArtifactPartCheckpoint = error("unused")
 
     override suspend fun validateStagingCheckpoint(
         artifactKey: DownloadArtifactKey,

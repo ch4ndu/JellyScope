@@ -559,7 +559,10 @@ internal fun TvHomeContent(
                                 onViewAllSelected = { onViewAllSelected(homeRow) },
                                 modifier =
                                     Modifier.onGloballyPositioned { coords ->
-                                        rowPositions[homeRow] = coords.positionInParent().y.roundToInt()
+                                        val position = coords.positionInParent().y.roundToInt()
+                                        if (rowPositions[homeRow] != position) {
+                                            rowPositions[homeRow] = position
+                                        }
                                     },
                             )
                         }

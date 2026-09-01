@@ -2,6 +2,7 @@
 
 package com.jellyscope.core.data.remote
 
+import com.jellyscope.core.domain.playback.BackendSourceDescriptor
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class OriginalDownloadTransportTest {
@@ -70,8 +72,15 @@ class OriginalDownloadTransportTest {
                     assertIs<OriginalDownloadPreflightResult.Ready>(
                         fixture.api.preflightOriginalDownload(context, "item-1", "source-1"),
                     )
+                assertNotNull(preflight.source.backendSource)
                 assertEquals(
-                    OriginalDownloadSource("item-1", "source-1", 4L, LAST_MODIFIED),
+                    OriginalDownloadSource(
+                        itemId = "item-1",
+                        mediaSourceId = "source-1",
+                        totalBytes = 4L,
+                        lastModified = LAST_MODIFIED,
+                        backendSource = BackendSourceDescriptor(null, null, null, false),
+                    ),
                     preflight.source,
                 )
 

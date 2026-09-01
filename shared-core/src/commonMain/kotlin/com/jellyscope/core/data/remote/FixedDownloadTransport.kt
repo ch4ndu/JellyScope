@@ -52,6 +52,7 @@ data class FixedDownloadRequest(
     val quality: QualityRung,
     val audioStreamIndex: Int?,
     val subtitleSelection: DownloadSubtitleSelection,
+    val requestKind: FixedDownloadRequestKind = FixedDownloadRequestKind.AdmissionPreview,
     /** Jellyfin subtitle codec/format, required only for confirmed embedded burn-in. */
     val subtitleFormat: String? = null,
 ) {
@@ -88,6 +89,12 @@ data class FixedDownloadRequest(
 
     val alwaysBurnInSubtitleWhenTranscoding: Boolean
         get() = subtitleSelection is DownloadSubtitleSelection.Embedded
+}
+
+enum class FixedDownloadRequestKind {
+    AdmissionPreview,
+    AdmissionEnqueue,
+    Transfer,
 }
 
 /**
@@ -184,7 +191,19 @@ sealed interface FixedDownloadResourceResult<out T> {
 
     data class Rejected(
         val failure: FixedDownloadFailure,
+        val reason: FixedDownloadResourceRejectReason,
     ) : FixedDownloadResourceResult<Nothing>
+}
+
+/** Closed transport reasons for authenticated Fixed-download resources. */
+enum class FixedDownloadResourceRejectReason {
+    InvalidRequest,
+    UntrustedResourceUrl,
+    HttpStatusRejected,
+    InvalidDeclaredLength,
+    DeclaredLengthTooLarge,
+    NetworkFailure,
+    UnexpectedTransportFailure,
 }
 
 internal fun String.isBoundedResourceUrl(): Boolean =

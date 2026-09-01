@@ -42,11 +42,16 @@ import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.DownloadSubtitleSelection
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+
+private val originalDownloadTransferLogger = diagnosticLogger(DiagnosticTag.OriginalDownload)
 
 /**
  * Payload-free outcomes for one common transfer attempt.  Platform hosts may add their own
@@ -441,17 +446,13 @@ internal class DownloadTransferCoordinator(
                         checkpointTotal,
                         checkpointTotal,
                     ),
-                checkpointAndCloseWriter = {
-                    try {
-                        checkpointFactsForWriters(
-                            writer = writer,
-                            sidecarWriter = sidecarWriter,
-                            expectedSidecarLength = expectedSidecarLength,
-                        )
-                    } finally {
-                        sidecarWriter?.close()
-                        writer.close()
-                    }
+                checkpointAndCloseWriter = { currentFacts ->
+                    checkpointAndCloseOriginalWriters(
+                        writer = writer,
+                        sidecarWriter = sidecarWriter,
+                        expectedSidecarLength = expectedSidecarLength,
+                        currentFacts = currentFacts,
+                    )
                 },
             )
         if (!queueCoordinator.registerActiveAttempt(registration)) {
@@ -734,14 +735,58 @@ internal class DownloadTransferCoordinator(
         val mainCheckpoint = writer.checkpoint()
         val sidecarCheckpoint = sidecarWriter?.checkpoint()
         val actualSidecarLength = sidecarCheckpoint?.lengthBytes ?: expectedSidecarLength
-        if (expectedSidecarLength > 0L && actualSidecarLength < expectedSidecarLength) {
-            // The sidecar is intentionally not resumable independently of the media part. Its
-            // physical tail is left for normalization, while Room retains the last safe zero
-            // checkpoint for both parts.
-            return DownloadCheckpointFacts(physicalBytes = 0L, checkpointBytes = 0L)
+        check(expectedSidecarLength == 0L || actualSidecarLength >= expectedSidecarLength) {
+            "Original sidecar checkpoint is incomplete."
         }
         val total = checkedArtifactLengthAfterWrite(mainCheckpoint.lengthBytes, actualSidecarLength)
         return DownloadCheckpointFacts(physicalBytes = total, checkpointBytes = total)
+    }
+
+    private suspend fun checkpointAndCloseOriginalWriters(
+        writer: DownloadArtifactWriter,
+        sidecarWriter: DownloadArtifactWriter?,
+        expectedSidecarLength: Long,
+        currentFacts: DownloadCheckpointFacts,
+    ): DownloadCheckpointFacts =
+        withContext(NonCancellable) {
+            val durableFacts =
+                try {
+                    checkpointFactsForWriters(
+                        writer = writer,
+                        sidecarWriter = sidecarWriter,
+                        expectedSidecarLength = expectedSidecarLength,
+                    )
+                } catch (failure: Throwable) {
+                    originalDownloadTransferLogger.w {
+                        formatSafeFailureDiagnostic(
+                            stage = "original-download",
+                            event = "checkpoint-failed",
+                            throwable = failure,
+                        )
+                    }
+                    currentFacts
+                }
+            closeOriginalWriter(sidecarWriter, "sidecar-close-failed")
+            closeOriginalWriter(writer, "main-close-failed")
+            durableFacts
+        }
+
+    private suspend fun closeOriginalWriter(
+        writer: DownloadArtifactWriter?,
+        event: String,
+    ) {
+        if (writer == null) return
+        try {
+            writer.close()
+        } catch (failure: Throwable) {
+            originalDownloadTransferLogger.w {
+                formatSafeFailureDiagnostic(
+                    stage = "original-download",
+                    event = event,
+                    throwable = failure,
+                )
+            }
+        }
     }
 
     private suspend fun ensureReservation(
