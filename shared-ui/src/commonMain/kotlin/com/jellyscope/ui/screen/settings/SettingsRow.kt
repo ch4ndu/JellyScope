@@ -73,11 +73,17 @@ internal fun SettingsRow(
     val titleColor = if (destructive) palette.accentCoral else MaterialTheme.colorScheme.onSurface
     val running = trailing is SettingsRowTrailing.Progress && trailing.running
     val interactive = enabled && !running && trailing != SettingsRowTrailing.None
-    val rowContentDescription =
+    val titleAndValueDescription =
         if (displayedValue.isNullOrBlank()) {
             title
         } else {
             stringResource(Res.string.settings_row_content_description, title, displayedValue)
+        }
+    val rowContentDescription =
+        if (description.isNullOrBlank()) {
+            titleAndValueDescription
+        } else {
+            stringResource(Res.string.settings_row_content_description, titleAndValueDescription, description)
         }
 
     Row(

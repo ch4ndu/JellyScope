@@ -143,7 +143,11 @@ without resetting Settings scroll or focus.
   wrap the whole string, never to ellipsize it. The tail a tight cap removes is
   the sentence stating that log lines are the only thing omitted when collection
   is off. Size that headroom for larger system font scales and longer
-  translations, not for today's English string at today's dialog width.
+  translations, not for today's English string at today's dialog width. Shared
+  Diagnostics supporting copy belongs directly in its owning Settings row and
+  in that row's merged spoken label; Android TV places it immediately below the
+  owning setting dialog's title. Buffer size, preference errors, and upload
+  results remain status rather than being folded into the descriptive copy.
 - Do not add nested cards or unrelated decorative surfaces.
 - Do not hide core media state until a detail screen.
 - Movie, concrete-episode, series, and season detail show a Version control only
@@ -684,8 +688,12 @@ rejected. An entry is deleted when its rule changes.
   rather than a separate ambient-artwork request; the Library inner selector
   shares Detail pill geometry; the Settings top bar omits its redundant
   self-navigation action. Diagnostic uploads follow the same truth-first rule:
-  the current normalized backend preference labels the capability snapshot,
-  and an older failure contributes metadata only when its backend matches.
+  supporting copy stays with the setting and its spoken label so the behavior
+  or privacy promise is not detached from the control the user is evaluating;
+  Android TV keeps long disclosures out of its fixed overview tiles and inside
+  the owning dialog. The current normalized backend preference labels the
+  capability snapshot, and an older failure contributes metadata only when its
+  backend matches.
   Rejected: a capped Settings gutter, a low-contrast secondary scrollbar
   track, and relabeling a stale failure snapshot as the newly selected
   backend.

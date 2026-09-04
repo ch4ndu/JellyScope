@@ -1149,7 +1149,11 @@ private fun TvClientLogsDialog(
     LaunchedEffect(sendRequester) {
         requestTvFocusWithRetry { sendRequester.requestFocusSafely() }
     }
-    TvSettingsDialogFrame(title = stringResource(R.string.tv_settings_diagnostics), onDismiss = onDismiss) {
+    TvSettingsDialogFrame(title = stringResource(R.string.tv_settings_send_logs), onDismiss = onDismiss) {
+        TvText(
+            text = stringResource(R.string.tv_settings_device_capabilities_guidance),
+            color = com.jellyscope.ui.theme.LocalJellyfinPalette.current.textSecondary,
+        )
         TvText(
             text =
                 stringResource(
@@ -1159,11 +1163,6 @@ private fun TvClientLogsDialog(
                 ),
             color = com.jellyscope.ui.theme.LocalJellyfinPalette.current.textSecondary,
             maxLines = 1,
-        )
-        TvText(
-            text = stringResource(R.string.tv_settings_device_capabilities_guidance),
-            color = com.jellyscope.ui.theme.LocalJellyfinPalette.current.textSecondary,
-            maxLines = TV_DIAGNOSTICS_DISCLOSURE_MAX_LINES,
         )
         feedback?.let { result ->
             TvText(
@@ -1187,9 +1186,6 @@ private fun TvClientLogsDialog(
 }
 
 internal fun tvClientLogsSendEnabled(isSending: Boolean): Boolean = !isSending
-
-// Leave headroom for larger font scales and translated disclosure text.
-private const val TV_DIAGNOSTICS_DISCLOSURE_MAX_LINES = 6
 
 @Composable
 private fun TvPlaybackPreferencesStatusDialog(

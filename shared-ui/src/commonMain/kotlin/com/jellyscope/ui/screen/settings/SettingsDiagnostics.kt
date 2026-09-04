@@ -50,6 +50,7 @@ internal fun DiagnosticsSettingsSection(
                         iconRole = SettingsRowId.CollectLogs.iconRole(),
                         title = stringResource(Res.string.settings_diagnostics_collect),
                         value = settingsBooleanValue(collectLogs),
+                        description = stringResource(Res.string.settings_diagnostics_collect_detail),
                         trailing =
                             SettingsRowTrailing.Switch(
                                 checked = collectLogs,
@@ -63,6 +64,7 @@ internal fun DiagnosticsSettingsSection(
                         iconRole = SettingsRowId.SystemLogs.iconRole(),
                         title = stringResource(Res.string.settings_diagnostics_verbose_logcat),
                         value = settingsBooleanValue(verboseLogcatEnabled),
+                        description = stringResource(Res.string.settings_diagnostics_verbose_logcat_detail),
                         trailing =
                             SettingsRowTrailing.Switch(
                                 checked = verboseLogcatEnabled,
@@ -76,6 +78,7 @@ internal fun DiagnosticsSettingsSection(
                         iconRole = SettingsRowId.PlaybackInfoAtStart.iconRole(),
                         title = stringResource(Res.string.settings_diagnostics_playback_info_at_start),
                         value = settingsBooleanValue(playbackInfoAtStartEnabled),
+                        description = stringResource(Res.string.settings_diagnostics_playback_info_at_start_detail),
                         trailing =
                             SettingsRowTrailing.Switch(
                                 checked = playbackInfoAtStartEnabled,
@@ -88,33 +91,33 @@ internal fun DiagnosticsSettingsSection(
                         icon = SettingsRowId.SendClientLogs.icon(),
                         iconRole = SettingsRowId.SendClientLogs.iconRole(),
                         title = stringResource(Res.string.settings_diagnostics_send),
+                        value =
+                            stringResource(
+                                Res.string.settings_diagnostics_buffer_size,
+                                bufferSize.entryCount,
+                                bufferSize.byteCount / 1_024,
+                            ),
+                        description = stringResource(Res.string.settings_diagnostics_send_detail),
                         trailing = SettingsRowTrailing.Progress(running = isSending),
                         onClick = onSendLogs,
                     )
                 },
             ),
-        footer = {
-            Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
-                Text(text = stringResource(Res.string.settings_diagnostics_collect_detail))
-                if (logCollectionPreferenceError) {
-                    Text(text = stringResource(Res.string.settings_diagnostics_collect_error))
+        footer =
+            if (logCollectionPreferenceError || feedback != null) {
+                {
+                    Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
+                        if (logCollectionPreferenceError) {
+                            Text(text = stringResource(Res.string.settings_diagnostics_collect_error))
+                        }
+                        feedback?.let { result ->
+                            Text(text = diagnosticsFeedback(result))
+                        }
+                    }
                 }
-                Text(text = stringResource(Res.string.settings_diagnostics_verbose_logcat_detail))
-                Text(text = stringResource(Res.string.settings_diagnostics_playback_info_at_start_detail))
-                Text(
-                    text =
-                        stringResource(
-                            Res.string.settings_diagnostics_buffer_size,
-                            bufferSize.entryCount,
-                            bufferSize.byteCount / 1_024,
-                        ),
-                )
-                Text(text = stringResource(Res.string.settings_diagnostics_send_detail))
-                feedback?.let { result ->
-                    Text(text = diagnosticsFeedback(result))
-                }
-            }
-        },
+            } else {
+                null
+            },
     )
 }
 

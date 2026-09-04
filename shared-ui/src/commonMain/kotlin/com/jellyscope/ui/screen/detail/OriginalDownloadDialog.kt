@@ -2,6 +2,8 @@
 
 package com.jellyscope.ui.screen.detail
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,12 +21,16 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import com.jellyscope.core.domain.model.DownloadAdmissionDecision
 import com.jellyscope.core.domain.model.DownloadQuality
@@ -78,6 +84,7 @@ import com.jellyscope.ui.generated.resources.downloads_review_size
 import com.jellyscope.ui.generated.resources.downloads_schedule_rejected
 import com.jellyscope.ui.platform.LocalDownloadNotificationPermissionRequester
 import com.jellyscope.ui.theme.Dimensions
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -151,6 +158,10 @@ internal fun OriginalDownloadDialog(
     modifier: Modifier = Modifier,
 ) {
     val requestNotificationPermission = LocalDownloadNotificationPermissionRequester.current
+    val fade = remember(detail.itemId, detail.selectedMediaSourceId) { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    var dismissing by remember(detail.itemId, detail.selectedMediaSourceId) { mutableStateOf(false) }
     var fixedMode by remember(detail.itemId, detail.selectedMediaSourceId, fixedAvailable) {
         mutableStateOf(false)
     }
@@ -184,9 +195,23 @@ internal fun OriginalDownloadDialog(
         isErrorState ||
             state is DetailDownloadState.Created ||
             state is DetailDownloadState.Existing
+    val dismissWithFade = {
+        if (!dismissing) {
+            dismissing = true
+            scope.launch {
+                fade.animateTo(0f, tween(DOWNLOAD_DIALOG_FADE_MS))
+                currentOnDismiss()
+            }
+        }
+    }
+
+    LaunchedEffect(fade) {
+        fade.animateTo(1f, tween(DOWNLOAD_DIALOG_FADE_MS))
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismissWithFade,
+        modifier = modifier.graphicsLayer { alpha = fade.value },
         title = {
             Text(
                 stringResource(
@@ -206,7 +231,7 @@ internal fun OriginalDownloadDialog(
                 DetailDownloadState.Previewing,
                 -> {
                     Column(
-                        modifier = modifier.selectableGroup(),
+                        modifier = Modifier.selectableGroup(),
                         verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing),
                     ) {
                         Text(text = selectedVersion?.name.orEmpty(), style = MaterialTheme.typography.titleSmall)
@@ -215,6 +240,7 @@ internal fun OriginalDownloadDialog(
                             RadioChoice(
                                 label = stringResource(Res.string.downloads_quality_choice_original),
                                 selected = !fixedMode,
+                                enabled = !dismissing,
                                 onClick = {
                                     fixedMode = false
                                     fixedQuality = null
@@ -223,6 +249,7 @@ internal fun OriginalDownloadDialog(
                             RadioChoice(
                                 label = stringResource(Res.string.downloads_quality_choice_fixed),
                                 selected = fixedMode,
+                                enabled = !dismissing,
                                 onClick = {
                                     fixedMode = true
                                     if (fixedQuality == null) fixedQuality = selectedFixedQuality
@@ -242,6 +269,7 @@ internal fun OriginalDownloadDialog(
                                     RadioChoice(
                                         label = choice.rung.downloadLabel(choice.sourceBitrateKnown),
                                         selected = selectedFixedQuality?.maxBitrateBps == choice.rung.maxBitrateBps,
+                                        enabled = !dismissing,
                                         onClick = { fixedQuality = DownloadQuality.Fixed(choice.rung.maxBitrateBps) },
                                     )
                                 }
@@ -252,6 +280,7 @@ internal fun OriginalDownloadDialog(
                                     RadioChoice(
                                         label = option.displayName ?: option.language ?: "Audio",
                                         selected = audioIndex == option.streamIndex,
+                                        enabled = !dismissing,
                                         onClick = { audioIndex = option.streamIndex },
                                     )
                                 }
@@ -260,6 +289,7 @@ internal fun OriginalDownloadDialog(
                             RadioChoice(
                                 label = stringResource(Res.string.downloads_original_subtitle_off),
                                 selected = fixedSubtitleSelection == SubtitleSelectionIntent.Off,
+                                enabled = !dismissing,
                                 onClick = { fixedSubtitleSelection = SubtitleSelectionIntent.Off },
                             )
                             selectedVersion?.fixedSubtitleOptions()?.forEach { choice ->
@@ -268,6 +298,7 @@ internal fun OriginalDownloadDialog(
                                 RadioChoice(
                                     label = stream.displayTitle ?: stream.title ?: stream.language ?: "Subtitle",
                                     selected = fixedSubtitleSelection == SubtitleSelectionIntent.Track(streamIndex),
+                                    enabled = !dismissing,
                                     onClick = {
                                         fixedSubtitleSelection = SubtitleSelectionIntent.Track(streamIndex)
                                     },
@@ -291,12 +322,14 @@ internal fun OriginalDownloadDialog(
                             RadioChoice(
                                 label = stringResource(Res.string.downloads_original_subtitle_off),
                                 selected = subtitleSelection == SubtitleSelectionIntent.Off,
+                                enabled = !dismissing,
                                 onClick = { subtitleSelection = SubtitleSelectionIntent.Off },
                             )
                             selectedVersion?.trackSelection?.subtitleOptions?.forEach { option ->
                                 RadioChoice(
                                     label = option.displayName ?: option.language ?: "Subtitle",
                                     selected = subtitleSelection == SubtitleSelectionIntent.Track(option.streamIndex),
+                                    enabled = !dismissing,
                                     onClick = {
                                         subtitleSelection = SubtitleSelectionIntent.Track(option.streamIndex)
                                     },
@@ -306,6 +339,7 @@ internal fun OriginalDownloadDialog(
                                 RadioChoice(
                                     label = asset.label,
                                     selected = subtitleSelection == SubtitleSelectionIntent.LocalAsset(asset.id),
+                                    enabled = !dismissing,
                                     onClick = {
                                         subtitleSelection = SubtitleSelectionIntent.LocalAsset(asset.id)
                                     },
@@ -317,6 +351,7 @@ internal fun OriginalDownloadDialog(
                                     RadioChoice(
                                         label = option.displayName ?: option.language ?: "Audio",
                                         selected = audioIndex == option.streamIndex,
+                                        enabled = !dismissing,
                                         onClick = { audioIndex = option.streamIndex },
                                     )
                                 }
@@ -369,7 +404,7 @@ internal fun OriginalDownloadDialog(
             when (state) {
                 DetailDownloadState.Idle ->
                     TextButton(
-                        enabled = !fixedMode || selectedFixedQuality != null,
+                        enabled = !dismissing && (!fixedMode || selectedFixedQuality != null),
                         onClick = {
                             if (fixedMode) {
                                 selectedFixedQuality?.let { quality ->
@@ -384,11 +419,15 @@ internal fun OriginalDownloadDialog(
                     }
                 DetailDownloadState.Previewing -> Unit
                 is DetailDownloadState.BitmapSubtitleConfirmation ->
-                    TextButton(onClick = { onPreview(audioIndex, SubtitleSelectionIntent.Off) }) {
+                    TextButton(
+                        enabled = !dismissing,
+                        onClick = { onPreview(audioIndex, SubtitleSelectionIntent.Off) },
+                    ) {
                         Text(stringResource(Res.string.downloads_original_continue_without_subtitles))
                     }
                 is DetailDownloadState.Ready ->
                     TextButton(
+                        enabled = !dismissing,
                         onClick = {
                             requestNotificationPermission()
                             onConfirm()
@@ -397,11 +436,12 @@ internal fun OriginalDownloadDialog(
                         Text(stringResource(Res.string.download_action_start))
                     }
                 is DetailDownloadState.FixedBurnInConfirmation ->
-                    TextButton(onClick = onConfirmFixedBurnIn) {
+                    TextButton(enabled = !dismissing, onClick = onConfirmFixedBurnIn) {
                         Text(stringResource(Res.string.downloads_fixed_burn_in_confirm))
                     }
                 is DetailDownloadState.FixedReady ->
                     TextButton(
+                        enabled = !dismissing,
                         onClick = {
                             requestNotificationPermission()
                             onConfirmFixed()
@@ -421,11 +461,12 @@ internal fun OriginalDownloadDialog(
         },
         dismissButton = {
             TextButton(
+                enabled = !dismissing,
                 onClick = {
                     if (state is DetailDownloadState.FixedBurnInConfirmation) {
                         onCancelFixedBurnIn()
                     } else {
-                        onDismiss()
+                        dismissWithFade()
                     }
                 },
             ) {
@@ -491,16 +532,22 @@ private fun QualityRung.downloadLabel(sourceBitrateKnown: Boolean): String =
 private fun RadioChoice(
     label: String,
     selected: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().selectable(selected, onClick = onClick, role = Role.RadioButton),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .selectable(selected, enabled = enabled, onClick = onClick, role = Role.RadioButton),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = null)
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
         Text(label, modifier = Modifier.padding(start = Dimensions.inlineSpacing))
     }
 }
+
+private const val DOWNLOAD_DIALOG_FADE_MS = 200
 
 private fun initialOriginalSubtitleSelection(
     detail: DetailUi,
