@@ -16,6 +16,7 @@ class HoldSeekControllerTest {
     ) {
         var itemId: String? = "item-1"
         val commits = mutableListOf<Long>()
+        val finalCommits = mutableListOf<Long>()
         val controller =
             HoldSeekController(
                 scope = scope,
@@ -23,6 +24,7 @@ class HoldSeekControllerTest {
                 positionMs = { 100_000L },
                 durationMs = { 3_600_000L },
                 commit = commits::add,
+                onFinalCommit = finalCommits::add,
             )
     }
 
@@ -35,6 +37,7 @@ class HoldSeekControllerTest {
             harness.controller.onSeekKeyUp()
 
             assertEquals(listOf(110_000L), harness.commits)
+            assertEquals(listOf(110_000L), harness.finalCommits)
         }
 
     @Test
@@ -48,6 +51,7 @@ class HoldSeekControllerTest {
             assertNull(harness.controller.pendingTargetMs)
             harness.controller.onSeekKeyUp()
             assertTrue(harness.commits.isEmpty())
+            assertTrue(harness.finalCommits.isEmpty())
         }
 
     @Test
@@ -62,6 +66,7 @@ class HoldSeekControllerTest {
             harness.controller.onSeekKeyUp()
 
             assertTrue(harness.commits.isEmpty())
+            assertTrue(harness.finalCommits.isEmpty())
             assertNull(harness.controller.pendingTargetMs)
         }
 
@@ -76,6 +81,7 @@ class HoldSeekControllerTest {
             runCurrent()
 
             assertTrue(harness.commits.isEmpty())
+            assertTrue(harness.finalCommits.isEmpty())
             assertNull(harness.controller.pendingTargetMs)
         }
 
@@ -111,6 +117,7 @@ class HoldSeekControllerTest {
             }
 
             assertEquals(1, harness.commits.size)
+            assertTrue(harness.finalCommits.isEmpty(), "cadence commits are not final commits")
             assertTrue(harness.controller.sessionActive, "cadence commits keep the hold session alive")
         }
 }

@@ -195,6 +195,7 @@ class PlayerViewModel(
     private val workDispatcher: CoroutineDispatcher = Dispatchers.Default,
     backend: PlayerBackend = PlayerBackend.AVPlayer,
     private val playerControllerFactory: (PlayerBackend) -> PlayerController = { playerController },
+    private val playerControllerFactoryWithOptions: ((PlayerBackend, Boolean) -> PlayerController)? = null,
     private val deviceProfileProvider: DeviceProfileProvider? = null,
     private val playbackDiagnosticsContext: PlaybackDiagnosticsContext? = null,
     private val getPlayerBackendOverrideUseCase: GetPlayerBackendOverrideUseCase? = null,
@@ -278,6 +279,7 @@ class PlayerViewModel(
     private var queueSwitchInFlight = false
     private var chapters: List<Chapter> = emptyList()
     private var trickplay: TrickplayInfo? = null
+    private var trickplayByMediaSourceId: Map<String, TrickplayInfo?> = emptyMap()
     private var playbackSpeed: Float = DEFAULT_PLAYBACK_SPEED
     private var subtitleStyle: SubtitleStyle = SubtitleStyle()
     private var resizeMode: PlayerResizeMode = PlayerResizeMode.Fit
@@ -1393,6 +1395,8 @@ class PlayerViewModel(
         derivedEpisodeQueueJob?.cancel()
         derivedEpisodeQueueJob = null
         currentItemId = itemId
+        trickplay = null
+        trickplayByMediaSourceId = emptyMap()
         autoRecoveryState = autoRecoveryCoordinator.reset(launchGeneration, currentItemId, backend)
         pendingPictureInPictureRecoveryTrigger = null
         autoSkippedSegmentKeys.clear()
@@ -1451,7 +1455,7 @@ class PlayerViewModel(
         activePlaybackPreferences = playbackPreferences
 
         chapters = detail.chapters
-        trickplay = detail.trickplay
+        trickplayByMediaSourceId = detail.trickplayByMediaSourceId
         selectedMediaSourceId = selectedVersion.id
         selectedSourceContainer = selectedVersion.container
         observeLocalSubtitleAssets(itemId, selectedVersion.id)
@@ -1744,6 +1748,7 @@ class PlayerViewModel(
         activePlaybackTimelineFacts = offlineProjection.timelineFacts
         chapters = offlineProjection.chapters
         trickplay = null
+        trickplayByMediaSourceId = emptyMap()
         mediaSegments = emptyList()
         selectedMediaSourceId = sourceId
         selectedSourceContainer = offlineProjection.sourceContainer
@@ -2062,7 +2067,7 @@ class PlayerViewModel(
                 selectedSubtitle = selectedSubtitle,
             ).copy(
                 chapters = chapters,
-                trickplay = trickplay,
+                trickplay = trickplayByMediaSourceId.trickplayForMediaSource(playbackPlan.mediaSourceId),
                 mediaSegments = mediaSegments,
                 playbackSpeed = playbackSpeed,
                 subtitleStyle = subtitleStyle,
@@ -2352,6 +2357,15 @@ class PlayerViewModel(
         return true
     }
 
+    private fun constructPlayerController(resolvedBackend: PlayerBackend): PlayerController {
+        val options =
+            PlayerControllerConstructionOptions(
+                allowInsecureDesktopTls = activePlaybackPreferences.allowInsecureDesktopTls,
+            )
+        return playerControllerFactoryWithOptions?.invoke(resolvedBackend, options.allowInsecureDesktopTls)
+            ?: playerControllerFactory(resolvedBackend)
+    }
+
     /** Replaces the controller and rebinds every observer. */
     private suspend fun installController(
         resolvedBackend: PlayerBackend,
@@ -2400,7 +2414,7 @@ class PlayerViewModel(
                 val replacementController =
                     try {
                         withContext(workDispatcher) {
-                            playerControllerFactory(resolvedBackend).also(candidateOwner::acquire)
+                            constructPlayerController(resolvedBackend).also(candidateOwner::acquire)
                         }
                     } catch (exception: CancellationException) {
                         throw exception
@@ -2421,7 +2435,7 @@ class PlayerViewModel(
                             throw exception
                         }
                         withContext(workDispatcher) {
-                            playerControllerFactory(PlayerBackend.ExoPlayer).also(candidateOwner::acquire)
+                            constructPlayerController(PlayerBackend.ExoPlayer).also(candidateOwner::acquire)
                         }
                     }
                 val candidateBackend = replacementController.activeBackend
@@ -2792,14 +2806,14 @@ class PlayerViewModel(
                 val replacementController =
                     try {
                         withContext(workDispatcher) {
-                            playerControllerFactory(switch.targetBackend).also(candidateOwner::acquire)
+                            constructPlayerController(switch.targetBackend).also(candidateOwner::acquire)
                         }
                     } catch (exception: CancellationException) {
                         throw exception
                     } catch (_: Throwable) {
                         if (switch.targetBackend == switch.defaultBackend) throw BackendSwitchInstallationException()
                         withContext(workDispatcher) {
-                            playerControllerFactory(switch.defaultBackend).also(candidateOwner::acquire)
+                            constructPlayerController(switch.defaultBackend).also(candidateOwner::acquire)
                         }
                     }
                 val actualBackend = replacementController.activeBackend
@@ -3961,6 +3975,8 @@ class PlayerViewModel(
     ) {
         installedPlan = null
         plan = playbackPlan
+        selectedMediaSourceId = playbackPlan.mediaSourceId
+        trickplay = playbackPlan.trickplay
         updatePlaybackHealthSessionContext()
         if (stabilizesQueueSwitch) {
             // The replacement plan makes item identity stable again.
@@ -4328,6 +4344,7 @@ class PlayerViewModel(
         return projections.trickplayTileUrls(
             itemId = currentItemId,
             serverUrl = session.serverUrl,
+            mediaSourceId = trickplay?.mediaSourceId,
             tileWidth = trickplay?.width,
             tileCount = trickplay?.tileCount,
         ) {
@@ -4603,6 +4620,10 @@ internal fun playbackLaunchMarkerMatches(
 private val playerMonotonicOrigin = TimeSource.Monotonic.markNow()
 
 private fun playerMonotonicTimeMs(): Long = playerMonotonicOrigin.elapsedNow().inWholeMilliseconds
+
+internal data class PlayerControllerConstructionOptions(
+    val allowInsecureDesktopTls: Boolean,
+)
 
 private data class PlaybackTerminalRecovery(
     val outcome: PlaybackTerminalOutcome?,

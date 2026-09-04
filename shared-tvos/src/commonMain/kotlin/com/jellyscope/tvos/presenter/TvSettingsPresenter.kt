@@ -9,6 +9,7 @@ import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.model.SendClientLogsResult
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.MediaSegmentType
 import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
@@ -98,7 +99,7 @@ class TvSettingsPresenter(
             for (snapshot in pendingWrites) {
                 try {
                     withContext(workDispatcher) {
-                        savePlaybackPreferences(session.serverId, snapshot)
+                        savePlaybackPreferences(session.accountIdentity(), snapshot)
                     }
                 } catch (exception: kotlinx.coroutines.CancellationException) {
                     throw exception
@@ -244,7 +245,7 @@ class TvSettingsPresenter(
     private suspend fun load() {
         val preferences =
             try {
-                withContext(workDispatcher) { getPlaybackPreferences(session.serverId) }
+                withContext(workDispatcher) { getPlaybackPreferences(session.accountIdentity()) }
             } catch (exception: kotlinx.coroutines.CancellationException) {
                 throw exception
             } catch (exception: Throwable) {

@@ -88,7 +88,7 @@ fun appleCoreModule(
             isTvOs = diagnosticPlatform == PlaybackDiagnosticPlatform.TvOs,
         )
     }
-    factory<PlayerController> { (session: Session, _backend: PlayerBackend) ->
+    factory<PlayerController> { (session: Session, _backend: PlayerBackend, _allowInsecureDesktopTls: Boolean) ->
         AppleAVPlayerController(
             session = session,
             deviceInfoProvider = get(),

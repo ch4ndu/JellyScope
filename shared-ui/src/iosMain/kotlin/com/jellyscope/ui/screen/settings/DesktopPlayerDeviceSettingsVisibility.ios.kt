@@ -5,3 +5,5 @@ package com.jellyscope.ui.screen.settings
 actual fun isDesktopPlayerDeviceSettingsVisible(): Boolean = false
 
 actual fun isPlaybackCompatibilityVisible(): Boolean = true
+
+actual fun isDesktopTlsExceptionVisible(): Boolean = false

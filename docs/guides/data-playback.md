@@ -82,6 +82,15 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   presenter/ViewModel boundaries. Episode detail keeps its separate Next Up
   then Similar sequence; Series detail intentionally flattens its related
   groups into one Related shelf. There is no related-source Director job.
+- General Home, TV Home, the Fire TV Watch Next provider, and the generic Next
+  Up ribbon request `enableResumable=false` because those surfaces already own
+  or merge Continue Watching. Series-detail and other series-scoped Next Up
+  requests retain the compatible resumable-inclusive default.
+- Find sends one bounded 60-item request for each selected Movies, Shows, or
+  Episodes category. The repository starts at most those three requests in one
+  structured scope, joins them in the requested category order, de-duplicates
+  by item ID, and then applies `FindProjection`. Any request failure fails the
+  whole search; partial category results are never published.
 
 ## Settings And Credentials
 
@@ -158,12 +167,19 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   state, are never registered with the runtime cache registry, survive removal
   of a sibling account on the same server, and clear only on full logout or
   removal of the last account for that server.
+- Playback preferences are keyed by `AccountIdentity`; deleting one account
+  deletes only that account's preference row, while server and global cleanup
+  retain their broader scopes. A schema-10 server-only row migrates under one
+  empty-user sentinel. The first authenticated reader for that server claims it
+  transactionally; later users receive platform defaults, including Android's
+  seeded VLC transcode bitrate, so two accounts can never inherit one legacy
+  preference snapshot.
 - Shared persistence stores expose commonMain interfaces with plain data
   classes. Android, iOS, and JVM desktop back playback preferences,
   player-backend overrides, recent searches, and watch-next sync state with Room
   KMP in `shared-core` using the bundled SQLite driver. iOS and JVM desktop also
   back player-device settings with the same Room database. The owner schema is
-  version 10 with explicit migrations 1→2 through 9→10. If a future app
+  version 11 with explicit migrations 1→2 through 10→11. If a future app
   downgrade encounters a database with a higher `user_version`, the
   bundled-driver recovery recreates only refetchable `recent_searches` and
   `watch_next_sync` tables before Room validates the repaired schema.
@@ -322,6 +338,15 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   writes `http-header-fields` on every prepare and writes an empty value for a
   blank token or untrusted resource so a reused native context cannot retain a
   credential. Do not add a legacy-header fallback or server-version branch.
+- Desktop mpv secure construction exports the JVM default trust manager's
+  accepted issuers to an atomically replaced PEM file under JellyScope's
+  existing application-data subtree, then requires both `tls-verify=yes` and
+  that `tls-ca-file` before `mpv_initialize`. This is exactly the JVM trust set,
+  not a separate macOS Keychain query. Export or mandatory-option failure fails
+  typed engine construction; it never downgrades verification. The current
+  account/server may explicitly allow insecure desktop certificates in
+  Playback Settings; that warning-gated choice sets `tls-verify=no`, omits the
+  CA file, and applies only to newly constructed desktop mpv engines.
 - VLC-family backends cannot inject auth headers, so they are the deliberate
   query-auth exception and use the modern `ApiKey` spelling. Android and desktop
   consume `CredentialOriginGuard.authorizedUrl`, which returns a credentialed URL
@@ -1343,6 +1368,12 @@ suppresses interactive recovery until it is safe to show the consequence.
   /MediaSegments/{itemId}` with segment types `Intro`, `Outro`, `Recap`,
   `Preview`, and `Commercial`. Legacy Intro-Skipper endpoints are not part of
   the shared contract unless a later feature adds an explicit fallback.
+- Jellyfin trickplay metadata is retained as media-source ID → nullable
+  resolution map. After playback planning selects a source, Player resolves the
+  exact outer entry, falling back only when the server supplied exactly one
+  outer entry, and chooses the largest valid inner resolution for that source.
+  The selected source ID is part of both tile URLs and tile-cache identity, so a
+  source switch cannot reuse another version's thumbnails.
 - `PlaybackPlan` carries chapters, trickplay info, media segments, playback
   speed, and subtitle style so platform players can consume them at prepare
   time. `PlayerViewModel` enriches `PlaybackState` with the current segment and
@@ -1610,7 +1641,8 @@ rather than porting code. When probing a live server:
   intercept credential forwarding across an HTTP redirect. This is the
   documented trusted-initial-authority residual; HTTPS verification remains
   enabled with an atomically replaced PEM bundle built from Android's default
-  trust managers, and no `tls-verify=no` fallback is permitted.
+  trust managers. Android has no `tls-verify=no` fallback or user exception;
+  the explicit account/server desktop exception above is desktop-only.
 - The vendor adapter converts callbacks to project-owned events. The
   `AndroidMpvPlayerController` owns serialized native calls, generation-scoped
   state, play/pause/seek/retry/release, exact track and subtitle activation,
@@ -1713,10 +1745,11 @@ rather than porting code. When probing a live server:
   and a subtitle delay with no subtitle track has no observable
   effect. Gate the subtitle button and its picker auto-close on an actual
   selectable track or local asset (`hasSubtitlePickerChoice`), never on timing
-  support. Neither desktop controller implements `PlayerTimingController`, so
-  `timingController` stays null there and the Offset entry is hidden on desktop
-  entirely; wiring mpv `audio-delay`/`sub-delay` behind the existing seam is an
-  open capability gap, not a regression.
+  support. Desktop mpv implements both-sign audio and subtitle timing through
+  `audio-delay` and `sub-delay`; it retains normalized state while an engine is
+  absent and reapplies both values on engine construction and before `loadfile`.
+  Desktop LibVLC still exposes no `PlayerTimingController`, so Offset remains
+  hidden for that backend.
 - Audio and subtitle timing offsets are signed, finite milliseconds, clamped to
   the shared ±20-second limit, and keyed by server/account/item/media source and
   stable track identity. The ViewModel loads an offset **before** the first
@@ -2279,7 +2312,11 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   **[android]** only — iOS and desktop install a no-op gesture controller whose
   brightness/volume updates return no value, and the shared gesture code
   silently skips the HUD when there is no value to show, so the swipe is inert
-  rather than broken.
+  rather than broken. Android captures the exact window brightness value when
+  the player takes ownership. Each swipe begins from the current window
+  override, or from the clamped system brightness setting when no override is
+  active. Player disposal restores the exact ownership-time value rather than
+  forcing the no-override sentinel.
 - **[desktop]** Window-level capability bridges deliver Space, Left/Right, Esc,
   fullscreen double-click, and cursor hide/restore even when inner controls own
   focus. While the player is fullscreen, pointer inactivity hides the cursor
@@ -2320,8 +2357,30 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
 
 - **[all]** Taps/scrubs commit on release (`onValueChangeFinished`), not
   continuously.
-- **[all]** Draw buffered progress and show a trickplay thumbnail at the scrub
-  target when available.
+- **[all]** Draw buffered progress and show a trickplay thumbnail only while a
+  user-driven scrub or pending seek target is active, and only after that
+  target's current sprite sheet loads successfully. Merely focusing the seek bar
+  or displaying the live playback position never requests or shows a preview.
+  Missing or invalid metadata, loading, and image failure render no preview
+  chrome; a later scrub session or tile identity may retry the request. A
+  successful sprite is drawn at its full tile-grid extent through a clipped
+  one-thumbnail viewport; parent layout constraints must not shrink the sheet
+  before applying the crop. Release diagnostics distinguish unavailable
+  metadata, loading, success, failure type, decoded dimensions/source, and crop
+  coordinates without media, account, server, URL, or credential identity.
+- **[tv]** A committed seek retains its exact target thumbnail until the
+  player's resulting loading/buffering recovery ends. If the target was already
+  buffered and no recovery transition begins, a short bounded handoff clears
+  the retained preview. The thumbnail is horizontally centered over the target
+  where space permits and clamps within the seek-bar width near either edge. A
+  shallow pointer uses three quarters of a player option button as its maximum
+  width and bends from the clamped thumbnail toward the exact seek position.
+  Its base narrows near a hard endpoint so the edge-facing side remains compact
+  instead of curling into a broad hook, without materially increasing the scrub
+  section's height. When recovery releases the target, the loaded preview fades
+  out while the lane collapses toward the scrubber over a short transition.
+  Non-null target changes share one animation identity so held D-pad steps move
+  immediately; an item identity change disposes the old animation immediately.
 
 ### Hold-to-seek (TV D-pad/media keys, desktop keyboard)
 
@@ -2654,7 +2713,11 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   after a newer activation. System interruptions (call/Siri/alarm) pause through
   the controller's normal `pause()` path (clearing play intent so the state poll
   cannot fight the OS) and auto-resume only when iOS reports `shouldResume` AND
-  playback was playing before the interruption.
+  playback was playing before the interruption. Its interruption and route
+  observers exist only while a current activation owner exists and deliver to
+  that captured owner on the main queue. An `oldDeviceUnavailable` route change
+  pauses through the normal controller path without recording interruption
+  intent; wired/USB/Bluetooth reconnection therefore never auto-resumes it.
 - Unified VLCKit 4 drives buffering from its typed progress callback and maps
   audio/text tracks from typed ordered lists with stable native IDs. Jellyfin
   identity remains ordinal/language/readback based; external subtitle IDs are
@@ -3176,6 +3239,45 @@ operative text lives in the body sections above, never here.
   flattened shelf are separate product exceptions. Rejected: progressive
   completion-order publication, a Director source job, and platform-local
   shelf limits.
+- **Next Up excludes resumables only where another surface owns them.** Home
+  and Watch Next already merge Continue Watching, so accepting Jellyfin's
+  resumable Next Up rows there duplicates the same asset and ownership. The
+  API default stays inclusive because series-detail Next Up has no companion
+  Continue Watching section. Rejected: forcing one raw-API value globally.
+- **Find request limits belong to each selected category.** A mixed 60-item
+  limit lets a common kind starve another selected kind before projection.
+  Per-kind requests preserve the same filters while ordered join and ID
+  de-duplication keep presentation deterministic. Rejected: partial results on
+  sibling failure, which would make a failed category look empty.
+- **Trickplay identity follows the selected playback source.** Resolution-only
+  flattening can pair thumbnails from one media version with playback of
+  another. Retaining the outer source key and using a singleton-only fallback
+  preserves compatibility with unambiguous responses without guessing across
+  versions. The source remains in URL and cache identity so switches invalidate
+  stale tiles.
+- **Trickplay availability requires a delivered tile.** Server metadata proves
+  only that a sprite sheet is advertised; it does not prove the image still
+  exists or can be fetched. A user-driven seek target starts the preview request;
+  seek-bar focus and the already-visible live video do not. A final-commit
+  callback retains that target across the seek-to-buffering handoff, and player
+  status removes it when loading/buffering recovery ends; cancellation cannot
+  retain a target, while a bounded grace clears already-buffered seeks that
+  never report buffering. The preview is centered over the target until edge
+  clamping is required, where its shallow curved pointer narrows and leans
+  toward the exact position instead of forming a broad edge hook.
+  A presence-keyed fade and size collapse makes removal deliberate without
+  cross-fading each seek step; item identity resets it to prevent stale frames.
+  Preview chrome waits for image success and stays absent on loading or failure.
+  The sheet is painted directly through the clipped preview because measuring it
+  as a child of that frame clamps it to one thumbnail before the row/column
+  offset and can move every pixel outside the viewport. Identity-free request,
+  decode, and crop diagnostics remain visible in release Logcat so the first
+  capture distinguishes delivery from rendering. Rejected: querying an
+  administrator-level library setting, prefetching or showing the
+  current-position frame on focus alone, retaining canceled or stale targets,
+  an unbounded wait for buffering, showing an empty frame, permanently disabling
+  previews after a potentially transient request failure, or using a
+  constraint-clamped oversized image child.
 
 - **Apple profile conditions are per-player.** AVFoundation only decodes HEVC
   in MP4/MOV when the sample-entry tag is `hvc1`/`dvh1` (parameter sets
@@ -3336,15 +3438,19 @@ operative text lives in the body sections above, never here.
   hardening must preserve the no-Keychain rule and avoid OS credential prompts.
   Audits must not reopen the accepted at-rest tradeoff itself.
 
-- **The Room owner preserves durable state across schema 10 migrations.** The
-  database registers the complete 1→2 through 9→10 migration chain, including
+- **The Room owner preserves durable state across schema 11 migrations.** The
+  database registers the complete 1→2 through 10→11 migration chain, including
   data-only preference changes, so an installed alpha can reach the current
-  schema without a destructive reset. A future-version downgrade driver may
-  recreate only refetchable recent-search and Watch Next cache tables before
-  Room validates the schema; durable playback, settings, subtitle, and local
-  asset rows are preserved. Rejected: the retired clean-install-only v1
-  premise, a missing historical migration chain, and whole-database
-  destructive fallback.
+  schema without a destructive reset. The 10→11 preference migration uses a
+  single legacy sentinel because the old row has no user identity; claiming and
+  deleting it in one transaction prevents two accounts from inheriting one
+  user's settings while preserving the first authenticated user's upgrade.
+  Duplicating the row for every account or assigning it to an arbitrary stored
+  user was rejected. A future-version downgrade driver may recreate only
+  refetchable recent-search and Watch Next cache tables before Room validates
+  the schema; durable playback, settings, subtitle, and local asset rows are
+  preserved. Rejected: the retired clean-install-only v1 premise, a missing
+  historical migration chain, and whole-database destructive fallback.
 - **Launch persistence reads fail independently and report closed outcomes.**
   A single aggregate try/catch was rejected because one corrupt or unavailable
   store would erase successful sibling values; sequential owner-local reads
@@ -3466,6 +3572,28 @@ operative text lives in the body sections above, never here.
 
 ### Backends and players
 
+- **Desktop mpv derives trust from the JVM and fails closed by default.** The
+  native engine does not automatically inherit the JVM trust store, so an
+  app-owned PEM makes its accepted issuers explicit without querying a second
+  macOS-specific authority. Export and required-option failures abort engine
+  construction because silently omitting either would misrepresent secure
+  playback. The insecure exception is account/server-scoped and construction-
+  time-only so one local server choice cannot weaken another account or an
+  already-running engine. Rejected: automatic certificate retry, a global
+  toggle, and Keychain enumeration.
+- **Desktop mpv timing reuses the existing offset contract.** libmpv already
+  owns both-sign `audio-delay` and `sub-delay`; a JVM-only adapter keeps that
+  native detail behind `PlayerTimingController` while the shared coordinator
+  retains account/item/source persistence and reset policy. Reapplying retained
+  values at engine installation and load avoids a new schema, DI path, or
+  desktop-only UI. Desktop LibVLC remains unsupported until it has equivalent
+  native evidence.
+- **Apple output loss is a pause event, not an interruption-resume event.** A
+  removed wired, USB, or Bluetooth route expresses lost output, but reconnecting
+  hardware is not permission to restart media. Dispatching only the captured
+  current audio-session owner through normal `pause()` clears play intent and
+  prevents polling or a stale callback from resurrecting playback. Reusing the
+  interruption intent was rejected because it would auto-resume on reconnect.
 - **Desktop mpv subtitle clearance follows the composed bottom chrome.** mpv's
   native/default `34` scaled-pixel margin is the correct hidden-controls and PiP
   baseline, while the existing accepted controls-visible position is retained by
@@ -3774,6 +3902,13 @@ operative text lives in the body sections above, never here.
 
 ### Player UX
 
+- **Android player brightness is borrowed window state.** Capturing ownership
+  once preserves the exact value to restore, while reading the live window at
+  each gesture start lets repeated swipes continue from JellyScope's current
+  override. The system brightness setting is consulted only when the live
+  window has no override. Rejected: using the ownership-time restore value as
+  every gesture baseline, a fixed 50% fallback for a readable system setting,
+  and unconditional restoration to the no-override sentinel.
 - **Do not enable approximate constant-bitrate seeking without a demonstrated
   failure that requires it.** The flag trades seek accuracy for an unproven
   workaround, so the normal container/index-aware seek path remains the

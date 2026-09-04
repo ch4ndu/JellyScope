@@ -38,6 +38,7 @@ class TvHomePresenterTest {
 
             val state = presenter.state.value
             assertFalse(state.isLoading)
+            assertEquals(listOf(false), repository.nextUpIncludeResumableCalls)
             assertEquals(TvHomeRowKind.ContinueWatching, state.hero?.kind)
             assertEquals(
                 listOf(TvHomeRowKind.RecentlyAdded),

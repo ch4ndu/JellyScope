@@ -5,6 +5,7 @@ package com.jellyscope.core.domain.usecase
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.PlaybackLaunchContext
 import com.jellyscope.core.domain.playback.PlaybackLaunchReadOutcome
 import com.jellyscope.core.domain.playback.SubtitleSelectionKey
@@ -42,7 +43,7 @@ class GetPlaybackLaunchContextUseCase(
             val preferencesRead =
                 async {
                     readOptional(getPlaybackPreferences) { useCase ->
-                        useCase(session.serverId).normalized()
+                        useCase(session.accountIdentity()).normalized()
                     }
                 }
             val playbackSelectionRead =

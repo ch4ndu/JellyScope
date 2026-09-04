@@ -192,7 +192,10 @@ private class FakeLibrariesRepository(
     // the library-tab selection contract.
     override suspend fun getContinueWatching(): Result<List<MediaItem>> = unused()
 
-    override suspend fun getNextUp(seriesId: String?): Result<List<MediaItem>> = unused()
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> = unused()
 
     override suspend fun getItemDetail(
         itemId: String,

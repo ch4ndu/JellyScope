@@ -27,6 +27,7 @@ data class PlaybackPreferences(
     val autoPlayNext: Boolean = true,
     val stillWatchingPrompt: Boolean = true,
     val playbackWarningsEnabled: Boolean = false,
+    val allowInsecureDesktopTls: Boolean = false,
     val autoPlayNextDelaySeconds: Int = DEFAULT_AUTOPLAY_NEXT_DELAY_SECONDS,
     val introSkip: SegmentSkipPolicy = SegmentSkipPolicy.Ask,
     val outroSkip: SegmentSkipPolicy = SegmentSkipPolicy.Ask,

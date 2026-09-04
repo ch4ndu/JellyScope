@@ -63,6 +63,8 @@ interface PlayerGestureController {
     fun updateVolume(deltaFraction: Float): Float?
 
     fun endGesture()
+
+    fun dispose() = Unit
 }
 
 @Composable

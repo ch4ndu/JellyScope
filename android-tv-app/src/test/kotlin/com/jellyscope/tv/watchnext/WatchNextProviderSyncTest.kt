@@ -111,7 +111,10 @@ private val EmptyMediaRepository =
 
         override suspend fun getContinueWatching() = Result.success(emptyList<MediaItem>())
 
-        override suspend fun getNextUp(seriesId: String?) = Result.success(emptyList<MediaItem>())
+        override suspend fun getNextUp(
+            seriesId: String?,
+            includeResumable: Boolean,
+        ) = Result.success(emptyList<MediaItem>())
 
         override suspend fun getItemDetail(
             itemId: String,

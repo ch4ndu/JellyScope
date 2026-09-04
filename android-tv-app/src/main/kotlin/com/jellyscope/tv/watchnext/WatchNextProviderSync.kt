@@ -78,7 +78,7 @@ internal class WatchNextProviderSync(
     private suspend fun loadDesiredItems(): List<DesiredWatchNextItem> =
         coroutineScope {
             val continueWatching = async { getContinueWatchingUseCase().getOrThrow() }
-            val nextUp = async { getNextUpUseCase().getOrThrow() }
+            val nextUp = async { getNextUpUseCase(includeResumable = false).getOrThrow() }
             selectWatchNextCandidates(
                 continueWatching = continueWatching.await(),
                 nextUp = nextUp.await(),

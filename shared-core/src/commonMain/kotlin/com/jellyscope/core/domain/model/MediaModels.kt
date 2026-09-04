@@ -94,7 +94,7 @@ data class MediaItemDetail(
     val versions: List<MediaVersion> = emptyList(),
     val people: List<MediaPerson> = emptyList(),
     val chapters: List<Chapter> = emptyList(),
-    val trickplay: TrickplayInfo? = null,
+    val trickplayByMediaSourceId: Map<String, TrickplayInfo?> = emptyMap(),
     val trailerUrl: String? = null,
 )
 

@@ -292,8 +292,8 @@ val sharedUiModule =
                 offlineDownloadId = launchOptions.offlineDownloadId,
                 backend = backend,
                 playerController = PendingPlayerController,
-                playerControllerFactory = { resolvedBackend ->
-                    get<PlayerController>(parameters = { parametersOf(session, resolvedBackend) })
+                playerControllerFactoryWithOptions = { resolvedBackend, allowInsecureDesktopTls ->
+                    get<PlayerController>(parameters = { parametersOf(session, resolvedBackend, allowInsecureDesktopTls) })
                 },
                 initialControllerIsPending = true,
                 deviceProfileProvider = get(),

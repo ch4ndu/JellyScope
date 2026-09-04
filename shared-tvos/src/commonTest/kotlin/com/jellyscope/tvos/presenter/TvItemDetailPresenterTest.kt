@@ -361,6 +361,7 @@ class TvItemDetailPresenterTest {
             presenter.load()
             runCurrent()
 
+            assertEquals(listOf(true), repository.nextUpIncludeResumableCalls)
             assertEquals("season-2", presenter.state.value.selectedSeasonId)
             assertEquals("episode-5", presenter.state.value.nextUpEpisodeId)
             assertEquals(

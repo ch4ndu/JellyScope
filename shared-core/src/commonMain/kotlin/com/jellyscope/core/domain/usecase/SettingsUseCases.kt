@@ -13,6 +13,7 @@ import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.RecentSearchStore
 import com.jellyscope.core.data.local.SavedLibrarySort
 import com.jellyscope.core.data.local.TileSizeStore
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.TileSizeId
@@ -90,7 +91,7 @@ class RefreshPlayerDevicePolicyUseCase(
 class GetPlaybackPreferencesUseCase(
     private val playbackPreferencesStore: PlaybackPreferencesStore,
 ) {
-    suspend operator fun invoke(serverId: String): PlaybackPreferences = playbackPreferencesStore.get(serverId)
+    suspend operator fun invoke(accountIdentity: AccountIdentity): PlaybackPreferences = playbackPreferencesStore.get(accountIdentity)
 }
 
 class GetPlayerBackendOverrideUseCase(

@@ -504,7 +504,24 @@ a behavior must change, update this file in the same commit.
   AVKit transport menus on playback ticks or letting passive appearance steal
   focus. The Kotlin presenter remains the sole playback/replan owner.
 - Seek bar shows a buffered-progress layer; when focused it thickens and
-  shows a thumb; DOWN from the seek bar goes to play/pause.
+  shows a thumb; DOWN from the seek bar goes to play/pause. Focus alone never
+  requests or shows a trickplay frame for the live playback position. A preview
+  is eligible only while LEFT/RIGHT or RW/FF owns a pending seek target. An
+  advertised trickplay sprite is visually absent while loading and on image
+  failure; its thumbnail frame appears only after the current target's tile
+  loads successfully. The decoded sheet is painted at full grid size through
+  the clipped thumbnail viewport so the parent frame cannot clamp it before the
+  row/column crop. On final commit, the target thumbnail remains through the
+  resulting loading/buffering recovery and disappears when recovery ends; an
+  already-buffered seek uses a short bounded handoff. The thumbnail tracks the
+  target horizontally, clamps inside the seek-bar edges, and uses a shallow
+  curved pointer to identify the exact position when it cannot stay centered.
+  The pointer uses three quarters of an option button as its maximum width but
+  narrows near a hard endpoint so the edge-facing side stays compact instead of
+  curling into a broad hook. When recovery releases the retained seek target,
+  the last loaded preview fades while its lane collapses toward the scrubber;
+  target changes during a hold remain immediate, and item changes dispose the
+  old preview without carrying its animation into the next video.
 - Play/pause and all overlay buttons: translucent dark circles at rest, solid
   white with dark glyph when focused (no always-white play button).
 - The playback-info Debug control toggles a persistent, top-anchored,
@@ -984,9 +1001,16 @@ owned by [Downloads And Offline](data-playback.md#downloads-and-offline).
 - Focused tiles use a cyan border and 1.1x scale by default. The TV Appearance
   setting may disable focus zoom, but the border and remaining focus treatment
   stay. Do not add a drop shadow; it reduces title legibility on hardware.
-- Media ribbons use 2:3 posters; libraries use wide tiles. Progress bars inside
-  scaled/bordered cards are inset by the focus-border width. Watched state uses
-  a compact cyan check and unplayed count uses a cyan top-end pill.
+- Home media ribbons use one shape per row. Next Up is uniformly wide because
+  Jellyfin's `/Shows/NextUp` contract supplies episodes: every returned item,
+  its loading placeholder, and View All use the existing wide backdrop/decode
+  geometry. This remains true for an unexpected non-Episode response so one
+  anomalous item cannot create a mixed row. Continue Watching, Recently Added,
+  and Favorites are uniformly 2:3 posters. Shape-specific lazy content types
+  prevent incompatible slot reuse. Library tiles remain wide.
+  Progress bars inside scaled/bordered cards are inset by the focus-border
+  width. Watched state uses a compact cyan check and unplayed count uses a cyan
+  top-end pill.
 - Reused dimensions come from `TvDimens`. TV geometry is tuned at 1080p/320dpi
   and must also be checked on 4K hardware.
 - Never build focus or saveable-state behavior on claims about Compose's
@@ -1000,6 +1024,41 @@ owned by [Downloads And Offline](data-playback.md#downloads-and-offline).
 
 Rationale for rules this guide states — the choice, its reason, and the
 rejected alternatives.
+
+### Home media-card geometry
+
+- **Ribbon identity owns the Home card aspect.** Next Up is a Jellyfin episode
+  feed, and episode primary art is not a reliable poster source, so the whole
+  row uses the existing wide backdrop/decode path. The generic wire envelope
+  does not justify allowing an unexpected response kind to change one tile's
+  measurement; it stays wide with the row. Loading and View All match the row,
+  while the other Home ribbons remain poster rows. Rejected: per-item geometry,
+  a poster View All inside a wide row, changing shape after content arrives,
+  regrouping server results, and sharing one lazy content type across shapes.
+
+### Player trickplay preview
+
+- **The fetched sprite decides whether preview chrome is visible.** Jellyfin
+  metadata can outlive a deleted or unavailable trickplay image, so drawing the
+  black frame from metadata alone leaves an empty box above the seek bar. A
+  pending seek target, not focus, starts the image request because the live video
+  already represents the current position. A final-commit callback retains that
+  target across the seek-to-buffering handoff, and player status removes it when
+  loading/buffering recovery ends; cancellation cannot retain a target, while a
+  bounded grace clears already-buffered seeks that never report buffering. The
+  preview is centered over the target until edge clamping is required, where
+  its shallow curved pointer narrows and leans toward the exact position rather
+  than forming a broad edge hook. A short presence-keyed fade and size collapse
+  softens removal without cross-fading every D-pad target; item identity owns
+  the animation so a prior video's frame cannot survive a source change. The
+  frame and image draw only after success. A Canvas owns
+  the full-sheet draw and clipped crop because a normal oversized child is
+  constrained to the one-frame parent before its offset. Rejected: an
+  administrator setting query,
+  current-position prefetch or preview on focus alone, retaining canceled or
+  stale targets, an unbounded wait for buffering, a permanent failure latch,
+  visible loading or error placeholders, and constraint-clamped sprite
+  children.
 
 ### Related shelf focus
 

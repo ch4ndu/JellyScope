@@ -9,6 +9,7 @@ import com.jellyscope.core.data.repository.MediaRepository
 import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.action.AuthError
 import com.jellyscope.core.domain.action.SessionRemovalAuthorization
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AccountSession
 import com.jellyscope.core.domain.model.FindQuery
 import com.jellyscope.core.domain.model.FindResults
@@ -305,6 +306,7 @@ internal class FakeTvMediaRepository(
     val favoriteCalls = mutableListOf<Pair<String, Boolean>>()
     val playedResponses = ArrayDeque<kotlinx.coroutines.CompletableDeferred<Result<Unit>>>()
     val favoriteResponses = ArrayDeque<kotlinx.coroutines.CompletableDeferred<Result<Unit>>>()
+    val nextUpIncludeResumableCalls = mutableListOf<Boolean>()
     var expectedUploadDispatcher: ContinuationInterceptor? = null
     var observedUploadDispatcher: ContinuationInterceptor? = null
 
@@ -317,7 +319,13 @@ internal class FakeTvMediaRepository(
 
     override suspend fun getContinueWatching(): Result<List<MediaItem>> = continueWatching
 
-    override suspend fun getNextUp(seriesId: String?): Result<List<MediaItem>> = nextUp
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> {
+        nextUpIncludeResumableCalls += includeResumable
+        return nextUp
+    }
 
     override suspend fun getRecentlyAdded(): Result<List<MediaItem>> = recentlyAdded
 
@@ -673,7 +681,7 @@ internal class FakePlaybackPreferencesStore(
     var observedGetDispatcher: ContinuationInterceptor? = null
     var observedSaveDispatcher: ContinuationInterceptor? = null
 
-    override suspend fun get(serverId: String): PlaybackPreferences {
+    override suspend fun get(accountIdentity: AccountIdentity): PlaybackPreferences {
         observedGetDispatcher = currentCoroutineContext()[ContinuationInterceptor]
         if (blockGets) {
             awaitCancellation()
@@ -682,7 +690,7 @@ internal class FakePlaybackPreferencesStore(
     }
 
     override suspend fun save(
-        serverId: String,
+        accountIdentity: AccountIdentity,
         preferences: PlaybackPreferences,
     ) {
         observedSaveDispatcher = currentCoroutineContext()[ContinuationInterceptor]
@@ -694,15 +702,15 @@ internal class FakePlaybackPreferencesStore(
         savedSnapshots += preferences
     }
 
-    override suspend fun clear(serverId: String) {
-        preferences = PlaybackPreferences()
-    }
-
-    override suspend fun clearServerScoped() {
+    override suspend fun clearAccount(accountIdentity: AccountIdentity) {
         preferences = PlaybackPreferences()
     }
 
     override suspend fun clearServerScoped(serverId: String) {
+        preferences = PlaybackPreferences()
+    }
+
+    override suspend fun clearServerScoped() {
         preferences = PlaybackPreferences()
     }
 }

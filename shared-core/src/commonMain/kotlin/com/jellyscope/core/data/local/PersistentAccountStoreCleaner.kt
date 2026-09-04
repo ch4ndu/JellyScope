@@ -89,6 +89,7 @@ class PersistentAccountStoreCleaner(
                 { recentSearchStore.clearAccount(accountIdentity) },
                 { watchNextSyncStore.clearAccount(accountIdentity) },
                 { subtitleSelectionStore.clearAccount(accountIdentity) },
+                { playbackPreferencesStore.clearAccount(accountIdentity) },
                 { sessionStore.clearAccount(accountIdentity) },
                 { playbackSelectionStore?.clearAccount(accountIdentity) },
                 { playbackTimingStore?.clearAccount(accountIdentity) },

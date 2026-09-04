@@ -160,6 +160,7 @@ interface JellyfinApi {
         limit: Int = 20,
         fields: List<String> = defaultItemFields,
         parentId: String? = null,
+        includeResumable: Boolean = true,
     ): BaseItemQueryResultDto
 
     suspend fun getUpcomingEpisodes(

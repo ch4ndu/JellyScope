@@ -108,7 +108,7 @@ internal class DefaultOriginalDownloadAdmission(
         }
         source.selectionDecision(draft)?.let { decision -> return TrustedAdmission.Rejected(decision) }
         val trustedBackendSource = source.backendSource ?: draft.snapshot.backendSource
-        val playbackBackend = resolveOfflinePlaybackBackend(session.serverId, draft.businessKey.itemId, trustedBackendSource)
+        val playbackBackend = resolveOfflinePlaybackBackend(session.accountIdentity(), draft.businessKey.itemId, trustedBackendSource)
         val compatibility =
             if (playbackBackend != null && deviceProfileProvider != null) {
                 try {
@@ -169,7 +169,7 @@ internal class DefaultOriginalDownloadAdmission(
     }
 
     private suspend fun resolveOfflinePlaybackBackend(
-        serverId: String,
+        accountIdentity: AccountIdentity,
         itemId: String,
         source: BackendSourceDescriptor,
     ): PlayerBackend? {
@@ -177,8 +177,8 @@ internal class DefaultOriginalDownloadAdmission(
         provider.requiredOfflineBackend?.let { backend -> return backend }
         val preferencesStore = playbackPreferencesStore ?: return null
         return try {
-            val preferences = preferencesStore.get(serverId).normalized()
-            val itemOverride = playerBackendOverrideStore?.get(serverId, itemId)
+            val preferences = preferencesStore.get(accountIdentity).normalized()
+            val itemOverride = playerBackendOverrideStore?.get(accountIdentity.serverId, itemId)
             val requested =
                 resolvePlayerBackend(
                     defaultBackend = preferences.defaultPlayerBackend,

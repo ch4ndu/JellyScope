@@ -790,6 +790,11 @@ class AppleAVPlayerController(
         if (resume) play()
     }
 
+    override fun onAudioSessionOutputRouteLost() {
+        if (released) return
+        pause()
+    }
+
     private fun failPlayback(
         message: String,
         throwable: Throwable? = null,

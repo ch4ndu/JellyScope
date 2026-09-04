@@ -8,6 +8,8 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.sqlite.execSQL
 import androidx.test.core.app.ApplicationProvider
+import com.jellyscope.core.domain.model.AccountIdentity
+import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
 import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import kotlinx.coroutines.test.runTest
@@ -65,7 +67,7 @@ class JellyfinStoreMigrationTest {
 
             val store = RoomPlaybackPreferencesStore(openProductionDatabase().jellyfinStoreDao())
 
-            val first = store.get("server-1")
+            val first = store.get(account("server-1"))
             assertEquals(8_000_000L, first.defaultMaxBitrateBps)
             assertEquals(PlaybackQualityMode.Fixed, first.defaultQualityPolicy.mode)
             assertEquals(8_000_000L, first.defaultQualityPolicy.maxBitrateBps)
@@ -77,7 +79,7 @@ class JellyfinStoreMigrationTest {
             // The dropped Resume choice must not resurface as a behavior change, and
             // the new column defaults to the previous always-prompt behavior.
             assertTrue(first.stillWatchingPrompt)
-            assertTrue(store.get("server-2").stillWatchingPrompt)
+            assertTrue(store.get(account("server-2")).stillWatchingPrompt)
             readOnlyConnection { connection ->
                 connection.prepare("SELECT maxVideoResolution FROM player_device_settings WHERE id = 'global'").use { statement ->
                     assertTrue(statement.step())
@@ -230,13 +232,13 @@ class JellyfinStoreMigrationTest {
                         "(`serverId`, `userId`, `normalizedQuery`, `displayQuery`, `updatedAtMs`) " +
                         "VALUES ('server-1', 'user-1', 'dune', 'Dune', 1)",
                 )
-                connection.execSQL("PRAGMA user_version = 11")
+                connection.execSQL("PRAGMA user_version = 12")
             }
 
             val store = RoomPlaybackPreferencesStore(openProductionDatabase().jellyfinStoreDao())
 
             // Durable preference rows survive the repair; refetchable caches are recreated.
-            assertEquals(4_000_000L, store.get("server-1").defaultMaxBitrateBps)
+            assertEquals(4_000_000L, store.get(account("server-1")).defaultMaxBitrateBps)
             assertEquals(emptyList(), RoomRecentSearchStore(requireNotNull(database).jellyfinStoreDao()).list("server-1", "user-1"))
             readOnlyConnection { connection ->
                 connection.prepare("PRAGMA user_version").use { statement ->
@@ -264,7 +266,7 @@ class JellyfinStoreMigrationTest {
 
             val store = RoomPlaybackPreferencesStore(openProductionDatabase().jellyfinStoreDao())
 
-            val preferences = store.get("server-1")
+            val preferences = store.get(account("server-1"))
             assertFalse(preferences.playbackWarningsEnabled)
             assertEquals(null, preferences.vlcTranscodeMaxBitrateBps)
         }
@@ -286,9 +288,37 @@ class JellyfinStoreMigrationTest {
                     openProductionDatabase(seedVlcDefaultBps = 8_000_000L).jellyfinStoreDao(),
                 )
 
-            val preferences = store.get("server-1")
+            val preferences = store.get(account("server-1"))
             assertFalse(preferences.playbackWarningsEnabled)
             assertEquals(8_000_000L, preferences.vlcTranscodeMaxBitrateBps)
+        }
+
+    @Test
+    fun legacyPlaybackPreferencesAreClaimedOnceAndAccountCleanupIsIsolated() =
+        runTest {
+            withV3Connection { connection ->
+                connection.execSQL(
+                    "INSERT INTO `playback_preferences` (`serverId`, `defaultPlayerBackend`, `defaultMaxBitrateBps`, " +
+                        "`preferredAudioLanguage`, `preferredSubtitleLanguage`, `resumeBehavior`, `autoPlayNext`, " +
+                        "`autoPlayNextDelaySeconds`, `introSkip`, `outroSkip`, `recapSkip`, `previewSkip`, `commercialSkip`) " +
+                        "VALUES ('server-1', 'LibVlc', 4000000, 'eng', NULL, 'Resume', 1, 10, NULL, NULL, NULL, NULL, NULL)",
+                )
+            }
+
+            val database = openProductionDatabase(seedVlcDefaultBps = 8_000_000L)
+            val store = RoomPlaybackPreferencesStore(database.jellyfinStoreDao(), defaultVlcTranscodeBitrateBps = 8_000_000L)
+            val first = account("server-1")
+            val second = AccountIdentity("server-1", "user-2")
+
+            assertEquals(4_000_000L, store.get(first).defaultMaxBitrateBps)
+            assertEquals(null, database.jellyfinStoreDao().playbackPreferences("server-1", ""))
+            assertEquals(8_000_000L, store.get(second).vlcTranscodeMaxBitrateBps)
+
+            store.save(second, PlaybackPreferences(preferredAudioLanguage = "spa"))
+            store.clearAccount(first)
+
+            assertEquals(null, database.jellyfinStoreDao().playbackPreferences("server-1", "user-1"))
+            assertEquals("spa", database.jellyfinStoreDao().playbackPreferences("server-1", "user-2")?.preferredAudioLanguage)
         }
 
     @Test
@@ -332,7 +362,7 @@ class JellyfinStoreMigrationTest {
         database = instance
         // One real read forces the connection open, so migrations and downgrade
         // repair have run before any assertion inspects the file.
-        RoomPlaybackPreferencesStore(instance.jellyfinStoreDao()).get("__open_probe__")
+        RoomPlaybackPreferencesStore(instance.jellyfinStoreDao()).get(account("__open_probe__"))
         return instance
     }
 
@@ -365,7 +395,7 @@ class JellyfinStoreMigrationTest {
 
     private companion object {
         const val V3_IDENTITY_HASH = "d19455b8e12331ccf3a96f3b19bf2af1"
-        const val JELLYFIN_STORE_TEST_SCHEMA_VERSION = 10
+        const val JELLYFIN_STORE_TEST_SCHEMA_VERSION = 11
 
         val V3_SCHEMA =
             listOf(
@@ -384,3 +414,5 @@ class JellyfinStoreMigrationTest {
             )
     }
 }
+
+private fun account(serverId: String) = AccountIdentity(serverId, "user-1")

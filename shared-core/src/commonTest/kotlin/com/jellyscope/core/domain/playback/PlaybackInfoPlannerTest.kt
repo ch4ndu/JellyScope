@@ -2235,7 +2235,10 @@ private class FailingPlaybackInfoRepository : MediaRepository {
 
     override suspend fun getContinueWatching(): Result<List<MediaItem>> = Result.success(emptyList())
 
-    override suspend fun getNextUp(seriesId: String?): Result<List<MediaItem>> = Result.success(emptyList())
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> = Result.success(emptyList())
 
     override suspend fun getItemDetail(
         itemId: String,

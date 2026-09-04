@@ -392,7 +392,7 @@ internal fun playerFixture(
     detailFailures: Set<String> = emptySet(),
     mediaSegments: List<MediaSegment> = emptyList(),
     chapters: List<Chapter> = emptyList(),
-    trickplay: TrickplayInfo? = null,
+    trickplayByMediaSourceId: Map<String, TrickplayInfo?> = emptyMap(),
     playbackPreferencesStore: PlaybackPreferencesStore? = null,
     playerDeviceSettingsStore: PlayerDeviceSettingsStore = FakePlayerDeviceSettingsStore(),
     confirmInitialAudio: Boolean = true,
@@ -450,7 +450,7 @@ internal fun playerFixture(
             detailFailures = detailFailures,
             mediaSegments = mediaSegments,
             chapters = chapters,
-            trickplay = trickplay,
+            trickplayByMediaSourceId = trickplayByMediaSourceId,
             mediaStreams = mediaStreams,
             fallbackRequestGate = fallbackRequestGate,
         )
@@ -968,7 +968,7 @@ internal class FakeMediaRepository(
     private val detailFailures: Set<String> = emptySet(),
     private val mediaSegments: List<MediaSegment> = emptyList(),
     private val chapters: List<Chapter> = emptyList(),
-    private val trickplay: TrickplayInfo? = null,
+    private val trickplayByMediaSourceId: Map<String, TrickplayInfo?> = emptyMap(),
     private val mediaStreams: List<PlaybackMediaStream> = playbackStreams,
     private val fallbackRequestGate: CompletableDeferred<Unit>? = null,
 ) : MediaRepository {
@@ -985,7 +985,10 @@ internal class FakeMediaRepository(
 
     override suspend fun getContinueWatching(): Result<List<MediaItem>> = Result.success(emptyList())
 
-    override suspend fun getNextUp(seriesId: String?): Result<List<MediaItem>> = Result.success(emptyList())
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> = Result.success(emptyList())
 
     override suspend fun getItemDetail(
         itemId: String,
@@ -1016,7 +1019,7 @@ internal class FakeMediaRepository(
                                 ),
                             ),
                     chapters = chapters,
-                    trickplay = trickplay,
+                    trickplayByMediaSourceId = trickplayByMediaSourceId,
                 ),
             )
         }
@@ -1174,14 +1177,16 @@ internal fun warningsEnabledPreferencesStore(): PlaybackPreferencesStore =
 internal class FakePlaybackPreferencesStore(
     private val preferences: PlaybackPreferences,
 ) : PlaybackPreferencesStore {
-    override suspend fun get(serverId: String): PlaybackPreferences = preferences
+    override suspend fun get(accountIdentity: AccountIdentity): PlaybackPreferences = preferences
 
     override suspend fun save(
-        serverId: String,
+        accountIdentity: AccountIdentity,
         preferences: PlaybackPreferences,
     ) = Unit
 
-    override suspend fun clear(serverId: String) = Unit
+    override suspend fun clearAccount(accountIdentity: AccountIdentity) = Unit
+
+    override suspend fun clearServerScoped(serverId: String) = Unit
 
     override suspend fun clearServerScoped() = Unit
 }

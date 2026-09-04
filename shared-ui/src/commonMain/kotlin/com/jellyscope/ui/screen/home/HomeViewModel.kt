@@ -124,7 +124,10 @@ class HomeViewModel(
     ) {
         when (row) {
             HomeRow.ContinueWatching -> loadMedia(row, keepContentOnError, generation) { getContinueWatchingUseCase() }
-            HomeRow.NextUp -> loadMedia(row, keepContentOnError, generation) { getNextUpUseCase() }
+            HomeRow.NextUp ->
+                loadMedia(row, keepContentOnError, generation) {
+                    getNextUpUseCase(includeResumable = false)
+                }
             HomeRow.RecentlyAdded -> loadMedia(row, keepContentOnError, generation) { getRecentlyAddedUseCase() }
             HomeRow.Favorites -> loadMedia(row, keepContentOnError, generation) { getFavoritesUseCase() }
         }

@@ -34,7 +34,7 @@ val iosCoreModule =
         }
         single<DownloadExecutionHost> { get<IosDownloadLifecycleHost>() }
         single<DownloadLifecycleHost> { get<IosDownloadLifecycleHost>() }
-        factory<PlayerController> { (session: Session, backend: PlayerBackend) ->
+        factory<PlayerController> { (session: Session, backend: PlayerBackend, _allowInsecureDesktopTls: Boolean) ->
             val offlineArtifactResolver = getOrNull<OfflineArtifactResolver>()
             when (backend) {
                 PlayerBackend.VlcKit ->

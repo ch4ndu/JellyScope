@@ -28,7 +28,7 @@ import org.koin.dsl.module
 
 fun androidPlaybackModule(context: Context) =
     module {
-        factory<PlayerController> { (session: Session, _backend: PlayerBackend) ->
+        factory<PlayerController> { (session: Session, _backend: PlayerBackend, _allowInsecureDesktopTls: Boolean) ->
             val backend = _backend
             val libVlcAvailable =
                 backend == PlayerBackend.LibVlc &&

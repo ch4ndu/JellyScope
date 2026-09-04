@@ -1799,17 +1799,21 @@ private class FakePlaybackPreferencesStore(
     val savedPreferences = mutableListOf<PlaybackPreferences>()
     private var preferences = initialPreferences
 
-    override suspend fun get(serverId: String): PlaybackPreferences = preferences
+    override suspend fun get(accountIdentity: AccountIdentity): PlaybackPreferences = preferences
 
     override suspend fun save(
-        serverId: String,
+        accountIdentity: AccountIdentity,
         preferences: PlaybackPreferences,
     ) {
         this.preferences = preferences
         savedPreferences += preferences
     }
 
-    override suspend fun clear(serverId: String) {
+    override suspend fun clearAccount(accountIdentity: AccountIdentity) {
+        preferences = PlaybackPreferences()
+    }
+
+    override suspend fun clearServerScoped(serverId: String) {
         preferences = PlaybackPreferences()
     }
 
@@ -2260,7 +2264,10 @@ private class SettingsClientLogRepository : MediaRepository {
 
     override suspend fun getContinueWatching(): Result<List<MediaItem>> = Result.success(emptyList())
 
-    override suspend fun getNextUp(seriesId: String?): Result<List<MediaItem>> = Result.success(emptyList())
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> = Result.success(emptyList())
 
     override suspend fun getItemDetail(
         itemId: String,

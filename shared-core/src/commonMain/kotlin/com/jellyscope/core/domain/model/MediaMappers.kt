@@ -117,7 +117,7 @@ fun BaseItemDto.toDomainMediaItemDetail(): MediaItemDetail? {
         versions = mediaSources.map { source -> source.toDomainMediaVersion() },
         people = mappedPeople,
         chapters = chapters.mapNotNull { chapter -> chapter.toDomainChapter() },
-        trickplay = trickplay.toDomainTrickplayInfo(),
+        trickplayByMediaSourceId = trickplay.toDomainTrickplayByMediaSourceId(),
         trailerUrl = remoteTrailers.firstNotNullOfOrNull { trailer -> trailer.url?.takeIf { it.isNotBlank() } },
     )
 }
@@ -278,22 +278,36 @@ private fun ChapterDto.toDomainChapter(): Chapter? {
     )
 }
 
-private fun Map<String, TrickplayInfoDto>.toDomainTrickplayInfo(): TrickplayInfo? =
+private fun Map<String, Map<String, TrickplayInfoDto>?>?.toDomainTrickplayByMediaSourceId(): Map<String, TrickplayInfo?> =
+    orEmpty()
+        .mapValues { (mediaSourceId, resolutions) -> resolutions?.toDomainTrickplayInfo(mediaSourceId) }
+
+private fun Map<String, TrickplayInfoDto>.toDomainTrickplayInfo(mediaSourceId: String): TrickplayInfo? =
     entries
-        .mapNotNull { entry -> entry.value.toDomainTrickplayInfo(resolutionKey = entry.key) }
+        .mapNotNull { entry -> entry.value.toDomainTrickplayInfo(mediaSourceId, resolutionKey = entry.key) }
         .maxByOrNull { info -> info.width }
 
-private fun TrickplayInfoDto.toDomainTrickplayInfo(resolutionKey: String): TrickplayInfo? {
-    val width = width ?: resolutionKey.toIntOrNull() ?: return null
-    val height = height ?: thumbnailHeight ?: return null
-    val thumbnailWidth = thumbnailWidth ?: width
-    val thumbnailHeight = thumbnailHeight ?: height
+private fun TrickplayInfoDto.toDomainTrickplayInfo(
+    mediaSourceId: String,
+    resolutionKey: String,
+): TrickplayInfo? {
+    val width =
+        width?.takeIf { value -> value > 0 }
+            ?: resolutionKey.toIntOrNull()?.takeIf { value -> value > 0 }
+            ?: return null
+    val height =
+        height?.takeIf { value -> value > 0 }
+            ?: thumbnailHeight?.takeIf { value -> value > 0 }
+            ?: return null
+    val thumbnailWidth = thumbnailWidth?.takeIf { value -> value > 0 } ?: width
+    val thumbnailHeight = thumbnailHeight?.takeIf { value -> value > 0 } ?: height
     val tileWidth = tileWidth?.takeIf { value -> value > 0 } ?: return null
     val tileHeight = tileHeight?.takeIf { value -> value > 0 } ?: return null
     val thumbnailCount = thumbnailCount?.takeIf { value -> value > 0 } ?: return null
     val intervalMs = interval?.takeIf { value -> value > 0L } ?: return null
 
     return TrickplayInfo(
+        mediaSourceId = mediaSourceId,
         resolutionKey = resolutionKey,
         width = width,
         height = height,

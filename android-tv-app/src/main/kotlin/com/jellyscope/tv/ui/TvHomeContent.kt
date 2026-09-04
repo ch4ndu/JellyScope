@@ -139,15 +139,18 @@ internal fun TvHomeContent(
                     HomeRow.ContinueWatching,
                     continueWatchingTitle,
                     state.continueWatching,
-                    false,
                 ),
-                TvHomeRowSpec(HomeRow.Favorites, favoritesTitle, state.favorites, false),
-                TvHomeRowSpec(HomeRow.NextUp, nextUpTitle, state.nextUp, false),
+                TvHomeRowSpec(HomeRow.Favorites, favoritesTitle, state.favorites),
+                TvHomeRowSpec(
+                    row = HomeRow.NextUp,
+                    title = nextUpTitle,
+                    rowState = state.nextUp,
+                    wide = true,
+                ),
                 TvHomeRowSpec(
                     HomeRow.RecentlyAdded,
                     recentlyAddedTitle,
                     state.recentlyAdded,
-                    false,
                 ),
             )
         }

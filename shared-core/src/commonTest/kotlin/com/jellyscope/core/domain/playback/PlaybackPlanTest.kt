@@ -133,6 +133,7 @@ class PlaybackPlanTest {
     fun trickplayCalculatesTileIndexAndUrl() {
         val trickplay =
             TrickplayInfo(
+                mediaSourceId = "source-1",
                 resolutionKey = "320",
                 width = 320,
                 height = 180,
@@ -149,10 +150,11 @@ class PlaybackPlanTest {
         assertEquals(1, trickplay.tileIndexForPositionMs(1_000_000L))
         assertEquals(2, trickplay.tileIndexForPositionMs(9_999_999L))
         assertEquals(
-            "https://jellyfin.example/Videos/item-1/Trickplay/320/2.jpg",
+            "https://jellyfin.example/Videos/item-1/Trickplay/320/2.jpg?MediaSourceId=source-1",
             JellyfinImageUrlBuilder().trickplayTileUrl(
                 serverUrl = "https://jellyfin.example/",
                 itemId = "item-1",
+                mediaSourceId = trickplay.mediaSourceId,
                 width = trickplay.width,
                 index = trickplay.tileIndexForPositionMs(9_999_999L),
             ),

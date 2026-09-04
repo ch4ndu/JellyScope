@@ -2,6 +2,15 @@
 
 Notable JellyScope changes, newest first.
 
+## 0.1.0-alpha94 — harden playback trust, previews, and home routing · week 8 · 2026-09-03
+
+- Playback preferences are isolated by account, with a Room migration that safely assigns legacy server preferences to one authenticated user. Desktop mpv now verifies HTTPS with the JVM trust store by default and offers an explicit account-and-server-scoped insecure-certificate exception that applies only to newly created players.
+- Trickplay manifests and cached tiles follow the playback plan's selected media source. Android TV shows a preview only while seeking, retains the loaded target through buffering, points to the exact clamped scrub position, hides unavailable images completely, and fades and collapses the preview after recovery.
+- Home, TV Home, Fire TV Watch Next, and Next Up ribbons exclude resumable overlap while series-detail Next Up remains inclusive. The Home Next Up ribbon uses uniform wide episode artwork, loading, and View All tiles, and Find independently requests each selected movie, series, or episode category so one kind cannot consume another's result limit.
+- Android brightness gestures continue from the live window level across repeated swipes and restore the exact pre-player window value on exit. iOS pauses through wired, USB, or Bluetooth output loss without resuming on reconnect, while preserving normal interruption behavior.
+- Desktop mpv supports persistent audio and subtitle timing offsets, and release DMGs deterministically include a verified Applications shortcut and declared app icon without relying on Finder Automation.
+- Automated formatting, shared host tests, Android TV tests, both Android release assemblies, native and license checks, desktop package verification, and the iOS Simulator framework link passed. The maintainer reports that the complete targeted Android, Android TV, iOS, macOS, Home/Watch Next, trickplay, TLS/timing, brightness, route-loss, DMG/Finder, and combined regression checklists passed runtime validation.
+
 ## 0.1.0-alpha93 — modularize playback orchestration · week 8 · 2026-09-01
 
 - Playback orchestration is split into focused diagnostics, debug, timeline, offline, queue, plan-transform, quality, Still Watching, and first-video-output responsibilities while retaining the ViewModel as the sole owner of launch, controller, backend, recovery, reporting, persistence, queue-switching, and UI-publication effects.

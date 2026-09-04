@@ -87,6 +87,7 @@ internal class PlayerQueueProjection(
                 imageUrlBuilder.trickplayTileUrl(
                     serverUrl = serverUrl,
                     itemId = itemId,
+                    mediaSourceId = trickplay.mediaSourceId,
                     width = trickplay.width,
                     index = index,
                 )

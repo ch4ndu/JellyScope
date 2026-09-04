@@ -20,6 +20,7 @@ import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
 import com.jellyscope.core.coroutines.platformIoDispatcher
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.LocalSubtitleAsset
 import com.jellyscope.core.domain.model.LocalSubtitleContext
 import com.jellyscope.core.domain.model.LocalSubtitleSyncState
@@ -52,12 +53,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+private const val LEGACY_PLAYBACK_PREFERENCES_USER_ID = ""
+
 @Entity(
     tableName = "playback_preferences",
-    primaryKeys = ["serverId"],
+    primaryKeys = ["serverId", "userId"],
 )
 internal data class PlaybackPreferencesEntity(
     val serverId: String,
+    val userId: String,
     @ColumnInfo(defaultValue = "Auto")
     val defaultPlayerBackend: String? = PlayerBackend.Auto.name,
     val defaultMaxBitrateBps: Long?,
@@ -70,6 +74,8 @@ internal data class PlaybackPreferencesEntity(
     val stillWatchingPrompt: Boolean = true,
     @ColumnInfo(defaultValue = "1")
     val playbackWarningsEnabled: Boolean = true,
+    @ColumnInfo(defaultValue = "0")
+    val allowInsecureDesktopTls: Boolean = false,
     @ColumnInfo(defaultValue = "10")
     val autoPlayNextDelaySeconds: Int = 10,
     val introSkip: String? = null,
@@ -220,17 +226,37 @@ internal data class LocalSubtitleAssetEntity(
 
 @Dao
 internal interface JellyfinStoreDao {
-    @Query("SELECT * FROM playback_preferences WHERE serverId = :serverId LIMIT 1")
-    suspend fun playbackPreferences(serverId: String): PlaybackPreferencesEntity?
+    @Query("SELECT * FROM playback_preferences WHERE serverId = :serverId AND userId = :userId LIMIT 1")
+    suspend fun playbackPreferences(
+        serverId: String,
+        userId: String,
+    ): PlaybackPreferencesEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPlaybackPreferences(entity: PlaybackPreferencesEntity)
 
+    @Query("DELETE FROM playback_preferences WHERE serverId = :serverId AND userId = :userId")
+    suspend fun clearPlaybackPreferences(
+        serverId: String,
+        userId: String,
+    )
+
     @Query("DELETE FROM playback_preferences WHERE serverId = :serverId")
-    suspend fun clearPlaybackPreferences(serverId: String)
+    suspend fun clearPlaybackPreferencesForServer(serverId: String)
 
     @Query("DELETE FROM playback_preferences")
     suspend fun clearAllPlaybackPreferences()
+
+    @Transaction
+    suspend fun playbackPreferencesForAccount(accountIdentity: AccountIdentity): PlaybackPreferencesEntity? {
+        playbackPreferences(accountIdentity.serverId, accountIdentity.userId)?.let { return it }
+        // This transaction permits exactly one authenticated account to claim a legacy server row.
+        val legacy = playbackPreferences(accountIdentity.serverId, LEGACY_PLAYBACK_PREFERENCES_USER_ID) ?: return null
+        val claimed = legacy.copy(userId = accountIdentity.userId)
+        upsertPlaybackPreferences(claimed)
+        clearPlaybackPreferences(accountIdentity.serverId, LEGACY_PLAYBACK_PREFERENCES_USER_ID)
+        return claimed
+    }
 
     @Query(
         "SELECT * FROM playback_selections WHERE serverId = :serverId AND userId = :userId " +
@@ -574,7 +600,7 @@ internal interface JellyfinStoreDao {
         SubtitleSelectionEntity::class,
         LocalSubtitleAssetEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 @ConstructedBy(JellyfinStoreDatabaseConstructor::class)
@@ -587,10 +613,10 @@ internal expect object JellyfinStoreDatabaseConstructor : RoomDatabaseConstructo
     override fun initialize(): JellyfinStoreDatabase
 }
 
-internal const val JELLYFIN_STORE_SCHEMA_VERSION = 10
+internal const val JELLYFIN_STORE_SCHEMA_VERSION = 11
 
-// Copied from the exported schema (schemas/.../10.json).
-internal const val JELLYFIN_STORE_IDENTITY_HASH = "54bc90b27cb04ab2666eb0808278e837"
+// Copied from the exported schema (schemas/.../11.json).
+internal const val JELLYFIN_STORE_IDENTITY_HASH = "1425a4f44d81f644419dd22d5806242a"
 
 private val JELLYFIN_STORE_MIGRATION_1_2 =
     object : Migration(1, 2) {
@@ -830,6 +856,59 @@ private val JELLYFIN_STORE_MIGRATION_9_10 =
         }
     }
 
+private val JELLYFIN_STORE_MIGRATION_10_11 =
+    object : Migration(10, 11) {
+        override fun migrate(connection: SQLiteConnection) {
+            connection.execSQL(
+                """
+                CREATE TABLE `playback_preferences_new` (
+                    `serverId` TEXT NOT NULL,
+                    `userId` TEXT NOT NULL,
+                    `defaultPlayerBackend` TEXT DEFAULT 'Auto',
+                    `defaultMaxBitrateBps` INTEGER,
+                    `vlcTranscodeMaxBitrateBps` INTEGER,
+                    `preferredAudioLanguage` TEXT,
+                    `preferredSubtitleLanguage` TEXT,
+                    `autoPlayNext` INTEGER NOT NULL DEFAULT 1,
+                    `stillWatchingPrompt` INTEGER NOT NULL DEFAULT 1,
+                    `playbackWarningsEnabled` INTEGER NOT NULL DEFAULT 1,
+                    `allowInsecureDesktopTls` INTEGER NOT NULL DEFAULT 0,
+                    `autoPlayNextDelaySeconds` INTEGER NOT NULL DEFAULT 10,
+                    `introSkip` TEXT,
+                    `outroSkip` TEXT,
+                    `recapSkip` TEXT,
+                    `previewSkip` TEXT,
+                    `commercialSkip` TEXT,
+                    `defaultQualityMode` TEXT DEFAULT 'Auto',
+                    `defaultQualityBitrateBps` INTEGER,
+                    PRIMARY KEY(`serverId`, `userId`)
+                )
+                """.trimIndent(),
+            )
+            connection.execSQL(
+                """
+                INSERT INTO `playback_preferences_new` (
+                    `serverId`, `userId`, `defaultPlayerBackend`, `defaultMaxBitrateBps`,
+                    `vlcTranscodeMaxBitrateBps`, `preferredAudioLanguage`, `preferredSubtitleLanguage`,
+                    `autoPlayNext`, `stillWatchingPrompt`, `playbackWarningsEnabled`,
+                    `allowInsecureDesktopTls`, `autoPlayNextDelaySeconds`, `introSkip`, `outroSkip`,
+                    `recapSkip`, `previewSkip`, `commercialSkip`, `defaultQualityMode`,
+                    `defaultQualityBitrateBps`
+                )
+                SELECT
+                    `serverId`, '', `defaultPlayerBackend`, `defaultMaxBitrateBps`,
+                    `vlcTranscodeMaxBitrateBps`, `preferredAudioLanguage`, `preferredSubtitleLanguage`,
+                    `autoPlayNext`, `stillWatchingPrompt`, `playbackWarningsEnabled`,
+                    0, `autoPlayNextDelaySeconds`, `introSkip`, `outroSkip`, `recapSkip`,
+                    `previewSkip`, `commercialSkip`, `defaultQualityMode`, `defaultQualityBitrateBps`
+                FROM `playback_preferences`
+                """.trimIndent(),
+            )
+            connection.execSQL("DROP TABLE `playback_preferences`")
+            connection.execSQL("ALTER TABLE `playback_preferences_new` RENAME TO `playback_preferences`")
+        }
+    }
+
 /**
  * The shipped open path: the downgrade-repair driver wrapper plus every migration.
  * [driver] is injectable only so host tests can supply a driver whose native
@@ -850,13 +929,14 @@ internal fun RoomDatabase.Builder<JellyfinStoreDatabase>.buildJellyfinStore(
         JELLYFIN_STORE_MIGRATION_7_8,
         jellyfinStoreMigration8To9(seedVlcDefaultBps),
         JELLYFIN_STORE_MIGRATION_9_10,
+        JELLYFIN_STORE_MIGRATION_10_11,
     )
     configuredBuilder.setQueryCoroutineContext(platformIoDispatcher())
     return configuredBuilder.build()
 }
 
 /**
- * Check and repair a future on-disk version before Room validates schema 10 so a downgrade can
+ * Check and repair a future on-disk version before Room validates schema 11 so a downgrade can
  * discard only refetchable account-boundary caches.
  */
 private class CacheScopedDowngradeDriver(
@@ -925,21 +1005,25 @@ internal class RoomPlaybackPreferencesStore(
     /** Android binds 8 Mbps so fresh installs get the VLC crash-safety default; other platforms inherit. */
     private val defaultVlcTranscodeBitrateBps: Long? = null,
 ) : PlaybackPreferencesStore {
-    override suspend fun get(serverId: String): PlaybackPreferences =
+    override suspend fun get(accountIdentity: AccountIdentity): PlaybackPreferences =
         (
-            dao.playbackPreferences(serverId)?.toModel()
+            dao.playbackPreferencesForAccount(accountIdentity)?.toModel()
                 ?: PlaybackPreferences(vlcTranscodeMaxBitrateBps = defaultVlcTranscodeBitrateBps)
         ).normalized()
 
     override suspend fun save(
-        serverId: String,
+        accountIdentity: AccountIdentity,
         preferences: PlaybackPreferences,
     ) {
-        dao.upsertPlaybackPreferences(preferences.normalized().toEntity(serverId))
+        dao.upsertPlaybackPreferences(preferences.normalized().toEntity(accountIdentity))
     }
 
-    override suspend fun clear(serverId: String) {
-        dao.clearPlaybackPreferences(serverId)
+    override suspend fun clearAccount(accountIdentity: AccountIdentity) {
+        dao.clearPlaybackPreferences(accountIdentity.serverId, accountIdentity.userId)
+    }
+
+    override suspend fun clearServerScoped(serverId: String) {
+        dao.clearPlaybackPreferencesForServer(serverId)
     }
 
     override suspend fun clearServerScoped() {
@@ -1452,6 +1536,7 @@ private fun PlaybackPreferencesEntity.toModel(): PlaybackPreferences =
         autoPlayNext = autoPlayNext,
         stillWatchingPrompt = stillWatchingPrompt,
         playbackWarningsEnabled = playbackWarningsEnabled,
+        allowInsecureDesktopTls = allowInsecureDesktopTls,
         autoPlayNextDelaySeconds = autoPlayNextDelaySeconds,
         introSkip = introSkip.toSegmentSkipPolicy(),
         outroSkip = outroSkip.toSegmentSkipPolicy(),
@@ -1464,9 +1549,10 @@ private fun PlaybackPreferencesEntity.toModel(): PlaybackPreferences =
 // startup.
 private fun String?.toSegmentSkipPolicy(): SegmentSkipPolicy = toTolerantEnumOrNull<SegmentSkipPolicy>() ?: SegmentSkipPolicy.Ask
 
-private fun PlaybackPreferences.toEntity(serverId: String): PlaybackPreferencesEntity =
+private fun PlaybackPreferences.toEntity(accountIdentity: AccountIdentity): PlaybackPreferencesEntity =
     PlaybackPreferencesEntity(
-        serverId = serverId,
+        serverId = accountIdentity.serverId,
+        userId = accountIdentity.userId,
         defaultPlayerBackend = defaultPlayerBackend.name,
         defaultMaxBitrateBps = effectiveDefaultQualityPolicy().maxBitrateBps,
         vlcTranscodeMaxBitrateBps = vlcTranscodeMaxBitrateBps,
@@ -1475,6 +1561,7 @@ private fun PlaybackPreferences.toEntity(serverId: String): PlaybackPreferencesE
         autoPlayNext = autoPlayNext,
         stillWatchingPrompt = stillWatchingPrompt,
         playbackWarningsEnabled = playbackWarningsEnabled,
+        allowInsecureDesktopTls = allowInsecureDesktopTls,
         autoPlayNextDelaySeconds = autoPlayNextDelaySeconds,
         introSkip = introSkip.name,
         outroSkip = outroSkip.name,

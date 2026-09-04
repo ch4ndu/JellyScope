@@ -233,7 +233,7 @@ data class BaseItemDto(
     @SerialName("Chapters")
     val chapters: List<ChapterDto> = emptyList(),
     @SerialName("Trickplay")
-    val trickplay: Map<String, TrickplayInfoDto> = emptyMap(),
+    val trickplay: Map<String, Map<String, TrickplayInfoDto>?>? = null,
     @SerialName("RemoteTrailers")
     val remoteTrailers: List<RemoteTrailerDto> = emptyList(),
     @SerialName("UserData")

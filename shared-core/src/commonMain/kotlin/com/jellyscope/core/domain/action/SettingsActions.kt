@@ -11,6 +11,7 @@ import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.RecentSearchStore
 import com.jellyscope.core.data.local.TileSizeStore
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
 import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.LibrarySortBy
@@ -73,9 +74,9 @@ class SavePlaybackPreferencesAction(
     private val playbackPreferencesStore: PlaybackPreferencesStore,
 ) {
     suspend operator fun invoke(
-        serverId: String,
+        accountIdentity: AccountIdentity,
         preferences: PlaybackPreferences,
-    ) = playbackPreferencesStore.save(serverId = serverId, preferences = preferences)
+    ) = playbackPreferencesStore.save(accountIdentity = accountIdentity, preferences = preferences)
 }
 
 class SetGridSortAction(

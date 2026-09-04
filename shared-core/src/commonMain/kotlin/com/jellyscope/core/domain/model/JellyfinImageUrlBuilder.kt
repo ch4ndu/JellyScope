@@ -36,11 +36,12 @@ class JellyfinImageUrlBuilder {
     fun trickplayTileUrl(
         serverUrl: String,
         itemId: String,
+        mediaSourceId: String,
         width: Int,
         index: Int,
     ): String {
         val baseUrl = serverUrl.trimEnd('/')
-        return "$baseUrl/Videos/$itemId/Trickplay/$width/${index.coerceAtLeast(0)}.jpg"
+        return "$baseUrl/Videos/$itemId/Trickplay/$width/${index.coerceAtLeast(0)}.jpg?MediaSourceId=$mediaSourceId"
     }
 }
 

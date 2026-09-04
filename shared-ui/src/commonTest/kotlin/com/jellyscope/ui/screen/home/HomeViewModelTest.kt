@@ -42,6 +42,7 @@ class HomeViewModelTest {
                 runCurrent()
 
                 assertIs<RowState.Loading>(viewModel.state.value.continueWatching)
+                assertEquals(false, repository.nextUpIncludeResumable)
 
                 repository.continueWatching.complete(Result.failure(IllegalStateException("boom")))
                 repository.nextUp.complete(Result.success(listOf(mediaItem("next"))))
@@ -217,7 +218,10 @@ private class QueuedContinueWatchingRepository(
         return continueResults.removeFirst().await()
     }
 
-    override suspend fun getNextUp(seriesId: String?): Result<List<MediaItem>> = Result.success(emptyList())
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> = Result.success(emptyList())
 
     override suspend fun getItemDetail(
         itemId: String,
@@ -270,12 +274,19 @@ private class DeferredMediaRepository : MediaRepository {
     val continueWatching = CompletableDeferred<Result<List<MediaItem>>>()
     val nextUp = CompletableDeferred<Result<List<MediaItem>>>()
     val recentlyAdded = CompletableDeferred<Result<List<MediaItem>>>()
+    var nextUpIncludeResumable: Boolean? = null
 
     override suspend fun getLibraries(): Result<List<Library>> = Result.success(emptyList())
 
     override suspend fun getContinueWatching() = continueWatching.await()
 
-    override suspend fun getNextUp(seriesId: String?) = nextUp.await()
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> {
+        nextUpIncludeResumable = includeResumable
+        return nextUp.await()
+    }
 
     override suspend fun getItemDetail(
         itemId: String,
@@ -334,7 +345,10 @@ private class ImmediateMediaRepository(
 
     override suspend fun getContinueWatching(): Result<List<MediaItem>> = continueResults.removeFirst()
 
-    override suspend fun getNextUp(seriesId: String?): Result<List<MediaItem>> = Result.success(emptyList())
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> = Result.success(emptyList())
 
     override suspend fun getItemDetail(
         itemId: String,

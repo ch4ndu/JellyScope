@@ -372,6 +372,7 @@ private class RecordingFixedDownloadApi(
         limit: Int,
         fields: List<String>,
         parentId: String?,
+        includeResumable: Boolean,
     ) = error("unused")
 
     override suspend fun getUpcomingEpisodes(

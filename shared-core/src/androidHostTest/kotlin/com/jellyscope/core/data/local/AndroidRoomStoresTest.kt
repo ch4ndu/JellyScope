@@ -5,6 +5,7 @@ package com.jellyscope.core.data.local
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.LocalSubtitleAsset
 import com.jellyscope.core.domain.model.LocalSubtitleContext
 import com.jellyscope.core.domain.model.LocalSubtitleSyncState
@@ -58,10 +59,10 @@ class AndroidRoomStoresTest {
         runTest {
             val store = RoomPlaybackPreferencesStore(dao, defaultVlcTranscodeBitrateBps = 8_000_000L)
 
-            assertEquals(8_000_000L, store.get("server-1").vlcTranscodeMaxBitrateBps)
+            assertEquals(8_000_000L, store.get(account("server-1")).vlcTranscodeMaxBitrateBps)
 
-            store.save("server-1", store.get("server-1").copy(vlcTranscodeMaxBitrateBps = null))
-            assertEquals(null, store.get("server-1").vlcTranscodeMaxBitrateBps)
+            store.save(account("server-1"), store.get(account("server-1")).copy(vlcTranscodeMaxBitrateBps = null))
+            assertEquals(null, store.get(account("server-1")).vlcTranscodeMaxBitrateBps)
         }
 
     @Test
@@ -71,7 +72,7 @@ class AndroidRoomStoresTest {
             val watchNextSyncStore = RoomWatchNextSyncStore(dao)
 
             preferencesStore.save(
-                serverId = "server-1",
+                accountIdentity = account("server-1"),
                 preferences =
                     PlaybackPreferences(
                         defaultMaxBitrateBps = 8_000_000L,
@@ -93,12 +94,12 @@ class AndroidRoomStoresTest {
                     ),
             )
 
-            assertEquals(8_000_000L, preferencesStore.get("server-1").defaultMaxBitrateBps)
-            assertEquals(12_000_000L, preferencesStore.get("server-1").vlcTranscodeMaxBitrateBps)
-            assertEquals("eng", preferencesStore.get("server-1").preferredAudioLanguage)
-            assertEquals("spa", preferencesStore.get("server-1").preferredSubtitleLanguage)
-            assertEquals(false, preferencesStore.get("server-1").stillWatchingPrompt)
-            assertEquals(PlayerBackend.VlcKit, preferencesStore.get("server-1").defaultPlayerBackend)
+            assertEquals(8_000_000L, preferencesStore.get(account("server-1")).defaultMaxBitrateBps)
+            assertEquals(12_000_000L, preferencesStore.get(account("server-1")).vlcTranscodeMaxBitrateBps)
+            assertEquals("eng", preferencesStore.get(account("server-1")).preferredAudioLanguage)
+            assertEquals("spa", preferencesStore.get(account("server-1")).preferredSubtitleLanguage)
+            assertEquals(false, preferencesStore.get(account("server-1")).stillWatchingPrompt)
+            assertEquals(PlayerBackend.VlcKit, preferencesStore.get(account("server-1")).defaultPlayerBackend)
             assertEquals("item-1", watchNextSyncStore.get(serverId = "server-1", itemId = "item-1")?.itemId)
             assertEquals(12_345L, watchNextSyncStore.list("server-1").single().playbackPositionTicks)
         }
@@ -128,6 +129,7 @@ class AndroidRoomStoresTest {
             dao.upsertPlaybackPreferences(
                 PlaybackPreferencesEntity(
                     serverId = "server-1",
+                    userId = "user-1",
                     defaultMaxBitrateBps = null,
                     preferredAudioLanguage = null,
                     preferredSubtitleLanguage = null,
@@ -136,7 +138,7 @@ class AndroidRoomStoresTest {
 
             val preferencesStore = RoomPlaybackPreferencesStore(dao)
 
-            assertEquals(true, preferencesStore.get("server-1").stillWatchingPrompt)
+            assertEquals(true, preferencesStore.get(account("server-1")).stillWatchingPrompt)
         }
 
     @Test
@@ -144,11 +146,12 @@ class AndroidRoomStoresTest {
         runTest {
             val store = RoomPlaybackPreferencesStore(dao)
 
-            assertEquals(PlayerBackend.AVPlayer, store.get("missing-server").defaultPlayerBackend)
+            assertEquals(PlayerBackend.AVPlayer, store.get(account("missing-server")).defaultPlayerBackend)
 
             dao.upsertPlaybackPreferences(
                 PlaybackPreferencesEntity(
                     serverId = "unknown-server",
+                    userId = "user-1",
                     defaultPlayerBackend = " Unknown ",
                     defaultMaxBitrateBps = null,
                     preferredAudioLanguage = null,
@@ -158,6 +161,7 @@ class AndroidRoomStoresTest {
             dao.upsertPlaybackPreferences(
                 PlaybackPreferencesEntity(
                     serverId = "blank-server",
+                    userId = "user-1",
                     defaultPlayerBackend = " \t ",
                     defaultMaxBitrateBps = null,
                     preferredAudioLanguage = null,
@@ -167,6 +171,7 @@ class AndroidRoomStoresTest {
             dao.upsertPlaybackPreferences(
                 PlaybackPreferencesEntity(
                     serverId = "null-server",
+                    userId = "user-1",
                     defaultPlayerBackend = null,
                     defaultMaxBitrateBps = null,
                     preferredAudioLanguage = null,
@@ -174,9 +179,9 @@ class AndroidRoomStoresTest {
                 ),
             )
 
-            assertEquals(PlayerBackend.Auto, store.get("unknown-server").defaultPlayerBackend)
-            assertEquals(PlayerBackend.Auto, store.get("blank-server").defaultPlayerBackend)
-            assertEquals(PlayerBackend.Auto, store.get("null-server").defaultPlayerBackend)
+            assertEquals(PlayerBackend.Auto, store.get(account("unknown-server")).defaultPlayerBackend)
+            assertEquals(PlayerBackend.Auto, store.get(account("blank-server")).defaultPlayerBackend)
+            assertEquals(PlayerBackend.Auto, store.get(account("null-server")).defaultPlayerBackend)
         }
 
     @Test
@@ -414,7 +419,7 @@ class AndroidRoomStoresTest {
                     registry.register(store)
                 }
 
-            preferencesStore.save(serverId = "server-1", preferences = PlaybackPreferences(defaultMaxBitrateBps = 1L))
+            preferencesStore.save(accountIdentity = account("server-1"), preferences = PlaybackPreferences(defaultMaxBitrateBps = 1L))
             recentSearchStore.add(serverId = "server-1", query = "matrix")
             watchNextSyncStore.upsert(
                 serverId = "server-1",
@@ -429,7 +434,7 @@ class AndroidRoomStoresTest {
 
             registry.clearAll()
 
-            assertEquals(PlaybackPreferences(), preferencesStore.get("server-1"))
+            assertEquals(PlaybackPreferences(), preferencesStore.get(account("server-1")))
             assertEquals(emptyList(), recentSearchStore.list("server-1"))
             assertNull(watchNextSyncStore.get(serverId = "server-1", itemId = "item-1"))
         }
@@ -555,6 +560,7 @@ class AndroidRoomStoresTest {
             dao.upsertPlaybackPreferences(
                 PlaybackPreferencesEntity(
                     serverId = context.serverId,
+                    userId = context.userId,
                     defaultPlayerBackend = PlayerBackend.Auto.name,
                     defaultMaxBitrateBps = 8_000_000L,
                     preferredAudioLanguage = "eng",
@@ -583,8 +589,8 @@ class AndroidRoomStoresTest {
             )
             RoomLocalSubtitleAssetStore(dao).upsert(asset)
 
-            assertEquals(8_000_000L, dao.playbackPreferences("server-1")?.defaultMaxBitrateBps)
-            assertEquals(PlayerBackend.Auto.name, dao.playbackPreferences("server-1")?.defaultPlayerBackend)
+            assertEquals(8_000_000L, dao.playbackPreferences("server-1", "user-1")?.defaultMaxBitrateBps)
+            assertEquals(PlayerBackend.Auto.name, dao.playbackPreferences("server-1", "user-1")?.defaultPlayerBackend)
             assertEquals(PlayerBackend.VlcKit.name, dao.playerBackendOverride("server-1", "item-1")?.backend)
             assertEquals("Query", dao.recentSearches("server-1", "user-1", 1).single().displayQuery)
             assertEquals("item-1", dao.watchNextSync("server-1", "user-1", "item-1")?.itemId)
@@ -605,7 +611,7 @@ class AndroidRoomStoresTest {
     fun identityHashMatchesGeneratedSchema() {
         // The Room test task's working dir is the module dir; fall back to the
         // repo-root-relative path so the test is robust to either.
-        assertEquals(10, JELLYFIN_STORE_SCHEMA_VERSION)
+        assertEquals(11, JELLYFIN_STORE_SCHEMA_VERSION)
         val relative =
             "schemas/com.jellyscope.core.data.local.JellyfinStoreDatabase/" +
                 "$JELLYFIN_STORE_SCHEMA_VERSION.json"
@@ -617,6 +623,8 @@ class AndroidRoomStoresTest {
         assertEquals(identityHash, JELLYFIN_STORE_IDENTITY_HASH)
     }
 }
+
+private fun account(serverId: String) = AccountIdentity(serverId, "user-1")
 
 private fun localSubtitleAsset(context: LocalSubtitleContext) =
     LocalSubtitleAsset(

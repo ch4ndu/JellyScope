@@ -74,6 +74,19 @@ object LogScrubber {
                 "resultCount",
                 "result",
                 "failure",
+                // Identity-free trickplay request, decode, and crop evidence.
+                "surface",
+                "tileIndex",
+                "thumbnailWidth",
+                "thumbnailHeight",
+                "tileColumns",
+                "tileRows",
+                "cropColumn",
+                "cropRow",
+                "decodedWidth",
+                "decodedHeight",
+                "dataSource",
+                "sampled",
             )
     private val url = Regex("(?i)https?://[^\\s]+")
     private val credential =

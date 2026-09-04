@@ -32,6 +32,7 @@ enum class DiagnosticTag(
     MediaRepository("MediaRepository"),
     SessionRepository("SessionRepository"),
     PlayerViewModel("PlayerViewModel"),
+    TrickplayPreview("TrickplayPreview"),
     DeviceProfile("DeviceProfile"),
     AndroidProcessExitDiagnostics("AndroidProcessExitDiagnostics"),
     AndroidPlaybackModule("AndroidPlaybackModule"),

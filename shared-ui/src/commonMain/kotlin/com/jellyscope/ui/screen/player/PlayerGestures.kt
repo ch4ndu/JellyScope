@@ -4,13 +4,14 @@
 
 package com.jellyscope.ui.screen.player
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemGestures
@@ -20,12 +21,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -34,11 +40,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntOffset
-import coil3.compose.AsyncImage
+import coil3.compose.rememberAsyncImagePainter
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.TrickplayInfo
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.safeDiagnosticType
 import com.jellyscope.ui.component.authenticatedImageRequest
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.player_brightness
@@ -59,6 +67,8 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+private val trickplayPreviewLogger = diagnosticLogger(DiagnosticTag.TrickplayPreview)
+
 @Composable
 internal fun TrickplayPreview(
     trickplay: TrickplayInfo?,
@@ -67,23 +77,78 @@ internal fun TrickplayPreview(
     session: Session,
     modifier: Modifier = Modifier,
 ) {
-    if (trickplay == null || positionMs == null || tileUrls.isEmpty()) {
+    if (positionMs == null) {
+        return
+    }
+    if (trickplay == null || tileUrls.isEmpty()) {
+        val result = if (trickplay == null) "metadata-missing" else "tiles-missing"
+        LaunchedEffect(result) {
+            trickplayPreviewLogger.i {
+                "stage=trickplay event=availability platform=shared surface=player result=$result"
+            }
+        }
         return
     }
 
     val thumbnailIndex = trickplay.thumbnailIndexForPositionMs(positionMs)
     val tileIndex = thumbnailIndex / trickplay.thumbnailsPerTile
-    val tileUrl = tileUrls.getOrNull(tileIndex) ?: return
+    val tileUrl = tileUrls.getOrNull(tileIndex)
+    if (tileUrl == null) {
+        LaunchedEffect(tileIndex) {
+            trickplayPreviewLogger.w {
+                "stage=trickplay event=availability platform=shared surface=player result=tile-missing " +
+                    "tileIndex=$tileIndex"
+            }
+        }
+        return
+    }
     val indexInTile = thumbnailIndex % trickplay.thumbnailsPerTile
     val column = indexInTile % trickplay.tileWidth.coerceAtLeast(1)
     val row = indexInTile / trickplay.tileWidth.coerceAtLeast(1)
     val thumbnailAspect = trickplay.thumbnailWidth.toFloat() / trickplay.thumbnailHeight.coerceAtLeast(1).toFloat()
-    val tileAspect =
-        (trickplay.thumbnailWidth * trickplay.tileWidth).toFloat() /
-            (trickplay.thumbnailHeight * trickplay.tileHeight).coerceAtLeast(1).toFloat()
-    val density = LocalDensity.current
-    val previewWidthPx = with(density) { Dimensions.playerTrickplayPreviewWidth.roundToPx() }
-    val previewHeightPx = (previewWidthPx / thumbnailAspect).roundToInt()
+    val tileRequest = authenticatedImageRequest(tileUrl, session, decode = null)
+    var tileLoaded by remember(tileRequest) { mutableStateOf(false) }
+    val tilePainter =
+        rememberAsyncImagePainter(
+            model = tileRequest,
+            onLoading = {
+                tileLoaded = false
+                trickplayPreviewLogger.i {
+                    "stage=trickplay event=request platform=shared surface=player result=loading " +
+                        "tileIndex=$tileIndex thumbnailWidth=${trickplay.thumbnailWidth} " +
+                        "thumbnailHeight=${trickplay.thumbnailHeight} tileColumns=${trickplay.tileWidth} " +
+                        "tileRows=${trickplay.tileHeight} cropColumn=$column cropRow=$row"
+                }
+            },
+            onSuccess = { state ->
+                val result = state.result
+                val image = result.image
+                trickplayPreviewLogger.i {
+                    "stage=trickplay event=request platform=shared surface=player result=success " +
+                        "tileIndex=$tileIndex thumbnailWidth=${trickplay.thumbnailWidth} " +
+                        "thumbnailHeight=${trickplay.thumbnailHeight} tileColumns=${trickplay.tileWidth} " +
+                        "tileRows=${trickplay.tileHeight} cropColumn=$column cropRow=$row " +
+                        "decodedWidth=${image.width} decodedHeight=${image.height} " +
+                        "dataSource=${result.dataSource.name} sampled=${result.isSampled}"
+                }
+                tileLoaded = true
+            },
+            onError = { state ->
+                tileLoaded = false
+                trickplayPreviewLogger.w {
+                    "stage=trickplay event=request platform=shared surface=player result=failure " +
+                        "tileIndex=$tileIndex thumbnailWidth=${trickplay.thumbnailWidth} " +
+                        "thumbnailHeight=${trickplay.thumbnailHeight} tileColumns=${trickplay.tileWidth} " +
+                        "tileRows=${trickplay.tileHeight} cropColumn=$column cropRow=$row " +
+                        "exceptionType=${state.result.throwable.safeDiagnosticType()}"
+                }
+            },
+            contentScale = ContentScale.FillBounds,
+        )
+    if (!tileLoaded) {
+        return
+    }
+
     val trickplayContentDescription = stringResource(Res.string.player_trickplay_cd)
 
     Surface(
@@ -100,23 +165,21 @@ internal fun TrickplayPreview(
                     .clip(MaterialTheme.shapes.small)
                     .semantics { contentDescription = trickplayContentDescription },
         ) {
-            AsyncImage(
-                // Sprite sheets are cropped, never downscaled.
-                model = authenticatedImageRequest(tileUrl, session, decode = null),
-                contentDescription = trickplayContentDescription,
-                contentScale = ContentScale.FillBounds,
-                modifier =
-                    Modifier
-                        .offset {
-                            IntOffset(
-                                x = -previewWidthPx * column,
-                                y = -previewHeightPx * row,
-                            )
-                        }.width(
-                            Dimensions.playerTrickplayPreviewWidth *
-                                trickplay.tileWidth.coerceAtLeast(1).toFloat(),
-                        ).aspectRatio(tileAspect),
-            )
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val frameWidth = size.width
+                val frameHeight = size.height
+                val sheetSize =
+                    Size(
+                        width = frameWidth * trickplay.tileWidth.coerceAtLeast(1),
+                        height = frameHeight * trickplay.tileHeight.coerceAtLeast(1),
+                    )
+                translate(
+                    left = -frameWidth * column,
+                    top = -frameHeight * row,
+                ) {
+                    with(tilePainter) { draw(size = sheetSize) }
+                }
+            }
         }
     }
 }

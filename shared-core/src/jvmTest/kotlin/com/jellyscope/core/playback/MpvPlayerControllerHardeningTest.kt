@@ -31,6 +31,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -45,6 +46,46 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MpvPlayerControllerHardeningTest {
+    @Test
+    fun secureTlsIsDefaultAndScopedExceptionOmitsTheCaBundle() {
+        val rootDirectory = Files.createTempDirectory("jellyscope-mpv-tls").toFile()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val insecureLib = HardeningLibMpv()
+        val secureLib = HardeningLibMpv()
+        val policy = DesktopMpvNetworkPolicy(rootDirectory)
+        val insecure =
+            MpvPlayerController(
+                testSession,
+                scope,
+                insecureLib,
+                allowInsecureDesktopTls = true,
+                desktopMpvNetworkPolicy = policy,
+            )
+        try {
+            assertTrue("tls-verify=no" in insecureLib.optionWrites)
+            assertFalse(insecureLib.optionWrites.any { write -> write.startsWith("tls-ca-file=") })
+            assertFalse(rootDirectory.resolve("mpv/trust-bundle.pem").exists())
+
+            val secure =
+                MpvPlayerController(
+                    testSession,
+                    scope,
+                    secureLib,
+                    desktopMpvNetworkPolicy = policy,
+                )
+            try {
+                assertTrue("tls-verify=yes" in secureLib.optionWrites)
+                assertTrue(secureLib.optionWrites.any { write -> write.startsWith("tls-ca-file=") })
+            } finally {
+                secure.release()
+            }
+        } finally {
+            insecure.release()
+            scope.cancel()
+            rootDirectory.deleteRecursively()
+        }
+    }
+
     @Test
     fun prepareInvalidatesInFlightPollBeforeLoadedSelectionOrStateCommit() {
         val lib = HardeningLibMpv(tracks = listOf(videoTrack, audioTrack))

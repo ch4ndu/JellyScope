@@ -6,6 +6,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.media.AudioManager
+import android.provider.Settings
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -123,7 +125,11 @@ actual fun PlayerPlatformEffects(
 @Composable
 actual fun rememberPlayerGestureController(): PlayerGestureController {
     val context = LocalContext.current
-    return remember(context) { AndroidPlayerGestureController(context) }
+    val controller = remember(context) { AndroidPlayerGestureController(context) }
+    DisposableEffect(controller) {
+        onDispose { controller.dispose() }
+    }
+    return controller
 }
 
 data class AndroidActivePlayer(
@@ -212,18 +218,17 @@ private class AndroidPlayerGestureController(
 ) : PlayerGestureController {
     private val activity = context.findActivity()
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private val brightnessBaseline = activity?.window?.attributes?.screenBrightness
     private var initialBrightness = DEFAULT_BRIGHTNESS_FRACTION
     private var initialVolume = 0
     private var maxVolume = 1
 
     override fun beginBrightness() {
+        val windowBrightness = activity?.window?.attributes?.screenBrightness
         initialBrightness =
-            activity
-                ?.window
-                ?.attributes
-                ?.screenBrightness
-                ?.takeIf { brightness -> brightness >= 0f }
-                ?: DEFAULT_BRIGHTNESS_FRACTION
+            windowBrightness
+                ?.takeIf { brightness -> brightness != WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+                ?: systemBrightness()
     }
 
     override fun updateBrightness(deltaFraction: Float): Float? {
@@ -249,6 +254,26 @@ private class AndroidPlayerGestureController(
     }
 
     override fun endGesture() = Unit
+
+    override fun dispose() {
+        val activity = activity ?: return
+        val brightnessBaseline = brightnessBaseline ?: return
+        val attributes = activity.window.attributes
+        attributes.screenBrightness = brightnessBaseline
+        activity.window.attributes = attributes
+    }
+
+    private fun systemBrightness(): Float {
+        val resolver = activity?.contentResolver ?: return DEFAULT_BRIGHTNESS_FRACTION
+        return try {
+            Settings.System
+                .getInt(resolver, Settings.System.SCREEN_BRIGHTNESS)
+                .coerceIn(0, SYSTEM_BRIGHTNESS_MAX)
+                .toFloat() / SYSTEM_BRIGHTNESS_MAX.toFloat()
+        } catch (_: Exception) {
+            DEFAULT_BRIGHTNESS_FRACTION
+        }
+    }
 }
 
 private fun Context.findActivity(): Activity? {
@@ -274,3 +299,4 @@ private fun Rect.toAndroidRect(): AndroidRect? {
 }
 
 private const val DEFAULT_BRIGHTNESS_FRACTION = 0.5f
+private const val SYSTEM_BRIGHTNESS_MAX = 255

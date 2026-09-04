@@ -505,7 +505,11 @@ candidate or close physical validation.
   not depend on a system libmpv. The package verifier must inspect the produced
   `.app`, because Compose copies only `common`, `<os>`, and `<os>-<arch>` from
   `appResourcesRootDir`; files staged at its root are dropped. The bundle check
-  must also resolve every `@loader_path` reference.
+  must also resolve every `@loader_path` reference. Release-DMG production
+  replaces the root `Applications` entry with a symbolic link to `/Applications`
+  without depending on Finder automation, then remounts the final image and
+  verifies the link, application bundle, declared icon, and complete iconset
+  resource before applying the DMG container signature.
 
 ## 8. Update Documentation And Hand Off Clearly
 
@@ -618,6 +622,12 @@ its rule changes.
   and source revisions, required package contents, dependency closure, signing,
   and license/source checks remain required. Maintaining a second expected-byte
   system was rejected as release and upgrade overhead.
+- **The DMG install affordance is a verified filesystem entry.** `jpackage` can
+  continue after its Finder setup AppleScript is denied, producing an image with
+  no Applications shortcut while the Gradle task remains green. JellyScope
+  therefore normalizes and remount-verifies the link and packaged icon before
+  signing. Relying on a build host's Finder Automation permission or visual
+  inspection alone was rejected.
 - **Third-party material requires deliberate review.** Public availability is
   not permission to copy. Licensing and distribution decisions are owned by
   [`licensing-and-distribution.md`](../operations/licensing-and-distribution.md).

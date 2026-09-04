@@ -34,6 +34,7 @@ internal enum class SettingsRowId {
     AutoPlayNext,
     StillWatching,
     PlaybackWarnings,
+    AllowInsecureDesktopTls,
     AutoPlayNextDelay,
     PlayerBackend,
     Intros,
@@ -93,6 +94,7 @@ internal fun SettingsRowId.section(): SettingsSectionId =
         SettingsRowId.AutoPlayNext,
         SettingsRowId.StillWatching,
         SettingsRowId.PlaybackWarnings,
+        SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.AutoPlayNextDelay,
         SettingsRowId.PlayerBackend,
         -> SettingsSectionId.Playback
@@ -157,6 +159,7 @@ internal fun SettingsRowId.trailingKind(): SettingsRowTrailingKind =
         SettingsRowId.AutoPlayNext,
         SettingsRowId.StillWatching,
         SettingsRowId.PlaybackWarnings,
+        SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.PictureInPicture,
         SettingsRowId.CollectLogs,
         SettingsRowId.SystemLogs,
@@ -199,6 +202,7 @@ internal fun SettingsRowId.iconRole(): SettingsRowIconRole =
         SettingsRowId.AutoPlayNext,
         SettingsRowId.StillWatching,
         SettingsRowId.PlaybackWarnings,
+        SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.AutoPlayNextDelay,
         SettingsRowId.PlayerBackend,
         SettingsRowId.AudioOutput,
@@ -237,6 +241,7 @@ internal fun SettingsRowId.icon(): ImageVector =
         SettingsRowId.AutoPlayNext,
         SettingsRowId.StillWatching,
         SettingsRowId.PlaybackWarnings,
+        SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.AutoPlayNextDelay,
         -> SettingsIcons.ResumeBehavior
         SettingsRowId.PlayerBackend -> SettingsIcons.VideoFormats

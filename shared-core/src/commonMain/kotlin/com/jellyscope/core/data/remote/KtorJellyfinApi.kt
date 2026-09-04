@@ -735,10 +735,12 @@ class KtorJellyfinApi(
         limit: Int,
         fields: List<String>,
         parentId: String?,
+        includeResumable: Boolean,
     ): BaseItemQueryResultDto =
         authenticatedGet(context = context, path = "/Shows/NextUp") {
             parameter("userId", context.userId)
             parameter("limit", limit)
+            parameter("enableResumable", includeResumable)
             seriesId?.let { parameter("seriesId", it) }
             parentId?.takeIf { it.isNotBlank() }?.let { parameter("parentId", it) }
             applyDefaultItemParameters(fields = fields)

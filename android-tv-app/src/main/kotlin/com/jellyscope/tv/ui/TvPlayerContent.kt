@@ -62,8 +62,14 @@ import com.jellyscope.ui.screen.player.holdSeekDirectionForKey
 import com.jellyscope.ui.screen.player.parentPicker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import com.jellyscope.ui.component.AdaptiveSpinner as TvSpinner
+
+private const val SEEK_PREVIEW_RECOVERY_START_GRACE_MS = 400L
+
+private fun PlaybackStatus.isSeekRecoveryPending(): Boolean = this == PlaybackStatus.Loading || this == PlaybackStatus.Buffering
 
 internal enum class TvPlayerBackAction {
     CloseLocalMenu,
@@ -176,6 +182,8 @@ internal fun TvPlayerContent(
     val noticeFocusJob = remember { AutoHideJobRef() }
     val currentOnSeekTo by rememberUpdatedState(onSeekTo)
     val currentPlaybackItemId by rememberUpdatedState(playbackItemId)
+    var retainedSeekPreviewTargetMs by remember { mutableStateOf<Long?>(null) }
+    var retainedSeekPreviewGeneration by remember { mutableStateOf(0L) }
     val holdSeek =
         remember {
             HoldSeekController(
@@ -184,10 +192,17 @@ internal fun TvPlayerContent(
                 positionMs = { playbackStateFlow.value.positionMs },
                 durationMs = { playbackStateFlow.value.durationMs },
                 commit = { target -> currentOnSeekTo(target) },
+                onFinalCommit = { target ->
+                    retainedSeekPreviewGeneration += 1L
+                    retainedSeekPreviewTargetMs = target
+                },
             )
         }
-    // Stable identity keeps hold-seek updates out of the overlay.
-    val pendingSeekTargetProvider = remember(holdSeek) { { holdSeek.pendingTargetMs } }
+    // Stable identity keeps repeated hold-seek updates out of the whole player.
+    val seekPreviewTargetProvider =
+        remember(holdSeek) {
+            { holdSeek.pendingTargetMs ?: retainedSeekPreviewTargetMs }
+        }
     val content = state as? PlayerUiState.Content
     val playbackStatus = content?.playbackState?.status ?: PlaybackStatus.Loading
     val pickerOpen = content != null && content.pickerVisible != PlayerPicker.None
@@ -210,6 +225,13 @@ internal fun TvPlayerContent(
     val currentItemId = content?.currentItemId(initialItemId) ?: initialItemId
     // Null identity rejects holds during a queue switch.
     val holdSeekReady = content?.playbackItemId != null
+
+    fun handleSeekKeyDown(direction: HoldSeekDirection) {
+        if (!holdSeek.sessionActive) {
+            retainedSeekPreviewTargetMs = null
+        }
+        holdSeek.onSeekKeyDown(direction)
+    }
 
     fun dismissUpNextCard() {
         upNextIdentity?.let { identity -> dismissedUpNextIdentity = identity }
@@ -303,6 +325,26 @@ internal fun TvPlayerContent(
     // Item identity changes cancel pending holds.
     LaunchedEffect(content?.playbackItemId) {
         holdSeek.cancel()
+        retainedSeekPreviewTargetMs = null
+    }
+
+    LaunchedEffect(retainedSeekPreviewGeneration, retainedSeekPreviewTargetMs) {
+        val target = retainedSeekPreviewTargetMs ?: return@LaunchedEffect
+        val generation = retainedSeekPreviewGeneration
+        val recoveryStarted =
+            playbackStateFlow.value.status.isSeekRecoveryPending() ||
+                withTimeoutOrNull(SEEK_PREVIEW_RECOVERY_START_GRACE_MS) {
+                    playbackStateFlow.first { state -> state.status.isSeekRecoveryPending() }
+                } != null
+        if (recoveryStarted) {
+            playbackStateFlow.first { state -> !state.status.isSeekRecoveryPending() }
+        }
+        if (
+            retainedSeekPreviewGeneration == generation &&
+            retainedSeekPreviewTargetMs == target
+        ) {
+            retainedSeekPreviewTargetMs = null
+        }
     }
 
     LaunchedEffect(controlsVisible, playbackStatus, modalOpen) {
@@ -448,7 +490,7 @@ internal fun TvPlayerContent(
                             -> {
                                 // Up Next has no scrub surface, so seek immediately.
                                 if (holdSeekReady) {
-                                    holdSeek.onSeekKeyDown(HoldSeekDirection.Backward)
+                                    handleSeekKeyDown(HoldSeekDirection.Backward)
                                     holdSeek.onSeekKeyUp()
                                 }
                                 true
@@ -457,7 +499,7 @@ internal fun TvPlayerContent(
                             Key.MediaSkipForward,
                             -> {
                                 if (holdSeekReady) {
-                                    holdSeek.onSeekKeyDown(HoldSeekDirection.Forward)
+                                    handleSeekKeyDown(HoldSeekDirection.Forward)
                                     holdSeek.onSeekKeyUp()
                                 }
                                 true
@@ -500,7 +542,7 @@ internal fun TvPlayerContent(
                             -> {
                                 revealedBySeek = true
                                 if (holdSeekReady) {
-                                    holdSeek.onSeekKeyDown(HoldSeekDirection.Backward)
+                                    handleSeekKeyDown(HoldSeekDirection.Backward)
                                 }
                                 true
                             }
@@ -510,7 +552,7 @@ internal fun TvPlayerContent(
                             -> {
                                 revealedBySeek = true
                                 if (holdSeekReady) {
-                                    holdSeek.onSeekKeyDown(HoldSeekDirection.Forward)
+                                    handleSeekKeyDown(HoldSeekDirection.Forward)
                                 }
                                 true
                             }
@@ -535,12 +577,12 @@ internal fun TvPlayerContent(
                         true
                     } else if (event.key == Key.MediaRewind || event.key == Key.MediaSkipBackward) {
                         if (holdSeekReady) {
-                            holdSeek.onSeekKeyDown(HoldSeekDirection.Backward)
+                            handleSeekKeyDown(HoldSeekDirection.Backward)
                         }
                         true
                     } else if (event.key == Key.MediaFastForward || event.key == Key.MediaSkipForward) {
                         if (holdSeekReady) {
-                            holdSeek.onSeekKeyDown(HoldSeekDirection.Forward)
+                            handleSeekKeyDown(HoldSeekDirection.Forward)
                         }
                         true
                     } else {
@@ -730,7 +772,7 @@ internal fun TvPlayerContent(
                             remember(holdSeek, holdSeekReady) {
                                 { direction: HoldSeekDirection ->
                                     if (holdSeekReady) {
-                                        holdSeek.onSeekKeyDown(direction)
+                                        handleSeekKeyDown(direction)
                                     }
                                 }
                             }
@@ -763,7 +805,7 @@ internal fun TvPlayerContent(
                             onInitialFocusConsumed = onInitialFocusConsumedCallback,
                             onTogglePlayPause = onTogglePlayPause,
                             playFocusRequester = playFocusRequester,
-                            pendingSeekTargetMs = pendingSeekTargetProvider,
+                            seekPreviewTargetMs = seekPreviewTargetProvider,
                             onSeekKeyDown = onSeekKeyDownCallback,
                             onShowPicker = onShowPickerCallback,
                             initialFocusMenu = lastLocalMenuOpened,
@@ -850,6 +892,7 @@ internal fun TvPlayerContent(
                         menu = localMenuVisible,
                         onHideMenu = { localMenuVisible = TvPlayerLocalMenu.None },
                         onSeekTo = { positionMs ->
+                            retainedSeekPreviewTargetMs = null
                             onSeekTo(positionMs)
                             localMenuVisible = TvPlayerLocalMenu.None
                         },

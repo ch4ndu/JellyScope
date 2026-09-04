@@ -728,6 +728,8 @@ val verifyDesktopJvmRuntimeLicenseInventory =
     }
 
 val macosReleaseDmgOutputDir = layout.buildDirectory.dir("compose/binaries/main-release/dmg")
+val ensureMacosDmgLayoutScript =
+    rootProject.layout.projectDirectory.file("scripts/ensure-macos-dmg-layout.sh")
 val stageMacosReleaseSourceArtifacts =
     tasks.register<Exec>("stageMacosReleaseSourceArtifacts") {
         group = "distribution"
@@ -880,15 +882,29 @@ tasks.configureEach {
     }
     if (name == "packageReleaseDmg") {
         dependsOn(rootProject.tasks.named("verifyMacosArm64BinaryLicenseMetadataReadiness"))
+        inputs.file(ensureMacosDmgLayoutScript).withPathSensitivity(PathSensitivity.RELATIVE)
         doLast {
+            val dmg =
+                macosReleaseDmgOutputDir.get().asFile.resolve(
+                    "JellyScope-${desktopPackageVersion.get()}.dmg",
+                )
+            if (!dmg.isFile) {
+                throw GradleException("No macOS release DMG was found at ${dmg.relativeTo(projectDir)}.")
+            }
+            val layoutPreparation =
+                ProcessBuilder(
+                    "bash",
+                    ensureMacosDmgLayoutScript.asFile.absolutePath,
+                    dmg.absolutePath,
+                    "JellyScope",
+                ).inheritIO()
+                    .start()
+                    .waitFor()
+            if (layoutPreparation != 0) {
+                throw GradleException("Preparing the macOS release DMG layout failed with exit code $layoutPreparation.")
+            }
+            // The layout rewrite must finish before the container receives its final signature.
             if (macosSigningConfigured) {
-                val dmg =
-                    macosReleaseDmgOutputDir.get().asFile.resolve(
-                        "JellyScope-${desktopPackageVersion.get()}.dmg",
-                    )
-                if (!dmg.isFile) {
-                    throw GradleException("No macOS release DMG was found at ${dmg.relativeTo(projectDir)}.")
-                }
                 val signing =
                     ProcessBuilder(
                         "codesign",

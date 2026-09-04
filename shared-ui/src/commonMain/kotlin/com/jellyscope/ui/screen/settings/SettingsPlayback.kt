@@ -23,6 +23,8 @@ import com.jellyscope.core.domain.playback.qualityRungForBitrate
 import com.jellyscope.core.domain.playback.vlcTranscodeBudgetOptions
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.player_quality_original
+import com.jellyscope.ui.generated.resources.settings_allow_insecure_desktop_tls
+import com.jellyscope.ui.generated.resources.settings_allow_insecure_desktop_tls_warning
 import com.jellyscope.ui.generated.resources.settings_audio_formats
 import com.jellyscope.ui.generated.resources.settings_audio_language
 import com.jellyscope.ui.generated.resources.settings_autoplay_delay
@@ -92,6 +94,7 @@ internal fun PlaybackSettingsSection(
     onSetAutoPlayNext: (Boolean) -> Unit,
     onSetStillWatchingPrompt: (Boolean) -> Unit,
     onSetPlaybackWarningsEnabled: (Boolean) -> Unit,
+    onSetAllowInsecureDesktopTls: (Boolean) -> Unit,
     onSetAutoPlayNextDelaySeconds: (Int) -> Unit,
     openRow: SettingsRowId?,
     onOpenRow: (SettingsRowId) -> Unit,
@@ -239,6 +242,22 @@ internal fun PlaybackSettingsSection(
                             onCheckedChange = onSetPlaybackWarningsEnabled,
                         ),
                 )
+            }
+            if (isDesktopTlsExceptionVisible()) {
+                add {
+                    SettingsRow(
+                        icon = SettingsRowId.AllowInsecureDesktopTls.icon(),
+                        iconRole = SettingsRowId.AllowInsecureDesktopTls.iconRole(),
+                        title = stringResource(Res.string.settings_allow_insecure_desktop_tls),
+                        value = settingsBooleanValue(preferences.allowInsecureDesktopTls),
+                        description = stringResource(Res.string.settings_allow_insecure_desktop_tls_warning),
+                        trailing =
+                            SettingsRowTrailing.Switch(
+                                checked = preferences.allowInsecureDesktopTls,
+                                onCheckedChange = onSetAllowInsecureDesktopTls,
+                            ),
+                    )
+                }
             }
             add {
                 SettingsRow(

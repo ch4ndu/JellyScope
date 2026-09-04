@@ -23,11 +23,32 @@ import kotlin.time.Duration.Companion.seconds
 
 class MediaMappersTest {
     @Test
-    fun decodesMediaSourcePathAndDiscardsDirectoriesAtTheMapperBoundary() {
+    fun decodesMediaSourcePathAndNestedTrickplayAtTheMapperBoundary() {
         val detail =
             Json { ignoreUnknownKeys = true }
                 .decodeFromString<BaseItemDto>(
-                    """{"Id":"movie-1","Name":"Movie","Type":"Movie","MediaSources":[{"Id":"source-1","Name":"1080p","Path":"/private/library/Movie.2024.WEB-DL.mkv"}]}""",
+                    """
+                    {
+                      "Id": "movie-1",
+                      "Name": "Movie",
+                      "Type": "Movie",
+                      "MediaSources": [
+                        {"Id": "source-1", "Name": "1080p", "Path": "/private/library/Movie.2024.WEB-DL.mkv"}
+                      ],
+                      "Trickplay": {
+                        "source-1": {
+                          "320": {
+                            "Width": 320, "Height": 180, "TileWidth": 10, "TileHeight": 10,
+                            "ThumbnailCount": 100, "Interval": 10000
+                          },
+                          "640": {
+                            "Width": 640, "Height": 360, "TileWidth": 10, "TileHeight": 10,
+                            "ThumbnailCount": 201, "Interval": 10000
+                          }
+                        }
+                      }
+                    }
+                    """.trimIndent(),
                 ).toDomainMediaItemDetail()
 
         assertEquals("Movie.2024.WEB-DL.mkv", detail?.versions?.single()?.releaseBasename)
@@ -64,6 +85,8 @@ class MediaMappersTest {
                 .contains('\\'),
         )
         assertEquals("1080p", detail?.versions?.single()?.name)
+        assertEquals("640", detail?.trickplayByMediaSourceId?.get("source-1")?.resolutionKey)
+        assertEquals(3, detail?.trickplayByMediaSourceId?.get("source-1")?.tileCount)
     }
 
     @Test
@@ -341,14 +364,17 @@ class MediaMappersTest {
                     ),
                 trickplay =
                     mapOf(
-                        "320" to
-                            TrickplayInfoDto(
-                                width = 320,
-                                height = 180,
-                                tileWidth = 10,
-                                tileHeight = 10,
-                                thumbnailCount = 150,
-                                interval = 10_000L,
+                        "source-1" to
+                            mapOf(
+                                "320" to
+                                    TrickplayInfoDto(
+                                        width = 320,
+                                        height = 180,
+                                        tileWidth = 10,
+                                        tileHeight = 10,
+                                        thumbnailCount = 150,
+                                        interval = 10_000L,
+                                    ),
                             ),
                     ),
                 remoteTrailers = listOf(RemoteTrailerDto(url = "https://trailers.example/movie")),
@@ -357,9 +383,9 @@ class MediaMappersTest {
         requireNotNull(detail)
         assertEquals(listOf("Opening", "Act Two"), detail.chapters.map { chapter -> chapter.name })
         assertEquals(6_000L, detail.chapters[1].startMs)
-        assertEquals("320", detail.trickplay?.resolutionKey)
-        assertEquals(320, detail.trickplay?.width)
-        assertEquals(2, detail.trickplay?.tileCount)
+        assertEquals("320", detail.trickplayByMediaSourceId["source-1"]?.resolutionKey)
+        assertEquals(320, detail.trickplayByMediaSourceId["source-1"]?.width)
+        assertEquals(2, detail.trickplayByMediaSourceId["source-1"]?.tileCount)
         assertEquals("https://trailers.example/movie", detail.trailerUrl)
     }
 

@@ -317,14 +317,16 @@ internal class RecordingPlaybackPreferencesStore(
 ) : PlaybackPreferencesStore {
     var clearedAll = false
 
-    override suspend fun get(serverId: String): PlaybackPreferences = PlaybackPreferences()
+    override suspend fun get(accountIdentity: AccountIdentity): PlaybackPreferences = PlaybackPreferences()
 
     override suspend fun save(
-        serverId: String,
+        accountIdentity: AccountIdentity,
         preferences: PlaybackPreferences,
     ) = Unit
 
-    override suspend fun clear(serverId: String) = Unit
+    override suspend fun clearAccount(accountIdentity: AccountIdentity) = Unit
+
+    override suspend fun clearServerScoped(serverId: String) = Unit
 
     override suspend fun clearServerScoped() {
         clearAllFailure?.let { throw it }

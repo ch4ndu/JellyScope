@@ -84,7 +84,7 @@ class TvHomePresenter(
         loadJob =
             scope.launch {
                 val continueWatching = async { getContinueWatching() }
-                val nextUp = async { getNextUp() }
+                val nextUp = async { getNextUp(includeResumable = false) }
                 val recentlyAdded = async { getRecentlyAdded() }
                 val favorites = async { getFavorites() }
                 val latestRows = async { loadLatestRows() }

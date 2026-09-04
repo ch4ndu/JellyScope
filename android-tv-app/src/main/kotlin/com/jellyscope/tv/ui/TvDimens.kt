@@ -207,7 +207,8 @@ object TvDimens {
     val mediaInfoDialogLineGap = ChromeDimens.mediaInfoDialogLineGap
     val playerTrickplayThumbnailWidth = 192.dp
     val playerTrickplayThumbnailHeight = 108.dp
-    val playerTrickplayBottomPadding = 6.dp
+    val playerTrickplayPointerWidth = playerOptionButtonSize * 0.75f
+    val playerTrickplayPointerHeight = 12.dp
     val playerChapterTickHeight = 12.dp
     val playerChapterTickWidth = 2.dp
 

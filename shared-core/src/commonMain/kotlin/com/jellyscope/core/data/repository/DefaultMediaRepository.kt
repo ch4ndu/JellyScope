@@ -113,9 +113,15 @@ class DefaultMediaRepository(
             jellyfinApi.getResumeItems(context).items.mapNotNull { it.toDomainMediaItem() }
         }
 
-    override suspend fun getNextUp(seriesId: String?): Result<List<MediaItem>> =
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> =
         withSession(operation = RepositoryOperation.GetNextUp) { context ->
-            jellyfinApi.getNextUp(context, seriesId = seriesId).items.mapNotNull { it.toDomainMediaItem() }
+            jellyfinApi
+                .getNextUp(context, seriesId = seriesId, includeResumable = includeResumable)
+                .items
+                .mapNotNull { it.toDomainMediaItem() }
         }
 
     override suspend fun getItemDetail(
@@ -694,6 +700,7 @@ class DefaultMediaRepository(
                     jellyfinApi
                         .getNextUp(
                             context = context,
+                            includeResumable = false,
                             limit = limit,
                             fields = defaultItemFields,
                         ).items
@@ -713,17 +720,22 @@ class DefaultMediaRepository(
     override suspend fun getFavorites(): Result<List<MediaItem>> = getItems(favoritesQuery, RepositoryOperation.GetFavorites)
 
     override suspend fun search(query: FindQuery): Result<FindResults> =
-        getItems(query.toItemsQuery(), RepositoryOperation.Search)
-            .fold(
-                onSuccess = { items ->
-                    Result.success(
-                        withContext(dispatcher) {
-                            FindProjection.project(items, query.runtimeBucket)
-                        },
-                    )
-                },
-                onFailure = { throwable -> Result.failure(throwable) },
-            )
+        withSession(operation = RepositoryOperation.Search) { context ->
+            val items =
+                coroutineScope {
+                    query.mediaKinds
+                        .distinct()
+                        .map { kind ->
+                            async {
+                                jellyfinApi
+                                    .getItems(context, query.copy(mediaKinds = listOf(kind)).toItemsQuery())
+                                    .items
+                                    .mapNotNull { item -> item.toDomainMediaItem() }
+                            }
+                        }.flatMap { request -> request.await() }
+                }.distinctBy { item -> item.id }
+            FindProjection.project(items, query.runtimeBucket)
+        }
 
     override suspend fun findPersons(term: String): Result<List<Person>> =
         withSession(operation = RepositoryOperation.FindPersons) { context ->

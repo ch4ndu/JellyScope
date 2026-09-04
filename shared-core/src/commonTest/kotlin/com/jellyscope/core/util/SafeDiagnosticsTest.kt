@@ -79,6 +79,7 @@ class SafeDiagnosticsTest {
                 "MediaRepository",
                 "SessionRepository",
                 "PlayerViewModel",
+                "TrickplayPreview",
                 "DeviceProfile",
                 "AndroidProcessExitDiagnostics",
                 "AndroidPlaybackModule",

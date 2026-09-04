@@ -2,19 +2,14 @@
 
 package com.jellyscope.core.data.local
 
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.PlaybackPreferences
 
-interface PlaybackPreferencesStore : ServerScopedClearableStore {
-    suspend fun get(serverId: String): PlaybackPreferences
+interface PlaybackPreferencesStore : AccountScopedClearableStore {
+    suspend fun get(accountIdentity: AccountIdentity): PlaybackPreferences
 
     suspend fun save(
-        serverId: String,
+        accountIdentity: AccountIdentity,
         preferences: PlaybackPreferences,
     )
-
-    suspend fun clear(serverId: String)
-
-    override suspend fun clearServerScoped(serverId: String) {
-        clear(serverId)
-    }
 }

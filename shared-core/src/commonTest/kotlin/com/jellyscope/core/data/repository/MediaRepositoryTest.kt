@@ -416,6 +416,7 @@ class MediaRepositoryTest {
             val paths = mutableListOf<String>()
             val authHeaders = mutableListOf<String?>()
             val fields = mutableListOf<String?>()
+            val nextUpResumable = mutableListOf<String?>()
             val fixture =
                 mediaRepositoryFixture(
                     engine =
@@ -423,6 +424,9 @@ class MediaRepositoryTest {
                             paths += request.url.encodedPath
                             authHeaders += request.headers[HttpHeaders.Authorization]
                             fields += request.url.parameters["fields"]
+                            if (request.url.encodedPath == "/Shows/NextUp") {
+                                nextUpResumable += request.url.parameters["enableResumable"]
+                            }
                             when (request.url.encodedPath) {
                                 "/UserViews" -> respondJson(userViewsJson)
                                 "/UserItems/Resume" -> respondJson(queryResultJson("resume-1"))
@@ -451,6 +455,7 @@ class MediaRepositoryTest {
                 paths,
             )
             assertTrue(authHeaders.all { header -> header == "MediaBrowser Token=\"token-1\"" })
+            assertEquals<List<String?>>(listOf("true"), nextUpResumable)
             fields.filterNotNull().forEach { fieldSet ->
                 assertFalse(fieldSet.split(",").contains("MediaSources"))
                 assertFalse(fieldSet.split(",").contains("People"))
@@ -550,6 +555,7 @@ class MediaRepositoryTest {
             val sortOrder = mutableListOf<String?>()
             val filters = mutableListOf<String?>()
             val fields = mutableListOf<String?>()
+            val resumable = mutableListOf<String?>()
             val fixture =
                 mediaRepositoryFixture(
                     engine =
@@ -560,6 +566,7 @@ class MediaRepositoryTest {
                             sortOrder += request.url.parameters["sortOrder"]
                             filters += request.url.parameters["filters"]
                             fields += request.url.parameters["fields"]
+                            resumable += request.url.parameters["enableResumable"]
                             when (request.url.encodedPath) {
                                 "/UserItems/Resume" -> respondJson(queryResultJson("resume-1"))
                                 "/Items" -> respondJson(queryResultJson("item-1"))
@@ -588,6 +595,7 @@ class MediaRepositoryTest {
             assertEquals<List<String?>>(listOf(null, "DateCreated", null, null), sortBy)
             assertEquals<List<String?>>(listOf(null, "Descending", null, null), sortOrder)
             assertEquals<List<String?>>(listOf(null, "IsFavorite", null, null), filters)
+            assertEquals<List<String?>>(listOf(null, null, "false", null), resumable)
             assertEquals<List<String?>>(
                 List(4) { defaultItemFields.joinToString(",") },
                 fields,
@@ -1291,13 +1299,17 @@ class MediaRepositoryTest {
     @Test
     fun searchSendsFindQueryParamsAndProjectsRuntimeBuckets() =
         runTest {
-            val capturedParams = mutableMapOf<String, String?>()
+            val capturedParamsLock = ReentrantLock()
+            val capturedParams = mutableListOf<Map<String, String?>>()
             val fixture =
                 mediaRepositoryFixture(
                     engine =
                         MockEngine { request ->
-                            request.url.parameters.names().forEach { name ->
-                                capturedParams[name] = request.url.parameters[name]
+                            capturedParamsLock.withLock {
+                                capturedParams +=
+                                    request.url.parameters.names().associateWith { name ->
+                                        request.url.parameters[name]
+                                    }
                             }
                             when (request.url.encodedPath) {
                                 "/Items" -> respondJson(findItemsJson)
@@ -1319,18 +1331,24 @@ class MediaRepositoryTest {
                         ),
                     ).getOrThrow()
 
-            assertEquals("user-1", capturedParams["userId"])
-            assertEquals("true", capturedParams["recursive"])
-            assertEquals("Movie,Series,Episode", capturedParams["includeItemTypes"])
-            assertEquals("60", capturedParams["limit"])
-            assertEquals("matrix 1999", capturedParams["searchTerm"])
-            assertEquals("person-1", capturedParams["personIds"])
-            assertEquals("Action,Sci-Fi", capturedParams["genres"])
-            assertEquals("1999", capturedParams["years"])
-            assertEquals("IsUnplayed", capturedParams["filters"])
-            assertEquals(defaultItemFields.joinToString(","), capturedParams["fields"])
-            assertFalse(capturedParams["fields"].orEmpty().split(",").contains("MediaSources"))
-            assertFalse(capturedParams["fields"].orEmpty().split(",").contains("People"))
+            assertEquals(3, capturedParams.size)
+            assertEquals(
+                listOf("Episode", "Movie", "Series"),
+                capturedParams.mapNotNull { parameters -> parameters["includeItemTypes"] }.sorted(),
+            )
+            capturedParams.forEach { parameters ->
+                assertEquals("user-1", parameters["userId"])
+                assertEquals("true", parameters["recursive"])
+                assertEquals("60", parameters["limit"])
+                assertEquals("matrix 1999", parameters["searchTerm"])
+                assertEquals("person-1", parameters["personIds"])
+                assertEquals("Action,Sci-Fi", parameters["genres"])
+                assertEquals("1999", parameters["years"])
+                assertEquals("IsUnplayed", parameters["filters"])
+                assertEquals(defaultItemFields.joinToString(","), parameters["fields"])
+                assertFalse(parameters["fields"].orEmpty().split(",").contains("MediaSources"))
+                assertFalse(parameters["fields"].orEmpty().split(",").contains("People"))
+            }
             assertEquals(listOf("movie-1"), result.movies.map { it.id })
             assertEquals(listOf("series-1"), result.shows.map { it.id })
             assertEquals(emptyList(), result.episodes.map { it.id })
@@ -1556,6 +1574,7 @@ class MediaRepositoryTest {
             assertTrue(captured.take(3).all { (_, parameters) -> parameters["parentId"] == "movies-1" })
             assertEquals("Movie", captured[0].second["includeItemTypes"])
             assertEquals("Movie", captured[1].second["includeItemTypes"])
+            assertEquals("true", captured[2].second["enableResumable"])
             assertEquals("movies-1", captured[3].second["parentId"])
         }
 

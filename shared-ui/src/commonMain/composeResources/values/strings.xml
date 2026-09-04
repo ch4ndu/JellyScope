@@ -483,6 +483,8 @@
     <string name="settings_still_watching_description">Ask before continuing after several automatic advances.</string>
     <string name="settings_playback_warnings">Playback warnings (beta)</string>
     <string name="settings_playback_warnings_description">Shows advisory playback-health banners and recovery notices during playback. Automatic recovery still runs silently when off, and fatal errors are always shown.</string>
+    <string name="settings_allow_insecure_desktop_tls">Allow insecure certificates</string>
+    <string name="settings_allow_insecure_desktop_tls_warning">Disables certificate verification for newly started desktop mpv playback. Enable this only for a server you trust: an attacker could intercept your connection.</string>
     <string name="settings_autoplay_delay">Autoplay delay</string>
     <string name="settings_picker_audio_language_subtitle">Leave blank to use Auto.</string>
     <string name="settings_picker_subtitle_language_subtitle">Leave blank to use Auto.</string>

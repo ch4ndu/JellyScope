@@ -7,6 +7,7 @@ package com.jellyscope.core.playback
 import com.jellyscope.core.data.local.DesktopPlayerVolumeStore
 import com.jellyscope.core.data.local.LocalSubtitleFileStore
 import com.jellyscope.core.data.remote.AuthHeaderBuilder
+import com.jellyscope.core.domain.model.PlaybackTimingKind
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.AudioActivationState
@@ -33,6 +34,7 @@ import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.domain.playback.PlayerOperation
+import com.jellyscope.core.domain.playback.PlayerTimingController
 import com.jellyscope.core.domain.playback.PlayerVolumeController
 import com.jellyscope.core.domain.playback.PlayerVolumeState
 import com.jellyscope.core.domain.playback.SubtitleActivationFailureReason
@@ -81,6 +83,8 @@ class MpvPlayerController private constructor(
     private val localSubtitleFileStore: LocalSubtitleFileStore?,
     private val volumeStore: DesktopPlayerVolumeStore?,
     private val presentationPreference: MpvPresentationPreference,
+    private val allowInsecureDesktopTls: Boolean,
+    private val desktopMpvNetworkPolicy: DesktopMpvNetworkPolicy,
     private val engineLeaseClockNanos: () -> Long = System::nanoTime,
     private val engineLeaseWait: (Long) -> Unit = { millis -> Thread.sleep(millis) },
 ) : PlayerController,
@@ -92,6 +96,7 @@ class MpvPlayerController private constructor(
         localSubtitleFileStore: LocalSubtitleFileStore? = null,
         volumeStore: DesktopPlayerVolumeStore? = null,
         presentationPreference: MpvPresentationPreference = MpvPresentationPreference.Software,
+        allowInsecureDesktopTls: Boolean = false,
         engineLeaseClockNanos: () -> Long = System::nanoTime,
         engineLeaseWait: (Long) -> Unit = { millis -> Thread.sleep(millis) },
     ) : this(
@@ -101,6 +106,8 @@ class MpvPlayerController private constructor(
         localSubtitleFileStore,
         volumeStore,
         presentationPreference,
+        allowInsecureDesktopTls,
+        DesktopMpvNetworkPolicy(),
         engineLeaseClockNanos,
         engineLeaseWait,
     )
@@ -112,6 +119,8 @@ class MpvPlayerController private constructor(
         localSubtitleFileStore: LocalSubtitleFileStore? = null,
         volumeStore: DesktopPlayerVolumeStore? = null,
         presentationPreference: MpvPresentationPreference = MpvPresentationPreference.Software,
+        allowInsecureDesktopTls: Boolean = false,
+        desktopMpvNetworkPolicy: DesktopMpvNetworkPolicy = DesktopMpvNetworkPolicy(),
         engineLeaseClockNanos: () -> Long = System::nanoTime,
         engineLeaseWait: (Long) -> Unit = { millis -> Thread.sleep(millis) },
     ) : this(
@@ -121,6 +130,8 @@ class MpvPlayerController private constructor(
         localSubtitleFileStore,
         volumeStore,
         presentationPreference,
+        allowInsecureDesktopTls,
+        desktopMpvNetworkPolicy,
         engineLeaseClockNanos,
         engineLeaseWait,
     )
@@ -158,6 +169,8 @@ class MpvPlayerController private constructor(
     override val platformPlayer: Any?
         get() = this
     override val activeBackend: PlayerBackend = PlayerBackend.Mpv
+    private val timing = DesktopMpvTimingController(::applyTimingOffset)
+    override val timingController: PlayerTimingController = timing
     override val playbackHealthMeasurementCapabilities =
         PlaybackHealthMeasurementCapabilities(
             hasReliableBufferingTransitions = true,
@@ -630,6 +643,7 @@ class MpvPlayerController private constructor(
                     return@withEngineLease
                 }
 
+                applyTimingOffsets(active.lib, active.ctx)
                 active.lib.mpv_set_property_string(active.ctx, "sid", "no")
                 active.lib.mpv_set_property_string(active.ctx, "pause", "yes")
                 active.lib.mpv_set_property_string(active.ctx, "speed", plan.playbackSpeed.toString())
@@ -1212,6 +1226,24 @@ class MpvPlayerController private constructor(
                 surfaceKind = surface?.surfaceKind,
             )
 
+        val tlsOptions =
+            if (allowInsecureDesktopTls) {
+                listOf("tls-verify" to "no")
+            } else {
+                val trustBundle =
+                    try {
+                        desktopMpvNetworkPolicy.ensureTrustBundleBlocking()
+                    } catch (throwable: Throwable) {
+                        failEngineInitialization(preference, "mpv initialization failed while preparing TLS verification", throwable)
+                        lib.mpv_terminate_destroy(context)
+                        return false
+                    }
+                listOf(
+                    "tls-verify" to "yes",
+                    "tls-ca-file" to trustBundle.absolutePath,
+                )
+            }
+
         val options =
             when (preference) {
                 MpvPresentationPreference.MacOsOpenGl -> {
@@ -1232,8 +1264,9 @@ class MpvPlayerController private constructor(
                 }
             }
         val optionFailure =
-            resolvedOptions.firstOrNull { (name, value) ->
-                lib.mpv_set_option_string(context, name, value) != 0
+            (tlsOptions + resolvedOptions).firstOrNull { (name, value) ->
+                runCatching { lib.mpv_set_option_string(context, name, value) }
+                    .getOrDefault(-1) != 0
             }
         if (optionFailure != null) {
             failEngineInitialization(preference, "mpv initialization failed while setting ${optionFailure.first}")
@@ -1370,6 +1403,7 @@ class MpvPlayerController private constructor(
             return false
         }
 
+        applyTimingOffsets(lib, context)
         lib.mpv_render_context_set_update_callback(createdRenderContext, renderUpdateCallback, null)
         if (preference == MpvPresentationPreference.Software) {
             val published =
@@ -2740,6 +2774,59 @@ class MpvPlayerController private constructor(
     ) {
         lib.mpv_set_property_string(context, "volume", state.volumePercent.toDouble().toString())
         lib.mpv_set_property_string(context, "mute", if (state.muted) "yes" else "no")
+    }
+
+    private fun applyTimingOffset(
+        kind: PlaybackTimingKind,
+        offsetMs: Long,
+    ) {
+        withEngineLease { active ->
+            applyTimingOffset(active.lib, active.ctx, kind, offsetMs)
+        }
+    }
+
+    private fun applyTimingOffsets(
+        lib: LibMpv,
+        context: Pointer,
+    ) {
+        timing.applyRetainedOffsets { kind, offsetMs ->
+            applyTimingOffset(lib, context, kind, offsetMs)
+        }
+    }
+
+    private fun applyTimingOffset(
+        lib: LibMpv,
+        context: Pointer,
+        kind: PlaybackTimingKind,
+        offsetMs: Long,
+    ) {
+        val property =
+            when (kind) {
+                PlaybackTimingKind.Audio -> "audio-delay"
+                PlaybackTimingKind.Subtitle -> "sub-delay"
+            }
+        val result =
+            runCatching {
+                lib.mpv_set_property_string(
+                    context,
+                    property,
+                    (offsetMs / MILLISECONDS_PER_SECOND).toString(),
+                )
+            }.getOrElse { throwable ->
+                logMpvDiagnostic(
+                    PlaybackDiagnosticStage.NativePlayer,
+                    PlaybackDiagnosticEvent.Failed,
+                    throwable,
+                )
+                return
+            }
+        if (result != 0) {
+            logMpvDiagnostic(
+                PlaybackDiagnosticStage.NativePlayer,
+                PlaybackDiagnosticEvent.Rejected,
+                nativeCode = result.toLong(),
+            )
+        }
     }
 
     private fun applyPendingEmbeddedSubtitleSelection(active: ActiveMpv) {

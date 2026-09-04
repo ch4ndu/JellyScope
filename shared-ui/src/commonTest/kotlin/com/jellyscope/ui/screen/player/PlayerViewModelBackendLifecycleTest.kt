@@ -540,6 +540,7 @@ class PlayerViewModelBackendLifecycleTest {
                 val chapters = listOf(Chapter(name = "Opening", startTicks = 0L))
                 val trickplay =
                     TrickplayInfo(
+                        mediaSourceId = "source-1",
                         resolutionKey = "320",
                         width = 320,
                         height = 180,
@@ -554,7 +555,7 @@ class PlayerViewModelBackendLifecycleTest {
                     playerFixture(
                         mediaSegments = segments,
                         chapters = chapters,
-                        trickplay = trickplay,
+                        trickplayByMediaSourceId = mapOf("source-1" to trickplay),
                     )
                 runCurrent()
 
@@ -564,8 +565,8 @@ class PlayerViewModelBackendLifecycleTest {
                 assertEquals(trickplay, content.trickplay)
                 assertEquals(
                     listOf(
-                        "https://jellyfin.example/Videos/item-1/Trickplay/320/0.jpg",
-                        "https://jellyfin.example/Videos/item-1/Trickplay/320/1.jpg",
+                        "https://jellyfin.example/Videos/item-1/Trickplay/320/0.jpg?MediaSourceId=source-1",
+                        "https://jellyfin.example/Videos/item-1/Trickplay/320/1.jpg?MediaSourceId=source-1",
                     ),
                     content.trickplayTileUrls,
                 )

@@ -67,7 +67,7 @@ internal fun TvPlayerOverlay(
     onInitialFocusConsumed: () -> Unit,
     onTogglePlayPause: () -> Unit,
     playFocusRequester: FocusRequester,
-    pendingSeekTargetMs: () -> Long?,
+    seekPreviewTargetMs: () -> Long?,
     onSeekKeyDown: (HoldSeekDirection) -> Unit,
     onShowPicker: (PlayerPicker) -> Unit,
     onShowLocalMenu: (TvPlayerLocalMenu) -> Unit,
@@ -96,7 +96,6 @@ internal fun TvPlayerOverlay(
     val backendButtonEnabled = content.backendSwitchControlEnabled
     val showSubtitleStyleButton = content.subtitleStyleable
     val showChaptersButton = content.chapters.isNotEmpty()
-    var seekFocused by remember { mutableStateOf(false) }
 
     // Initial focus depends on whether controls or scrub invoked the overlay.
     LaunchedEffect(Unit) {
@@ -147,9 +146,7 @@ internal fun TvPlayerOverlay(
             playbackStateFlow = playbackStateFlow,
             seekRequester = seekRequester,
             playRequester = playFocusRequester,
-            seekFocused = seekFocused,
-            onSeekFocusChanged = { focused -> seekFocused = focused },
-            pendingSeekTargetMs = pendingSeekTargetMs,
+            seekPreviewTargetMs = seekPreviewTargetMs,
             onSeekKeyDown = onSeekKeyDown,
         )
         // Key interception swaps the exclusive controls and queue pages.

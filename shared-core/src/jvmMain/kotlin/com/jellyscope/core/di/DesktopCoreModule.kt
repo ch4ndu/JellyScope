@@ -98,7 +98,7 @@ fun desktopCoreModule(developerOpenSubtitlesApiKey: String? = null) =
         single<DiagnosticsEnvironment> { DesktopDiagnosticsEnvironment() }
         single<DeviceProfileProvider> { DesktopDeviceProfileProvider() }
         single<DesktopPlayerVolumeStore> { JvmFileVolumeStore(preferences = get()) }
-        factory<PlayerController> { (session: Session, backend: PlayerBackend) ->
+        factory<PlayerController> { (session: Session, backend: PlayerBackend, allowInsecureDesktopTls: Boolean) ->
             val offlineArtifactResolver = getOrNull<OfflineArtifactResolver>()
             if (backend == PlayerBackend.LibVlc) {
                 DesktopLibVlcPlayerController(
@@ -116,6 +116,7 @@ fun desktopCoreModule(developerOpenSubtitlesApiKey: String? = null) =
                     localSubtitleFileStore = get(),
                     volumeStore = get(),
                     presentationPreference = desktopMpvPresentationPreference(),
+                    allowInsecureDesktopTls = allowInsecureDesktopTls,
                 ).also { controller ->
                     offlineArtifactResolver?.let(controller::setOfflineArtifactResolver)
                 }

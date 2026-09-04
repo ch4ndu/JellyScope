@@ -37,7 +37,10 @@ interface MediaRepository {
 
     suspend fun getContinueWatching(): Result<List<MediaItem>>
 
-    suspend fun getNextUp(seriesId: String? = null): Result<List<MediaItem>>
+    suspend fun getNextUp(
+        seriesId: String? = null,
+        includeResumable: Boolean = true,
+    ): Result<List<MediaItem>>
 
     suspend fun getItemDetail(
         itemId: String,

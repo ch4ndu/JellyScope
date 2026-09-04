@@ -41,7 +41,10 @@ class GetContinueWatchingUseCase(
 class GetNextUpUseCase(
     private val mediaRepository: MediaRepository,
 ) {
-    suspend operator fun invoke(seriesId: String? = null) = mediaRepository.getNextUp(seriesId = seriesId)
+    suspend operator fun invoke(
+        seriesId: String? = null,
+        includeResumable: Boolean = true,
+    ) = mediaRepository.getNextUp(seriesId = seriesId, includeResumable = includeResumable)
 }
 
 class GetItemDetailUseCase(

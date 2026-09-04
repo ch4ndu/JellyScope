@@ -16,6 +16,7 @@ import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.domain.playback.QualityOption
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.core.domain.playback.SubtitleTrackOption
+import com.jellyscope.core.domain.playback.TrickplayInfo
 import com.jellyscope.core.domain.playback.VideoOutputMeasurementCapabilities
 import com.jellyscope.core.domain.playback.audioOptions
 import com.jellyscope.core.domain.playback.qualityOptions
@@ -153,11 +154,12 @@ internal class PlayerProjectionCache {
     fun trickplayTileUrls(
         itemId: String?,
         serverUrl: String,
+        mediaSourceId: String?,
         tileWidth: Int?,
         tileCount: Int?,
         buildTiles: () -> List<String>,
     ): List<String> {
-        val key = TrickplayKey(itemId, serverUrl, tileWidth, tileCount)
+        val key = TrickplayKey(itemId, serverUrl, mediaSourceId, tileWidth, tileCount)
         if (trickplayKey != key) {
             trickplayKey = key
             trickplayTiles = buildTiles()
@@ -178,10 +180,14 @@ internal class PlayerProjectionCache {
     private data class TrickplayKey(
         val itemId: String?,
         val serverUrl: String,
+        val mediaSourceId: String?,
         val tileWidth: Int?,
         val tileCount: Int?,
     )
 }
+
+internal fun Map<String, TrickplayInfo?>.trickplayForMediaSource(mediaSourceId: String): TrickplayInfo? =
+    this[mediaSourceId] ?: takeIf { size == 1 }?.values?.singleOrNull()
 
 internal fun activeControllerSatisfiesBackend(
     resolvedBackend: com.jellyscope.core.domain.playback.PlayerBackend,

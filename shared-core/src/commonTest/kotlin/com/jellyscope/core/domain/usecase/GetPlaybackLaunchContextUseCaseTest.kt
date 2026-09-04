@@ -5,6 +5,7 @@ package com.jellyscope.core.domain.usecase
 import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlaybackSelectionStore
 import com.jellyscope.core.data.local.SubtitleSelectionStore
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PlaybackSelection
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
@@ -179,19 +180,21 @@ private class TestPlaybackPreferencesStore(
 ) : PlaybackPreferencesStore {
     var requestedServerId: String? = null
 
-    override suspend fun get(serverId: String): PlaybackPreferences {
-        requestedServerId = serverId
+    override suspend fun get(accountIdentity: AccountIdentity): PlaybackPreferences {
+        requestedServerId = accountIdentity.serverId
         onGet()
         failure?.let { throwable -> throw throwable }
         return value
     }
 
     override suspend fun save(
-        serverId: String,
+        accountIdentity: AccountIdentity,
         preferences: PlaybackPreferences,
     ) = Unit
 
-    override suspend fun clear(serverId: String) = Unit
+    override suspend fun clearAccount(accountIdentity: AccountIdentity) = Unit
+
+    override suspend fun clearServerScoped(serverId: String) = Unit
 
     override suspend fun clearServerScoped() = Unit
 }

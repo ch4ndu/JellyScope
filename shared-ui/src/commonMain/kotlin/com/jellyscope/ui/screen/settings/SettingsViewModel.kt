@@ -263,7 +263,7 @@ class SettingsViewModel(
             dispatcher = workDispatcher,
             write = { preferences ->
                 savePlaybackPreferencesAction(
-                    serverId = session.serverId,
+                    accountIdentity = session.accountIdentity(),
                     preferences = preferences,
                 )
             },
@@ -619,6 +619,10 @@ class SettingsViewModel(
 
     fun setPlaybackWarningsEnabled(enabled: Boolean) {
         savePlaybackPreferences { current -> current.copy(playbackWarningsEnabled = enabled) }
+    }
+
+    fun setAllowInsecureDesktopTls(enabled: Boolean) {
+        savePlaybackPreferences { current -> current.copy(allowInsecureDesktopTls = enabled) }
     }
 
     fun setSegmentSkipPolicy(
@@ -1130,7 +1134,7 @@ class SettingsViewModel(
             try {
                 val preferences =
                     withContext(workDispatcher) {
-                        getPlaybackPreferencesUseCase(session.serverId)
+                        getPlaybackPreferencesUseCase(session.accountIdentity())
                     }.normalized()
                 _state.update { current ->
                     current.copy(

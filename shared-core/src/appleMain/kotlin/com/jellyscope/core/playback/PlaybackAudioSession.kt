@@ -26,6 +26,9 @@ import platform.AVFAudio.AVAudioSessionInterruptionTypeBegan
 import platform.AVFAudio.AVAudioSessionInterruptionTypeEnded
 import platform.AVFAudio.AVAudioSessionInterruptionTypeKey
 import platform.AVFAudio.AVAudioSessionModeMoviePlayback
+import platform.AVFAudio.AVAudioSessionRouteChangeNotification
+import platform.AVFAudio.AVAudioSessionRouteChangeReasonKey
+import platform.AVFAudio.AVAudioSessionRouteChangeReasonOldDeviceUnavailable
 import platform.AVFAudio.AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
 import platform.AVFAudio.setActive
 import platform.Foundation.NSNotificationCenter
@@ -35,7 +38,7 @@ import platform.darwin.dispatch_get_main_queue
 import kotlin.concurrent.Volatile
 
 /**
- * Interruption callbacks for the controller that most recently activated the
+ * Audio-session callbacks for the controller that most recently activated the
  * playback audio session. Invoked on the main queue.
  */
 internal interface PlaybackAudioSessionHandler {
@@ -44,6 +47,8 @@ internal interface PlaybackAudioSessionHandler {
 
     /** The interruption ended; the session has been reactivated before this call. */
     fun onAudioSessionInterruptionEnded(shouldResume: Boolean)
+
+    fun onAudioSessionOutputRouteLost() = Unit
 }
 
 /**
@@ -78,6 +83,7 @@ internal object PlaybackAudioSession {
 
     private var deactivateJob: Job? = null
     private var interruptionObserver: Any? = null
+    private var routeChangeObserver: Any? = null
 
     /**
      * Activate the playback session for [owner] and make it the interruption
@@ -89,7 +95,7 @@ internal object PlaybackAudioSession {
         owner: PlaybackAudioSessionHandler,
         platform: PlaybackDiagnosticPlatform,
     ) {
-        installInterruptionObserverIfNeeded()
+        installObserversIfNeeded()
         currentHandler = owner
         activationOwner = owner
         diagnosticPlatform = platform
@@ -107,8 +113,12 @@ internal object PlaybackAudioSession {
         if (currentHandler === owner) {
             currentHandler = null
         }
-        if (activationOwner !== owner) return
+        if (activationOwner !== owner) {
+            removeObserversIfUnused()
+            return
+        }
         activationOwner = null
+        removeObserversIfUnused()
         deactivateJob?.cancel()
         deactivateJob =
             scope.launch {
@@ -139,52 +149,89 @@ internal object PlaybackAudioSession {
         }
     }
 
-    private fun installInterruptionObserverIfNeeded() {
-        if (interruptionObserver != null) return
-        interruptionObserver =
-            NSNotificationCenter.defaultCenter.addObserverForName(
-                name = AVAudioSessionInterruptionNotification,
-                `object` = null,
-                queue = null,
-            ) { notification ->
-                val userInfo = notification?.userInfo ?: return@addObserverForName
-                val type = (userInfo[AVAudioSessionInterruptionTypeKey] as? NSNumber)?.unsignedLongValue
-                when (type) {
-                    AVAudioSessionInterruptionTypeBegan -> {
-                        logEvent(PlaybackDiagnosticEvent.Waiting)
-                        dispatchToHandler { handler -> handler.onAudioSessionInterruptionBegan() }
-                    }
+    private fun installObserversIfNeeded() {
+        val center = NSNotificationCenter.defaultCenter
+        if (interruptionObserver == null) {
+            interruptionObserver =
+                center.addObserverForName(
+                    name = AVAudioSessionInterruptionNotification,
+                    `object` = null,
+                    queue = null,
+                ) { notification ->
+                    val userInfo = notification?.userInfo ?: return@addObserverForName
+                    val type = (userInfo[AVAudioSessionInterruptionTypeKey] as? NSNumber)?.unsignedLongValue
+                    when (type) {
+                        AVAudioSessionInterruptionTypeBegan -> {
+                            logEvent(PlaybackDiagnosticEvent.Waiting)
+                            dispatchToCurrentHandler { handler -> handler.onAudioSessionInterruptionBegan() }
+                        }
 
-                    AVAudioSessionInterruptionTypeEnded -> {
-                        // No registered handler means playback was released during
-                        // the interruption: do NOT reactivate a session nobody
-                        // owns (it would undo the delayed deactivation and steal
-                        // audio focus with nothing playing).
-                        if (currentHandler == null) return@addObserverForName
-                        val options =
-                            (userInfo[AVAudioSessionInterruptionOptionKey] as? NSNumber)?.unsignedLongValue ?: 0uL
-                        val shouldResume =
-                            options and AVAudioSessionInterruptionOptionShouldResume ==
-                                AVAudioSessionInterruptionOptionShouldResume
-                        logEvent(PlaybackDiagnosticEvent.Resolved)
-                        // Reactivate on the serialized session queue BEFORE the
-                        // handler decides whether to resume playback; re-check the
-                        // handler there in case release raced the dispatch.
-                        scope.launch {
-                            if (currentHandler == null) return@launch
-                            activateSession()
-                            dispatchToHandler { handler ->
-                                handler.onAudioSessionInterruptionEnded(shouldResume)
+                        AVAudioSessionInterruptionTypeEnded -> {
+                            // No registered handler means playback was released during
+                            // the interruption: do NOT reactivate a session nobody
+                            // owns (it would undo the delayed deactivation and steal
+                            // audio focus with nothing playing).
+                            val handler = currentOwnerHandler() ?: return@addObserverForName
+                            val options =
+                                (userInfo[AVAudioSessionInterruptionOptionKey] as? NSNumber)?.unsignedLongValue ?: 0uL
+                            val shouldResume =
+                                options and AVAudioSessionInterruptionOptionShouldResume ==
+                                    AVAudioSessionInterruptionOptionShouldResume
+                            logEvent(PlaybackDiagnosticEvent.Resolved)
+                            // Reactivate on the serialized session queue BEFORE the
+                            // handler decides whether to resume playback; re-check the
+                            // handler there in case release raced the dispatch.
+                            scope.launch {
+                                if (!isCurrentOwner(handler)) return@launch
+                                activateSession()
+                                dispatchToHandler(handler) { current ->
+                                    current.onAudioSessionInterruptionEnded(shouldResume)
+                                }
                             }
                         }
                     }
                 }
-            }
+        }
+        if (routeChangeObserver == null) {
+            routeChangeObserver =
+                center.addObserverForName(
+                    name = AVAudioSessionRouteChangeNotification,
+                    `object` = null,
+                    queue = null,
+                ) { notification ->
+                    val userInfo = notification?.userInfo ?: return@addObserverForName
+                    val reason = (userInfo[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.unsignedLongValue
+                    if (reason != AVAudioSessionRouteChangeReasonOldDeviceUnavailable) return@addObserverForName
+                    dispatchToCurrentHandler { handler -> handler.onAudioSessionOutputRouteLost() }
+                }
+        }
     }
 
-    private inline fun dispatchToHandler(crossinline block: (PlaybackAudioSessionHandler) -> Unit) {
+    private fun removeObserversIfUnused() {
+        if (currentHandler != null || activationOwner != null) return
+        val center = NSNotificationCenter.defaultCenter
+        interruptionObserver?.let(center::removeObserver)
+        interruptionObserver = null
+        routeChangeObserver?.let(center::removeObserver)
+        routeChangeObserver = null
+    }
+
+    private fun currentOwnerHandler(): PlaybackAudioSessionHandler? = currentHandler?.takeIf { handler -> activationOwner === handler }
+
+    private fun isCurrentOwner(handler: PlaybackAudioSessionHandler): Boolean = currentHandler === handler && activationOwner === handler
+
+    private inline fun dispatchToCurrentHandler(crossinline block: (PlaybackAudioSessionHandler) -> Unit) {
+        currentOwnerHandler()?.let { handler -> dispatchToHandler(handler, block) }
+    }
+
+    private inline fun dispatchToHandler(
+        handler: PlaybackAudioSessionHandler,
+        crossinline block: (PlaybackAudioSessionHandler) -> Unit,
+    ) {
         dispatch_async(dispatch_get_main_queue()) {
-            currentHandler?.let(block)
+            if (isCurrentOwner(handler)) {
+                block(handler)
+            }
         }
     }
 

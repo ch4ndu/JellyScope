@@ -890,6 +890,11 @@ class VlcKitPlayerController(
         if (resume) play()
     }
 
+    override fun onAudioSessionOutputRouteLost() {
+        if (released) return
+        pause()
+    }
+
     private fun attachExternalSubtitle(
         nativePlayer: VLCMediaPlayer,
         subtitleAsset: SubtitleAsset?,

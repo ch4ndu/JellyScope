@@ -25,6 +25,7 @@ enum class MediaSegmentType(
 }
 
 data class TrickplayInfo(
+    val mediaSourceId: String,
     val resolutionKey: String,
     val width: Int,
     val height: Int,

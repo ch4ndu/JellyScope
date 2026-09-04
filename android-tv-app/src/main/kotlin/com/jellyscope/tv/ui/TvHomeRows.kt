@@ -247,7 +247,10 @@ internal fun TvHomeRow(
                             ),
                     ) {
                         if (showLoadingTile) {
-                            item(key = "loading-slot", contentType = "loading") {
+                            item(
+                                key = "loading-slot",
+                                contentType = if (row.wide) "loading-wide" else "loading-poster",
+                            ) {
                                 TvLoadingPlaceholderCard(
                                     wide = row.wide,
                                     // During the bridge, the first card receives focus.
@@ -262,8 +265,7 @@ internal fun TvHomeRow(
                         itemsIndexed(
                             items = contentItems,
                             key = { _, item -> item.id },
-                            // View All uses a separate reuse shape.
-                            contentType = { _, _ -> "media-card" },
+                            contentType = { _, _ -> if (row.wide) "media-card-wide" else "media-card-poster" },
                         ) { index, item ->
                             val itemKey = "item:${item.id}"
                             val itemRequester =
@@ -295,7 +297,10 @@ internal fun TvHomeRow(
                             )
                         }
                         if (hasContent) {
-                            item(key = "view-all", contentType = "view-all") {
+                            item(
+                                key = "view-all",
+                                contentType = if (row.wide) "view-all-wide" else "view-all-poster",
+                            ) {
                                 TvViewAllCard(
                                     wide = row.wide,
                                     restoreFocus = focusTarget is TvHomeFocusTarget.ViewAll,
@@ -341,7 +346,10 @@ private fun TvLoadingPlaceholderCard(
         }
     }
     Column(
-        modifier = modifier.width((if (wide) TvDimens.libraryWidth else TvDimens.posterWidth).tileScaled()),
+        modifier =
+            modifier.width(
+                (if (wide) TvDimens.libraryWidth else TvDimens.posterWidth).tileScaled(),
+            ),
         verticalArrangement = Arrangement.spacedBy(TvDimens.cardTitleGap),
     ) {
         TvFocusableBox(
@@ -373,7 +381,7 @@ private fun TvLoadingPlaceholderCard(
 
 @Composable
 private fun TvViewAllCard(
-    wide: Boolean = false,
+    wide: Boolean,
     restoreFocus: Boolean = false,
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
@@ -388,7 +396,10 @@ private fun TvViewAllCard(
         }
     }
     Column(
-        modifier = modifier.width((if (wide) TvDimens.libraryWidth else TvDimens.posterWidth).tileScaled()),
+        modifier =
+            modifier.width(
+                (if (wide) TvDimens.libraryWidth else TvDimens.posterWidth).tileScaled(),
+            ),
         verticalArrangement = Arrangement.spacedBy(TvDimens.cardTitleGap),
     ) {
         TvFocusableBox(
@@ -433,7 +444,7 @@ internal data class TvHomeRowSpec(
     val row: HomeRow,
     val title: String,
     val rowState: RowState,
-    val wide: Boolean,
+    val wide: Boolean = false,
 )
 
 internal sealed interface TvHomeFocusTarget {

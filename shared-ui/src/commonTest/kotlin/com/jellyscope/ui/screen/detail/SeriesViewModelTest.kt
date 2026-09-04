@@ -91,6 +91,7 @@ class SeriesViewModelTest {
                 assertEquals(listOf("season-2"), repository.episodeCalls)
                 assertEquals(listOf<Int?>(2), repository.episodeSeasonIndices)
                 assertEquals(listOf<String?>("series-1"), repository.nextUpSeriesIds)
+                assertEquals(listOf(true), repository.nextUpIncludeResumable)
                 assertEquals("episode-2", initial.focusedEpisode?.itemId)
                 assertEquals("episode-next", initial.seriesPlayEpisode?.itemId)
                 assertIs<DetailPlayLabel.Resume>(initial.seriesPlayEpisode?.playAction?.label)
@@ -978,6 +979,7 @@ private class SeriesMediaRepository(
     val episodeCalls = mutableListOf<String>()
     val episodeSeasonIndices = mutableListOf<Int?>()
     val nextUpSeriesIds = mutableListOf<String?>()
+    val nextUpIncludeResumable = mutableListOf<Boolean>()
     val setPlayedCalls = mutableListOf<Pair<String, Boolean>>()
     val setFavoriteCalls = mutableListOf<Pair<String, Boolean>>()
 
@@ -985,8 +987,12 @@ private class SeriesMediaRepository(
 
     override suspend fun getContinueWatching(): Result<List<MediaItem>> = Result.success(emptyList())
 
-    override suspend fun getNextUp(seriesId: String?): Result<List<MediaItem>> {
+    override suspend fun getNextUp(
+        seriesId: String?,
+        includeResumable: Boolean,
+    ): Result<List<MediaItem>> {
         nextUpSeriesIds += seriesId
+        nextUpIncludeResumable += includeResumable
         return Result.success(nextUp)
     }
 

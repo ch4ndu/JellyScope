@@ -15,6 +15,7 @@ class HoldSeekController(
     private val positionMs: () -> Long,
     private val durationMs: () -> Long?,
     private val commit: (Long) -> Unit,
+    private val onFinalCommit: (Long) -> Unit = {},
 ) {
     var pendingTargetMs: Long? by mutableStateOf(null)
         private set
@@ -68,7 +69,10 @@ class HoldSeekController(
         sessionItemId = null
         pendingTargetMs = null
         if (commitTarget && boundItemId != null && itemId() == boundItemId) {
-            target?.let(commit)
+            target?.let { finalTarget ->
+                onFinalCommit(finalTarget)
+                commit(finalTarget)
+            }
         }
     }
 }
