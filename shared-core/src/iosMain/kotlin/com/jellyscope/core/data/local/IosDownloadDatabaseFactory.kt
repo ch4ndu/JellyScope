@@ -3,7 +3,7 @@
 
 package com.jellyscope.core.data.local
 
-import androidx.room.Room
+import androidx.room3.Room
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey

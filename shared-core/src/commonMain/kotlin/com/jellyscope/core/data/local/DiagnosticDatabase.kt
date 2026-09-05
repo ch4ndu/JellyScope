@@ -2,17 +2,17 @@
 
 package com.jellyscope.core.data.local
 
-import androidx.room.ColumnInfo
-import androidx.room.ConstructedBy
-import androidx.room.Dao
-import androidx.room.Database
-import androidx.room.Entity
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
-import androidx.room.RoomDatabase
-import androidx.room.RoomDatabaseConstructor
-import androidx.room.Transaction
+import androidx.room3.ColumnInfo
+import androidx.room3.ConstructedBy
+import androidx.room3.Dao
+import androidx.room3.Database
+import androidx.room3.Entity
+import androidx.room3.Insert
+import androidx.room3.OnConflictStrategy
+import androidx.room3.Query
+import androidx.room3.RoomDatabase
+import androidx.room3.RoomDatabaseConstructor
+import androidx.room3.Transaction
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
@@ -27,10 +27,10 @@ internal const val DIAGNOSTIC_MAX_BYTES = 500_000
 
 @Entity(
     tableName = "diagnostic_breadcrumbs",
-    indices = [androidx.room.Index(value = ["recordId"], unique = true)],
+    indices = [androidx.room3.Index(value = ["recordId"], unique = true)],
 )
 internal data class DiagnosticBreadcrumbEntity(
-    @androidx.room.PrimaryKey(autoGenerate = true)
+    @androidx.room3.PrimaryKey(autoGenerate = true)
     val sequence: Long = 0L,
     val recordId: String,
     val line: String,
@@ -39,7 +39,7 @@ internal data class DiagnosticBreadcrumbEntity(
 
 @Entity(tableName = "diagnostic_breadcrumb_meta")
 internal data class DiagnosticBreadcrumbMetaEntity(
-    @androidx.room.PrimaryKey
+    @androidx.room3.PrimaryKey
     val id: Int = 1,
     @ColumnInfo(defaultValue = "0")
     val truncationRevision: Long = 0L,
@@ -184,7 +184,7 @@ internal expect object DiagnosticDatabaseConstructor : RoomDatabaseConstructor<D
     override fun initialize(): DiagnosticDatabase
 }
 
-internal fun androidx.room.RoomDatabase.Builder<DiagnosticDatabase>.buildDiagnosticDatabase(
+internal fun androidx.room3.RoomDatabase.Builder<DiagnosticDatabase>.buildDiagnosticDatabase(
     driver: SQLiteDriver = BundledSQLiteDriver(),
 ): DiagnosticDatabase =
     setDriver(DiagnosticDowngradeDriver(driver))

@@ -3,7 +3,8 @@
 package com.jellyscope.core.data.local
 
 import android.content.Context
-import androidx.room.Room
+import androidx.room3.Room
+import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.LocalSubtitleAsset
@@ -45,6 +46,7 @@ class AndroidRoomStoresTest {
     private val database =
         Room
             .inMemoryDatabaseBuilder(context, JellyfinStoreDatabase::class.java)
+            .setDriver(AndroidSQLiteDriver())
             .allowMainThreadQueries()
             .build()
     private val dao = database.jellyfinStoreDao()

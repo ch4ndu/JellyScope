@@ -3,7 +3,7 @@
 package com.jellyscope.core.data.local
 
 import android.content.Context
-import androidx.room.Room
+import androidx.room3.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.sqlite.execSQL
 import androidx.test.core.app.ApplicationProvider

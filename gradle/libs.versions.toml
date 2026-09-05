@@ -1,14 +1,14 @@
 [versions]
 activityCompose = "1.13.0"
 agp = "9.2.1"
-androidxCore = "1.18.0"
+androidxCore = "1.19.0"
 androidxPalette = "1.0.0"
 tvprovider = "1.1.0"
 workRuntime = "2.11.2"
-coil = "3.5.0"
+coil = "3.6.2"
 desugarJdkLibs = "2.1.5"
-compileSdk = "36"
-composeMultiplatform = "1.11.1"
+compileSdk = "37"
+composeMultiplatform = "1.12.0"
 jdkToolchain = "21"
 jna = "5.19.1"
 kermit = "2.1.0"
@@ -19,7 +19,7 @@ kotlinxCoroutines = "1.11.0"
 kotlinxDatetime = "0.8.0"
 kotlinxSerialization = "1.11.0"
 ktlint = "14.2.0"
-lifecycleViewmodelCompose = "2.10.0"
+lifecycleViewmodelCompose = "2.11.0"
 media3 = "1.9.0"
 # Jellyfin's FFmpeg audio decoder, published on Maven Central. Its version tracks
 # the paired Media3 version (<media3>+<build>), so it must match `media3` above.
@@ -32,7 +32,7 @@ tvMaterial = "1.1.0"
 navigationCompose = "2.9.2"
 ktor = "3.5.2"
 minSdk = "25"
-room = "2.8.4"
+room = "3.0.2"
 robolectric = "4.16.1"
 sqlite = "2.7.0"
 ksp = "2.3.11"
@@ -84,9 +84,9 @@ ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "kto
 ktor-client-resources = { module = "io.ktor:ktor-client-resources", version.ref = "ktor" }
 ktor-client-serialization = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-network = { module = "io.ktor:ktor-network", version.ref = "ktor" }
-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
-room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
+room-compiler = { module = "androidx.room3:room3-compiler", version.ref = "room" }
+room-runtime = { module = "androidx.room3:room3-runtime", version.ref = "room" }
+room-testing = { module = "androidx.room3:room3-testing", version.ref = "room" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 junit = { module = "junit:junit", version = "4.13.2" }
 
