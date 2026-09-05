@@ -678,6 +678,9 @@ a behavior must change, update this file in the same commit.
 
 ## Grid (View All) screens
 
+- Stable card IDs preserve focus identity, while click and remote-Play callbacks
+  capture the current complete card data. Same-ID refreshes must update resume,
+  kind and playability metadata used by those actions.
 - Focus lands on the grid when the screen opens AND when returning from a
   detail page (the request must re-fire on every composition entry).
 - Returning from a detail page restores focus to the EXACT previously-focused
@@ -690,7 +693,9 @@ a behavior must change, update this file in the same commit.
   until the saved position is covered or the source reports no more items.
   Never page beyond the saved position just to search for a missing item ID; a
   missing item resolves through the normal saved-position / first-child
-  fallback.
+  fallback. Library, Collection and Person automatic restore paging pauses on a
+  page error while preserving the pending target and true `hasMore`; an error
+  alone is not evidence that the target is missing.
 - Grid focus-memory reads are entry-time only: composition must not subscribe
   to focus-memory snapshot state while focus is inside the grid. Entry indices
   are consulted only on entry, and entry-focus effects read those values in
@@ -747,7 +752,13 @@ a behavior must change, update this file in the same commit.
   on the flaky default spatial search, and the grid reserves extra top content
   padding (`TvDimens.libraryGridContentTopReserve`) so the top row's focused (1.1x) card
   clears the control header. DOWN from the last row is consumed and stays put,
-  triggering paging first when that grid has more items.
+  triggering paging first when that grid has more items and no page error. On a
+  loaded Library or Collection page error, DOWN from the final row or RIGHT from
+  its last card reveals the explicit Retry control. UP or Retry activation
+  returns to the previously focused media index. Retry is outside media-card
+  counts, focus identity and requester indexing. Person ribbons similarly route
+  from their last card to Retry and return through the originating ribbon's
+  remembered card; an empty failed ribbon set exposes Retry directly.
 
 ## Library
 
@@ -840,7 +851,13 @@ a behavior must change, update this file in the same commit.
 
 - D-pad on-screen keyboard drives the query; results are grouped by tab
   (All/Movies/Shows/Episodes); recent searches and a clear-history action show
-  when the query is empty.
+  when the query is empty. Query-row keys and the clear-history control occupy
+  disjoint saveable namespaces even when a query resembles a control name.
+- Explicit IME/recent submission cancels debounce and captures the full current
+  query/filter/person request. Result focus waits for that exact request's
+  terminal success through the bounded attachment helper; old visible results
+  cannot satisfy it. Error/empty completion or a replaced request consumes the
+  pending intent. Typing, clearing, person choice and tab navigation clear it.
 - Search field focus only highlights/restores focus. The soft keyboard opens
   only from explicit select/click activation, never from focus entry.
 
@@ -1024,6 +1041,13 @@ owned by [Downloads And Offline](data-playback.md#downloads-and-offline).
 
 Rationale for rules this guide states — the choice, its reason, and the
 rejected alternatives.
+
+- **Paging errors and explicit search completion need distinct authority.** A
+  viewport or pending restore remains present after a failed page, so treating
+  it as Retry repeats the failure without another user action. Retry preserves
+  the saved media target while exposing a real control. Search results can also
+  remain visible while a new request starts; only the matching terminal request
+  can consume an explicit focus intent, not a momentary loading flag.
 
 ### Home media-card geometry
 

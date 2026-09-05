@@ -11,6 +11,7 @@ actual fun PlayerNowPlayingEffects(
     content: PlayerUiState.Content?,
     onPlay: () -> Unit,
     onPause: () -> Unit,
+    onToggle: () -> Unit,
     onSeekTo: (Long) -> Unit,
 ) {
     // Intentionally empty: Android MediaSession + Now Playing / PiP transport

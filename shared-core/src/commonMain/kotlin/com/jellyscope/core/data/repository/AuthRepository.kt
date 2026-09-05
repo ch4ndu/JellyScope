@@ -110,7 +110,7 @@ class DefaultAuthRepository(
                     jellyfinApi.authenticateByName(
                         serverUrl = normalizedServerUrl,
                         username = username.trimEnd(),
-                        password = password.trimEnd(),
+                        password = password,
                     )
                 val session = authResult.toSession(serverInfo, deviceId)
 

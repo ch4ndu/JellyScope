@@ -468,9 +468,12 @@ no desktop controls popup, overlay-window synchronization, move observer, or
 synthetic native mouse forwarding path. libmpv exposes only the deprecated
 OpenGL render path, so very-high-resolution mpv playback can still drop output
 under sustained system pointer movement. LibVLC's native AppKit path avoids
-that specific Render API bottleneck, but it can independently exceed its output
-capacity on very-high-resolution streams and is not a universal fallback. The
-defect records — what is ruled out and what is still candidate work — are owned
+that OpenGL presentation path, but it can independently exceed its output
+capacity on very-high-resolution streams and is not a universal fallback. Existing
+probe render time covers the complete callback, including locks, native updates,
+parameters and target-time waits; present time covers the CPU presentation call.
+Only successful presentations contribute samples. Neither field measures GPU,
+compositor completion or end-to-end latency. The remaining defect records are owned
 by the internal `.local/KNOWN-ISSUES.md` ledger.
 
 The rejected `wid` experiment is not a production surface: packaged
@@ -903,21 +906,19 @@ what was rejected. Delete an entry when its rule changes.
 
 ### Desktop playback embedding
 
-- **IOSurface presentation is the unconditional first macOS mpv tier, then the
-  app-owned OpenGL view, then software fallback; the limitation is scoped to
-  mpv's OpenGL Render API.** IOSurface removed the app-side shared GL-context
-  stall, so the residual pointer-movement stutter is `mpv_render_context_render`
-  itself rather than anything the app holds; libmpv exposes only the deprecated
-  OpenGL render path, so no in-app tier can avoid it. The software path had
-  already failed its very-high-resolution gate and is retained only as the last
-  fallback and diagnostic path. VLC's native AppKit path avoids that specific
-  Render API bottleneck, but very-high-resolution streams can independently
-  exceed its output capacity, so backend switching is not a universal remedy. Rejected:
-  keeping the OpenGL view primary, gpu-api switches (unavailable inside the
-  Render API), and further presentation tuning; a Metal-capable embedding
-  remains the only future direction. The defect record — everything ruled out
-  and the candidate order — is owned by the internal
-  `.local/KNOWN-ISSUES.md` ledger.
+- **IOSurface presentation is the first macOS mpv tier, followed by the
+  app-owned OpenGL view and software fallback.** It removes the earlier AppKit
+  shared-context lock from presentation, but residual pointer-load stutter has
+  no isolated current cause. Render-callback wall time cannot distinguish app
+  locking, native update work, target scheduling, GPU execution or compositor
+  contention; a CPU transaction return does not prove display completion.
+  The software path failed the prior very-high-resolution gate and remains the
+  last fallback. LibVLC avoids this OpenGL path but can independently exceed its
+  output capacity. Keeping the old OpenGL view primary and switching gpu-api
+  inside the pinned Render API were rejected. These observations do not rule
+  out all presentation improvements or establish Metal as the only remedy.
+  Remaining investigation and artifact-retirement uncertainty live in the
+  internal `.local/KNOWN-ISSUES.md` ledger.
 - **macOS mpv `wid` embedding is rejected; embedding must be an app-owned
   surface.** The window-id path fails containment: the engine opens a separate
   full-resolution native window instead of rendering in the player region.

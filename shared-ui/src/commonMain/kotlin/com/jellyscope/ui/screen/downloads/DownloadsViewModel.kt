@@ -32,16 +32,13 @@ import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -113,7 +110,6 @@ sealed interface DownloadsUiError {
 }
 
 /** Durable, account-scoped download state behind UseCases and Actions. */
-@OptIn(FlowPreview::class)
 class DownloadsViewModel(
     private val session: Session,
     observeDownloadsUseCase: ObserveDownloadsUseCase,
@@ -133,20 +129,16 @@ class DownloadsViewModel(
     private val accountIdentity: AccountIdentity = session.accountIdentity()
     private val _state = MutableStateFlow(DownloadsUiState())
     val state: StateFlow<DownloadsUiState> = _state.asStateFlow()
-    private val usageRefreshRequests =
-        MutableSharedFlow<Unit>(
-            replay = 1,
-            extraBufferCapacity = 1,
-            onBufferOverflow = BufferOverflow.DROP_OLDEST,
-        )
+    private val usageRefreshRequests = Channel<Unit>(Channel.CONFLATED)
     private var leaseRefreshJob: Job? = null
     private var leaseRefreshInitialized = false
 
     init {
         viewModelScope.launch {
-            usageRefreshRequests
-                .debounce(500L)
-                .collectLatest { refreshUsageNow() }
+            for (request in usageRefreshRequests) {
+                refreshUsageNow()
+                delay(USAGE_REFRESH_COOLDOWN_MS)
+            }
         }
         viewModelScope.launch {
             observeDownloadsUseCase(accountIdentity)
@@ -162,7 +154,14 @@ class DownloadsViewModel(
                     }
                     _state.update { current -> current.copy(isLoading = false, error = DownloadsUiError.LoadFailed) }
                 }.collect { records ->
-                    _state.update { current -> current.copy(records = records, sections = downloadSections(records), isLoading = false) }
+                    val sections = withContext(workDispatcher) { downloadSections(records) }
+                    _state.update { current ->
+                        current.copy(
+                            records = records,
+                            sections = sections,
+                            isLoading = false,
+                        )
+                    }
                     requestUsageRefresh()
                     if (!leaseRefreshInitialized) {
                         requestLeaseRefresh()
@@ -385,7 +384,7 @@ class DownloadsViewModel(
     }
 
     private fun requestUsageRefresh() {
-        usageRefreshRequests.tryEmit(Unit)
+        usageRefreshRequests.trySend(Unit)
     }
 
     private fun requestLeaseRefresh() {
@@ -420,7 +419,6 @@ class DownloadsViewModel(
             }
     }
 
-    /** Debounces checkpoint bursts before refreshing usage. */
     private suspend fun refreshUsageNow() {
         _state.update { current -> current.copy(isRefreshingUsage = true) }
         val usage =
@@ -462,6 +460,8 @@ class DownloadsViewModel(
         }
     }
 }
+
+private const val USAGE_REFRESH_COOLDOWN_MS = 500L
 
 private fun DownloadCommandResult.diagnosticValue(): String =
     when (this) {

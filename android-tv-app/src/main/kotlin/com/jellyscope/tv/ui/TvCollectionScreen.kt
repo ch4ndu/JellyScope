@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -25,11 +26,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -55,8 +60,10 @@ import com.jellyscope.ui.component.LoadMoreOnApproachEnd
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.screen.collection.CollectionUiState
 import com.jellyscope.ui.screen.collection.CollectionViewModel
+import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -258,6 +265,10 @@ private fun TvCollectionBody(
             val coordinator = requireNotNull(LocalTvFocusCoordinator.current)
             val gridScope = rememberTvFocusScopeNode(listOf("collection", "grid"))
             val gridState = rememberLazyGridState()
+            val focusScope = rememberCoroutineScope()
+            val pageRetryRequester = remember { FocusRequester() }
+            var pageRetryHasFocus by remember { mutableStateOf(false) }
+            var pageRetryReturnIndex by remember { mutableStateOf(0) }
             val columnCount = rememberStableGridColumnCount(gridState)
             // Remembered focus target so BACK from a detail page restores the exact
             // card, not the first one. Saveable survives the detail round-trip; the
@@ -276,9 +287,17 @@ private fun TvCollectionBody(
                     gridState = gridState,
                     itemCount = state.items.size,
                     columnCount = columnCount,
-                    hasMore = state.hasMore && !state.isLoading && !state.isLoadingMore,
+                    hasMore = state.hasMore && !state.isLoading && !state.isLoadingMore && !state.error,
                     onLoadMore = onLoadMore,
                 )
+            val requestPageRetryFocus: (Int) -> Boolean = { returnIndex ->
+                pageRetryReturnIndex = returnIndex
+                focusScope.launch {
+                    gridState.animateScrollToItem(state.items.size)
+                    requestTvFocusWithRetry { pageRetryRequester.requestFocusSafely() }
+                }
+                true
+            }
             val ownedPendingRestore =
                 coordinator.pendingRestore
                     ?.takeIf { restore -> restore.routeEntryId == coordinator.activeRouteEntryId }
@@ -291,7 +310,7 @@ private fun TvCollectionBody(
                 coordinator.updateRestoreStatus(TvFocusRestoreStatus.Resolving)
                 focusNav.requestFocus(index)
             }
-            LaunchedEffect(pendingRestore?.token, state.items, state.isLoadingMore, state.hasMore) {
+            LaunchedEffect(pendingRestore?.token, state.items, state.isLoadingMore, state.hasMore, state.error) {
                 val restore = pendingRestore ?: return@LaunchedEffect
                 when (
                     val resolution =
@@ -306,7 +325,7 @@ private fun TvCollectionBody(
                     is TvFocusResolution.Fallback -> resolveTo(resolution.index)
                     TvFocusResolution.Deferred -> {
                         coordinator.updateRestoreStatus(TvFocusRestoreStatus.DeferredContent)
-                        if (!state.isLoadingMore && state.hasMore) onLoadMore()
+                        if (!state.isLoadingMore && state.hasMore && !state.error) onLoadMore()
                     }
                     TvFocusResolution.Unavailable -> Unit
                 }
@@ -339,7 +358,35 @@ private fun TvCollectionBody(
                                 gridState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
                                     state.items.getOrNull(info.index)?.let { item -> "item:${item.id}" }
                                 }
-                            }.onPreviewKeyEvent(focusNav::onPreviewKeyEvent),
+                            }.onPreviewKeyEvent { event ->
+                                if (
+                                    pageRetryHasFocus &&
+                                    event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionUp
+                                ) {
+                                    focusNav.requestFocus(pageRetryReturnIndex)
+                                    return@onPreviewKeyEvent true
+                                }
+                                val focusedIndex =
+                                    lastFocusedItemId
+                                        ?.let { id -> state.items.indexOfFirst { item -> item.id == id } }
+                                        ?.takeIf { index -> index >= 0 }
+                                val lastRowStart =
+                                    ((state.items.lastIndex / columnCount.coerceAtLeast(1)) * columnCount.coerceAtLeast(1))
+                                val retryDirection =
+                                    event.type == KeyEventType.KeyDown &&
+                                        focusedIndex != null &&
+                                        state.error &&
+                                        (
+                                            (event.key == Key.DirectionDown && focusedIndex >= lastRowStart) ||
+                                                (event.key == Key.DirectionRight && focusedIndex == state.items.lastIndex)
+                                        )
+                                if (retryDirection) {
+                                    focusedIndex?.let(requestPageRetryFocus) == true
+                                } else {
+                                    focusNav.onPreviewKeyEvent(event)
+                                }
+                            },
                     horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
                     verticalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
                     contentPadding =
@@ -399,12 +446,49 @@ private fun TvCollectionBody(
                             )
                         }
                     }
+                    if (state.error) {
+                        item(
+                            key = "collection:control:page-retry",
+                            span = { GridItemSpan(maxLineSpan) },
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            ) {
+                                TvText(
+                                    text = stringResource(R.string.tv_library_error),
+                                    color = LocalJellyfinPalette.current.error,
+                                )
+                                TvButton(
+                                    text = stringResource(R.string.tv_retry),
+                                    onClick = {
+                                        focusNav.requestFocus(pageRetryReturnIndex)
+                                        onRetry()
+                                    },
+                                    modifier =
+                                        Modifier
+                                            .width(TvDimens.retryButtonWidth)
+                                            .focusRequester(pageRetryRequester)
+                                            .onFocusChanged { focusState -> pageRetryHasFocus = focusState.isFocused }
+                                            .onPreviewKeyEvent { event ->
+                                                event.type == KeyEventType.KeyDown &&
+                                                    event.key == Key.DirectionUp &&
+                                                    run {
+                                                        focusNav.requestFocus(pageRetryReturnIndex)
+                                                        true
+                                                    }
+                                            },
+                                )
+                            }
+                        }
+                    }
                 }
                 LoadMoreOnApproachEnd(
                     itemCount = state.items.size,
                     hasMore = state.hasMore,
                     isLoading = state.isLoading,
                     isLoadingMore = state.isLoadingMore,
+                    automaticPagingAllowed = !state.error,
                     lastVisibleIndex = {
                         gridState.layoutInfo.visibleItemsInfo.maxOfOrNull { item -> item.index } ?: -1
                     },

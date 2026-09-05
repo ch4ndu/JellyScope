@@ -183,6 +183,11 @@ data class DesktopSurfaceLifecycleProbeRecord(
             )
 }
 
+/**
+ * Successful presentation samples. Render is callback wall time; present is the CPU-side
+ * present/transaction call interval. Neither maximum measures GPU/compositor completion or
+ * end-to-end frame latency.
+ */
 data class DesktopSurfaceTimingProbeRecord(
     val frames: Int,
     val renderMaxMicros: Long,

@@ -83,6 +83,15 @@ fun AdaptiveDetailScreen(
     var subtitleSearchReturnRequest by remember { mutableIntStateOf(0) }
     val contentDetail = (state as? DetailUiState.Content)?.detail
     val selectedSourceId = contentDetail?.selectedMediaSourceId
+    val subtitleSelectionOwner =
+        remember(session.serverId, session.userId, itemId, selectedSourceId) {
+            DetailSubtitleSelectionOwner()
+        }
+    var subtitleSelectionRevision by remember(subtitleSelectionOwner) { mutableIntStateOf(0) }
+    val subtitleSelectionToken =
+        remember(subtitleSelectionOwner, subtitleSelectionRevision) {
+            DetailSubtitleSelectionToken(subtitleSelectionOwner, subtitleSelectionRevision)
+        }
     var selectedLocalAssetId by remember(itemId, selectedSourceId) { mutableStateOf<String?>(null) }
     LaunchedEffect(itemId, selectedSourceId, contentDetail?.trackSelection?.defaultLocalSubtitleAssetId) {
         selectedLocalAssetId = contentDetail?.trackSelection?.defaultLocalSubtitleAssetId
@@ -107,10 +116,12 @@ fun AdaptiveDetailScreen(
                 DetailSubtitlePickerActions(
                     selectedLocalAssetId = selectedLocalAssetId,
                     onSelectSubtitle = { streamIndex ->
+                        subtitleSelectionRevision += 1
                         selectedLocalAssetId = null
                         viewModel.selectSubtitle(streamIndex)
                     },
                     onSelectLocalAsset = { assetId ->
+                        subtitleSelectionRevision += 1
                         selectedLocalAssetId = assetId
                         viewModel.selectLocalSubtitle(assetId)
                     },
@@ -119,6 +130,7 @@ fun AdaptiveDetailScreen(
                         // Deleting some other asset leaves this one selected —
                         // only the selected asset's removal clears the highlight.
                         if (selectedLocalAssetId == assetId) {
+                            subtitleSelectionRevision += 1
                             selectedLocalAssetId = null
                         }
                         viewModel.deleteLocalSubtitle(assetId)
@@ -209,6 +221,7 @@ fun AdaptiveDetailScreen(
                             sourceReleaseBasename = detail.selectedSourceReleaseBasename,
                             seriesTitle = detail.seriesName,
                         ),
+                    selectionToken = subtitleSelectionToken,
                     onInstalled = { asset ->
                         selectedLocalAssetId = asset.id
                     },

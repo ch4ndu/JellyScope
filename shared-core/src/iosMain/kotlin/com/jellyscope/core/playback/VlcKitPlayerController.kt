@@ -521,6 +521,11 @@ class VlcKitPlayerController(
 
     override fun pause() {
         if (released) return warnReleased(PlayerOperation.Pause)
+        interruptionIntent.revoke()
+        pausePreservingInterruptionIntent()
+    }
+
+    private fun pausePreservingInterruptionIntent() {
         playWhenReady = false
         buffering = false
         cancelPlaybackTransitionTimeout()
@@ -862,6 +867,7 @@ class VlcKitPlayerController(
         val detachedOfflineLease = offlineLeaseHolder.detach()
         released = true
         playWhenReady = false
+        interruptionIntent.reset()
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
         expectedSubtitleTarget = null
@@ -880,8 +886,7 @@ class VlcKitPlayerController(
     override fun onAudioSessionInterruptionBegan() {
         if (released) return
         interruptionIntent.onInterruptionBegan(playWhenReady)
-        // pause() clears playWhenReady so nothing re-asserts play mid-call.
-        pause()
+        pausePreservingInterruptionIntent()
     }
 
     override fun onAudioSessionInterruptionEnded(shouldResume: Boolean) {

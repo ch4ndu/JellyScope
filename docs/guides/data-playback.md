@@ -24,7 +24,9 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   Keep `NSLocalNetworkUsageDescription` and `NSAllowsLocalNetworking`: manual
   server URLs, including direct local HTTP, and restored sessions/accounts remain
   supported. Do not substitute Bonjour or a permission probe for discovery.
-- Keep auth token/header creation centralized.
+- Keep auth token/header creation centralized. Password authentication sends the
+  supplied password unchanged, including trailing whitespace; username and
+  server-input normalization remain separate from secret handling.
 - Every value in both Jellyfin `MediaBrowser` authorization forms uses the same
   encoder: trim outer whitespace, remove CR/LF, then UTF-8 percent-encode every
   byte except RFC 3986 unreserved characters using uppercase hex and `%20` for
@@ -1479,16 +1481,23 @@ rather than porting code. When probing a live server:
   disposal for both `PlayerViewModel` and the tvOS playback presenter. Compose
   supplies its stable shared playback-state projection across controller
   replacement; the coordinator never retains a replaceable controller flow.
-- A single ordered executor (`PlaybackReportingQueue`, shared-core
-  `playback/`) serializes each owner's immutable playback sessions as Start ->
-  Progress -> Stopped. Old-session Stop drains before a replacement session can
-  Start, and disposal drains its final Stop independently of owner-scope
-  cancellation. No coordinator or shell sends reports through another path.
-- A reporting session becomes started only after Start succeeds. Progress and
-  Stopped are suppressed for a failed Start; later ready-state samples may retry
-  Start without allowing a failed attempt to reset Continue Watching state.
-- Every accepted Stop attempt publishes an app-scoped settlement after the
-  report succeeds or terminally fails. The replayable settlement registry is
+- `PlaybackReportingQueue` owns ordered ingress and local settlement, plus a
+  separate ordered remote drain. Offline Start/Progress/Stopped acknowledge the
+  durable local write without waiting for optional Jellyfin reporting. Online
+  reports retain the existing primary-reporter result semantics. Each guarded
+  remote call rechecks the
+  current matching account, and local rejection never forwards a remote report.
+- Start must succeed at the applicable local or primary-reporter boundary before that
+  route accepts Progress or Stopped. A failed Start may retry on a later ready
+  sample. Periodic TimeUpdate coalesces within a session/control segment; Start,
+  Pause, Unpause and Stop preserve their order and the captured Stop position.
+  The front drain settles an old Offline Stop before forwarding a new Online
+  Start. Idempotent Close rejects new ingress, finishes accepted local work,
+  then closes the remote drain after its forwarded work; owner cancellation
+  cannot strand the final Stop.
+- Offline Stop publishes an app-scoped settlement only after local persistence
+  succeeds. Online Stop retains settlement after a successful or terminally failed
+  primary-report attempt. The replayable settlement registry is
   keyed by `(serverId, userId, itemId)` and assigns its own app-global sequence
   (never a player-local reporting generation). Shared detail screens consume it
   through `ObservePlaybackStopSettlementUseCase` and silently refresh relevant
@@ -1508,9 +1517,9 @@ rather than porting code. When probing a live server:
   [Downloads And Offline](#downloads-and-offline); it does not treat server
   progress as authoritative for that local session.
 - Offline reporting to a matching currently online account is best effort only.
-  There is no offline reporting outbox, delayed-sync queue, acknowledgement,
-  server overlay, cross-device conflict resolution, or eventual-delivery
-  guarantee.
+  There is no offline reporting outbox, durable delayed-sync queue, remote
+  acknowledgement guarantee, server overlay, cross-device conflict resolution,
+  or eventual-delivery guarantee.
 
 ## Durable Playback Controls And Android Engines
 
@@ -2245,11 +2254,23 @@ than restating it.
   changing the stored backend preference; missing, wrong, or failed VLCKit
   returns `OfflinePlayerUnavailable`, never falls back to AVPlayer, and retains
   the artifact.
+- An Original package's retained subtitle is a separate artifact-qualified
+  sidecar choice, including imported subtitles with no Jellyfin stream index.
+  Initial selection and reselection carry a non-null ExternalText activation
+  target; trusted lease contents supply the bytes, and native confirmation still
+  determines whether the subtitle is active. Off and embedded rows remain
+  mutually exclusive with that choice. Reselection uses the offline prepare
+  lifecycle, preserving position, audio, speed, timing, style, play/pause intent
+  and reporting generation; it never resolves a local-asset ID or remote URL.
+  Missing or stale package members fail Offline without remote fallback.
 - Offline playback durably coalesces the latest local resume position onto the
   download record first. Only a genuine controller `Completed` state marks the
-  record watched; an ordinary stop or near-end position cannot. When the same
+  record watched; an ordinary stop or near-end position cannot, and an ordinary
+  stop never clears an already watched record. When the same
   account is currently online, the existing Jellyfin Start/Progress/Stopped
-  calls may also run and failures remain best effort. There is deliberately no
+  calls may also run in the independent remote drain and failures remain best
+  effort; a slow remote call cannot delay newer local resume/completion writes.
+  There is deliberately no
   reachability monitor, outbox, delayed synchronization,
   server-progress overlay, cross-device conflict claim, or guarantee that local
   progress ever reaches Jellyfin.
@@ -2698,7 +2719,9 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   into the next prepared item, replan, or queue advance (retry()/replans reset
   it via prepare — intended semantics).
 - `playWhenReady` reasserts play after seek/re-plan when a Ready item has rate
-  0.
+  0 only after the held initial audio gate permits native playback. Shared
+  Play/Pause toggle uses durable intent during Loading/Buffering; Playing pauses,
+  and Idle/Paused/Failed/Completed plays. iOS Now Playing uses that same callback.
 - The iOS player keeps `UIApplication.idleTimerDisabled = true` while player
   content is composed (parity with Android's `keepScreenOn`), restoring it on
   dispose. Without it the device auto-locks mid-playback, which backgrounds the
@@ -2710,10 +2733,12 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   controller that actually activated (the eager AVPlayer controller released by
   a backend swap never activated and must not deactivate). All session mutations
   run on one serialized executor so a stale delayed deactivation can never land
-  after a newer activation. System interruptions (call/Siri/alarm) pause through
-  the controller's normal `pause()` path (clearing play intent so the state poll
-  cannot fight the OS) and auto-resume only when iOS reports `shouldResume` AND
-  playback was playing before the interruption. Its interruption and route
+  after a newer activation. System interruptions (call/Siri/alarm) capture the
+  current play intent once and use an internal pause that preserves that capture
+  while clearing active play intent. A later public Pause or output-loss pause
+  revokes the capture. Repeated begin callbacks cannot restore revoked intent;
+  interruption end consumes it once and resumes only when iOS also reports
+  `shouldResume`. Replacement and release reset it. Its interruption and route
   observers exist only while a current activation owner exists and deliver to
   that captured owner on the main queue. An `oldDeviceUnavailable` route change
   pauses through the normal controller path without recording interruption
@@ -2828,9 +2853,14 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   appear in PiP; burned-in transcode subtitles remain visible as video pixels.
   The AVPlayer layer observes distinct prepare epochs and replaces native
   player/PiP ownership only when the exact controller, AVPlayer, or prepare
-  epoch changes. Gravity and PiP-enabled presentation changes do not rebind;
+  epoch changes. Gravity, PiP-enabled and linear-playback policy changes do not rebind;
   an immutable delegate retains each retired binding's epoch for any already
-  queued native callback.
+  queued native callback. AVPlayer PiP requires linear playback when the installed
+  plan is Transcode and the controller restarts streams for seeking. Set that
+  policy before automatic PiP registration, update it on the retained binding,
+  and clear it on disposal. Native transcode PiP seeking is disabled; direct-play
+  seeking and play/pause retain their existing controls. VLCKit's public-protocol
+  integration and disclosed PiP limitations remain separate.
 - Diagnostics include sanitized player/wait/buffer/error/access state and never
   include URLs, auth headers, or tokens.
 
@@ -3316,6 +3346,10 @@ operative text lives in the body sections above, never here.
   bind a credential to the wrong server; requiring display fields or a duplicate
   result ID would reject otherwise compatible servers. Rejected: trusting a
   nonblank conflicting auth ID or deriving identity from optional display text.
+- **Password bytes are user intent.** Trailing spaces and newlines may be part
+  of a valid secret; applying username or header normalization changes which
+  password the server receives. Authentication preserves the supplied secret
+  while transport-header encoding remains a separate boundary.
 - **Authorization parameters use one CR/LF-safe RFC 3986 wire policy.** Raw
   quoting leaves delimiter, control-character, and non-ASCII ambiguity, while
   form encoding changes spaces to `+`. One UTF-8 percent encoder for both full
@@ -3517,9 +3551,10 @@ operative text lives in the body sections above, never here.
 - **Offline progress is local truth with an optional online side effect.** A
   reachability monitor, reporting outbox, server overlay, and conflict resolver
   were rejected because none can promise acknowledgement or define which device
-  wins. Persisting local resume/watch state first keeps the downloaded artifact
-  useful without a server; ordinary reporting is allowed only for the matching
-  currently online account and remains explicitly best effort.
+  wins. Persisting local resume/watch state in a drain independent of network latency
+  keeps the downloaded artifact useful without a server. Serializing both in
+  one suspending call allowed optional remote work to block later local writes;
+  the separate remote drain preserves ordering without promising eventual sync.
 - **Account deletion is a durable cross-store saga because credentials and
   artifacts cannot commit atomically together.** Deleting downloads before the
   account, deleting credentials first without a recovery record, or trusting a
@@ -3591,9 +3626,11 @@ operative text lives in the body sections above, never here.
 - **Apple output loss is a pause event, not an interruption-resume event.** A
   removed wired, USB, or Bluetooth route expresses lost output, but reconnecting
   hardware is not permission to restart media. Dispatching only the captured
-  current audio-session owner through normal `pause()` clears play intent and
-  prevents polling or a stale callback from resurrecting playback. Reusing the
-  interruption intent was rejected because it would auto-resume on reconnect.
+  current audio-session owner through public `pause()` clears active intent and
+  revokes any pending interruption-resume capture. Clearing only active intent
+  was insufficient: an interruption-end callback could still restart playback
+  on the replacement output. Internal interruption pause alone preserves the
+  capture, and reconnecting hardware does not create a new one.
 - **Desktop mpv subtitle clearance follows the composed bottom chrome.** mpv's
   native/default `34` scaled-pixel margin is the correct hidden-controls and PiP
   baseline, while the existing accepted controls-visible position is retained by
@@ -3693,7 +3730,10 @@ operative text lives in the body sections above, never here.
   snapshots duplicated native ownership work and could relabel a queued old
   callback with the new epoch. Exact controller/player/epoch identity plus an
   immutable delegate preserves stale-callback rejection without making gravity
-  or the PiP preference part of source identity.
+  or the PiP preference or linear-playback policy part of source identity. Native
+  transcode PiP skip controls bypass the app's restart coordinator, so disabling
+  those controls preserves the installed stream policy without changing direct
+  playback or creating a second seek implementation.
 - **AVPlayer is the iOS default; VLCKit PiP is a disclosed beta capability.**
   Making Auto the default would implicitly route unsupported AVPlayer sources
   into a backend whose foreground compatibility is broader but whose native PiP

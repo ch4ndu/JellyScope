@@ -165,8 +165,11 @@ without resetting Settings scroll or focus.
   trusted status, rating, and download count — the picker must surface what the
   ranking sorts on — plus progress, errors, unavailable multi-file/format rows,
   and returned quota/reset information. Installing a
-  result selects its durable local asset for the next Play; the same detail
-  picker permits switching back to Jellyfin subtitles, replacing the selection,
+  result selects its durable local asset for immediate Play. Its acknowledgement
+  updates the host only while the captured owner/account/item/source and explicit
+  selection revision remain current, including after dismissal and reopening.
+  Dismissal stays available during installation. The same detail picker permits
+  switching back to Jellyfin subtitles, replacing the selection,
   deleting the selected download, and retrying an unconfirmed Jellyfin sync. The
   player picker lists installed local assets but never initiates search.
 - <a name="related-shelves"></a>Related detail content is a multi-shelf
@@ -255,7 +258,8 @@ without resetting Settings scroll or focus.
   command. The scrollable's bottom `contentPadding` reserves the larger
   of the system navigation inset and the compact shell's bottom-bar clearance,
   so the final action row can rest fully above either overlay without adding a
-  permanent desktop or rail-layout gap.
+  permanent desktop or rail-layout gap. Start/end content padding reuses the
+  adaptive horizontal safe-area policy; existing top clearance is preserved.
 - When the effective permission is enabled, Settings and the Downloads usage
   card present the device-wide allocation, total physical bytes, outstanding
   reservations, safe remaining capacity, and over-allocation state, plus
@@ -264,7 +268,12 @@ without resetting Settings scroll or focus.
   whole GB and Manage opens the same Downloads destination; storage and bitrate
   values use familiar MB, GB, and Mbps labels instead of raw byte/bit units. No UI promises
   eviction or automatic cleanup. When it is disabled, Settings omits the
-  Downloads section entirely.
+  Downloads section entirely. Downloads refreshes usage immediately, then through
+  one conflated worker that completes each I/O call and allows a trailing request
+  after a 500 ms cooldown. Sustained checkpoints cannot require a quiet period.
+  Its sequential records collector computes sections once on the injected work
+  dispatcher and publishes records/sections together without replacing concurrent
+  command state.
 
 ### Player playback notices
 
@@ -462,6 +471,10 @@ without resetting Settings scroll or focus.
 - Do not transform data in composables. Filtering, sorting, mapping, grouping,
   search ranking, row packing, and media-state projection belong in UseCases or
   ViewModels.
+- Library, Collection and Person retain loaded cards and the current offset on
+  a page error. Automatic viewport/focus/restore paging waits until deliberate
+  Retry clears the latch; Retry requests the failed next page, while an initial
+  failure retains its first-page recovery behavior.
 - Library browse actions are collection-aware. Movie libraries expose a separate
   Shuffle All action (accessible icon at compact touch widths; labeled action at
   wider touch/desktop widths), while movie bitrate and show last-episode-added
@@ -604,6 +617,13 @@ without resetting Settings scroll or focus.
 Rationale for rules this guide states: the choice, the reason, and what was
 rejected. An entry is deleted when its rule changes.
 
+- **Installation acknowledgement retains its original selection owner.** A
+  completed download can outlive its dialog; replaying its notification as a new
+  selection overwrites a later Off or track choice. Owner identity and selection
+  revision reject that stale notification while preserving immediate Play and
+  dismissal during installation. Dropping every acknowledgement or waiting for
+  an unrelated metadata refresh would lose the accepted optimistic behavior.
+
 ### Theme, launch, and layout
 
 - **Unavailable discovery is omitted from logged-out presentation.** The
@@ -665,9 +685,13 @@ rejected. An entry is deleted when its rule changes.
   while reason-specific failures explain the blocked action without turning a
   media-detail dialog into a second allocation editor. The shell passes its
   bottom-bar clearance into the Downloads scrollable because system navigation
-  insets alone cannot keep the final action row above app-owned navigation. A
+  insets alone cannot keep the final action row above app-owned navigation; the
+  existing horizontal inset policy likewise protects edge-to-edge content. A
   conditional interruption notice makes explicit recovery discoverable without
-  relabeling quota-blocked or failed work as resumable.
+  relabeling quota-blocked or failed work as resumable. A complete-I/O cooldown
+  worker replaces quiet-period debounce because continuous checkpoints otherwise
+  prevent usage from refreshing; conflation bounds pending work without cancelling
+  a slow read or polling while idle.
 - **Focus-scale room is reserved in the clipping container's
   `contentPadding`.** Lazy layouts clip by default, so a focused item's scale
   and border must be paid for by the list itself — never by outer margins.
@@ -808,9 +832,11 @@ rejected. An entry is deleted when its rule changes.
 - **Each paged grid has one approach-end observer.** `LoadMoreOnApproachEnd`
   owns the viewport threshold for a grid; cards do not install per-card effects
   that duplicate requests when item identity or list size changes. D-pad focus
-  navigation may still request load-more explicitly as an interaction policy.
-  Rejected: one observer per card, which multiplies callbacks and couples
-  pagination to item composition.
+  navigation may request load-more as an automatic interaction policy. Every
+  automatic viewport, focus and restore path respects the page-error latch;
+  only deliberate Retry clears it and retries the retained offset. Loaded cards
+  remain visible. Rejected: per-card observers and automatic retry on the same
+  failed viewport, which multiply requests and can sustain a failure loop.
 - **The seek-position mirror stays a `LaunchedEffect`.** With collection
   narrowed to the seek section, the per-tick effect restarts only where the
   position is rendered. Moving the write into composition risks a one-frame

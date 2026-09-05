@@ -4,13 +4,16 @@ package com.jellyscope.core.playback
 
 import com.jellyscope.core.domain.playback.LocalSubtitleKind
 import com.jellyscope.core.domain.playback.NativeTrackMappingResult
+import com.jellyscope.core.domain.playback.PlannedSubtitle
 import com.jellyscope.core.domain.playback.PlaybackDiagnostic
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticEvent
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticPlatform
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticStage
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticTrackKind
 import com.jellyscope.core.domain.playback.PlaybackPlan
+import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.core.domain.playback.SubtitleActivationFailureReason
+import com.jellyscope.core.domain.playback.SubtitleActivationIdentity
 import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
 import com.jellyscope.core.domain.playback.SubtitleAsset
@@ -36,10 +39,7 @@ internal class SubtitleActivationConfirmation(
         publish(SubtitleActivationState.Pending(target))
     }
 
-    /**
-     * Begins the plan's subtitle activation and preserves the existing
-     * ExternalText-without-an-asset failure behavior.
-     */
+    /** Begins activation, allowing asset-free ExternalText only from a trusted Offline lease. */
     fun beginForPlan(
         plan: PlaybackPlan,
         subtitleAsset: SubtitleAsset?,
@@ -50,7 +50,11 @@ internal class SubtitleActivationConfirmation(
             return
         }
         begin(target)
-        if (target.kind == LocalSubtitleKind.ExternalText && subtitleAsset == null) {
+        if (
+            target.kind == LocalSubtitleKind.ExternalText &&
+            subtitleAsset == null &&
+            !plan.hasTrustedOfflineSidecarTarget(target)
+        ) {
             fail(target, reason = SubtitleActivationFailureReason.MissingExternalAsset)
         }
     }
@@ -131,6 +135,16 @@ internal class SubtitleActivationConfirmation(
                 reason = reason,
             ),
         )
+}
+
+private fun PlaybackPlan.hasTrustedOfflineSidecarTarget(target: SubtitleActivationTarget): Boolean {
+    val identity = target.identity as? SubtitleActivationIdentity.OfflineSidecar ?: return false
+    val sidecar = plannedSubtitle as? PlannedSubtitle.OfflineSidecar ?: return false
+    return streamMode == StreamMode.Offline &&
+        offlineArtifactRef == identity.artifactRef &&
+        target.itemId == itemId &&
+        sidecar.identity == identity &&
+        sidecar.activationTarget == target
 }
 
 private fun SubtitleActivationState.targetOrNull(): SubtitleActivationTarget? =

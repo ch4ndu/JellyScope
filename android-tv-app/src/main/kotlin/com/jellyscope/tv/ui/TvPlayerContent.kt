@@ -139,6 +139,7 @@ internal fun TvPlayerContent(
     onResetAudioTiming: () -> Unit = {},
     onSelectSubtitle: (Int?) -> Unit,
     onSelectLocalSubtitle: (String) -> Unit = {},
+    onSelectOfflineSidecar: () -> Unit = {},
     onAdjustSubtitleTiming: (Long) -> Unit = {},
     onResetSubtitleTiming: () -> Unit = {},
     onSelectQuality: (Long?) -> Unit,
@@ -415,6 +416,7 @@ internal fun TvPlayerContent(
         content?.pickerVisible,
         content?.subtitleOptions?.size,
         content?.localSubtitleOptions?.size,
+        content?.offlineSidecarOption,
     ) {
         val hasSubtitleChoice = content?.hasSubtitlePickerChoice() == true
         if (content?.pickerVisible == PlayerPicker.Subtitles &&
@@ -873,6 +875,7 @@ internal fun TvPlayerContent(
                         onResetAudioTiming = onResetAudioTiming,
                         onSelectSubtitle = onSelectSubtitle,
                         onSelectLocalSubtitle = onSelectLocalSubtitle,
+                        onSelectOfflineSidecar = onSelectOfflineSidecar,
                         onAdjustSubtitleTiming = onAdjustSubtitleTiming,
                         onResetSubtitleTiming = onResetSubtitleTiming,
                         onSelectQuality = onSelectQuality,

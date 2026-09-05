@@ -145,6 +145,7 @@ fun PlayerScreen(
         onResetAudioTiming = viewModel::resetAudioTiming,
         onSelectSubtitle = viewModel::selectSubtitle,
         onSelectLocalSubtitle = viewModel::selectLocalSubtitle,
+        onSelectOfflineSidecar = viewModel::selectOfflineSidecar,
         onAdjustSubtitleTiming = viewModel::adjustSubtitleTiming,
         onResetSubtitleTiming = viewModel::resetSubtitleTiming,
         onSelectQuality = viewModel::selectQuality,

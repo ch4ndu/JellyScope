@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +54,7 @@ import org.koin.core.parameter.parametersOf
 @Composable
 internal fun OpenSubtitleSearchDialog(
     request: OpenSubtitleSearchRequest,
+    selectionToken: DetailSubtitleSelectionToken,
     onInstalled: (LocalSubtitleAsset) -> Unit,
     onDismiss: () -> Unit,
     viewModel: OpenSubtitleSearchViewModel =
@@ -62,6 +64,8 @@ internal fun OpenSubtitleSearchDialog(
         ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val currentSelectionToken by rememberUpdatedState(selectionToken)
+    val currentOnInstalled by rememberUpdatedState(onInstalled)
     val dpad = isDetailDpadMode()
     val rowLabels =
         OpenSubtitleRowLabels(
@@ -73,7 +77,13 @@ internal fun OpenSubtitleSearchDialog(
             downloads = { downloads -> downloads },
             fps = { fps -> fps },
         )
-    LaunchedEffect(viewModel) { viewModel.installed.collect { asset -> onInstalled(asset) } }
+    LaunchedEffect(viewModel) {
+        viewModel.installedAcknowledgements.collect { acknowledgement ->
+            if (acknowledgement.selectionToken == currentSelectionToken) {
+                currentOnInstalled(acknowledgement.asset)
+            }
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(Res.string.subtitles_search_title)) },
@@ -126,8 +136,9 @@ internal fun OpenSubtitleSearchDialog(
                                         },
                                     ).detailOnFocusChanged { focusState -> focused = focusState.isFocused }
                                     .fillMaxWidth()
-                                    .clickable(enabled = result.selectable) { viewModel.install(result) }
-                                    .detailFocusable(enabled = result.selectable)
+                                    .clickable(enabled = result.selectable) {
+                                        viewModel.install(result, currentSelectionToken)
+                                    }.detailFocusable(enabled = result.selectable)
                                     .padding(Dimensions.contentSpacing),
                             ) {
                                 Text(row.title)

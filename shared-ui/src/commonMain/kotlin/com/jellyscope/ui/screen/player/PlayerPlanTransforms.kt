@@ -91,6 +91,7 @@ internal fun PlaybackPlan.withSubtitleActivationTarget(
 ): PlaybackPlan {
     val plannedTrack = plannedSubtitle as? PlannedSubtitle.Track
     val plannedLocalAsset = plannedSubtitle as? PlannedSubtitle.LocalAsset
+    val plannedOfflineSidecar = plannedSubtitle as? PlannedSubtitle.OfflineSidecar
     val unavailable = plannedSubtitle as? PlannedSubtitle.Unavailable
     val streamIndex = plannedTrack?.streamIndex ?: unavailable?.streamIndex
     val kind =
@@ -105,7 +106,14 @@ internal fun PlaybackPlan.withSubtitleActivationTarget(
                     }
                 }
     val target =
-        if (plannedLocalAsset != null) {
+        if (plannedOfflineSidecar != null) {
+            SubtitleActivationTarget(
+                requestId = requestId,
+                itemId = itemId,
+                identity = plannedOfflineSidecar.identity,
+                kind = LocalSubtitleKind.ExternalText,
+            )
+        } else if (plannedLocalAsset != null) {
             SubtitleActivationTarget(
                 requestId = requestId,
                 itemId = itemId,
@@ -123,7 +131,7 @@ internal fun PlaybackPlan.withSubtitleActivationTarget(
             null
         }
     return copy(
-        selectedSubtitleStreamIndex = streamIndex,
+        selectedSubtitleStreamIndex = streamIndex.takeUnless { plannedOfflineSidecar != null },
         subtitleAsset =
             plannedTrack?.externalResource
                 ?: subtitleAsset.takeIf { plannedLocalAsset != null },
@@ -132,6 +140,10 @@ internal fun PlaybackPlan.withSubtitleActivationTarget(
             when {
                 plannedTrack != null -> plannedTrack.copy(activationTarget = target)
                 plannedLocalAsset != null -> plannedLocalAsset.copy(activationTarget = target)
+                plannedOfflineSidecar != null ->
+                    plannedOfflineSidecar.copy(
+                        activationTarget = target ?: plannedOfflineSidecar.activationTarget,
+                    )
                 unavailable != null -> unavailable.copy(activationTarget = target)
                 else -> plannedSubtitle
             },

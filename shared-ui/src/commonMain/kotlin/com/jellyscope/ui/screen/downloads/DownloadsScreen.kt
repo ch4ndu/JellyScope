@@ -56,6 +56,7 @@ import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.wholeGbDownloadQuotaBytes
 import com.jellyscope.core.domain.playback.formatBitrateMbps
+import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
 import com.jellyscope.ui.component.AppTopBar
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.component.appNavigationBarContentPadding
@@ -198,15 +199,16 @@ internal fun DownloadsContent(
             appNavigationBarContentPadding(),
             Dimensions.screenPadding + bottomContentPadding,
         )
+    val horizontalContentPadding = adaptiveHorizontalContentPadding()
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding =
                 PaddingValues(
-                    start = Dimensions.screenPadding,
+                    start = horizontalContentPadding.start,
                     top = appTopBarContentPadding(),
-                    end = Dimensions.screenPadding,
+                    end = horizontalContentPadding.end,
                     bottom = listBottomContentPadding,
                 ),
             verticalArrangement = Arrangement.spacedBy(Dimensions.detailSectionSpacing),

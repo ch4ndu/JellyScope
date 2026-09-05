@@ -71,6 +71,7 @@ actual fun PlayerSurface(
     // than this software-frame drawing surface.
     subtitleStyle: com.jellyscope.core.domain.playback.SubtitleStyle,
     subtitleClearanceActive: Boolean,
+    pictureInPictureRequiresLinearPlayback: Boolean,
 ) {
     val platformPlayer = controller.platformPlayer
     val vlcOutput = platformPlayer as? DesktopVlcVideoOutput

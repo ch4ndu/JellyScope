@@ -201,7 +201,9 @@ pipeline above. It resolves a current-account, Completed, current-generation
 record and its persisted snapshot into `StreamMode.Offline`; it does not call
 detail, PlaybackInfo, remote image/trickplay/segment, or autoplay resolution,
 and ordinary remote Play never substitutes this branch. The plan carries only a
-generation-bound opaque artifact reference. Every accepting controller must
+generation-bound opaque artifact reference and a typed package-sidecar choice
+when selected, never a fabricated Jellyfin index or raw local path. Every
+accepting controller must
 acquire the trusted local artifact lease before resolving the resource; the
 offline branch never enters a remote URL or credential-attachment path, and
 deletion must refuse that leased generation.
@@ -307,7 +309,9 @@ does not move into the policy.
 `PlaybackReportingCoordinator` is the per-session-owner common coordinator for
 Start readiness and retry, pause/unpause edges, periodic progress sampling, and
 Stop/disposal settlement. It composes the existing `PlaybackReportingQueue`,
-which remains the only executor and ordered settlement publisher. The Compose
+which owns a serial ingress/local-settlement drain and a serial remote drain.
+The domain reporting capability separates local durability from guarded remote
+forwarding without exposing the data router to presentation. The Compose
 owner supplies its stable shared playback-state projection so controller
 replacement cannot strand reporting on an outgoing controller flow. tvOS creates
 its reporting coordinator only after concrete installation and uses that
@@ -358,13 +362,22 @@ Two renderings of that one decision exist, and the difference is deliberate:
   also guarded on having no pending user audio selection, so a choice made before the
   transition wins over the plan's gate.
 
+AVPlayer's existing held gate guards every native resume entry: public Play,
+poll recovery and seek completion. Pending or Unavailable activation cannot
+clear it; the matching activation callback releases it, while shared recovery
+or explicit failure resolves unavailable audio. VLCKit's start-before-discovery
+behavior is unchanged.
+
 Do not collapse the two renderings, and do not add an `initialAudioGate` field to a
 controller that does not already have one — only Media3, AVPlayer, and mpv read the flag
 after prepare. The audio-gate defect class recurred once per copy of this table,
 which is why it now has exactly one home and its own host tests. `PlaybackInterruptionIntent`
 follows the same rule from the other direction: it is `commonMain` with Apple-only
 consumers, because Android uses audio focus rather than interruption callbacks — do not
-wire it into the Android controllers by analogy.
+wire it into the Android controllers by analogy. It owns one captured resume
+intent with explicit revocation and one-shot consumption; Apple controllers
+distinguish internal interruption pause from public Pause. User-visible policy
+is owned by [iOS recovery](data-playback.md#ios-recovery).
 
 ### Android mobile
 
@@ -609,7 +622,7 @@ rule the body above states; the body remains authoritative for the rule itself.
   Rejected: a universal player base class or stateful mega-kernel, which would
   move platform lifecycle and presentation ownership into common code.
 
-- **Reporting coordination is shared above one ordered executor.** Start
+- **Reporting coordination and queue ownership stay shared.** Start
   success/pending state, ready-state retry, progress eligibility, periodic
   sampling, edge mapping, and Stop suppression are identical across Compose
   and tvOS, so retaining them in both shells made ordering fixes incomplete by
@@ -620,8 +633,10 @@ rule the body above states; the body remains authoritative for the rule itself.
   coordinator allocation before `start()` was rejected because it performs
   resource and callback work before presentation authority exists, and Swift's
   former immutable player snapshot could not observe delayed installation. A
-  second queue or an immutable event helper that left timer ownership in each
-  shell was rejected.
+  per-shell queue or an immutable event helper that left timer ownership in each
+  shell was rejected. Within the one shared queue, local settlement has its own
+  ordered drain so optional blocked network work cannot delay Offline durability;
+  remote forwarding retains FIFO order and current-account admission.
   Completion, navigation, controller commands, and general previous-status
   state remain shell-owned because those semantics are not reporting policy.
 

@@ -44,6 +44,12 @@ interface PlaybackProgressReporter {
     }
 }
 
+/** Queue-facing routes for reporters with a durable local settlement and optional remote side effect. */
+internal interface SplitPlaybackProgressReporter {
+    val localSettlementReporter: PlaybackProgressReporter
+    val guardedRemoteReporter: PlaybackProgressReporter?
+}
+
 enum class PlaybackProgressEvent(
     val wireName: String,
 ) {

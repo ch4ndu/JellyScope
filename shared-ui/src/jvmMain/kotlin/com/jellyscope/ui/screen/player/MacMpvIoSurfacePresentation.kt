@@ -200,9 +200,9 @@ internal class MacMpvIoSurfacePresentation private constructor(
                     target.bufferIndex?.let {
                         ioSurfaceOpenGl.glBindFramebuffer(GL_FRAMEBUFFER, target.framebuffer.fboId)
                     }
-                    val renderStartedAt = System.nanoTime()
+                    val renderCallbackStartedAt = System.nanoTime()
                     val rendered = runCatching { invokeMacMpvIoSurfaceRender(target, render) }.getOrDefault(false)
-                    val renderNanos = System.nanoTime() - renderStartedAt
+                    val renderCallbackNanos = System.nanoTime() - renderCallbackStartedAt
                     if (target.bufferIndex == null) {
                         activeSwapchain.model.markFrameSkipped()
                     } else if (rendered && activeSwapchain.model.markPending(target.bufferIndex)) {
@@ -217,9 +217,12 @@ internal class MacMpvIoSurfacePresentation private constructor(
                         // contents inside an explicit CATransaction off-main
                         // is the supported pattern and frees the previous
                         // buffer immediately.
-                        val presentStartedAt = System.nanoTime()
+                        val presentCallStartedAt = System.nanoTime()
                         presentFromRenderThread(activeSwapchain, target.bufferIndex)
-                        recordSegmentTiming(renderNanos, System.nanoTime() - presentStartedAt)
+                        recordSegmentTiming(
+                            renderCallbackNanos,
+                            System.nanoTime() - presentCallStartedAt,
+                        )
                         redraw = activeSwapchain.model.consumeRedrawAfterPresent()
                     }
                     target.bufferIndex?.let { ioSurfaceOpenGl.glBindFramebuffer(GL_FRAMEBUFFER, 0) }
@@ -235,24 +238,24 @@ internal class MacMpvIoSurfacePresentation private constructor(
         return entered
     }
 
-    // Probe-only segment timing: distinguishes mpv render time (GPU
-    // contention) from CATransaction commit time (render-server contention)
-    // per ~2s window so the drop mechanism is attributable from one run.
+    // Successful-present maxima only. Render covers callback wall time, including the controller
+    // lock, native update, parameters, and TARGET_TIME wait. Present covers the CPU-side
+    // present/transaction call; neither observes GPU/compositor completion or end-to-end latency.
     private var timingWindowStartedAt = 0L
     private var timingFrames = 0
     private var renderMaxNanos = 0L
     private var presentMaxNanos = 0L
 
     private fun recordSegmentTiming(
-        renderNanos: Long,
-        presentNanos: Long,
+        renderCallbackNanos: Long,
+        presentCallNanos: Long,
     ) {
         if (!DesktopPlaybackProbe.isEnabled) return
         val now = System.nanoTime()
         if (timingWindowStartedAt == 0L) timingWindowStartedAt = now
         timingFrames += 1
-        if (renderNanos > renderMaxNanos) renderMaxNanos = renderNanos
-        if (presentNanos > presentMaxNanos) presentMaxNanos = presentNanos
+        if (renderCallbackNanos > renderMaxNanos) renderMaxNanos = renderCallbackNanos
+        if (presentCallNanos > presentMaxNanos) presentMaxNanos = presentCallNanos
         if (now - timingWindowStartedAt >= TIMING_WINDOW_NANOS) {
             DesktopPlaybackProbe.emit(
                 DesktopSurfaceTimingProbeRecord(

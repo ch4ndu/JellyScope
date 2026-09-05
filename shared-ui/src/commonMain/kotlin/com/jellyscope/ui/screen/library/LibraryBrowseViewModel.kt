@@ -147,6 +147,13 @@ class LibraryBrowseViewModel(
     }
 
     fun retry() {
+        val current = _state.value
+        if (current.error && current.items.isNotEmpty()) {
+            invalidatePageRequests()
+            _state.update { state -> state.copy(error = false) }
+            paginator.more()
+            return
+        }
         invalidatePageRequests()
         loadFirstPage()
         loadFacets()
@@ -198,7 +205,7 @@ class LibraryBrowseViewModel(
                                 hasMore = page.items.size >= windowSize,
                                 isLoading = false,
                                 isLoadingMore = false,
-                                error = false,
+                                error = current.error,
                             )
                         }
                     }
@@ -208,7 +215,7 @@ class LibraryBrowseViewModel(
 
     fun loadMore() {
         val current = _state.value
-        if (current.isLoading || current.isLoadingMore || !current.hasMore) {
+        if (current.isLoading || current.isLoadingMore || current.error || !current.hasMore) {
             return
         }
         invalidatePageRequests()

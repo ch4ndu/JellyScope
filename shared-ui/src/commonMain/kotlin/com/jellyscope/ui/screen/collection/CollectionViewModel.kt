@@ -46,12 +46,18 @@ class CollectionViewModel(
     }
 
     fun retry() {
+        val current = _state.value
+        if (current.error && current.items.isNotEmpty()) {
+            _state.update { state -> state.copy(error = false) }
+            paginator.more()
+            return
+        }
         paginator.first()
     }
 
     fun loadMore() {
         val current = _state.value
-        if (current.isLoading || current.isLoadingMore || !current.hasMore) {
+        if (current.isLoading || current.isLoadingMore || current.error || !current.hasMore) {
             return
         }
         paginator.more()

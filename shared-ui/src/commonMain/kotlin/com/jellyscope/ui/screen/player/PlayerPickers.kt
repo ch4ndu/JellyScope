@@ -78,6 +78,7 @@ internal fun PlayerPickerSheet(
     onResetAudioTiming: () -> Unit = {},
     onSelectSubtitle: (Int?) -> Unit,
     onSelectLocalSubtitle: (String) -> Unit = {},
+    onSelectOfflineSidecar: () -> Unit = {},
     onAdjustSubtitleTiming: (Long) -> Unit = {},
     onResetSubtitleTiming: () -> Unit = {},
     onSelectQuality: (Long?) -> Unit,
@@ -213,8 +214,10 @@ internal fun PlayerPickerSheet(
                         SubtitlePicker(
                             options = content.subtitleOptions,
                             localOptions = content.localSubtitleOptions,
+                            offlineSidecarOption = content.offlineSidecarOption,
                             selectedSubtitleStreamIndex = content.selectedSubtitleStreamIndex,
                             selectedSubtitleAssetId = content.selectedSubtitleAssetId,
+                            offlineSidecarSelected = content.offlineSidecarSelected,
                             subtitlesOff = content.subtitleRenderInfo.status == SubtitleRenderStatus.Off,
                             onSelectSubtitle = { streamIndex ->
                                 onKeepControlsAlive()
@@ -223,6 +226,10 @@ internal fun PlayerPickerSheet(
                             onSelectLocalSubtitle = { assetId ->
                                 onKeepControlsAlive()
                                 onSelectLocalSubtitle(assetId)
+                            },
+                            onSelectOfflineSidecar = {
+                                onKeepControlsAlive()
+                                onSelectOfflineSidecar()
                             },
                             timing = content.timingState.subtitle,
                             onOpenOffset = {
@@ -455,11 +462,14 @@ private fun AudioPicker(
 private fun SubtitlePicker(
     options: List<SubtitleTrackOption>,
     localOptions: List<LocalSubtitleAsset>,
+    offlineSidecarOption: OfflineSidecarOption?,
     selectedSubtitleStreamIndex: Int?,
     selectedSubtitleAssetId: String?,
+    offlineSidecarSelected: Boolean,
     subtitlesOff: Boolean,
     onSelectSubtitle: (Int?) -> Unit,
     onSelectLocalSubtitle: (String) -> Unit,
+    onSelectOfflineSidecar: () -> Unit,
     timing: com.jellyscope.core.domain.playback.PlayerTimingValue,
     onOpenOffset: () -> Unit,
 ) {
@@ -474,7 +484,7 @@ private fun SubtitlePicker(
                 onClick = { onSelectSubtitle(null) },
             )
         }
-        if (options.isEmpty() && localOptions.isEmpty()) {
+        if (options.isEmpty() && localOptions.isEmpty() && offlineSidecarOption == null) {
             item(key = "subtitle-empty") {
                 Text(
                     text = stringResource(Res.string.player_no_subtitle_tracks),
@@ -505,6 +515,17 @@ private fun SubtitlePicker(
                 secondary = option.language.takeIf { language -> !option.label.equals(language, ignoreCase = true) },
                 onClick = { onSelectLocalSubtitle(option.id) },
             )
+        }
+        offlineSidecarOption?.let { option ->
+            item(key = "offline-sidecar") {
+                val title = option.displayName ?: stringResource(Res.string.player_audio_track, options.size + 1)
+                PickerRow(
+                    selected = offlineSidecarSelected,
+                    title = title,
+                    secondary = option.language?.takeIf { language -> !title.equals(language, ignoreCase = true) },
+                    onClick = onSelectOfflineSidecar,
+                )
+            }
         }
         item(key = "subtitle-timing") {
             PlayerTimingOffsetRow(timing = timing, onOpen = onOpenOffset)

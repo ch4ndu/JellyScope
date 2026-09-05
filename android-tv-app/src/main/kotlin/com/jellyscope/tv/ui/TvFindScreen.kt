@@ -17,7 +17,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -31,6 +30,7 @@ import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
+import com.jellyscope.ui.screen.find.FindRequestToken
 import com.jellyscope.ui.screen.find.FindResultTab
 import com.jellyscope.ui.screen.find.FindResultsUi
 import com.jellyscope.ui.screen.find.FindUiState
@@ -64,11 +64,12 @@ fun TvFindScreen(
         onBack = onBack,
         onQueryTextChanged = viewModel::onQueryTextChanged,
         onClearQuery = viewModel::clearQuery,
-        onRecentSelected = viewModel::selectRecentSearch,
+        onRecentSelected = viewModel::submitRecentSearch,
         onClearRecentSearches = viewModel::clearRecentSearches,
         onPersonSelected = viewModel::selectPerson,
         onResultTabSelected = viewModel::selectResultTab,
         onRetry = viewModel::retry,
+        onSubmitSearch = viewModel::submitSearch,
         onSearchCommitted = viewModel::commitRecentSearch,
         onItemSelected = onItemSelected,
         onItemPlayDirect = onItemPlayDirect,
@@ -84,11 +85,12 @@ internal fun TvFindContent(
     onBack: () -> Unit,
     onQueryTextChanged: (String) -> Unit,
     onClearQuery: () -> Unit,
-    onRecentSelected: (String) -> Unit,
+    onRecentSelected: (String) -> FindRequestToken,
     onClearRecentSearches: () -> Unit,
     onPersonSelected: (PersonUi) -> Unit,
     onResultTabSelected: (FindResultTab) -> Unit,
     onRetry: () -> Unit,
+    onSubmitSearch: () -> FindRequestToken,
     onSearchCommitted: () -> Unit,
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
@@ -102,7 +104,7 @@ internal fun TvFindContent(
     val requestInitialContentFocus = !hostedRailController.contentAutofocusSuppressed
     val hostedRailContentRegistrationKey = remember { hostedRailController.contentRegistrationKey }
     val resultScrollState = rememberScrollState()
-    var recentResultFocusPending by remember { mutableStateOf(false) }
+    var pendingResultFocusToken by remember { mutableStateOf<FindRequestToken?>(null) }
     var searchFieldEditing by remember { mutableStateOf(false) }
     val railHasFocus = hostedRailController.railHasFocus
     val contentStartPadding =
@@ -139,17 +141,6 @@ internal fun TvFindContent(
             false
         }
 
-    // IME "Search" action / reaching results: focus the first result ribbon now if
-    // results are in, otherwise focus them as soon as the debounced search returns
-    // (handled by the pending-focus effect below).
-    fun focusResults() {
-        if (state.groupedResults.hasResultsFor(state.selectedResultTab)) {
-            resultsFocusRequester.requestFocusSafely()
-        } else {
-            recentResultFocusPending = true
-        }
-    }
-
     LaunchedEffect(Unit) {
         if (requestInitialContentFocus) {
             requestTvFocusWithRetry { focusSearchField() }
@@ -157,21 +148,33 @@ internal fun TvFindContent(
     }
 
     LaunchedEffect(
-        recentResultFocusPending,
+        pendingResultFocusToken,
+        state.activeRequestToken,
+        state.completedRequestToken,
         state.groupedResults,
         state.selectedResultTab,
         state.isSearching,
         state.error,
     ) {
-        if (!recentResultFocusPending) {
-            return@LaunchedEffect
-        }
-        if (state.groupedResults.hasResultsFor(state.selectedResultTab)) {
-            withFrameNanos { }
-            resultsFocusRequester.requestFocusSafely()
-            recentResultFocusPending = false
-        } else if (!state.isSearching) {
-            recentResultFocusPending = false
+        val pendingToken = pendingResultFocusToken ?: return@LaunchedEffect
+        when {
+            state.completedRequestToken == pendingToken -> {
+                if (state.error) {
+                    pendingResultFocusToken = null
+                } else if (state.groupedResults.hasResultsFor(state.selectedResultTab)) {
+                    if (requestTvFocusWithRetry { resultsFocusRequester.requestFocusSafely() }) {
+                        pendingResultFocusToken = null
+                    }
+                } else {
+                    pendingResultFocusToken = null
+                }
+            }
+            state.activeRequestToken != null && state.activeRequestToken != pendingToken -> {
+                pendingResultFocusToken = null
+            }
+            state.completedRequestToken != null && state.completedRequestToken != pendingToken -> {
+                pendingResultFocusToken = null
+            }
         }
     }
 
@@ -206,15 +209,20 @@ internal fun TvFindContent(
         ) {
             TvFindHeader(
                 queryText = state.queryText,
-                onQueryTextChanged = onQueryTextChanged,
+                onQueryTextChanged = { text ->
+                    pendingResultFocusToken = null
+                    onQueryTextChanged(text)
+                },
                 onClearQuery = {
-                    recentResultFocusPending = false
+                    pendingResultFocusToken = null
                     focusSearchField()
                     onClearQuery()
                 },
                 searchFieldRequester = searchFieldRequester,
                 onSearchFieldEditingChange = { editing -> searchFieldEditing = editing },
-                onImeSearch = { focusResults() },
+                onImeSearch = {
+                    pendingResultFocusToken = onSubmitSearch()
+                },
                 onEditingCommitted = onSearchCommitted,
                 modifier =
                     Modifier.padding(
@@ -237,13 +245,18 @@ internal fun TvFindContent(
                     resultsFocusRequester = resultsFocusRequester,
                     contentStartPadding = contentStartPadding,
                     onRecentSelected = { search ->
-                        recentResultFocusPending = true
                         focusSearchField()
-                        onRecentSelected(search)
+                        pendingResultFocusToken = onRecentSelected(search)
                     },
                     onClearRecentSearches = onClearRecentSearches,
-                    onPersonSelected = onPersonSelected,
-                    onResultTabSelected = onResultTabSelected,
+                    onPersonSelected = { person ->
+                        pendingResultFocusToken = null
+                        onPersonSelected(person)
+                    },
+                    onResultTabSelected = { tab ->
+                        pendingResultFocusToken = null
+                        onResultTabSelected(tab)
+                    },
                     onRetry = onRetry,
                     onItemSelected = onItemSelected,
                     onItemPlayDirect = onItemPlayDirect,

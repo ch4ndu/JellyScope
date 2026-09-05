@@ -68,6 +68,7 @@ internal fun TvPickerOverlay(
     onResetAudioTiming: () -> Unit = {},
     onSelectSubtitle: (Int?) -> Unit,
     onSelectLocalSubtitle: (String) -> Unit = {},
+    onSelectOfflineSidecar: () -> Unit = {},
     onAdjustSubtitleTiming: (Long) -> Unit = {},
     onResetSubtitleTiming: () -> Unit = {},
     onSelectQuality: (Long?) -> Unit,
@@ -148,12 +149,15 @@ internal fun TvPickerOverlay(
                     SubtitlePickerRows(
                         options = content.subtitleOptions,
                         localOptions = content.localSubtitleOptions,
+                        offlineSidecarOption = content.offlineSidecarOption,
                         selectedStreamIndex = content.selectedSubtitleStreamIndex,
                         selectedAssetId = content.selectedSubtitleAssetId,
+                        offlineSidecarSelected = content.offlineSidecarSelected,
                         subtitlesOff = content.subtitleRenderInfo.status == SubtitleRenderStatus.Off,
                         firstRowRequester = firstRowRequester,
                         onSelectSubtitle = onSelectSubtitle,
                         onSelectLocalSubtitle = onSelectLocalSubtitle,
+                        onSelectOfflineSidecar = onSelectOfflineSidecar,
                         timing = content.timingState.subtitle,
                         onOpenOffset = { onShowPicker(PlayerPicker.SubtitleOffset) },
                     )

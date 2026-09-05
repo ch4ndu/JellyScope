@@ -274,8 +274,8 @@ internal fun TvHomeRow(
                                 } else {
                                     rowFocusScope.rememberChildRequester(itemKey)
                                 }
-                            val onItemClick = remember(item.id, onItemSelected) { { onItemSelected(item) } }
-                            val onItemPlay = remember(item.id, onItemPlayDirect) { { onItemPlayDirect(item) } }
+                            val onItemClick = remember(item, onItemSelected) { { onItemSelected(item) } }
+                            val onItemPlay = remember(item, onItemPlayDirect) { { onItemPlayDirect(item) } }
                             val onItemPosterLoad =
                                 remember(item.id, onPosterLoaded) {
                                     { bitmap: Bitmap ->

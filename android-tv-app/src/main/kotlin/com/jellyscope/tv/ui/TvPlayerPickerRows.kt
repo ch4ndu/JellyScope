@@ -45,6 +45,7 @@ import com.jellyscope.core.domain.playback.SubtitleTrackOption
 import com.jellyscope.core.domain.playback.estimatedGbPerHour
 import com.jellyscope.core.domain.playback.mbpsLabel
 import com.jellyscope.tv.R
+import com.jellyscope.ui.screen.player.OfflineSidecarOption
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import com.jellyscope.ui.component.DetailSecondaryStyle as TvSecondaryStyle
 import com.jellyscope.ui.component.DetailText as TvText
@@ -63,12 +64,15 @@ internal fun TvMenuSectionTitle(text: String) {
 internal fun SubtitlePickerRows(
     options: List<SubtitleTrackOption>,
     localOptions: List<LocalSubtitleAsset>,
+    offlineSidecarOption: OfflineSidecarOption?,
     selectedStreamIndex: Int?,
     selectedAssetId: String?,
+    offlineSidecarSelected: Boolean,
     subtitlesOff: Boolean,
     firstRowRequester: FocusRequester,
     onSelectSubtitle: (Int?) -> Unit,
     onSelectLocalSubtitle: (String) -> Unit = {},
+    onSelectOfflineSidecar: () -> Unit = {},
     timing: PlayerTimingValue,
     onOpenOffset: () -> Unit,
 ) {
@@ -79,7 +83,7 @@ internal fun SubtitlePickerRows(
         focusRequester = firstRowRequester,
         onClick = { onSelectSubtitle(null) },
     )
-    if (options.isEmpty() && localOptions.isEmpty()) {
+    if (options.isEmpty() && localOptions.isEmpty() && offlineSidecarOption == null) {
         TvPickerRow(
             title = stringResource(R.string.tv_no_subtitle_tracks),
             selected = false,
@@ -100,6 +104,14 @@ internal fun SubtitlePickerRows(
             secondary = option.language,
             selected = selectedAssetId == option.id,
             onClick = { onSelectLocalSubtitle(option.id) },
+        )
+    }
+    offlineSidecarOption?.let { option ->
+        TvPickerRow(
+            title = option.displayName ?: stringResource(R.string.tv_track_subtitle_fallback, options.size + 1),
+            secondary = option.language,
+            selected = offlineSidecarSelected,
+            onClick = onSelectOfflineSidecar,
         )
     }
     TvTimingOffsetRow(timing = timing, onOpen = onOpenOffset)

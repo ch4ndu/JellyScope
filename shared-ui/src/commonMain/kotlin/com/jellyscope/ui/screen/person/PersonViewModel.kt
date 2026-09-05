@@ -76,7 +76,18 @@ class PersonViewModel(
         if (content.isLoadingMore || !content.hasMore) {
             return
         }
+        if (content.error) {
+            _state.update { current ->
+                (current as? PersonUiState.Content)?.copy(error = false) ?: current
+            }
+        }
         paginator.more()
+    }
+
+    fun loadMoreAutomatically() {
+        val content = _state.value as? PersonUiState.Content ?: return
+        if (content.error) return
+        loadMore()
     }
 
     private suspend fun loadPageLocked(reset: Boolean) {

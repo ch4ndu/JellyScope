@@ -247,9 +247,7 @@ class MpvPlayerController private constructor(
     private var openGlInitParams: MpvOpenGlInitParams? = null
 
     @Volatile
-    private var openGlRenderExecutor: ExecutorService? = null
-    private val openGlRenderScheduled = AtomicBoolean(false)
-    private val openGlForceRenderRequested = AtomicBoolean(false)
+    private var openGlRenderScheduler: OpenGlRenderScheduler? = null
     private var targetWidth = 0
     private var targetHeight = 0
     private var renderGeneration = 0L
@@ -408,6 +406,14 @@ class MpvPlayerController private constructor(
         val getProcAddressCallback: LibMpv.MpvOpenGlGetProcAddressFn?,
         val initParams: MpvOpenGlInitParams?,
     )
+
+    private class OpenGlRenderScheduler(
+        val executor: ExecutorService,
+    ) {
+        val renderRequested = AtomicBoolean(false)
+        val forceRenderRequested = AtomicBoolean(false)
+        val workerOwned = AtomicBoolean(false)
+    }
 
     private data class QuarantinedEngine(
         val lib: LibMpv,
@@ -1070,8 +1076,7 @@ class MpvPlayerController private constructor(
 
     override fun requestOpenGlRender(generation: Long) {
         if (released.get() || activeOpenGlSurfaceGeneration != generation) return
-        openGlForceRenderRequested.set(true)
-        scheduleOpenGlRender()
+        scheduleOpenGlRender(force = true)
     }
 
     override fun resize(
@@ -1380,10 +1385,12 @@ class MpvPlayerController private constructor(
                     openGlGetProcAddressCallback = createdOpenGlCallback
                     openGlInitParams = createdOpenGlInitParams
                     if (preference == MpvPresentationPreference.MacOsOpenGl) {
-                        openGlRenderExecutor =
-                            Executors.newSingleThreadExecutor { runnable ->
-                                Thread(runnable, "jellyscope-mpv-opengl-render").apply { isDaemon = true }
-                            }
+                        openGlRenderScheduler =
+                            OpenGlRenderScheduler(
+                                Executors.newSingleThreadExecutor { runnable ->
+                                    Thread(runnable, "jellyscope-mpv-opengl-render").apply { isDaemon = true }
+                                },
+                            )
                     }
                     true
                 }
@@ -1747,10 +1754,11 @@ class MpvPlayerController private constructor(
         pollJobToCancel?.cancel()
         onFrameAvailable.set(null)
 
-        val renderExecutor =
+        val renderScheduler =
             synchronized(engineLock) {
-                openGlRenderExecutor.also { openGlRenderExecutor = null }
+                openGlRenderScheduler.also { openGlRenderScheduler = null }
             }
+        val renderExecutor = renderScheduler?.executor
         var renderDrained = true
         renderExecutor?.let { executor ->
             executor.shutdown()
@@ -1760,8 +1768,6 @@ class MpvPlayerController private constructor(
                 renderDrained = awaitRenderExecutorTermination(executor)
             }
         }
-        openGlRenderScheduled.set(false)
-        openGlForceRenderRequested.set(false)
 
         val renderState =
             if (renderDrained) {
@@ -2066,22 +2072,49 @@ class MpvPlayerController private constructor(
         leases.forEach(OfflineArtifactLease::release)
     }
 
-    private fun scheduleOpenGlRender() {
-        val executor = openGlRenderExecutor ?: return
-        if (!openGlRenderScheduled.compareAndSet(false, true)) return
+    private fun scheduleOpenGlRender(force: Boolean = false) {
+        val scheduler = openGlRenderScheduler ?: return
+        if (force) scheduler.forceRenderRequested.set(true)
+        scheduler.renderRequested.set(true)
+        acquireOpenGlRenderWorker(scheduler)
+    }
+
+    private fun acquireOpenGlRenderWorker(scheduler: OpenGlRenderScheduler) {
+        if (openGlRenderScheduler !== scheduler || !scheduler.workerOwned.compareAndSet(false, true)) return
         runCatching {
-            executor.execute {
-                do {
-                    openGlRenderScheduled.set(false)
-                    renderOpenGlFrame()
-                } while (openGlRenderScheduled.getAndSet(false))
+            scheduler.executor.execute {
+                try {
+                    while (openGlRenderScheduler === scheduler && scheduler.renderRequested.getAndSet(false)) {
+                        runCatching { renderOpenGlFrame(scheduler) }
+                            .onFailure { throwable ->
+                                logMpvDiagnostic(
+                                    PlaybackDiagnosticStage.Render,
+                                    PlaybackDiagnosticEvent.Failed,
+                                    throwable,
+                                )
+                            }
+                    }
+                } finally {
+                    scheduler.workerOwned.set(false)
+                    if (openGlRenderScheduler === scheduler && scheduler.renderRequested.get()) {
+                        acquireOpenGlRenderWorker(scheduler)
+                    }
+                }
             }
-        }.onFailure {
-            openGlRenderScheduled.set(false)
+        }.onFailure { throwable ->
+            scheduler.workerOwned.set(false)
+            if (openGlRenderScheduler === scheduler) {
+                logMpvDiagnostic(
+                    PlaybackDiagnosticStage.Render,
+                    PlaybackDiagnosticEvent.Failed,
+                    throwable,
+                )
+            }
         }
     }
 
-    private fun renderOpenGlFrame() {
+    private fun renderOpenGlFrame(scheduler: OpenGlRenderScheduler) {
+        if (openGlRenderScheduler !== scheduler) return
         if (released.get()) return
         val active = currentActiveMpv() ?: return
         val renderContext = renderCtx ?: return
@@ -2089,6 +2122,7 @@ class MpvPlayerController private constructor(
         surface.withCurrentContext { framebuffer ->
             if (
                 released.get() ||
+                openGlRenderScheduler !== scheduler ||
                 framebuffer.widthPx <= 0 ||
                 framebuffer.heightPx <= 0 ||
                 renderCtx !== renderContext ||
@@ -2097,13 +2131,20 @@ class MpvPlayerController private constructor(
                 return@withCurrentContext false
             }
             synchronized(renderLock) {
+                if (
+                    openGlRenderScheduler !== scheduler ||
+                    renderCtx !== renderContext ||
+                    openGlSurface !== surface
+                ) {
+                    return@synchronized false
+                }
                 val updateFlags =
                     runCatching { active.lib.mpv_render_context_update(renderContext) }
                         .getOrElse { throwable ->
                             logMpvDiagnostic(PlaybackDiagnosticStage.Render, PlaybackDiagnosticEvent.Failed, throwable)
                             return@synchronized false
                         }
-                val forced = openGlForceRenderRequested.getAndSet(false)
+                val forced = scheduler.forceRenderRequested.getAndSet(false)
                 if (updateFlags and LibMpv.RENDER_UPDATE_FRAME == 0L && !forced) {
                     return@synchronized false
                 }

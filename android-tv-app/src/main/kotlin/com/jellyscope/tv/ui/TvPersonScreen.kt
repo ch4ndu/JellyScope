@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,6 +40,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -115,7 +118,8 @@ fun TvPersonScreen(
         onItemSelected = onItemSelected,
         onItemPlayDirect = onItemPlayDirect,
         onRetry = viewModel::retry,
-        onLoadMore = viewModel::loadMore,
+        onLoadMoreAutomatically = viewModel::loadMoreAutomatically,
+        onRetryPage = viewModel::loadMore,
         modifier = modifier,
     )
 }
@@ -132,7 +136,8 @@ private fun TvPersonContent(
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
     onRetry: () -> Unit,
-    onLoadMore: () -> Unit,
+    onLoadMoreAutomatically: () -> Unit,
+    onRetryPage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val moviesFocus = rememberRouteDetailFocusContainer("person/movies")
@@ -209,7 +214,8 @@ private fun TvPersonContent(
                             ribbonBringIntoViewSpec = ribbonBringIntoViewSpec,
                             onItemSelected = onItemSelected,
                             onItemPlayDirect = onItemPlayDirect,
-                            onLoadMore = onLoadMore,
+                            onLoadMoreAutomatically = onLoadMoreAutomatically,
+                            onRetryPage = onRetryPage,
                         )
                 }
             }
@@ -228,10 +234,28 @@ private fun TvPersonLoadedContent(
     ribbonBringIntoViewSpec: BringIntoViewSpec,
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
-    onLoadMore: () -> Unit,
+    onLoadMoreAutomatically: () -> Unit,
+    onRetryPage: () -> Unit,
 ) {
     val moviesRestoreRequest = moviesFocus.restoreRequest()
     val seriesRestoreRequest = seriesFocus.restoreRequest()
+    val pageRetryRequester = remember { FocusRequester() }
+    val pageRetryFocusScope = rememberCoroutineScope()
+    var retryReturnFocus by remember { mutableStateOf<DetailFocusContainer?>(null) }
+    val requestPageRetryFocus: (DetailFocusContainer) -> Boolean = { returnFocus ->
+        retryReturnFocus = returnFocus
+        pageRetryFocusScope.launch {
+            scrollState.animateScrollTo(scrollState.maxValue)
+            requestTvFocusWithRetry { pageRetryRequester.requestFocusSafely() }
+        }
+        true
+    }
+    LaunchedEffect(state.error, state.movies.isEmpty(), state.series.isEmpty()) {
+        if (state.error && state.movies.isEmpty() && state.series.isEmpty()) {
+            scrollState.scrollTo(scrollState.maxValue)
+            requestTvFocusWithRetry { pageRetryRequester.requestFocusSafely() }
+        }
+    }
     LaunchedEffect(
         moviesRestoreRequest,
         seriesRestoreRequest,
@@ -239,12 +263,13 @@ private fun TvPersonLoadedContent(
         state.series,
         state.hasMore,
         state.isLoadingMore,
+        state.error,
     ) {
-        if (!state.hasMore || state.isLoadingMore) return@LaunchedEffect
+        if (!state.hasMore || state.isLoadingMore || state.error) return@LaunchedEffect
         val targetsEmptyRow =
             (moviesRestoreRequest != null && state.movies.isEmpty()) ||
                 (seriesRestoreRequest != null && state.series.isEmpty())
-        if (targetsEmptyRow) onLoadMore()
+        if (targetsEmptyRow) onLoadMoreAutomatically()
     }
 
     // Section-zero focus reveals the full portrait.
@@ -277,11 +302,13 @@ private fun TvPersonLoadedContent(
                 items = state.movies,
                 hasMore = state.hasMore,
                 isLoadingMore = state.isLoadingMore,
+                pageError = state.error,
                 rowFocus = moviesFocus,
                 ribbonBringIntoViewSpec = ribbonBringIntoViewSpec,
                 onItemSelected = onItemSelected,
                 onItemPlayDirect = onItemPlayDirect,
-                onLoadMore = onLoadMore,
+                onLoadMoreAutomatically = onLoadMoreAutomatically,
+                onRequestPageRetryFocus = requestPageRetryFocus,
             )
         } else if (state.series.isNotEmpty()) {
             TvPersonMediaRow(
@@ -290,11 +317,13 @@ private fun TvPersonLoadedContent(
                 items = state.series,
                 hasMore = state.hasMore,
                 isLoadingMore = state.isLoadingMore,
+                pageError = state.error,
                 rowFocus = seriesFocus,
                 ribbonBringIntoViewSpec = ribbonBringIntoViewSpec,
                 onItemSelected = onItemSelected,
                 onItemPlayDirect = onItemPlayDirect,
-                onLoadMore = onLoadMore,
+                onLoadMoreAutomatically = onLoadMoreAutomatically,
+                onRequestPageRetryFocus = requestPageRetryFocus,
             )
         } else {
             TvText(
@@ -320,11 +349,13 @@ private fun TvPersonLoadedContent(
                 items = state.series,
                 hasMore = state.hasMore,
                 isLoadingMore = state.isLoadingMore,
+                pageError = state.error,
                 rowFocus = seriesFocus,
                 ribbonBringIntoViewSpec = ribbonBringIntoViewSpec,
                 onItemSelected = onItemSelected,
                 onItemPlayDirect = onItemPlayDirect,
-                onLoadMore = onLoadMore,
+                onLoadMoreAutomatically = onLoadMoreAutomatically,
+                onRequestPageRetryFocus = requestPageRetryFocus,
             )
         }
     }
@@ -343,11 +374,34 @@ private fun TvPersonLoadedContent(
         }
     }
     if (state.error) {
-        TvText(
-            text = stringResource(R.string.tv_row_error),
-            modifier = Modifier.padding(horizontal = TvDimens.overscanHorizontal),
-            color = LocalJellyfinPalette.current.error,
-        )
+        key(PERSON_PAGE_RETRY_KEY) {
+            Row(
+                modifier = Modifier.padding(horizontal = TvDimens.overscanHorizontal),
+                horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TvText(
+                    text = stringResource(R.string.tv_row_error),
+                    color = LocalJellyfinPalette.current.error,
+                )
+                TvButton(
+                    text = stringResource(R.string.tv_retry),
+                    onClick = {
+                        retryReturnFocus?.requestEntry()
+                        onRetryPage()
+                    },
+                    modifier =
+                        Modifier
+                            .width(TvDimens.retryButtonWidth)
+                            .focusRequester(pageRetryRequester)
+                            .onPreviewKeyEvent { event ->
+                                event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionUp &&
+                                    retryReturnFocus?.requestEntry() == true
+                            },
+                )
+            }
+        }
     }
 }
 
@@ -411,11 +465,13 @@ private fun TvPersonMediaRow(
     items: List<MediaCardUi>,
     hasMore: Boolean,
     isLoadingMore: Boolean,
+    pageError: Boolean,
     rowFocus: DetailFocusContainer,
     ribbonBringIntoViewSpec: BringIntoViewSpec,
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
-    onLoadMore: () -> Unit,
+    onLoadMoreAutomatically: () -> Unit,
+    onRequestPageRetryFocus: (DetailFocusContainer) -> Boolean,
 ) {
     val rowState = rememberLazyListState()
     val restoreRequest = rowFocus.restoreRequest()
@@ -424,11 +480,11 @@ private fun TvPersonMediaRow(
             ribbonBringIntoViewSpec,
             rowFocus.restoreHandoffActive,
         )
-    LaunchedEffect(restoreRequest, items, hasMore, rowState) {
+    LaunchedEffect(restoreRequest, items, hasMore, pageError, rowState) {
         val request = restoreRequest ?: return@LaunchedEffect
         if (personRowRestoreAction(request, items.map { it.id }, hasMore) == FocusRestoreTarget.Deferred) {
             // Page until the saved focus position exists.
-            onLoadMore()
+            if (!pageError) onLoadMoreAutomatically()
             return@LaunchedEffect
         }
         rowFocus.restoreFocus(
@@ -453,11 +509,12 @@ private fun TvPersonMediaRow(
         hasMore = hasMore,
         isLoading = false,
         isLoadingMore = isLoadingMore,
+        automaticPagingAllowed = !pageError,
         lastVisibleIndex = {
             rowState.layoutInfo.visibleItemsInfo.maxOfOrNull { item -> item.index } ?: 0
         },
         threshold = PERSON_LOAD_MORE_THRESHOLD,
-        onLoadMore = onLoadMore,
+        onLoadMore = onLoadMoreAutomatically,
     )
     Column(verticalArrangement = Arrangement.spacedBy(TvDimens.detailShelfTitleGap)) {
         TvText(
@@ -483,13 +540,21 @@ private fun TvPersonMediaRow(
                     items = items,
                     key = { _, item -> item.id },
                 ) { index, item ->
-                    val onItemClick = remember(item.id, onItemSelected) { { onItemSelected(item) } }
-                    val onItemPlay = remember(item.id, onItemPlayDirect) { { onItemPlayDirect(item) } }
+                    val onItemClick = remember(item, onItemSelected) { { onItemSelected(item) } }
+                    val onItemPlay = remember(item, onItemPlayDirect) { { onItemPlayDirect(item) } }
                     TvMediaCard(
                         session = session,
                         item = item,
                         wide = false,
-                        focusChildModifier = Modifier.focusChild(rowFocus, item.id, index),
+                        focusChildModifier =
+                            Modifier
+                                .onPreviewKeyEvent { event ->
+                                    pageError &&
+                                        index == items.lastIndex &&
+                                        event.type == KeyEventType.KeyDown &&
+                                        (event.key == Key.DirectionDown || event.key == Key.DirectionRight) &&
+                                        onRequestPageRetryFocus(rowFocus)
+                                }.focusChild(rowFocus, item.id, index),
                         onFocused = {},
                         onClick = onItemClick,
                         onPlayDirect = onItemPlay,
@@ -530,6 +595,7 @@ private fun TvPersonError(
 }
 
 private const val PERSON_LOAD_MORE_THRESHOLD = 5
+private const val PERSON_PAGE_RETRY_KEY = "person:control:page-retry"
 
 /** Plain placement geometry read only during focus changes. */
 private class PersonScrollGeometry {

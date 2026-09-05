@@ -4,15 +4,27 @@ package com.jellyscope.core.playback
 
 /** Apple interruption intent scoped so late callbacks cannot resume a replacement item. */
 internal class PlaybackInterruptionIntent {
-    private var resumeIntent = false
+    private var resumeIntent: Boolean? = null
 
     fun onInterruptionBegan(playWhenReady: Boolean) {
-        resumeIntent = playWhenReady
+        if (resumeIntent == null) {
+            resumeIntent = playWhenReady
+        }
     }
 
-    fun onInterruptionEnded(shouldResume: Boolean): Boolean = (shouldResume && resumeIntent).also { resumeIntent = false }
+    fun revoke() {
+        if (resumeIntent != null) {
+            resumeIntent = false
+        }
+    }
+
+    fun onInterruptionEnded(shouldResume: Boolean): Boolean {
+        val shouldResumePlayback = shouldResume && resumeIntent == true
+        resumeIntent = null
+        return shouldResumePlayback
+    }
 
     fun reset() {
-        resumeIntent = false
+        resumeIntent = null
     }
 }
