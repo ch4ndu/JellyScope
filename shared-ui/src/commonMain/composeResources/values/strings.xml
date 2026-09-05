@@ -94,7 +94,7 @@
     <string name="library_recommended_directed_by">More from the director of %1$s</string>
     <string name="library_recommended_starring">Featuring cast from %1$s</string>
     <string name="library_view_empty">Nothing is available in this view yet.</string>
-    <string name="library_view_error">This section couldn’t be loaded.</string>
+    <string name="library_view_error">%1$s — This section couldn’t be loaded.</string>
     <string name="library_tab_cd">Open Library tab</string>
     <string name="nav_find">Search</string>
     <string name="nav_find_cd">Open Search tab</string>

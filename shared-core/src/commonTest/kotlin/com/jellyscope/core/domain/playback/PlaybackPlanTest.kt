@@ -702,19 +702,22 @@ class PlaybackPlanTest {
     @Test
     fun transcodeResolutionCapHonoursThroughputBudgetAtHighFrameRate() {
         val capped =
-            transcodeResolutionCap(
-                transcodingUrl = "/videos/item-1/master.m3u8?VideoCodec=h264",
-                sourceWidth = 7_680,
-                sourceHeight = 4_320,
-                videoResolutionsByCodec = mapOf("h264" to amlogicAvc),
-                sourceFrameRate = 60.0,
+            assertNotNull(
+                transcodeResolutionCap(
+                    transcodingUrl = "/videos/item-1/master.m3u8?VideoCodec=h264",
+                    sourceWidth = 7_680,
+                    sourceHeight = 4_320,
+                    videoResolutionsByCodec = mapOf("h264" to amlogicAvc),
+                    sourceFrameRate = 60.0,
+                ),
             )
 
         // 60fps halves the usable area, so the result must be well under the
         // 4096x2160 box that the same decoder allows at 30fps.
-        val width = capped!!.substringAfter("&Width=").substringBefore('&').toInt()
+        val width = capped.substringAfter("&Width=").substringBefore('&').toInt()
         val height = capped.substringAfter("&Height=").toInt()
-        assertTrue(blockPaddedArea(width, height) * 60L <= amlogicAvc.maxFrameAreaPerSecond!!)
+        val maxFrameAreaPerSecond = assertNotNull(amlogicAvc.maxFrameAreaPerSecond)
+        assertTrue(blockPaddedArea(width, height) * 60L <= maxFrameAreaPerSecond)
         assertTrue(width < 4_096, "expected a width below the 30fps box, got $width")
         // Aspect ratio must survive the shrink (16:9 within a pixel of rounding).
         assertTrue(kotlin.math.abs(width.toDouble() / height - 16.0 / 9.0) < 0.02)
@@ -743,16 +746,17 @@ class PlaybackPlanTest {
         // 4096x2160 is inside the decoder's box yet needs 60fps of throughput it
         // does not have, so a source that never trips the box must still be cut.
         val capped =
-            transcodeResolutionCap(
-                transcodingUrl = "/videos/item-1/master.m3u8?VideoCodec=h264",
-                sourceWidth = 4_096,
-                sourceHeight = 2_160,
-                videoResolutionsByCodec = mapOf("h264" to amlogicAvc),
-                sourceFrameRate = 60.0,
+            assertNotNull(
+                transcodeResolutionCap(
+                    transcodingUrl = "/videos/item-1/master.m3u8?VideoCodec=h264",
+                    sourceWidth = 4_096,
+                    sourceHeight = 2_160,
+                    videoResolutionsByCodec = mapOf("h264" to amlogicAvc),
+                    sourceFrameRate = 60.0,
+                ),
             )
 
-        assertNotNull(capped)
-        val width = capped!!.substringAfter("&Width=").substringBefore('&').toInt()
+        val width = capped.substringAfter("&Width=").substringBefore('&').toInt()
         assertTrue(width < 4_096)
     }
 
@@ -794,16 +798,17 @@ class PlaybackPlanTest {
             )
 
         val capped =
-            transcodeResolutionCap(
-                transcodingUrl = "/videos/item-1/master.m3u8?VideoCodec=h264",
-                sourceWidth = 3_840,
-                sourceHeight = 2_160,
-                videoResolutionsByCodec = mapOf("h264" to starved),
-                sourceFrameRate = 60.0,
+            assertNotNull(
+                transcodeResolutionCap(
+                    transcodingUrl = "/videos/item-1/master.m3u8?VideoCodec=h264",
+                    sourceWidth = 3_840,
+                    sourceHeight = 2_160,
+                    videoResolutionsByCodec = mapOf("h264" to starved),
+                    sourceFrameRate = 60.0,
+                ),
             )
 
-        assertNotNull(capped)
-        val width = capped!!.substringAfter("&Width=").substringBefore('&').toInt()
+        val width = capped.substringAfter("&Width=").substringBefore('&').toInt()
         val height = capped.substringAfter("&Height=").toInt()
         assertTrue(width > 0 && height > 0, "capped dimensions must stay positive, got ${width}x$height")
     }

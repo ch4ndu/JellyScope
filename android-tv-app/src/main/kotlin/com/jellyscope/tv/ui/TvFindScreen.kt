@@ -29,6 +29,7 @@ import androidx.compose.ui.input.key.type
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.find.FindResultTab
 import com.jellyscope.ui.screen.find.FindResultsUi
@@ -53,7 +54,7 @@ fun TvFindScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(Unit) {
+    OnResumeEffect {
         viewModel.refreshSilently()
     }
 

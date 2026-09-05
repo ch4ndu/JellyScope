@@ -50,6 +50,7 @@ import com.jellyscope.tv.R
 import com.jellyscope.tv.TvUiPreferencesStore
 import com.jellyscope.ui.component.AmbientLayer
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.library.LibraryBrowseEvent
 import com.jellyscope.ui.screen.library.LibraryBrowseUiState
@@ -157,7 +158,7 @@ internal fun TvLibraryScreen(
     viewModel: LibraryBrowseViewModel? = null,
 ) {
     val hubState = hubViewModel?.state?.collectAsStateWithLifecycle()?.value
-    LaunchedEffect(Unit) {
+    OnResumeEffect {
         hubViewModel?.refreshRecommendedSilently()
     }
     val resolvedTitle = title ?: stringResource(R.string.tv_library_title)
@@ -317,7 +318,7 @@ private fun TvLibraryBrowseRoute(
     val unavailableMessage = stringResource(R.string.tv_library_shuffle_unavailable)
     val currentOnShuffleQueue = rememberUpdatedState(onShuffleQueue)
 
-    LaunchedEffect(Unit) {
+    OnResumeEffect {
         libraryViewModel.refreshSilently()
     }
 

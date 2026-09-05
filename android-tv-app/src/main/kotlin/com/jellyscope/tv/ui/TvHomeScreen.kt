@@ -20,6 +20,7 @@ import com.jellyscope.core.data.remote.ImageAuthHeaderProvider
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.component.ImageDecode
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.component.buildAuthenticatedImageRequest
 import com.jellyscope.ui.screen.home.HomeRow
 import com.jellyscope.ui.screen.home.HomeViewModel
@@ -105,7 +106,7 @@ internal fun TvHomeScreen(
     val initialFocusViewAll = remember { restoredFocusViewAll }
 
     // Show cached rows immediately, then refresh in the background.
-    LaunchedEffect(Unit) {
+    OnResumeEffect {
         viewModel.refreshSilently()
     }
 

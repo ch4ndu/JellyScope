@@ -32,6 +32,7 @@ import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -112,6 +113,7 @@ sealed interface DownloadsUiError {
 }
 
 /** Durable, account-scoped download state behind UseCases and Actions. */
+@OptIn(FlowPreview::class)
 class DownloadsViewModel(
     private val session: Session,
     observeDownloadsUseCase: ObserveDownloadsUseCase,

@@ -6,7 +6,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -91,7 +90,7 @@ internal fun OpenSubtitleSearchDialog(
                 else ->
                     LazyColumn {
                         state.quotaRemaining?.let { remaining ->
-                            item {
+                            item(key = "open_subtitles_quota_remaining") {
                                 Text(
                                     stringResource(Res.string.subtitles_quota_remaining, remaining),
                                     modifier = Modifier.padding(bottom = Dimensions.contentSpacing),
@@ -99,7 +98,7 @@ internal fun OpenSubtitleSearchDialog(
                             }
                         }
                         state.quotaResetTime?.let { resetTime ->
-                            item {
+                            item(key = "open_subtitles_quota_reset_time") {
                                 Text(
                                     stringResource(Res.string.subtitles_quota_reset, resetTime),
                                     modifier = Modifier.padding(bottom = Dimensions.contentSpacing),
@@ -132,7 +131,7 @@ internal fun OpenSubtitleSearchDialog(
                                     .padding(Dimensions.contentSpacing),
                             ) {
                                 Text(row.title)
-                                Row { Text(row.metadata) }
+                                Text(row.metadata)
                                 if (row.downloading) CircularProgressIndicator()
                             }
                         }

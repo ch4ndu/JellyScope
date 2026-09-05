@@ -239,8 +239,8 @@ internal fun DownloadsContent(
                     )
                 }
             } else {
-                state.sections.forEachIndexed { sectionIndex, section ->
-                    item(key = "section-$sectionIndex") {
+                state.sections.forEach { section ->
+                    item(key = "downloads:section:${section.kind.name}") {
                         Text(
                             text = stringResource(downloadSectionTitle(section.kind)),
                             style = MaterialTheme.typography.titleMedium,
