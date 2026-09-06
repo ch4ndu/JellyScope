@@ -18,7 +18,7 @@ What happened?
 
 ## Expected Behavior
 
-What did you expect to happen?
+Expected result.
 
 ## Actual Behavior
 
@@ -32,11 +32,18 @@ What happened instead?
 - Device model:
 - Jellyfin server version:
 
-## Sanitized Crash Report
+## Diagnostics
 
-Paste the app's exported crash report here if available.
+Follow [Diagnostics and troubleshooting](https://github.com/ch4ndu/JellyScope/blob/main/docs/USAGE.md#diagnostics-and-troubleshooting),
+then include the returned server filename. If the upload was disabled or failed,
+record that outcome instead.
 
-Before submitting, remove any:
+- Was **Collect diagnostic logs** enabled before reproduction?
+- Returned server filename or upload outcome:
+
+## Optional Attachments
+
+Before attaching logs obtained by another method, remove:
 
 - Server URLs or hostnames
 - Auth tokens or request headers
@@ -45,10 +52,6 @@ Before submitting, remove any:
 - Playback URLs
 - Local file paths
 - Raw API responses
-
-```text
-Paste sanitized report here.
-```
 
 ## Additional Notes
 

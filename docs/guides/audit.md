@@ -1,30 +1,15 @@
 # Architecture And Code Quality Audit
 
-Load this for code review, architecture audit, code-quality review, performance
-review, or broad "check the codebase" requests. Audits are read-only and
-findings-first unless the user explicitly requests fixes.
+Audits are read-only and findings-first unless fixes are explicitly authorized.
 
-Treat current files as the source of truth. Compare code with the active guides
-and `.local/KNOWN-ISSUES.md`; distinguish new defects and regressions from
-recorded open defects, accepted gaps, deliberate non-goals, and device
-validations that remain pending. Re-verify any inherited finding list against
-current source before planning from it.
+Treat current files as the source of truth. Compare code with the active guides;
+distinguish new defects and regressions from documented gaps, deliberate
+non-goals, and device validations that remain pending. Re-verify any inherited
+finding list against current source before planning from it.
 
 ## Route The Audit
 
-Load only the contracts that match the requested scope:
-
-- Architecture, state/events, source ownership, or platform bridges:
-  `docs/guides/architecture.md`.
-- UI, Compose, adaptive layout, accessibility, or previews: `docs/guides/ui.md`.
-- Compose correctness or performance: `docs/guides/compose-performance-audit.md`
-  and `docs/guides/ui.md`.
-- Android TV screens, focus, navigation, or remote input:
-  `docs/guides/tv-ux-behaviors.md`.
-- Jellyfin API, auth, cache, settings, time, playback planning, player behavior,
-  or diagnostics: `docs/guides/data-playback.md`.
-- Code simplicity, comments, abstractions, defensive branches, tests,
-  build/package checks, or verification strategy: `docs/guides/workflow.md`.
+Use the [documentation map](../README.md) to select the relevant contracts.
 
 For a whole-project audit, inspect the repository in staged subsystem passes:
 
@@ -45,12 +30,13 @@ For a whole-project audit, inspect the repository in staged subsystem passes:
 - Do not report hypothetical failures without a reachable mechanism. Do not
   classify accepted prerequisites, deliberate non-goals, or unexecuted manual
   checks as code defects.
-- Apply the repository's established `Critical`, `Major`, `Minor`, and
-  `Suggestion` definitions from the review checklist that ships with the review
-  workflow.
-  Evidence level and severity are independent: uncertain impact does not become
-  confirmed because its potential severity is high. That approval gate
-  applies only when the user invokes that review workflow.
+- Severity describes impact: **Critical** is a reachable security breach,
+  destructive data loss, or widespread unusability; **Major** breaks an
+  important supported flow or release contract; **Minor** is a bounded
+  correctness, documentation, or maintenance defect; **Suggestion** is an
+  optional improvement without a demonstrated defect. Evidence level is
+  independent: high potential severity does not make an uncertain impact
+  confirmed. Review approval gates apply only when that workflow is invoked.
 - Prefer the smallest correction that preserves existing behavior, layering,
   platform support, and accepted scope. Do not turn observations into unrelated
   refactors.
@@ -75,7 +61,7 @@ For a whole-project audit, inspect the repository in staged subsystem passes:
   duplication, excessive indirection, or complexity only when it creates a
   concrete correctness, maintenance, or testability cost.
 - Apply the changed-code simplicity review in
-  [`workflow.md`](workflow.md#changed-code-simplicity-review) to every changed
+  [`workflow.md`](workflow.md#4-write-clear-maintainable-code) to every changed
   implementation and test path.
 - No Kotlin `!!`, raw day-millis literals, or hardcoded user-facing strings are
   used. Keep any requested remediation scoped to the accepted findings.
@@ -84,8 +70,9 @@ For a whole-project audit, inspect the repository in staged subsystem passes:
 
 - URL normalization, auth headers, logging, and diagnostics are centralized and
   sanitized. Jellyfin credentials never reach untrusted absolute URLs.
-- Treat the owner-approved Apple credential-persistence policy in
-  [`data-playback.md`](data-playback.md#persistence) as an accepted constraint,
+- Treat the documented Apple credential-persistence policy in
+  [`data-playback.md`](data-playback.md#persistence-and-account-isolation) as an
+  accepted constraint,
   not a finding. Audit concrete violations of that boundary or newly applicable
   external requirements, not the documented plaintext-at-rest tradeoff itself.
 - Server/user-scoped caches and persistent stores respect account boundaries,
@@ -137,13 +124,5 @@ do not invent optional optimization work.
 
 ## Why
 
-Rationale for rules this guide states: the choice, the reason, and what was
-rejected. An entry is deleted when its rule changes.
-
-- **Stale finding lists are re-verified, never planned from.** A finding list
-  that has gone unre-verified across releases is evidence of what someone once
-  saw, not of what is true. One remediation cycle found three false statements
-  in the project's own status record; another found an audit's largest claimed
-  extraction dissolved into disjoint per-platform state on inspection.
-  Re-verify each item against source before planning from it, and re-date the
-  list when you do.
+- **Recheck findings against current source:** historical observations can become
+  stale after releases; retained reports cannot establish a current defect.

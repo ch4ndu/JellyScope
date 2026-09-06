@@ -8,10 +8,13 @@ sources. The pinned source, patch, toolchain, ABI, library, license, and
 corresponding-source records are in `manifest-1.0.0.txt`.
 
 For every published JellyScope Android build, publish these source routes with
-the release metadata:
+the release metadata. In an Android APK, `assets/license-metadata/SOURCE_URL.txt`
+identifies the exact JellyScope source tree; in a standalone metadata bundle,
+use its root `SOURCE_URL.txt`. Resolve the project paths below within that
+source tree, not relative to this packaged notice:
 
 1. The project-owned wrapper sources under
-   [`android-libmpv/`](../../android-libmpv/), including `UPSTREAM.md`, the
+   `android-libmpv/`, including `UPSTREAM.md`, the
    committed Kotlin/JNI bridge, CMake file, ABI declaration shims, and MIT
    `LICENSE`, plus the exact libmpv-android source at
    https://github.com/jarnedemeulemeester/libmpv-android/tree/fcf6745703dc1265bca88f12fee8fc355ddf251e.
@@ -19,9 +22,11 @@ the release metadata:
    extraction task copies all `jni/` libraries except `libplayer.so` and x86;
    CMake imports the extracted `libmpv.so`, `libavcodec.so`, and NDK-29
    `libc++_shared.so` while compiling only the project bridge. The native source
-   tags in `ATTRIBUTION.md`, FFmpeg configuration that enables GPL and version-3
-   code, Android API/NDK/CMake versions, and required package inventory are in
-   the manifest.
+   tags are in [ATTRIBUTION.md](ATTRIBUTION.md); Android API/NDK/CMake versions
+   and package inventory are in `manifest-1.0.0.txt`. The exact upstream
+   [FFmpeg build configuration](https://github.com/jarnedemeulemeester/libmpv-android/blob/fcf6745703dc1265bca88f12fee8fc355ddf251e/buildscripts/scripts/ffmpeg.sh)
+   enables GPL and version-3 code. Its dependencies, patches and build order
+   are described by the [same revision's build instructions](https://github.com/jarnedemeulemeester/libmpv-android/blob/fcf6745703dc1265bca88f12fee8fc355ddf251e/buildscripts/README.md).
 3. Jellyfin's Media3 FFmpeg decoder source at tag `v1.9.0+1`, commit
    `af9ee4e26b2045e3ea6f2ebf4a18ac8ebfeae396`, including its upstream build
    instructions: https://github.com/jellyfin/jellyfin-androidx-media/tree/af9ee4e26b2045e3ea6f2ebf4a18ac8ebfeae396.

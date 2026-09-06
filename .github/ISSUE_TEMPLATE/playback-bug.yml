@@ -7,18 +7,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before filing:
-
-        1. Enable **Settings → Diagnostics → Collect diagnostic logs**, then reproduce the playback problem.
-        2. Return to Diagnostics, select **Send diagnostics to server**, and paste the returned filename below.
-
-        Log collection starts only after the toggle is enabled.
+        Follow [Diagnostics and troubleshooting](https://github.com/ch4ndu/JellyScope/blob/main/docs/USAGE.md#diagnostics-and-troubleshooting).
+        Record the returned filename or explain why upload was unavailable.
 
   - type: input
     id: app-version
     attributes:
       label: App version
-      placeholder: 0.1.0-alpha28
+      placeholder: Version shown in Settings
     validations:
       required: true
 
@@ -54,7 +50,7 @@ body:
         - AVPlayer
         - VLCKit
         - mpv
-        - I don't know
+        - Unknown
     validations:
       required: true
 
@@ -98,7 +94,7 @@ body:
     id: reproduction
     attributes:
       label: Reproduction narrative
-      description: Describe what you played, the steps you took, what happened, and what you expected.
+      description: Describe the media, reproduction steps, actual result, and expected result.
       placeholder: |
         1. Opened…
         2. Selected…

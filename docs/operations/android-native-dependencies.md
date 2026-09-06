@@ -9,23 +9,14 @@ remains the default on API-25 devices.
 
 ## Pinned inputs
 
-The Android mpv runtime is the project-owned module:
-
-```text
-:android-libmpv
-```
-
-The module's only external mpv input is the pinned
-`dev.jdtech.mpv:libmpv:1.0.0` AAR. It is extracted into the module build
-directory; all native libraries except the original `libplayer.so` and x86
-are retained, while the committed project bridge is compiled
+The project-owned `:android-libmpv` module uses the pinned
+`dev.jdtech.mpv:libmpv:1.0.0` AAR as its only external mpv input. It is extracted
+into the module build directory. All native libraries except the original
+`libplayer.so` and x86 are retained; the committed project bridge compiles
 against the extracted `libmpv.so`, `libavcodec.so`, and NDK-29 C++ runtime.
 The reviewed native source is `libmpv-android` tag `v1.0.0`, commit
-`fcf6745703dc1265bca88f12fee8fc355ddf251e`. The native component versions are recorded in
+`fcf6745703dc1265bca88f12fee8fc355ddf251e`. Exact native component pins are listed in
 [`scripts/android-mpv-bundle/manifest-1.0.0.txt`](../../scripts/android-mpv-bundle/manifest-1.0.0.txt).
-The manifest currently records mpv 0.41.0, FFmpeg 8.1, NDK 29, dav1d 1.5.3,
-libplacebo 7.360.1, libass 0.17.4, and the other native inputs in the audited
-bill of materials.
 
 Both Android applications consume the dependency through `androidMain` and
 ship only these native ABIs:
@@ -54,8 +45,10 @@ has one native notice set. The exact component, version, license, source URL, wr
 corresponding-source route are listed in
 [`ATTRIBUTION.md`](../../scripts/android-mpv-bundle/ATTRIBUTION.md) and
 [`android-libmpv/UPSTREAM.md`](../../android-libmpv/UPSTREAM.md).
-The audited license texts are under
-[`scripts/android-mpv-bundle/licenses/`](../../scripts/android-mpv-bundle/licenses/).
+The [license-file coverage section](../../scripts/android-mpv-bundle/ATTRIBUTION.md#license-file-coverage)
+describes which license texts and component notices the packaged directory
+contains. Review the applicable component notices and license choices for the
+candidate; the directory is not a complete component-owner inventory.
 
 For every release candidate, publish the exact corresponding-source routes,
 patches, native configuration, and upstream build instructions described by
@@ -74,14 +67,14 @@ bash scripts/verify-android-native-bundle.sh \
   android-tv-app/build/outputs/apk/release/android-tv-app-release.apk
 ```
 
-The verifier must pass for both APKs and must prove all of the following:
+The verifier must pass for both APKs. It checks the package inventory:
 
 - API-26-compatible packaging retains exactly the three shipped mpv ABIs and
   no x86 entry.
 - Every required mpv/FFmpeg, Media3 FFmpeg, and LibVLC library is present for
   every shipped ABI.
-- The APK identifies `android-libmpv` and contains the patched `libplayer.so`;
-  the original AAR bridge remains excluded.
+- The packaged manifest identifies `android-libmpv`, and `libplayer.so` is
+  present for each shipped ABI.
 - `libc++_shared.so` is present for each shipped ABI.
 - `ATTRIBUTION.md`, `SOURCE_MANIFEST.md`, the native manifest, and every
   manifest-listed license asset are present in both APKs.
@@ -90,6 +83,18 @@ The verifier must pass for both APKs and must prove all of the following:
 - The release-license metadata set is present, and its project license, source
   revision/URL, dependency inputs,
   native notices, and source manifests agree with the repository candidate.
+
+Package filenames alone do not prove which bridge implementation was compiled.
+Before native packaging, run
+`bash scripts/check-android-mpv-wrapper-source.sh` to check the committed source
+boundary. Review the extraction exclusions and CMake build route in
+[`android-libmpv/build.gradle.kts`](../../android-libmpv/build.gradle.kts) to
+confirm the upstream bridge is excluded and the project bridge is built.
+Together these provide source/build provenance and package-inventory evidence;
+the APK verifier does not inspect the binary's patch implementation.
+Its success message about complete license metadata refers to required files
+and record consistency, not component-by-component notice completeness or a
+legal-compliance determination. Apply the separate notice review above.
 
 The same verifier is invoked by [`scripts/verify.sh`](../../scripts/verify.sh)
 after the release assemblies. When the AAR, POM, native payload, source tag,
@@ -107,8 +112,12 @@ release. Android mpv uses `tls-verify=yes` with a private PEM bundle generated
 from Android's default trust managers; invalid certificates outside that trust
 policy must fail safely. The controller attaches the modern token-only header
 only for the trusted same-origin request, rejects cross-origin remote subtitle
-sidecars, and never logs URLs, headers, tokens, paths, titles, or raw native
-errors.
+sidecars, and keeps URLs, headers, tokens, paths, titles, and raw native errors
+out of shared/exported diagnostics and native message forwarding to logcat.
+When **Collect diagnostic logs** is enabled, mpv can retain a sensitive raw log
+in app-private storage; it is excluded from crash upload and bounded client-log export. The
+[Android mpv diagnostic policy](../guides/data-playback.md#android-mpv-backend) owns that
+exception and its collection controls.
 
 The remaining native residuals are explicit: mpv/FFmpeg does not inherit
 Android network-security-config domain pins/rules from the exported CA roots,
@@ -118,13 +127,8 @@ disable TLS verification or use a tokenized URL.
 
 ## Why
 
-- **The Android mpv backend ships a project-owned wrapper over the pinned
-  native AAR input, not the upstream artifact directly.** A raw-log finding
-  showed the upstream bridge requested verbose mpv messages and echoed
-  credential-bearing request details to logcat, outside the app's scrubber
-  boundary. The wrapper retains the stable wrapper source and the unchanged
-  extracted native graph, compiles only the small bridge library, defaults
-  native logging off, and removes raw message writes; the AAR stays a pinned
-  build input. Rejected: silencing only app loggers or
-  release builds (the native writer would remain), publishing a
-  coordination-heavy fork, and rebuilding the full native graph.
+- **A project-built bridge preserves the native logging boundary:** the upstream
+  bridge forwarded credential-bearing verbose messages outside the scrubber.
+  Compiling the small patched bridge preserves the extracted native graph;
+  silencing app loggers would leave the native writer active. A full native
+  rebuild or separately published fork would add unnecessary maintenance.
