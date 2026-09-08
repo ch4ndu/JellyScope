@@ -4,6 +4,8 @@ package com.jellyscope.tvos.presenter
 
 import com.jellyscope.core.domain.action.SaveSubtitleSelectionAction
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
+import com.jellyscope.core.domain.model.LocalSubtitleAsset
+import com.jellyscope.core.domain.model.LocalSubtitleContext
 import com.jellyscope.core.domain.model.MediaItem
 import com.jellyscope.core.domain.model.MediaItemDetail
 import com.jellyscope.core.domain.model.MediaKind
@@ -41,7 +43,6 @@ import com.jellyscope.core.domain.playback.PlaybackDiagnosticTrackKind
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticTrackState
 import com.jellyscope.core.domain.playback.PlaybackError
 import com.jellyscope.core.domain.playback.PlaybackHealthExclusionReason
-import com.jellyscope.core.domain.playback.PlaybackHealthGuidance
 import com.jellyscope.core.domain.playback.PlaybackHealthGuidancePolicy
 import com.jellyscope.core.domain.playback.PlaybackHealthSessionContext
 import com.jellyscope.core.domain.playback.PlaybackHealthSessionCoordinator
@@ -65,14 +66,18 @@ import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlaybackTerminalOutcome
 import com.jellyscope.core.domain.playback.PlayerController
+import com.jellyscope.core.domain.playback.PlayerStillWatchingAutomaticAdvance
+import com.jellyscope.core.domain.playback.PlayerStillWatchingState
 import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.core.domain.playback.SubtitleActivationIdentity
 import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
+import com.jellyscope.core.domain.playback.SubtitleAsset
 import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
 import com.jellyscope.core.domain.playback.SubtitleKind
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.core.domain.playback.SubtitleSelectionKey
+import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.core.domain.playback.SubtitleTrackOption
 import com.jellyscope.core.domain.playback.audioOptions
 import com.jellyscope.core.domain.playback.defaultSubtitleStreamIndex
@@ -90,8 +95,10 @@ import com.jellyscope.core.domain.playback.subtitleRenderInfo
 import com.jellyscope.core.domain.playback.toBitrateConstraint
 import com.jellyscope.core.domain.usecase.GetChronologicalEpisodeQueueUseCase
 import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
+import com.jellyscope.core.domain.usecase.GetLocalSubtitleAssetUseCase
 import com.jellyscope.core.domain.usecase.GetMediaSegmentsUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackLaunchContextUseCase
+import com.jellyscope.core.domain.usecase.ObserveLocalSubtitleAssetsUseCase
 import com.jellyscope.core.playback.PlaybackDiagnosticsContext
 import com.jellyscope.core.playback.PlaybackReportingCoordinator
 import com.jellyscope.core.playback.PlaybackReportingQueue
@@ -105,66 +112,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.TimeSource
-
-enum class TvPlaybackPhase {
-    Loading,
-    Active,
-    Failed,
-    Completed,
-}
-
-data class TvPlaybackUiState(
-    val playerInstalled: Boolean = false,
-    val phase: TvPlaybackPhase = TvPlaybackPhase.Loading,
-    val status: PlaybackStatus = PlaybackStatus.Idle,
-    val positionMs: Long = 0L,
-    val durationMs: Long? = null,
-    val bufferedPositionMs: Long = 0L,
-    // The system player must disable free scrubbing for transcodes: its seeks
-    // bypass the Kotlin controller, so the transcode-restart path can't
-    // intercept an out-of-window seek (AVPlayer wedges on those).
-    val isTranscode: Boolean = false,
-    val itemId: String = "",
-    // Increments on every prepare (initial, replan, queue advance) — Swift
-    // re-applies item-scoped AVKit decorations (markers, metadata, menus).
-    val planEpoch: Long = 0L,
-    val prepareEpoch: Long = 0L,
-    val title: String? = null,
-    val seriesName: String? = null,
-    val episodeLabel: String? = null,
-    val artworkUrl: String? = null,
-    val chapters: List<TvChapter> = emptyList(),
-    // Track menus render confirmed truth: `selected` reflects platform-
-    // confirmed or server-rendered activation, never a pending request.
-    val audioTracks: List<TvTrackChoice> = emptyList(),
-    val subtitleTracks: List<TvTrackChoice> = emptyList(),
-    val qualityChoices: List<TvQualityChoice> = emptyList(),
-    val inheritedQualityPolicy: PlaybackQualityPolicy = PlaybackQualityPolicy.Auto,
-    val inheritedQualityResolutionHeight: Int? = null,
-    val inheritedQualityUsesVlcSetting: Boolean = false,
-    val activeSegment: TvActiveSegment? = null,
-    val nextEpisode: TvMediaCard? = null,
-    val upNextVisible: Boolean = false,
-    val playbackGuidance: PlaybackHealthGuidance? = null,
-    val playbackActionNotice: PlaybackActionNotice? = null,
-    val playbackActions: List<PlaybackAction> = emptyList(),
-    val error: PlaybackError? = null,
-)
-
-private fun TvPlaybackUiState.hasSwiftVisibleChange(current: TvPlaybackUiState): Boolean =
-    copy(
-        positionMs = current.positionMs,
-        bufferedPositionMs = current.bufferedPositionMs,
-    ) != current
 
 /**
  * Playback session for the tvOS system player: plan -> prepare -> play with
@@ -175,6 +133,7 @@ private fun TvPlaybackUiState.hasSwiftVisibleChange(current: TvPlaybackUiState):
  */
 class TvPlaybackSessionPresenter(
     private val session: Session,
+    val startWithPlaybackInfoOverlay: Boolean,
     initialItemId: String,
     private val requestedMediaSourceId: String?,
     private val initialStartPositionTicks: Long,
@@ -193,7 +152,13 @@ class TvPlaybackSessionPresenter(
     private val playbackDiagnosticsContext: PlaybackDiagnosticsContext? = null,
     private val deviceProfileProvider: DeviceProfileProvider? = null,
     private val playbackHealthGuidancePolicy: PlaybackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Advisory,
+    private val initialAudioStreamIndex: Int? = null,
+    private val initialSubtitleMode: TvPlaybackSubtitleMode = TvPlaybackSubtitleMode.Unspecified,
+    private val initialSubtitleStreamIndex: Int? = null,
     private val monotonicTimeMs: () -> Long = ::tvosMonotonicTimeMs,
+    private val getLocalSubtitleAsset: GetLocalSubtitleAssetUseCase? = null,
+    private val observeLocalSubtitleAssets: ObserveLocalSubtitleAssetsUseCase? = null,
+    private val initialSubtitleAssetId: String? = null,
 ) : TvPresenter(dispatchers) {
     private val tvPlaybackDiagnosticLogger = diagnosticLogger(DiagnosticTag.TvPlaybackSessionPresenter)
     private val _state = MutableStateFlow(TvPlaybackUiState(itemId = initialItemId))
@@ -213,6 +178,11 @@ class TvPlaybackSessionPresenter(
             }
 
     private var currentItemId: String = initialItemId
+    private var currentStartMediaSourceId: String? = requestedMediaSourceId
+    private var currentStartPositionTicks: Long = initialStartPositionTicks
+    private var currentStartResetsReporting = false
+    private val originalItemId: String = initialItemId
+    private var initialRouteIntentConsumed = false
     private var plan: PlaybackPlan? = null
     private var planEpoch = 0L
     private var selectedMediaSourceId: String? = null
@@ -233,6 +203,7 @@ class TvPlaybackSessionPresenter(
     private var explicitAudioStreamIndex: Int? = null
     private var requestedSubtitleStreamIndex: Int? = null
     private var requestedSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified
+    private var requestedLocalSubtitleAsset: LocalSubtitleAsset? = null
     private var selectedQualityMaxBitrate: Long? = null
     private var selectedQualityPolicy: PlaybackQualityPolicy = PlaybackQualityPolicy.Auto
     private var selectedQualityCapOrigin: PlaybackQualityCapOrigin? = null
@@ -257,6 +228,10 @@ class TvPlaybackSessionPresenter(
     private var pendingRecoveredPlaybackGuidance = false
     private var pendingRecoveredAutoQualityBps: Long? = null
     private var playbackActionNotice: PlaybackActionNotice? = null
+    private var subtitleNotice: TvPlaybackNotice? = null
+    private var subtitleNoticeToken = 0L
+    private var playbackSpeed = 1f
+    private var subtitleStyle = SubtitleStyle()
 
     private fun setPlaybackActionNotice(notice: PlaybackActionNotice?) {
         playbackActionNotice = notice?.takeIf { preferences.playbackWarningsEnabled }
@@ -292,7 +267,22 @@ class TvPlaybackSessionPresenter(
 
     private var episodeQueue: List<MediaItem>? = null
     private var nextEpisodeItem: MediaItem? = null
+    private var queuePresentation = TvPlaybackQueueState()
+    private var nextEpisodePresentation: TvMediaCard? = null
+    private var queueLoadPending = false
+    private var queueShuffled = false
+    private var queueOrderGeneration = 0L
     private var advanceInFlight = false
+    private var itemSwitchGeneration = 0L
+    private var stillWatchingState = PlayerStillWatchingState()
+    private var autoplayIdentity: TvAutoplayIdentity? = null
+    private var autoplayCountdownSeconds: Int? = null
+    private var autoplayDismissed = false
+    private var handledCompletion: TvAutoplayIdentity? = null
+    private var pendingQueueCompletion: TvPendingQueueCompletion? = null
+    private var settledCompletion: TvAutoplayIdentity? = null
+    private var completedWithNext = false
+    private var playerIdentity = 0L
 
     private var started = false
     private var startInFlight = false
@@ -303,6 +293,11 @@ class TvPlaybackSessionPresenter(
     private var videoOutputJob: Job? = null
     private var replanJob: Job? = null
     private var queueJob: Job? = null
+    private var itemSwitchJob: Job? = null
+    private var autoplayJob: Job? = null
+    private var localSubtitleAssetsJob: Job? = null
+    private var localSubtitleSelectionJob: Job? = null
+    private var diagnosticsJob: Job? = null
 
     fun watchState(onChange: (TvPlaybackUiState) -> Unit): WatchHandle {
         var previousPublished: TvPlaybackUiState? = null
@@ -320,6 +315,12 @@ class TvPlaybackSessionPresenter(
             return
         }
         started = true
+        _state.update { current ->
+            current.copy(
+                phase = TvPlaybackPhase.Loading,
+                error = null,
+            )
+        }
         val expectedGeneration = ++startupGeneration
         startupJob =
             scope.launch {
@@ -335,6 +336,7 @@ class TvPlaybackSessionPresenter(
                     candidateOwner.transferTo { installed ->
                         installedPlayerController = installed
                         try {
+                            playerIdentity += 1L
                             installedPlaybackReportingCoordinator =
                                 PlaybackReportingCoordinator(
                                     queue = reportingQueue,
@@ -342,7 +344,13 @@ class TvPlaybackSessionPresenter(
                                     playbackState = installed.playbackState,
                                 )
                             observeControllerOutput()
-                            _state.update { current -> current.copy(playerInstalled = true) }
+                            _state.update { current ->
+                                current.copy(
+                                    playerInstalled = true,
+                                    playerIdentity = playerIdentity,
+                                    backend = installed.activeBackend,
+                                )
+                            }
                         } catch (exception: Throwable) {
                             videoOutputJob?.cancel()
                             videoOutputJob = null
@@ -351,7 +359,14 @@ class TvPlaybackSessionPresenter(
                             throw exception
                         }
                     }
-                    if (startItem(currentItemId, requestedMediaSourceId, initialStartPositionTicks, resetReporting = false)) {
+                    if (
+                        startItem(
+                            itemId = currentItemId,
+                            mediaSourceId = currentStartMediaSourceId,
+                            startPositionTicks = currentStartPositionTicks,
+                            resetReporting = currentStartResetsReporting,
+                        )
+                    ) {
                         observePlaybackState()
                     }
                 } catch (exception: CancellationException) {
@@ -386,22 +401,37 @@ class TvPlaybackSessionPresenter(
     }
 
     fun play() {
+        val controller = installedPlayerController ?: return
+        if (plan?.itemId != currentItemId) return
         playbackHealthCoordinator.restartEvidenceWindow()
-        playerController.play()
+        controller.play()
     }
 
     fun pause() {
+        val controller = installedPlayerController ?: return
+        if (plan?.itemId != currentItemId) return
         playbackHealthCoordinator.restartEvidenceWindow()
-        playerController.pause()
+        controller.pause()
+    }
+
+    fun togglePlayPause() {
+        val controller = installedPlayerController ?: return
+        if (plan?.itemId != currentItemId) return
+        when (controller.playbackState.value.status) {
+            PlaybackStatus.Playing, PlaybackStatus.Buffering -> pause()
+            PlaybackStatus.Paused, PlaybackStatus.Loading -> play()
+            else -> Unit
+        }
     }
 
     fun seekTo(positionMs: Long) {
         if (startInFlight) return
+        val controller = installedPlayerController ?: return
         val target = positionMs.coerceAtLeast(0L)
         playbackHealthCoordinator.restartEvidenceWindow(PlaybackHealthExclusionReason.Seek)
         val currentPlan = plan
         if (
-            playerController.transcodeSeekRestartsStream &&
+            controller.transcodeSeekRestartsStream &&
             currentPlan?.streamMode == StreamMode.Transcode &&
             !isWithinTranscodedWindow(target, currentPlan)
         ) {
@@ -410,19 +440,88 @@ class TvPlaybackSessionPresenter(
             replanAtPosition(target)
             return
         }
-        playerController.seekTo(target)
-        playbackReportingCoordinator.progress(
+        controller.seekTo(target)
+        installedPlaybackReportingCoordinator?.progress(
             positionMs = target,
-            isPaused = playerController.playbackState.value.status == PlaybackStatus.Paused,
+            isPaused = controller.playbackState.value.status == PlaybackStatus.Paused,
             eventName = PlaybackProgressEvent.TimeUpdate,
         )
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        if (startInFlight || !speed.isFinite()) return
+        val controller = installedPlayerController ?: return
+        val normalized =
+            speed.coerceIn(
+                com.jellyscope.core.domain.playback.MIN_PLAYBACK_SPEED,
+                com.jellyscope.core.domain.playback.MAX_PLAYBACK_SPEED,
+            )
+        if (normalized !in tvPlaybackSpeedValues) return
+        playbackSpeed = normalized
+        plan = plan?.copy(playbackSpeed = normalized)
+        controller.setPlaybackSpeed(normalized)
+        publish(controller.playbackState.value.copy(playbackSpeed = normalized))
+    }
+
+    fun setSubtitleStyle(
+        fontScale: Float,
+        foregroundColor: String?,
+        backgroundColor: String?,
+        edgeStyleName: String,
+    ) {
+        if (startInFlight) return
+        val controller = installedPlayerController ?: return
+        if (!canApplySubtitleStyle()) return
+        subtitleStyle =
+            SubtitleStyle(
+                fontScale = fontScale.coerceIn(0.5f, 2f),
+                foregroundColor = foregroundColor?.takeIf(String::isNotBlank),
+                backgroundColor = backgroundColor?.takeIf(String::isNotBlank),
+                edgeStyle = subtitleEdgeStyle(edgeStyleName),
+            )
+        plan = plan?.copy(subtitleStyle = subtitleStyle)
+        controller.setSubtitleStyle(subtitleStyle)
+        publish(controller.playbackState.value.copy(subtitleStyle = subtitleStyle))
+    }
+
+    fun setDiagnosticsVisible(visible: Boolean) {
+        diagnosticsJob?.cancel()
+        diagnosticsJob = null
+        if (!visible) {
+            _state.update { current -> current.copy(diagnostics = emptyList()) }
+            return
+        }
+        val controller = installedPlayerController ?: return
+        diagnosticsJob =
+            scope.launch {
+                controller.runtimeDiagnostics.collect { runtime ->
+                    _state.update { current ->
+                        current.copy(
+                            diagnostics =
+                                tvPlaybackDiagnosticRows(
+                                    backend = controller.activeBackend,
+                                    plan = plan,
+                                    playbackState = controller.playbackState.value,
+                                    runtime = runtime,
+                                ),
+                        )
+                    }
+                }
+            }
+    }
+
+    fun dismissSubtitleNotice() {
+        subtitleNotice = null
+        installedPlayerController?.playbackState?.value?.let(::publish)
+    }
+
     fun stop() {
+        val controller = installedPlayerController ?: return
+        cancelAutoplaySurface()
         cancelAndInvalidateSubtitleFallback()
         playbackHealthCoordinator.end()
-        playbackReportingCoordinator.stop(playerController.playbackState.value.positionMs)
-        playerController.stop()
+        installedPlaybackReportingCoordinator?.stop(controller.playbackState.value.positionMs)
+        controller.stop()
     }
 
     fun skipActiveSegment() {
@@ -431,26 +530,164 @@ class TvPlaybackSessionPresenter(
     }
 
     fun playNextEpisode() {
-        val next = nextEpisodeItem ?: return
-        if (advanceInFlight || startInFlight) {
-            return
+        val index = currentQueueIndex() + 1
+        selectQueueItem(index)
+    }
+
+    fun playPreviousEpisode() {
+        val index = currentQueueIndex() - 1
+        selectQueueItem(index)
+    }
+
+    fun selectQueueItem(index: Int) {
+        val selected = episodeQueue?.getOrNull(index) ?: return
+        if (selected.id == currentItemId) return
+        stillWatchingState = stillWatchingState.resetForManualNavigation()
+        cancelAutoplaySurface()
+        autoplayDismissed = false
+        switchToQueueIndex(index = index, stopAlreadyReported = false)
+    }
+
+    fun shuffleQueue() {
+        val controller = installedPlayerController ?: return
+        val queue = episodeQueue ?: return
+        val currentIndex = currentQueueIndex()
+        if (currentIndex !in queue.indices || queue.size < 2) return
+        val expectedItemId = currentItemId
+        val expectedLaunchGeneration = playbackHealthGeneration
+        val expectedQueueGeneration = ++queueOrderGeneration
+        queueJob?.cancel()
+        queueJob =
+            scope.launch {
+                val (shuffled, presentation) =
+                    withContext(dispatchers.work) {
+                        val current = queue[currentIndex]
+                        val reordered =
+                            queue
+                                .filterIndexed { index, _ -> index != currentIndex }
+                                .shuffled()
+                                .toMutableList()
+                                .apply { add(currentIndex, current) }
+                        reordered to
+                            playbackQueueState(
+                                queue = reordered,
+                                currentItemId = expectedItemId,
+                                shuffled = true,
+                                session = session,
+                                imageUrlBuilder = imageUrlBuilder,
+                            )
+                    }
+                if (
+                    closed ||
+                    episodeQueue !== queue ||
+                    currentItemId != expectedItemId ||
+                    playbackHealthGeneration != expectedLaunchGeneration ||
+                    queueOrderGeneration != expectedQueueGeneration
+                ) {
+                    return@launch
+                }
+                queueJob = null
+                episodeQueue = shuffled
+                queueShuffled = true
+                queuePresentation = presentation
+                nextEpisodeItem = shuffled.getOrNull(currentIndex + 1)
+                nextEpisodePresentation = presentation.items.getOrNull(currentIndex + 1)?.media
+                stillWatchingState = stillWatchingState.resetForManualNavigation()
+                cancelAutoplaySurface()
+                autoplayDismissed = false
+                settledCompletion = null
+                val playbackState = controller.playbackState.value
+                if (playbackState.status == PlaybackStatus.Completed) {
+                    handleCompleted(playbackState)
+                } else {
+                    publish(playbackState, retainCompletedHost = completedWithNext)
+                }
+            }
+    }
+
+    fun dismissNextUp() {
+        autoplayDismissed = true
+        cancelAutoplayCountdown()
+        installedPlayerController?.playbackState?.value?.let { playbackState ->
+            publish(playbackState, retainCompletedHost = completedWithNext)
         }
-        advanceInFlight = true
+    }
+
+    fun continueStillWatching() {
+        val pendingIndex = stillWatchingState.pendingQueueIndex ?: return
+        stillWatchingState = stillWatchingState.confirm()
+        cancelAutoplaySurface()
+        switchToQueueIndex(index = pendingIndex, stopAlreadyReported = true)
+    }
+
+    fun dismissStillWatching() {
+        stillWatchingState = stillWatchingState.confirm()
+        autoplayDismissed = true
+        cancelAutoplayCountdown()
+        installedPlayerController?.playbackState?.value?.let { playbackState ->
+            publish(playbackState, retainCompletedHost = completedWithNext)
+        }
+    }
+
+    private fun currentQueueIndex(): Int = episodeQueue.orEmpty().indexOfFirst { item -> item.id == currentItemId }
+
+    private fun switchToQueueIndex(
+        index: Int,
+        stopAlreadyReported: Boolean,
+    ) {
+        val controller = installedPlayerController ?: return
+        val reportingCoordinator = installedPlaybackReportingCoordinator ?: return
+        val next = episodeQueue?.getOrNull(index) ?: return
+        if (next.id == currentItemId) return
+        val expectedSwitch = ++itemSwitchGeneration
+        itemSwitchJob?.cancel()
+        replanJob?.cancel()
         invalidateSubtitleFallback()
-        playbackReportingCoordinator.stop(playerController.playbackState.value.positionMs)
-        scope.launch {
-            startItem(
-                itemId = next.id,
-                mediaSourceId = null,
-                startPositionTicks = next.playbackPositionTicks ?: 0L,
-                resetReporting = true,
-            )
-            advanceInFlight = false
+        val outgoingAlreadySettled = advanceInFlight || lastStatus == PlaybackStatus.Completed
+        advanceInFlight = true
+        val outgoingPositionMs = controller.playbackState.value.positionMs
+        controller.stop()
+        if (!stopAlreadyReported && !outgoingAlreadySettled) {
+            reportingCoordinator.stop(outgoingPositionMs)
         }
+        itemSwitchJob =
+            scope.launch {
+                try {
+                    startItem(
+                        itemId = next.id,
+                        mediaSourceId = null,
+                        startPositionTicks = next.playbackPositionTicks ?: 0L,
+                        resetReporting = true,
+                    )
+                } finally {
+                    if (expectedSwitch == itemSwitchGeneration) {
+                        advanceInFlight = false
+                        itemSwitchJob = null
+                    }
+                }
+            }
+    }
+
+    private fun cancelAutoplayCountdown() {
+        autoplayJob?.cancel()
+        autoplayJob = null
+        autoplayIdentity = null
+        autoplayCountdownSeconds = null
+    }
+
+    private fun cancelAutoplaySurface() {
+        cancelAutoplayCountdown()
+        stillWatchingState =
+            if (stillWatchingState.isPromptVisible) {
+                stillWatchingState.confirm()
+            } else {
+                stillWatchingState
+            }
     }
 
     fun selectAudio(streamIndex: Int) {
         if (startInFlight) return
+        val controller = installedPlayerController ?: return
         audioOptions(mediaStreams).firstOrNull { track -> track.streamIndex == streamIndex } ?: return
         cancelAndInvalidateSubtitleFallback()
         audioRecoveryTarget = null
@@ -472,23 +709,26 @@ class TvPlaybackSessionPresenter(
             // natively and then play silently, so it takes the same recovery.
             if (descriptor == null || !descriptor.directPlayAdmissible) {
                 maybeHandlePlaybackSessionRecovery(
-                    playerController.playbackState.value.copy(
+                    controller.playbackState.value.copy(
                         audioActivation = AudioActivationState.Unavailable(target),
                     ),
                 )
             } else {
-                playerController.selectEmbeddedAudio(
+                controller.selectEmbeddedAudio(
                     EmbeddedAudioSelection(target = target, descriptor = descriptor),
                 )
             }
-            publish(playerController.playbackState.value)
+            publish(controller.playbackState.value)
         } else {
-            replanAtPosition(playerController.playbackState.value.positionMs)
+            replanAtPosition(controller.playbackState.value.positionMs)
         }
     }
 
     fun selectSubtitle(streamIndex: Int?) {
         if (startInFlight) return
+        val controller = installedPlayerController ?: return
+        localSubtitleSelectionJob?.cancel()
+        localSubtitleSelectionJob = null
         val option =
             streamIndex?.let { selectedIndex ->
                 subtitleOptions(mediaStreams).firstOrNull { track -> track.streamIndex == selectedIndex }
@@ -498,8 +738,11 @@ class TvPlaybackSessionPresenter(
         replanJob = null
         invalidateSubtitleFallback()
         requestedSubtitleStreamIndex = streamIndex
+        requestedLocalSubtitleAsset = null
+        subtitleNotice = null
         requestedSubtitleSelection =
             streamIndex?.let(SubtitleSelectionIntent::Track) ?: SubtitleSelectionIntent.Off
+        _state.update { current -> current.copy(localSubtitleSelected = false) }
         persistSubtitleSelection(requestedSubtitleSelection)
 
         val currentPlan = plan ?: return
@@ -538,18 +781,64 @@ class TvPlaybackSessionPresenter(
                             installedTrack?.copy(activationTarget = target) ?: PlannedSubtitle.Off
                         },
                 )
-            playerController.selectEmbeddedSubtitle(selection)
-            publish(playerController.playbackState.value)
+            controller.selectEmbeddedSubtitle(selection)
+            publish(controller.playbackState.value)
         } else {
             if (option == null) {
-                playerController.selectEmbeddedSubtitle(null)
+                controller.selectEmbeddedSubtitle(null)
             }
-            replanAtPosition(playerController.playbackState.value.positionMs)
+            replanAtPosition(controller.playbackState.value.positionMs)
         }
+    }
+
+    fun selectLocalSubtitle(assetId: String?) {
+        if (assetId == null) {
+            selectSubtitle(null)
+            return
+        }
+        if (startInFlight) return
+        val controller = installedPlayerController ?: return
+        val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return
+        val selectionGeneration = playbackHealthGeneration
+        val itemId = currentItemId
+        val context = LocalSubtitleContext(session.serverId, session.userId, itemId, sourceId)
+        localSubtitleSelectionJob?.cancel()
+        localSubtitleSelectionJob =
+            scope.launch {
+                val asset =
+                    withContext(dispatchers.work) {
+                        getLocalSubtitleAsset?.invoke(assetId, context)
+                    }
+                if (
+                    closed ||
+                    selectionGeneration != playbackHealthGeneration ||
+                    itemId != currentItemId ||
+                    sourceId != selectedMediaSourceId ||
+                    installedPlayerController !== controller
+                ) {
+                    return@launch
+                }
+                if (asset == null) {
+                    markLocalSubtitleUnavailable()
+                    return@launch
+                }
+                invalidateSubtitleFallback()
+                replanJob?.cancel()
+                requestedSubtitleStreamIndex = null
+                requestedLocalSubtitleAsset = asset
+                requestedSubtitleSelection = SubtitleSelectionIntent.LocalAsset(asset.id)
+                _state.update { current -> current.copy(localSubtitleSelected = true) }
+                subtitleNotice = null
+                persistSubtitleSelection(requestedSubtitleSelection)
+                controller.selectEmbeddedSubtitle(null)
+                observeSelectedLocalSubtitle(context)
+                replanAtPosition(controller.playbackState.value.positionMs)
+            }
     }
 
     fun selectQuality(maxBitrateBps: Long?) {
         if (startInFlight) return
+        val controller = installedPlayerController ?: return
         pendingRecoveredAutoQualityBps = null
         selectedQualityPolicy =
             maxBitrateBps
@@ -559,12 +848,13 @@ class TvPlaybackSessionPresenter(
         selectedQualityCapOrigin = maxBitrateBps?.let { PlaybackQualityCapOrigin.ExplicitSessionChoice }
         qualityInitialized = true
         qualityOverrideExplicit = true
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, playerController.activeBackend)
-        replanAtPosition(playerController.playbackState.value.positionMs)
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, controller.activeBackend)
+        replanAtPosition(controller.playbackState.value.positionMs)
     }
 
     fun selectQuality(policy: PlaybackQualityPolicy) {
         if (startInFlight) return
+        val controller = installedPlayerController ?: return
         pendingRecoveredAutoQualityBps = null
         val normalized = policy.normalized()
         selectedQualityPolicy = normalized
@@ -573,9 +863,9 @@ class TvPlaybackSessionPresenter(
             PlaybackQualityCapOrigin.ExplicitSessionChoice.takeIf { normalized.mode == PlaybackQualityMode.Fixed }
         qualityInitialized = true
         qualityOverrideExplicit = true
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, playerController.activeBackend)
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, controller.activeBackend)
         playbackActionNotice = null
-        replanAtPosition(playerController.playbackState.value.positionMs)
+        replanAtPosition(controller.playbackState.value.positionMs)
     }
 
     fun selectQualityChoice(
@@ -592,7 +882,29 @@ class TvPlaybackSessionPresenter(
     }
 
     fun recordVideoOutputReady(generation: Long = state.value.prepareEpoch) {
-        playerController.recordVideoOutputObservation(generation = generation)
+        installedPlayerController?.recordVideoOutputObservation(generation = generation)
+    }
+
+    fun recordNativePlaybackIntent(
+        playerIdentity: Long,
+        planEpoch: Long,
+        itemId: String,
+        isPlaying: Boolean,
+    ) {
+        if (closed || startInFlight) return
+        val controller = installedPlayerController ?: return
+        if (
+            playerIdentity != this.playerIdentity ||
+            planEpoch != this.planEpoch ||
+            itemId != currentItemId ||
+            plan?.itemId != currentItemId
+        ) {
+            return
+        }
+        val prepareEpoch = controller.runtimeDiagnostics.value.prepareEpoch ?: return
+        if (controller.recordHostPlaybackIntent(prepareEpoch, isPlaying)) {
+            playbackHealthCoordinator.restartEvidenceWindow()
+        }
     }
 
     fun handlePlaybackAction(action: PlaybackAction) {
@@ -608,26 +920,17 @@ class TvPlaybackSessionPresenter(
             }
             PlaybackAction.ChooseLowerQuality -> {
                 playbackActionNotice = null
-                publish(playerController.playbackState.value)
+                installedPlayerController?.playbackState?.value?.let(::publish)
             }
-            PlaybackAction.Retry -> {
-                playbackSessionRecoveryState =
-                    playbackSessionRecoveryPolicy.reset(playbackHealthGeneration, currentItemId)
-                playSessionId = deviceInfoProvider.newDeviceId()
-                lastStatus = PlaybackStatus.Idle
-                plan?.let { currentPlan ->
-                    playbackReportingCoordinator.install(
-                        session = session,
-                        plan = currentPlan,
-                        playSessionId = currentPlan.playSessionId ?: playSessionId,
-                    )
-                }
-                playerController.retry()
-            }
+            PlaybackAction.Retry -> retryPlayback()
             PlaybackAction.Dismiss -> {
                 pendingRecoveredAutoQualityBps = null
-                playbackActionNotice = null
-                publish(playerController.playbackState.value)
+                if (playbackActionNotice != null) {
+                    playbackActionNotice = null
+                } else {
+                    playbackHealthCoordinator.dismissGuidance()
+                }
+                installedPlayerController?.playbackState?.value?.let(::publish)
             }
             PlaybackAction.OpenPlaybackSettings,
             PlaybackAction.Close,
@@ -635,22 +938,81 @@ class TvPlaybackSessionPresenter(
         }
     }
 
+    private fun retryPlayback() {
+        if (closed || startInFlight) return
+        _state.update { current ->
+            current.copy(
+                phase = TvPlaybackPhase.Loading,
+                error = null,
+            )
+        }
+        val controller = installedPlayerController
+        if (controller == null) {
+            startupJob?.cancel()
+            startupJob = null
+            started = false
+            start()
+            return
+        }
+        val currentPlan = plan
+        if (currentPlan == null || currentPlan.itemId != currentItemId) {
+            val expectedGeneration = ++startupGeneration
+            startupJob?.cancel()
+            startupJob =
+                scope.launch {
+                    try {
+                        if (closed || expectedGeneration != startupGeneration) return@launch
+                        if (
+                            startItem(
+                                itemId = currentItemId,
+                                mediaSourceId = currentStartMediaSourceId,
+                                startPositionTicks = currentStartPositionTicks,
+                                resetReporting = currentStartResetsReporting,
+                            )
+                        ) {
+                            observePlaybackState()
+                        }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (_: Throwable) {
+                        if (!closed && expectedGeneration == startupGeneration) {
+                            publishFailure(PlaybackError.Unknown)
+                        }
+                    }
+                }
+            return
+        }
+        val reportingCoordinator = installedPlaybackReportingCoordinator ?: return
+        playbackSessionRecoveryState =
+            playbackSessionRecoveryPolicy.reset(playbackHealthGeneration, currentItemId)
+        playSessionId = deviceInfoProvider.newDeviceId()
+        lastStatus = PlaybackStatus.Idle
+        reportingCoordinator.install(
+            session = session,
+            plan = currentPlan,
+            playSessionId = currentPlan.playSessionId ?: playSessionId,
+        )
+        controller.retry()
+    }
+
     private fun clearQualityOverride() {
         if (startInFlight) return
+        val controller = installedPlayerController ?: return
         pendingRecoveredAutoQualityBps = null
-        selectedQualityPolicy = preferences.effectiveDefaultQualityPolicy(playerController.activeBackend)
+        selectedQualityPolicy = preferences.effectiveDefaultQualityPolicy(controller.activeBackend)
         selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
         selectedQualityCapOrigin =
             PlaybackQualityCapOrigin.SettingsDefault.takeIf { selectedQualityPolicy.mode == PlaybackQualityMode.Fixed }
         qualityInitialized = true
         qualityOverrideExplicit = false
         playbackActionNotice = null
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, playerController.activeBackend)
-        replanAtPosition(playerController.playbackState.value.positionMs)
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, controller.activeBackend)
+        replanAtPosition(controller.playbackState.value.positionMs)
     }
 
     private fun tryHigherQuality() {
         if (startInFlight) return
+        val controller = installedPlayerController ?: return
         pendingRecoveredAutoQualityBps = null
         selectedQualityPolicy = PlaybackQualityPolicy.Auto
         selectedQualityMaxBitrate = null
@@ -659,7 +1021,7 @@ class TvPlaybackSessionPresenter(
         qualityOverrideExplicit = true
         playbackActionNotice = null
         autoRecoveryState = autoRecoveryCoordinator.clearRuntimeQualityCap(autoRecoveryState)
-        replanAtPosition(playerController.playbackState.value.positionMs)
+        replanAtPosition(controller.playbackState.value.positionMs)
     }
 
     private fun saveAudioSelection() {
@@ -681,6 +1043,17 @@ class TvPlaybackSessionPresenter(
         startupGeneration += 1L
         startupJob?.cancel()
         startupJob = null
+        itemSwitchGeneration += 1L
+        itemSwitchJob?.cancel()
+        itemSwitchJob = null
+        autoplayJob?.cancel()
+        autoplayJob = null
+        localSubtitleAssetsJob?.cancel()
+        localSubtitleAssetsJob = null
+        localSubtitleSelectionJob?.cancel()
+        localSubtitleSelectionJob = null
+        diagnosticsJob?.cancel()
+        diagnosticsJob = null
         val reportingCoordinator = installedPlaybackReportingCoordinator
         installedPlaybackReportingCoordinator = null
         val controller = installedPlayerController
@@ -712,6 +1085,9 @@ class TvPlaybackSessionPresenter(
         startPositionTicks: Long,
         resetReporting: Boolean,
     ): Boolean {
+        currentStartMediaSourceId = mediaSourceId
+        currentStartPositionTicks = startPositionTicks
+        currentStartResetsReporting = resetReporting
         // A stale replan finishing after the item identity changes would
         // install the previous episode's plan over the new one.
         cancelAndInvalidateSubtitleFallback()
@@ -742,17 +1118,56 @@ class TvPlaybackSessionPresenter(
         startPositionTicks: Long,
         resetReporting: Boolean,
     ): Boolean {
+        cancelAutoplaySurface()
+        handledCompletion = null
+        pendingQueueCompletion = null
+        settledCompletion = null
+        autoplayDismissed = false
+        completedWithNext = false
         autoSkippedSegmentKeys.clear()
         audioRecoveryTarget = null
         pendingRecoveredPlaybackGuidance = false
         pendingRecoveredAutoQualityBps = null
-        nextEpisodeItem = null
-        episodeQueue = null
+        queueLoadPending = false
+        val itemChanged = currentItemId != itemId
+        if (itemChanged) {
+            plan = null
+            planEpoch += 1L
+            selectedMediaSourceId = null
+            selectedSourceContainer = null
+        }
         currentItemId = itemId
+        nextEpisodeItem = null
+        nextEpisodePresentation = null
+        if (episodeQueue?.none { item -> item.id == itemId } == true) {
+            episodeQueue = null
+            queueShuffled = false
+            queueOrderGeneration += 1L
+            queuePresentation = TvPlaybackQueueState()
+        } else {
+            episodeQueue?.let { retainedQueue ->
+                queuePresentation =
+                    withContext(dispatchers.work) {
+                        playbackQueueState(
+                            queue = retainedQueue,
+                            currentItemId = itemId,
+                            shuffled = queueShuffled,
+                            session = session,
+                            imageUrlBuilder = imageUrlBuilder,
+                        )
+                    }
+                val currentIndex = queuePresentation.currentIndex
+                nextEpisodeItem = retainedQueue.getOrNull(currentIndex + 1).takeIf { currentIndex >= 0 }
+                nextEpisodePresentation = queuePresentation.items.getOrNull(currentIndex + 1)?.media
+            }
+        }
         explicitAudioStreamIndex = null
         qualityInitialized = false
         qualityOverrideExplicit = false
         rememberedPlaybackSelection = null
+        requestedLocalSubtitleAsset = null
+        localSubtitleAssetsJob?.cancel()
+        localSubtitleAssetsJob = null
         playbackHealthCoordinator.end()
         playbackHealthGeneration += 1L
         autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, itemId, playerController.activeBackend)
@@ -769,11 +1184,15 @@ class TvPlaybackSessionPresenter(
             current.copy(
                 phase = TvPlaybackPhase.Loading,
                 itemId = itemId,
+                mediaSourceId = selectedMediaSourceId,
+                planEpoch = planEpoch,
                 activeSegment = null,
-                nextEpisode = null,
+                nextEpisode = nextEpisodePresentation,
                 upNextVisible = false,
+                queue = queuePresentation,
                 audioTracks = emptyList(),
                 subtitleTracks = emptyList(),
+                localSubtitleSelected = false,
                 qualityChoices = emptyList(),
                 chapters = emptyList(),
             )
@@ -815,7 +1234,10 @@ class TvPlaybackSessionPresenter(
             withContext(dispatchers.work) {
                 getPlaybackLaunchContext(session, itemId, version.id)
             }
-        preferences = launchContext.playbackPreferences
+        preferences = launchContext.playbackPreferences.normalized()
+        if (!preferences.stillWatchingPrompt) {
+            stillWatchingState = stillWatchingState.resetForDisabledPreference()
+        }
         val effectiveStartTicks = startPositionTicks
         if (!qualityInitialized) {
             val rememberedSelection = launchContext.playbackSelection
@@ -839,23 +1261,64 @@ class TvPlaybackSessionPresenter(
             }
 
         val audioTrackOptions = audioOptions(mediaStreams)
-        explicitAudioStreamIndex =
-            rememberedPlaybackSelection?.audioStreamIndex?.takeIf { index ->
-                audioTrackOptions.any { option -> option.streamIndex == index }
+        val initialRouteIntentApplies =
+            !initialRouteIntentConsumed &&
+                itemId == originalItemId &&
+                (requestedMediaSourceId.isNullOrBlank() || requestedMediaSourceId == version.id) &&
+                (mediaSourceId.isNullOrBlank() || mediaSourceId == version.id)
+        val validInitialAudio =
+            initialAudioStreamIndex?.takeIf { index ->
+                initialRouteIntentApplies && audioTrackOptions.any { option -> option.streamIndex == index }
             }
+        explicitAudioStreamIndex =
+            validInitialAudio
+                ?: rememberedPlaybackSelection?.audioStreamIndex?.takeIf { index ->
+                    audioTrackOptions.any { option -> option.streamIndex == index }
+                }
         requestedAudioStreamIndex =
             explicitAudioStreamIndex
                 ?: audioTrackOptions.preferredAudioStreamIndex(preferences.preferredAudioLanguage)
                 ?: audioTrackOptions.firstOrNull { option -> option.isDefault }?.streamIndex
                 ?: audioTrackOptions.firstOrNull()?.streamIndex
-        requestedSubtitleSelection =
-            resolveSubtitleSelection(
-                stored = launchContext.subtitleSelection,
-                key = subtitleSelectionKey(itemId, version.id),
-                options = subtitleOptions(mediaStreams),
-            )
+        val subtitleOptions = subtitleOptions(mediaStreams)
+        val explicitInitialSubtitle =
+            when {
+                !initialRouteIntentApplies -> SubtitleSelectionIntent.Unspecified
+                initialSubtitleMode == TvPlaybackSubtitleMode.Off -> SubtitleSelectionIntent.Off
+                initialSubtitleMode == TvPlaybackSubtitleMode.Track ->
+                    initialSubtitleStreamIndex
+                        ?.takeIf { index -> subtitleOptions.any { option -> option.streamIndex == index } }
+                        ?.let(SubtitleSelectionIntent::Track)
+                        ?: SubtitleSelectionIntent.Unspecified
+                initialSubtitleMode == TvPlaybackSubtitleMode.LocalAsset ->
+                    initialSubtitleAssetId
+                        ?.takeIf(String::isNotBlank)
+                        ?.let(SubtitleSelectionIntent::LocalAsset)
+                        ?: SubtitleSelectionIntent.Off
+                else -> SubtitleSelectionIntent.Unspecified
+            }
+        val subtitleResolution =
+            withContext(dispatchers.work) {
+                resolveSubtitleSelection(
+                    explicit = explicitInitialSubtitle,
+                    stored = launchContext.subtitleSelection,
+                    key = subtitleSelectionKey(itemId, version.id),
+                    options = subtitleOptions,
+                )
+            }
+        requestedSubtitleSelection = subtitleResolution.selection
+        requestedLocalSubtitleAsset = subtitleResolution.localAsset
+        if (subtitleResolution.localAssetUnavailable) {
+            publishLocalSubtitleUnavailableNotice()
+        }
         requestedSubtitleStreamIndex =
             (requestedSubtitleSelection as? SubtitleSelectionIntent.Track)?.streamIndex
+        if (validInitialAudio != null) {
+            saveAudioSelection()
+        }
+        if (explicitInitialSubtitle != SubtitleSelectionIntent.Unspecified) {
+            persistSubtitleSelection(requestedSubtitleSelection)
+        }
 
         val playbackPlan =
             try {
@@ -868,6 +1331,7 @@ class TvPlaybackSessionPresenter(
                         audioStreamIndex = requestedAudioStreamIndex,
                         detailMediaStreams = mediaStreams,
                         subtitleSelection = requestedSubtitleSelection,
+                        localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset(),
                         maxStreamingBitrate = selectedQualityMaxBitrate,
                         qualityPolicy = selectedQualityPolicy,
                         qualityCapOrigin = selectedQualityCapOrigin,
@@ -892,6 +1356,9 @@ class TvPlaybackSessionPresenter(
                 return false
             }
         val segments = segmentsDeferred.await()
+        if (itemId == originalItemId && !initialRouteIntentConsumed) {
+            initialRouteIntentConsumed = true
+        }
         val enrichedPlan =
             playbackPlan
                 .withAudioActivationTarget()
@@ -901,9 +1368,12 @@ class TvPlaybackSessionPresenter(
                 ).copy(
                     chapters = detail.chapters,
                     mediaSegments = segments,
+                    playbackSpeed = playbackSpeed,
+                    subtitleStyle = subtitleStyle,
                 )
         currentCoroutineContext().ensureActive()
         installPlan(enrichedPlan, resetReporting = resetReporting)
+        deriveEpisodeQueueIfNeeded(detail.item)
         logTvDiagnostic(
             stage = PlaybackDiagnosticStage.Prepare,
             event = PlaybackDiagnosticEvent.PrepareRequested,
@@ -917,24 +1387,102 @@ class TvPlaybackSessionPresenter(
         )
         applyInitialEmbeddedSelections(enrichedPlan)
         playerController.play()
-        deriveEpisodeQueueIfNeeded(detail.item)
+        observeSelectedLocalSubtitle(context = LocalSubtitleContext(session.serverId, session.userId, itemId, version.id))
         return true
     }
 
     private fun deriveEpisodeQueueIfNeeded(item: MediaItem) {
         if (item.kind != MediaKind.Episode) {
+            episodeQueue = null
+            nextEpisodeItem = null
+            nextEpisodePresentation = null
+            queueLoadPending = false
+            pendingQueueCompletion = null
+            queueShuffled = false
+            queueOrderGeneration += 1L
+            queuePresentation = TvPlaybackQueueState()
+            _state.update { current ->
+                current.copy(
+                    nextEpisode = null,
+                    queue = queuePresentation,
+                )
+            }
             return
+        }
+        episodeQueue?.takeIf { queue -> queue.any { episode -> episode.id == currentItemId } }?.let { queue ->
+            val currentIndex = queuePresentation.currentIndex
+            nextEpisodeItem = queue.getOrNull(currentIndex + 1)
+            nextEpisodePresentation = queuePresentation.items.getOrNull(currentIndex + 1)?.media
+            queueLoadPending = false
+            queuePresentation = queuePresentation.copy(isPending = false)
+            _state.update { current ->
+                current.copy(
+                    nextEpisode = nextEpisodePresentation,
+                    queue = queuePresentation,
+                )
+            }
+            return
+        }
+        val expectedItemId = currentItemId
+        val expectedLaunchGeneration = playbackHealthGeneration
+        val expectedQueueGeneration = ++queueOrderGeneration
+        queueLoadPending = true
+        queueShuffled = false
+        episodeQueue = null
+        nextEpisodeItem = null
+        nextEpisodePresentation = null
+        queuePresentation = TvPlaybackQueueState(isPending = true)
+        _state.update { current ->
+            current.copy(
+                nextEpisode = null,
+                queue = queuePresentation,
+            )
         }
         queueJob =
             scope.launch {
-                val queue =
+                val (queue, presentation) =
                     withContext(dispatchers.work) {
-                        getChronologicalEpisodeQueue(item)
-                    }.getOrNull() ?: return@launch
+                        val loadedQueue =
+                            try {
+                                getChronologicalEpisodeQueue(item).getOrElse { emptyList() }
+                            } catch (exception: CancellationException) {
+                                throw exception
+                            } catch (_: Throwable) {
+                                emptyList()
+                            }
+                        loadedQueue to
+                            playbackQueueState(
+                                queue = loadedQueue,
+                                currentItemId = expectedItemId,
+                                shuffled = false,
+                                session = session,
+                                imageUrlBuilder = imageUrlBuilder,
+                            )
+                    }
+                if (
+                    closed ||
+                    currentItemId != expectedItemId ||
+                    playbackHealthGeneration != expectedLaunchGeneration ||
+                    queueOrderGeneration != expectedQueueGeneration
+                ) {
+                    return@launch
+                }
+                queueJob = null
                 episodeQueue = queue
-                val currentIndex = queue.indexOfFirst { episode -> episode.id == currentItemId }
+                queueShuffled = false
+                queueLoadPending = false
+                queuePresentation = presentation.copy(isPending = false)
+                val currentIndex = queuePresentation.currentIndex
                 nextEpisodeItem = queue.getOrNull(currentIndex + 1).takeIf { currentIndex >= 0 }
-                publish(playerController.playbackState.value)
+                nextEpisodePresentation = queuePresentation.items.getOrNull(currentIndex + 1)?.media
+                val pendingCompletion = pendingQueueCompletion
+                if (pendingCompletion?.identity == currentAutoplayIdentity()) {
+                    pendingQueueCompletion = null
+                    settleCompleted(pendingCompletion)
+                } else {
+                    pendingQueueCompletion = null
+                    installedPlayerController?.playbackState?.value?.let(::publish)
+                }
             }
     }
 
@@ -956,6 +1504,9 @@ class TvPlaybackSessionPresenter(
         // would republish stale state or spawn fallback replans against the
         // new identity. The new plan publishes explicitly at startItem's end.
         if (startInFlight) {
+            return
+        }
+        if (plan?.itemId != currentItemId) {
             return
         }
         playbackHealthCoordinator.observePlaybackState(playbackState)
@@ -1025,34 +1576,113 @@ class TvPlaybackSessionPresenter(
         lastStatus = playbackState.status
     }
 
-    // Completed publishes only for terminal completion: a verified natural end
-    // with a next episode advances in place (Completed-free), everything else
-    // reports Stopped and surfaces the terminal phase.
     private fun handleCompleted(playbackState: PlaybackState) {
-        val isNewCompletion = lastStatus != PlaybackStatus.Completed
-        val next = nextEpisodeItem
         val duration = playbackState.durationMs
         val verifiedEnd = duration != null && playbackState.positionMs >= duration - VERIFIED_END_TOLERANCE_MS
-        if (isNewCompletion && next != null && verifiedEnd && !advanceInFlight) {
-            advanceInFlight = true
-            invalidateSubtitleFallback()
-            playbackReportingCoordinator.stop(playbackState.positionMs)
-            scope.launch {
-                startItem(
-                    itemId = next.id,
-                    mediaSourceId = null,
-                    startPositionTicks = next.playbackPositionTicks ?: 0L,
-                    resetReporting = true,
-                )
-                advanceInFlight = false
-            }
+        val identity = currentAutoplayIdentity()
+        if (handledCompletion == null) {
+            handledCompletion = identity
+            installedPlaybackReportingCoordinator?.stop(playbackState.positionMs)
+        }
+        val completion =
+            TvPendingQueueCompletion(
+                identity = identity,
+                playbackState = playbackState,
+                verifiedEnd = verifiedEnd,
+            )
+        if (verifiedEnd && queueLoadPending) {
+            pendingQueueCompletion = pendingQueueCompletion ?: completion
+            completedWithNext = false
+            publish(playbackState, retainCompletedHost = true)
             return
         }
-        if (isNewCompletion) {
-            playbackReportingCoordinator.stop(playbackState.positionMs)
+        if (!verifiedEnd && queueLoadPending) {
+            queueJob?.cancel()
+            queueJob = null
+            episodeQueue = emptyList()
+            nextEpisodeItem = null
+            nextEpisodePresentation = null
+            queueLoadPending = false
+            queuePresentation = queuePresentation.copy(isPending = false)
+            pendingQueueCompletion = null
         }
+        settleCompleted(completion)
+    }
+
+    private fun settleCompleted(completion: TvPendingQueueCompletion) {
+        val identity = completion.identity
+        if (closed || currentAutoplayIdentity() != identity || settledCompletion == identity) return
+        settledCompletion = identity
+        val currentIndex = currentQueueIndex()
+        val nextIndex = currentIndex + 1
+        val next = episodeQueue?.getOrNull(nextIndex).takeIf { currentIndex >= 0 }
+        if (completion.verifiedEnd && next != null) {
+            completedWithNext = true
+            nextEpisodeItem = next
+            nextEpisodePresentation = queuePresentation.items.getOrNull(nextIndex)?.media
+            if (
+                preferences.autoPlayNext &&
+                !autoplayDismissed &&
+                !advanceInFlight &&
+                autoplayIdentity != identity
+            ) {
+                startAutoplayCountdown(identity, nextIndex)
+            }
+            publish(completion.playbackState, retainCompletedHost = true)
+            return
+        }
+        completedWithNext = false
+        cancelAutoplaySurface()
         if (!advanceInFlight) {
-            publish(playbackState, terminalCompleted = true)
+            publish(completion.playbackState, terminalCompleted = true, retainCompletedHost = false)
+        }
+    }
+
+    private fun currentAutoplayIdentity(): TvAutoplayIdentity =
+        TvAutoplayIdentity(
+            itemId = currentItemId,
+            queueOrderGeneration = queueOrderGeneration,
+            launchGeneration = playbackHealthGeneration,
+        )
+
+    private fun startAutoplayCountdown(
+        identity: TvAutoplayIdentity,
+        nextIndex: Int,
+    ) {
+        cancelAutoplayCountdown()
+        autoplayIdentity = identity
+        autoplayCountdownSeconds = preferences.normalized().autoPlayNextDelaySeconds
+        autoplayJob =
+            scope.launch {
+                while ((autoplayCountdownSeconds ?: 0) > 0) {
+                    delay(1_000L)
+                    if (closed || autoplayIdentity != identity || currentAutoplayIdentity() != identity) return@launch
+                    autoplayCountdownSeconds = (autoplayCountdownSeconds ?: 1) - 1
+                    publish(playerController.playbackState.value, retainCompletedHost = true)
+                }
+                if (closed || autoplayIdentity != identity || currentAutoplayIdentity() != identity) return@launch
+                autoplayJob = null
+                autoplayIdentity = null
+                autoplayCountdownSeconds = null
+                advanceAfterCountdown(nextIndex)
+            }
+    }
+
+    private fun advanceAfterCountdown(nextIndex: Int) {
+        if (!preferences.stillWatchingPrompt) {
+            stillWatchingState = stillWatchingState.resetForDisabledPreference()
+            switchToQueueIndex(index = nextIndex, stopAlreadyReported = true)
+            return
+        }
+        when (val advance = stillWatchingState.automaticAdvance(nextIndex)) {
+            is PlayerStillWatchingAutomaticAdvance.Allowed -> {
+                stillWatchingState = advance.state
+                switchToQueueIndex(index = nextIndex, stopAlreadyReported = true)
+            }
+            is PlayerStillWatchingAutomaticAdvance.PromptBlocked -> {
+                stillWatchingState = advance.state
+                publish(playerController.playbackState.value, retainCompletedHost = true)
+            }
         }
     }
 
@@ -1117,7 +1747,11 @@ class TvPlaybackSessionPresenter(
             }
 
             is PlaybackSessionRecoveryDecision.SubtitleUnavailable -> {
-                markSubtitleFallbackUnavailable(decision.target)
+                if (plan?.plannedSubtitle is PlannedSubtitle.LocalAsset) {
+                    markLocalSubtitleUnavailable()
+                } else {
+                    markSubtitleFallbackUnavailable(decision.target)
+                }
                 TvSessionRecoveryResult.NonTerminal
             }
         }
@@ -1203,6 +1837,7 @@ class TvPlaybackSessionPresenter(
                                 audioStreamIndex = requestedAudioStreamIndex,
                                 detailMediaStreams = mediaStreams,
                                 subtitleSelection = requestedSubtitleSelection,
+                                localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset(),
                                 maxStreamingBitrate = selectedQualityMaxBitrate,
                                 qualityPolicy = selectedQualityPolicy,
                                 qualityCapOrigin = selectedQualityCapOrigin,
@@ -1272,6 +1907,8 @@ class TvPlaybackSessionPresenter(
                         ).copy(
                             chapters = currentPlanState?.chapters.orEmpty(),
                             mediaSegments = currentPlanState?.mediaSegments.orEmpty(),
+                            playbackSpeed = playbackSpeed,
+                            subtitleStyle = subtitleStyle,
                         )
                 if (
                     nonFatalSubtitleFallback != null &&
@@ -1510,27 +2147,66 @@ class TvPlaybackSessionPresenter(
     // device-local, so this never clobbers another device), then preferred
     // language, then the default track, then Off.
     private suspend fun resolveSubtitleSelection(
+        explicit: SubtitleSelectionIntent,
         stored: SubtitleSelectionIntent?,
         key: SubtitleSelectionKey,
         options: List<SubtitleTrackOption>,
-    ): SubtitleSelectionIntent {
+    ): TvResolvedSubtitleSelection {
+        resolveExplicitSubtitleSelection(explicit, key, options)?.let { return it }
         when (stored) {
-            SubtitleSelectionIntent.Off -> return SubtitleSelectionIntent.Off
+            SubtitleSelectionIntent.Off -> return TvResolvedSubtitleSelection(SubtitleSelectionIntent.Off)
             is SubtitleSelectionIntent.Track ->
                 if (options.any { option -> option.streamIndex == stored.streamIndex }) {
-                    return stored
+                    return TvResolvedSubtitleSelection(stored)
                 } else {
                     saveSubtitleSelection.delete(key)
                 }
-            is SubtitleSelectionIntent.LocalAsset -> saveSubtitleSelection.delete(key)
+            is SubtitleSelectionIntent.LocalAsset -> {
+                val asset = getLocalSubtitleAsset?.invoke(stored.assetId, key.toLocalSubtitleContext())
+                if (asset != null) {
+                    return TvResolvedSubtitleSelection(stored, localAsset = asset)
+                }
+                saveSubtitleSelection.delete(key)
+                return TvResolvedSubtitleSelection(
+                    selection = SubtitleSelectionIntent.Off,
+                    localAssetUnavailable = true,
+                )
+            }
             SubtitleSelectionIntent.Unspecified, null -> Unit
         }
-        return options
-            .preferredSubtitleStreamIndex(preferences.preferredSubtitleLanguage)
-            ?.let(SubtitleSelectionIntent::Track)
-            ?: options.defaultSubtitleStreamIndex()?.let(SubtitleSelectionIntent::Track)
-            ?: SubtitleSelectionIntent.Off
+        val selection =
+            options
+                .preferredSubtitleStreamIndex(preferences.preferredSubtitleLanguage)
+                ?.let(SubtitleSelectionIntent::Track)
+                ?: options.defaultSubtitleStreamIndex()?.let(SubtitleSelectionIntent::Track)
+                ?: SubtitleSelectionIntent.Off
+        return TvResolvedSubtitleSelection(selection)
     }
+
+    private suspend fun resolveExplicitSubtitleSelection(
+        selection: SubtitleSelectionIntent,
+        key: SubtitleSelectionKey,
+        options: List<SubtitleTrackOption>,
+    ): TvResolvedSubtitleSelection? =
+        when (selection) {
+            SubtitleSelectionIntent.Unspecified -> null
+            SubtitleSelectionIntent.Off -> TvResolvedSubtitleSelection(SubtitleSelectionIntent.Off)
+            is SubtitleSelectionIntent.Track ->
+                selection
+                    .takeIf { candidate -> options.any { option -> option.streamIndex == candidate.streamIndex } }
+                    ?.let(::TvResolvedSubtitleSelection)
+            is SubtitleSelectionIntent.LocalAsset -> {
+                val asset = getLocalSubtitleAsset?.invoke(selection.assetId, key.toLocalSubtitleContext())
+                if (asset != null) {
+                    TvResolvedSubtitleSelection(selection, localAsset = asset)
+                } else {
+                    TvResolvedSubtitleSelection(
+                        selection = SubtitleSelectionIntent.Off,
+                        localAssetUnavailable = true,
+                    )
+                }
+            }
+        }
 
     private fun subtitleSelectionKey(
         itemId: String,
@@ -1550,6 +2226,67 @@ class TvPlaybackSessionPresenter(
             selection = selection,
         )
     }
+
+    private fun observeSelectedLocalSubtitle(context: LocalSubtitleContext) {
+        localSubtitleAssetsJob?.cancel()
+        val selectedAssetId = requestedLocalSubtitleAsset?.id ?: return
+        val observer = observeLocalSubtitleAssets ?: return
+        localSubtitleAssetsJob =
+            scope.launch {
+                observer(context)
+                    .flowOn(dispatchers.work)
+                    .collect { assets ->
+                        if (
+                            requestedLocalSubtitleAsset?.id == selectedAssetId &&
+                            assets.none { asset -> asset.id == selectedAssetId }
+                        ) {
+                            markLocalSubtitleUnavailable()
+                        }
+                    }
+            }
+    }
+
+    private fun markLocalSubtitleUnavailable() {
+        requestedSubtitleStreamIndex = null
+        requestedLocalSubtitleAsset = null
+        requestedSubtitleSelection = SubtitleSelectionIntent.Off
+        _state.update { current -> current.copy(localSubtitleSelected = false) }
+        persistSubtitleSelection(SubtitleSelectionIntent.Off)
+        playerController.selectEmbeddedSubtitle(null)
+        publishLocalSubtitleUnavailableNotice()
+        replanAtPosition(playerController.playbackState.value.positionMs)
+    }
+
+    private fun publishLocalSubtitleUnavailableNotice() {
+        subtitleNotice =
+            TvPlaybackNotice(
+                token = ++subtitleNoticeToken,
+                kind = TvPlaybackNoticeKind.LocalSubtitleUnavailable,
+            )
+    }
+
+    private fun canApplySubtitleStyle(): Boolean {
+        val currentPlan = plan ?: return false
+        val renderInfo =
+            subtitleRenderInfo(
+                options = subtitleOptions(mediaStreams),
+                plannedSubtitle = currentPlan.plannedSubtitle,
+                activationState = playerController.playbackState.value.subtitleActivation,
+            )
+        return renderInfo.styleable && playerController.appliesSubtitleStyle
+    }
+
+    private fun SubtitleSelectionKey.toLocalSubtitleContext(): LocalSubtitleContext =
+        LocalSubtitleContext(serverId, userId, itemId, mediaSourceId)
+
+    private fun LocalSubtitleAsset.toPlaybackAsset(): SubtitleAsset.LocalFile =
+        SubtitleAsset.LocalFile(
+            assetId = id,
+            fileId = fileId,
+            mimeType = mimeType,
+            label = label,
+            language = language,
+        )
 
     private fun selectedSubtitleMediaStream(): PlaybackMediaStream? {
         val streamIndex = requestedSubtitleStreamIndex ?: return null
@@ -1618,6 +2355,24 @@ class TvPlaybackSessionPresenter(
         requestId: Long,
         selectedSubtitle: PlaybackMediaStream?,
     ): PlaybackPlan {
+        val localAsset = plannedSubtitle as? PlannedSubtitle.LocalAsset
+        if (localAsset != null) {
+            val target =
+                SubtitleActivationTarget(
+                    requestId = requestId,
+                    itemId = this.itemId,
+                    identity = SubtitleActivationIdentity.LocalAsset(localAsset.assetId),
+                    kind = LocalSubtitleKind.ExternalText,
+                )
+            return copy(
+                selectedSubtitleStreamIndex = null,
+                subtitleAsset =
+                    (subtitleAsset as? SubtitleAsset.LocalFile)
+                        ?.takeIf { asset -> asset.assetId == localAsset.assetId },
+                subtitleActivationTarget = target,
+                plannedSubtitle = localAsset.copy(activationTarget = target),
+            )
+        }
         val plannedTrack = plannedSubtitle as? PlannedSubtitle.Track
         val unavailable = plannedSubtitle as? PlannedSubtitle.Unavailable
         val streamIndex = plannedTrack?.streamIndex ?: unavailable?.streamIndex
@@ -2047,20 +2802,28 @@ class TvPlaybackSessionPresenter(
     private fun publish(
         playbackState: PlaybackState,
         terminalCompleted: Boolean = false,
+        retainCompletedHost: Boolean = completedWithNext,
     ) {
+        val controller = installedPlayerController ?: return
         logTvTrackDiagnostics(playbackState)
         val confirmedAudio = confirmedAudioStreamIndex(playbackState)
         val confirmedSubtitle = confirmedSubtitleStreamIndex(playbackState)
         val duration = playbackState.durationMs
-        val inheritedQualityPolicy = preferences.effectiveDefaultQualityPolicy(playerController.activeBackend)
-        _state.update {
+        val inheritedQualityPolicy = preferences.effectiveDefaultQualityPolicy(controller.activeBackend)
+        _state.update { currentState ->
             TvPlaybackUiState(
                 playerInstalled = installedPlayerController != null,
+                playerIdentity = playerIdentity,
+                backend = controller.activeBackend,
                 phase =
                     when (playbackState.status) {
                         PlaybackStatus.Failed -> TvPlaybackPhase.Failed
                         PlaybackStatus.Completed ->
-                            if (terminalCompleted) TvPlaybackPhase.Completed else TvPlaybackPhase.Loading
+                            when {
+                                retainCompletedHost -> TvPlaybackPhase.Active
+                                terminalCompleted -> TvPlaybackPhase.Completed
+                                else -> TvPlaybackPhase.Loading
+                            }
                         PlaybackStatus.Idle, PlaybackStatus.Loading -> TvPlaybackPhase.Loading
                         else -> TvPlaybackPhase.Active
                     },
@@ -2070,8 +2833,9 @@ class TvPlaybackSessionPresenter(
                 bufferedPositionMs = playbackState.bufferedPositionMs,
                 isTranscode = plan?.streamMode == StreamMode.Transcode,
                 itemId = currentItemId,
+                mediaSourceId = selectedMediaSourceId,
                 planEpoch = planEpoch,
-                prepareEpoch = playerController.runtimeDiagnostics.value.prepareEpoch ?: 0L,
+                prepareEpoch = controller.runtimeDiagnostics.value.prepareEpoch ?: 0L,
                 title = title,
                 seriesName = seriesName,
                 episodeLabel = episodeLabel,
@@ -2097,6 +2861,10 @@ class TvPlaybackSessionPresenter(
                             selected = option.streamIndex == confirmedSubtitle,
                         )
                     },
+                localSubtitleSelected =
+                    requestedLocalSubtitleAsset?.id?.let { assetId ->
+                        (requestedSubtitleSelection as? SubtitleSelectionIntent.LocalAsset)?.assetId == assetId
+                    } == true,
                 qualityChoices =
                     playerQualityOptions(currentSourceBitrate(), selectedQualityPolicy).map { option ->
                         TvQualityChoice(
@@ -2114,7 +2882,7 @@ class TvPlaybackSessionPresenter(
                             inheritsPlaybackDefault = option.inheritsDefault,
                             defaultSource =
                                 if (option.inheritsDefault) {
-                                    if (preferences.usesVlcDefaultQuality(playerController.activeBackend)) {
+                                    if (preferences.usesVlcDefaultQuality(controller.activeBackend)) {
                                         TvQualityDefaultSource.VlcPlaybackSettings
                                     } else {
                                         TvQualityDefaultSource.PlaybackSettings
@@ -2128,16 +2896,33 @@ class TvPlaybackSessionPresenter(
                 inheritedQualityPolicy = inheritedQualityPolicy,
                 inheritedQualityResolutionHeight =
                     qualityRungForBitrate(inheritedQualityPolicy.maxBitrateBps)?.height,
-                inheritedQualityUsesVlcSetting = preferences.usesVlcDefaultQuality(playerController.activeBackend),
+                inheritedQualityUsesVlcSetting = preferences.usesVlcDefaultQuality(controller.activeBackend),
                 activeSegment = activeSegment(playbackState),
-                nextEpisode = nextEpisodeItem?.toTvMediaCard(session, imageUrlBuilder),
+                nextEpisode = nextEpisodePresentation,
                 upNextVisible =
                     nextEpisodeItem != null &&
-                        duration != null &&
-                        duration - playbackState.positionMs <= UP_NEXT_WINDOW_MS,
+                        !autoplayDismissed &&
+                        (
+                            retainCompletedHost ||
+                                (
+                                    duration != null &&
+                                        duration - playbackState.positionMs <= UP_NEXT_WINDOW_MS
+                                )
+                        ),
+                queue = queuePresentation,
+                nextUpCountdownSeconds = autoplayCountdownSeconds,
+                nextUpDismissed = autoplayDismissed,
+                stillWatchingVisible = stillWatchingState.isPromptVisible,
+                playbackSpeed = playbackState.playbackSpeed,
+                playbackSpeedChoices = tvPlaybackSpeedChoices(playbackState.playbackSpeed),
+                subtitleStyle = playbackState.subtitleStyle,
+                subtitleStyleSupported = canApplySubtitleStyle(),
+                diagnostics = currentState.diagnostics,
                 playbackGuidance = playbackHealthCoordinator.guidance,
                 playbackActionNotice = playbackActionNotice,
                 playbackActions = playbackActionNotice?.actions.orEmpty().toList(),
+                subtitleNotice = subtitleNotice,
+                preferences = preferences,
                 error = playbackState.error,
             )
         }
@@ -2182,6 +2967,24 @@ private data class TvTerminalDiagnosticSnapshot(
 private data class TvControllerFailureKey(
     val sessionSequence: Long,
     val prepareSequence: Long?,
+)
+
+private data class TvAutoplayIdentity(
+    val itemId: String,
+    val queueOrderGeneration: Long,
+    val launchGeneration: Long,
+)
+
+private data class TvPendingQueueCompletion(
+    val identity: TvAutoplayIdentity,
+    val playbackState: PlaybackState,
+    val verifiedEnd: Boolean,
+)
+
+private data class TvResolvedSubtitleSelection(
+    val selection: SubtitleSelectionIntent,
+    val localAsset: LocalSubtitleAsset? = null,
+    val localAssetUnavailable: Boolean = false,
 )
 
 private class TvControllerCandidateOwner {

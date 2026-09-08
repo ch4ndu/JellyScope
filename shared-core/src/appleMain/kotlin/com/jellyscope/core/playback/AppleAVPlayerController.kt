@@ -230,6 +230,7 @@ class AppleAVPlayerController(
     // Atomic: read on the main queue (async load completions) and Default (state
     // poll), bumped on the caller thread — same cross-thread rationale as `sequence`.
     private val prepareGeneration = AtomicLong(0L)
+    private var installedItemPrepareGeneration: Long? = null
     private var firstVideoOutputObservedGeneration: Long? = null
     private var pendingEmbeddedAudioSelection: EmbeddedAudioSelection? = null
     private var pendingEmbeddedSubtitleSelection: EmbeddedSubtitleSelection? = null
@@ -376,15 +377,14 @@ class AppleAVPlayerController(
         trackResolutionDiagnostics.reset()
         ensurePlaybackAudioSession()
         lastPlan = plan
+        installedItemPrepareGeneration = null
+        playWhenReady = false
+        interruptionIntent.reset()
         player.pause()
         // seekTo() disables wait-to-minimize-stalling to favor fast post-seek
         // recovery; that must not leak into the next prepared item (the AVPlayer
         // instance is reused across prepares), so restore the platform default.
         player.setAutomaticallyWaitsToMinimizeStalling(true)
-        // Interruption intent is item-session-scoped: an interruption ending
-        // after a queue switch must not resume the replacement item.
-        interruptionIntent.reset()
-        playWhenReady = false
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
         selectedAudioOption = null
@@ -508,6 +508,32 @@ class AppleAVPlayerController(
         }
     }
 
+    override fun recordHostPlaybackIntent(
+        generation: Long,
+        isPlaying: Boolean,
+    ): Boolean {
+        if (
+            released ||
+            generation != prepareGeneration.load() ||
+            installedItemPrepareGeneration != generation ||
+            player.currentItem == null
+        ) {
+            return false
+        }
+        if (playWhenReady == isPlaying) return false
+        if (isPlaying) {
+            playWhenReady = true
+        } else {
+            interruptionIntent.revoke()
+            playWhenReady = false
+            pauseGeneration += 1L
+        }
+        updateStateFromPlayer(
+            statusOverride = if (isPlaying) null else PlaybackStatus.Paused,
+        )
+        return true
+    }
+
     /** Installs the prepared item on main; the sole item-install path for [prepare]. */
     private fun installPreparedItem(
         plan: PlaybackPlan,
@@ -539,6 +565,7 @@ class AppleAVPlayerController(
 
         runCatching {
             player.replaceCurrentItemWithPlayerItem(item)
+            installedItemPrepareGeneration = prepareGeneration.load()
             releaseDeferredOfflineLeasesIfIdle()
             loadVideoTracksIfNeeded()
             selectMediaOption(characteristic = AVMediaCharacteristicLegible, ordinal = null)
@@ -608,6 +635,11 @@ class AppleAVPlayerController(
 
     override fun pause() {
         if (released) return warnReleased(PlayerOperation.Pause)
+        interruptionIntent.revoke()
+        pausePreservingInterruptionIntent()
+    }
+
+    private fun pausePreservingInterruptionIntent() {
         playWhenReady = false
         pauseGeneration += 1L
         player.pause()
@@ -665,6 +697,7 @@ class AppleAVPlayerController(
         if (released) return warnReleased(PlayerOperation.Stop)
         val hadPendingSidecarLoad = pendingSidecarLoads > 0
         prepareGeneration.addAndFetch(1L)
+        installedItemPrepareGeneration = null
         firstVideoOutputObservedGeneration = null
         playWhenReady = false
         interruptionIntent.reset()
@@ -734,9 +767,11 @@ class AppleAVPlayerController(
         if (released) return
         val hadPendingSidecarLoad = pendingSidecarLoads > 0
         prepareGeneration.addAndFetch(1L)
+        installedItemPrepareGeneration = null
         firstVideoOutputObservedGeneration = null
         videoOutputObservationsChannel.close()
         playWhenReady = false
+        interruptionIntent.reset()
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
         selectedAudioOption = null
@@ -779,9 +814,7 @@ class AppleAVPlayerController(
     override fun onAudioSessionInterruptionBegan() {
         if (released) return
         interruptionIntent.onInterruptionBegan(playWhenReady)
-        // The normal pause path clears playWhenReady so the state poll's
-        // resumePlayWhenReadyIfNeeded cannot fight the OS during the call.
-        pause()
+        pausePreservingInterruptionIntent()
     }
 
     override fun onAudioSessionInterruptionEnded(shouldResume: Boolean) {
@@ -801,6 +834,7 @@ class AppleAVPlayerController(
     ) {
         logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed, throwable)
         logPlayerDiagnostics(reason = "fail-playback")
+        installedItemPrepareGeneration = null
         player.replaceCurrentItemWithPlayerItem(null)
         awaitingSidecarComposition = false
         deferOfflineLeaseRelease(offlineLeaseHolder.detach())
@@ -1198,6 +1232,7 @@ class AppleAVPlayerController(
         statusOverride?.let { return it }
         if (item == null) return PlaybackStatus.Idle
         if (item.status == AVPlayerItemStatusFailed) return PlaybackStatus.Failed
+        if (!playWhenReady && previousStatus == PlaybackStatus.Paused) return PlaybackStatus.Paused
         if (item.status != AVPlayerItemStatusReadyToPlay) return PlaybackStatus.Loading
         if (previousStatus == PlaybackStatus.Completed) return PlaybackStatus.Completed
         if (

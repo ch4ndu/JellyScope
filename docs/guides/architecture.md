@@ -85,7 +85,7 @@ ViewModel state/events, platform integrations, or cross-layer behavior.
   background-work callers such as `WatchNextSyncWorker` capture that immutable
   snapshot and acquire an account work lease; stale leases cannot start or
   commit account-bound work.
-- The shared and Android TV logged-in composition roots are keyed by account
+- The shared, Android TV, and native tvOS logged-in roots are keyed by account
   identity plus boundary epoch. Re-authentication with a rotated token gets a
   fresh lifecycle even when server/user identity is unchanged.
 - `SessionRepository.accounts` and `SessionState` are derived together from one
@@ -250,7 +250,7 @@ desktop-app/
   # JVM Compose Desktop shell with the libmpv playback bridge.
 
 ios-app/
-  # Shared Compose app with AVPlayer playback bridge.
+  # Shared Compose app with Apple AVPlayer and VLCKit playback bridges.
 
 shared-tvos/
   # tvOS Kotlin presentation layer: presenters over shared-core
@@ -261,7 +261,21 @@ shared-tvos/
 tvos-app/
   # Native SwiftUI Apple TV shell over `SharedTv`. Swift renders presenter
   # state and never touches Koin, repositories, or vendor SDKs directly;
-  # playback hosts AVPlayerViewController over the shared Apple controller.
+  # playback uses AVKit online and the shared Apple VLC drawable offline.
+  tvosApp/screen/home/  # Home screen, state adapter, ribbons, and View All
+  tvosApp/screen/library/  # Library chooser, hub, grid, sort, and filters
+  tvosApp/screen/detail/  # Item metadata, playback options, people, and related media
+  tvosApp/screen/series/  # Series seasons, Next Up, and episode rows
+  tvosApp/screen/person/  # Person header and paged filmography
+  tvosApp/screen/search/  # Native search, results, and recent queries
+  tvosApp/screen/player/  # AVKit/VLC hosts, transport, queue, and player panels
+  tvosApp/screen/subtitle/  # OpenSubtitles search and local asset management
+  tvosApp/screen/downloads/  # Local downloads, requests, storage, and removal
+  tvosApp/screen/settings/  # Preferences, diagnostics, notices, and accounts
+  tvosApp/screen/login/  # Server discovery, Quick Connect, and credentials
+  tvosApp/component/media/  # Native cards, artwork, hero, and status views
+  tvosApp/theme/  # App-global appearance environment, dimensions, and colors
+  tvosApp/navigation/  # Native tabs, navigation paths, and media routes
 ```
 
 Platform directories are `androidMain/`, `appleMain/` (iOS + tvOS family),
@@ -328,7 +342,7 @@ Current entry-point responsibilities:
   Android player, surface, audio-focus, and backend integrations; its production
   selector admits ExoPlayer, mpv, and LibVLC (beta). Android mpv requires
   API 26+ and refuses via typed availability on older devices.
-- iOS wires AVPlayer, persistent session/settings storage, and Apple lifecycle
+- iOS wires AVPlayer/VLCKit, persistent session/settings storage, and Apple lifecycle
   integrations. Session credentials and selected preferences use app-owned
   `NSUserDefaults`; Room remains the store for the data families bound below,
   and application credential persistence never accesses Keychain.
@@ -338,20 +352,23 @@ Current entry-point responsibilities:
   not access Keychain; release signing credentials are a separate concern.
 - tvOS wires Koin, presenter factories, and dev prefill through `TvosEntry`
   (the entire Swift-facing surface). Apple-family implementations live in
-  `appleMain` (`Apple*`-named); only the store-directory choice (iOS
-  Documents / tvOS Caches, per tvOS purgeable-storage policy) and the Koin
-  entry modules are per-target. Apple TV hardware playback, display, and
-  remote behavior remain explicit simulator-unverifiable risks.
+  `appleMain` (`Apple*`-named). Ordinary media/cache databases use iOS
+  Documents / tvOS Caches. Download root actuals preserve iOS Application
+  Support and use tvOS Caches. The shared `AppleVlcKitPlayerController` owns
+  playback; iOS retains its PiP wrapper and protocols, while tvOS supplies a
+  plain retained drawable through `ApplePlaybackSurfaceProvider`. Entry modules
+  remain per-target. Apple TV hardware playback, display, and remote behavior
+  remain outside compile-only evidence.
 
 ### Downloads module boundary
 
 Offline Downloads is an opt-in supported-platform graph, not part of the
-unconditional core module. Android mobile, Android TV, iOS, and JVM desktop
+unconditional core module. Android mobile, Android TV, iOS, tvOS, and JVM desktop
 install `downloadsModule` and supply their project-owned database factory,
-artifact store, and execution/lifecycle host at the platform edge; tvOS installs
-none of those bindings and makes no feature claim. The feature retains normal
-layering inside that graph: download repositories and platform adapters feed
-domain UseCases/Actions, ViewModels consume only those domain surfaces, and UI
+artifact store, and execution/lifecycle host at the platform edge. iOS and tvOS
+share the Apple download adapters and app-active lifecycle host. Download
+repositories and platform adapters feed domain UseCases/Actions; ViewModels and
+native presenters consume only those domain surfaces, and UI
 never owns the queue or filesystem. Its `DownloadDatabase` is isolated from the
 ordinary media/cache database so durable transfer/removal state cannot inherit
 refetchable-cache cleanup policy. The complete data and storage contract lives
@@ -810,13 +827,14 @@ what was rejected. Delete an entry when its rule changes.
   passes. Changes to Apple player policy or distribution need a recorded
   decision, not status prose.
 - **One implementation serves an Apple platform family.** Duplicating identical
-  actuals per target was rejected; only the store-database directory and DI
-  entry points stay per-target, and tvOS storage is purgeable by platform
-  policy.
+  actuals per target was rejected. Apple download storage/lifecycle and VLC
+  playback share implementations; directory choices, DI entry points, and the
+  iOS PiP/tvOS drawable adapters remain at their platform boundaries. This
+  preserves iOS behavior while respecting purgeable tvOS storage.
 - **Downloads is installed only by supported platform graphs.** Putting its
   isolated database, transfer runner, and lifecycle host in the unconditional
-  core module was rejected because that would manufacture a tvOS runtime
-  obligation and make cache cleanup an accidental owner of durable user media.
+  core module was rejected because each platform must supply its real storage
+  and lifecycle contracts, and cache cleanup must not own downloaded media.
   Common repositories, UseCases/Actions, queue policy, and recovery remain
   shared, while each supported entry point supplies the real storage and OS
   lifecycle boundary it can honor.

@@ -293,7 +293,6 @@ internal class FakeTvMediaRepository(
     var defaultPlaybackInfo: Result<PlaybackInfo> = Result.success(directPlayInfo()),
     var mediaSegments: List<com.jellyscope.core.domain.playback.MediaSegment> = emptyList(),
     var favorites: Result<List<MediaItem>> = Result.success(emptyList()),
-    var recommendationRowsByParent: Map<String, List<com.jellyscope.core.domain.model.LibraryRecommendationRow>> = emptyMap(),
     var relatedGroups: List<com.jellyscope.core.domain.model.RelatedGroup> = emptyList(),
     var setPlayedResult: Result<Unit> = Result.success(Unit),
     var setFavoriteResult: Result<Unit> = Result.success(Unit),
@@ -331,8 +330,7 @@ internal class FakeTvMediaRepository(
 
     override suspend fun getLibraryRecommendationSection(
         request: com.jellyscope.core.domain.model.LibraryRecommendationRequest,
-    ): Result<List<com.jellyscope.core.domain.model.LibraryRecommendationRow>> =
-        Result.success(recommendationRowsByParent[request.parentId].orEmpty())
+    ): Result<List<com.jellyscope.core.domain.model.LibraryRecommendationRow>> = Result.success(emptyList())
 
     override fun getRelatedGroups(detail: MediaItemDetail): kotlinx.coroutines.flow.Flow<com.jellyscope.core.domain.model.RelatedGroup> =
         kotlinx.coroutines.flow.flow {

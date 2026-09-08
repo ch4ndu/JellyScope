@@ -93,6 +93,8 @@ import com.jellyscope.core.domain.playback.PlaybackTerminalOutcome
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerBackendPlatform
 import com.jellyscope.core.domain.playback.PlayerController
+import com.jellyscope.core.domain.playback.PlayerStillWatchingAutomaticAdvance
+import com.jellyscope.core.domain.playback.PlayerStillWatchingState
 import com.jellyscope.core.domain.playback.PlayerVolumeController
 import com.jellyscope.core.domain.playback.PlayerVolumeState
 import com.jellyscope.core.domain.playback.StreamMode

@@ -54,6 +54,8 @@ import com.jellyscope.core.domain.playback.PlaybackDiagnosticPlatform
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.playback.AppleAVPlayerController
+import com.jellyscope.core.playback.OfflineArtifactResolver
+import com.jellyscope.core.playback.createAppleVlcKitController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -88,15 +90,34 @@ fun appleCoreModule(
             isTvOs = diagnosticPlatform == PlaybackDiagnosticPlatform.TvOs,
         )
     }
-    factory<PlayerController> { (session: Session, _backend: PlayerBackend, _allowInsecureDesktopTls: Boolean) ->
-        AppleAVPlayerController(
-            session = session,
-            deviceInfoProvider = get(),
-            clientInfo = get(),
-            stateScope = get(),
-            localSubtitleFileStore = get(),
-            diagnosticPlatform = diagnosticPlatform,
-        )
+    factory<PlayerController> { (session: Session, backend: PlayerBackend, _allowInsecureDesktopTls: Boolean) ->
+        val offlineArtifactResolver = getOrNull<OfflineArtifactResolver>()
+        when (backend) {
+            PlayerBackend.VlcKit ->
+                createAppleVlcKitController(
+                    session = session,
+                    stateScope = get(),
+                    localSubtitleFileStore = get(),
+                    diagnosticPlatform = diagnosticPlatform,
+                    offlineArtifactResolver = offlineArtifactResolver,
+                )
+            PlayerBackend.Auto,
+            PlayerBackend.AVPlayer,
+            PlayerBackend.ExoPlayer,
+            PlayerBackend.Mpv,
+            PlayerBackend.LibVlc,
+            ->
+                AppleAVPlayerController(
+                    session = session,
+                    deviceInfoProvider = get(),
+                    clientInfo = get(),
+                    stateScope = get(),
+                    localSubtitleFileStore = get(),
+                    diagnosticPlatform = diagnosticPlatform,
+                ).also { controller ->
+                    offlineArtifactResolver?.let(controller::setOfflineArtifactResolver)
+                }
+        }
     }
     single<CoroutineScope> { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     single<AppThemeStore> { AppleUserDefaultsAppThemeStore() }

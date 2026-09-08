@@ -2,9 +2,17 @@
 
 package com.jellyscope.tvos.presenter
 
+import com.jellyscope.core.data.local.LibrarySortStore
+import com.jellyscope.core.data.local.SavedLibrarySort
+import com.jellyscope.core.domain.action.SetLibrarySortAction
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
+import com.jellyscope.core.domain.model.LibraryCollectionType
+import com.jellyscope.core.domain.model.LibrarySortBy
+import com.jellyscope.core.domain.model.LibrarySortOrder
 import com.jellyscope.core.domain.model.PagedItems
+import com.jellyscope.core.domain.usecase.GetLibraryFiltersUseCase
 import com.jellyscope.core.domain.usecase.GetLibraryItemsUseCase
+import com.jellyscope.core.domain.usecase.GetLibrarySortUseCase
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -108,11 +116,25 @@ class TvLibraryBrowsePresenterTest {
         }
 
     private fun TestScope.presenter(repository: FakeTvMediaRepository): TvLibraryBrowsePresenter =
-        TvLibraryBrowsePresenter(
-            session = testSession(),
-            libraryId = "library-1",
-            getLibraryItems = GetLibraryItemsUseCase(repository),
-            imageUrlBuilder = JellyfinImageUrlBuilder(),
-            dispatchers = testDispatchers(StandardTestDispatcher(testScheduler)),
-        )
+        object : LibrarySortStore {
+            override fun savedSort(libraryKey: String): SavedLibrarySort? = null
+
+            override suspend fun setSort(
+                libraryKey: String,
+                sortBy: LibrarySortBy,
+                sortOrder: LibrarySortOrder,
+            ) = Unit
+        }.let { sortStore ->
+            TvLibraryBrowsePresenter(
+                session = testSession(),
+                libraryId = "library-1",
+                collectionType = LibraryCollectionType.Movies,
+                getLibraryItems = GetLibraryItemsUseCase(repository),
+                getLibraryFilters = GetLibraryFiltersUseCase(repository),
+                getLibrarySort = GetLibrarySortUseCase(sortStore),
+                setLibrarySort = SetLibrarySortAction(sortStore),
+                imageUrlBuilder = JellyfinImageUrlBuilder(),
+                dispatchers = testDispatchers(StandardTestDispatcher(testScheduler)),
+            )
+        }
 }

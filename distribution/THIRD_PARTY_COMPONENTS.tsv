@@ -3,6 +3,7 @@ android	mpv and FFmpeg native graph	mpv 0.41.0; FFmpeg 8.1	libmpv-android 1.0.0 
 android	Media3 FFmpeg decoder	1.9.0+1	org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1	owner-reviewed GPL-3.0 notice/source set	scripts/android-mpv-bundle/manifest-1.0.0.txt
 android	LibVLC	3.7.5	org.videolan.android:libvlc-all:3.7.5	owner-reviewed LGPL-2.1 notice/source set	scripts/android-mpv-bundle/manifest-1.0.0.txt
 android	Managed runtime families	current pinned Gradle inputs	Android mobile and TV release graphs	owner-reviewed published license/source set	distribution/MOBILE_RUNTIME_NOTICES.md
+tvos	VLCKit	4.0.0a23	VLCKit-4.0-20260805-1123.zip	owner-reviewed LGPL-2.1 artifact/source route	scripts/vlckit-bundle/manifest-4.0.0a23.txt
 ios	VLCKit	4.0.0a23	VLCKit-4.0-20260805-1123.zip	owner-reviewed LGPL-2.1 artifact/source route	scripts/vlckit-bundle/manifest-4.0.0a23.txt
 ios	Managed runtime families	current pinned Gradle inputs	iOS arm64 release graph	owner-reviewed published license/source set	distribution/MOBILE_RUNTIME_NOTICES.md
 macos-arm64	VLC runtime	3.0.23	selected VLC.app arm64 files	recorded notice/source set	scripts/vlc-bundle/manifest-3.0.23-arm64.txt

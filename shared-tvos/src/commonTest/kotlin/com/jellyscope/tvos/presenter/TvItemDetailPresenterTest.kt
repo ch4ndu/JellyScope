@@ -7,6 +7,8 @@ import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
 import com.jellyscope.core.domain.usecase.GetSeasonEpisodesUseCase
 import com.jellyscope.core.domain.usecase.GetSeriesSeasonsUseCase
+import com.jellyscope.core.domain.usecase.ObservePlaybackStopSettlementUseCase
+import com.jellyscope.core.playback.PlaybackStopSettlementRegistry
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -388,6 +390,8 @@ class TvItemDetailPresenterTest {
             getRelatedItems =
                 com.jellyscope.core.domain.usecase
                     .GetRelatedItemsUseCase(repository),
+            observePlaybackStopSettlement =
+                ObservePlaybackStopSettlementUseCase(PlaybackStopSettlementRegistry()),
             setItemPlayed =
                 com.jellyscope.core.domain.action
                     .SetItemPlayedAction(repository),

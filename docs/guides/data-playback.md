@@ -2050,9 +2050,8 @@ than restating it.
 ### Scope and identity
 
 - Downloads support individual Movies and Episodes on Android mobile, Android
-  TV, iOS, and JVM desktop. tvOS has no Downloads runtime binding, screen,
-  scheduler, artifact-store path, validation obligation, or feature promise;
-  unavoidable shared model or generated Room output does not imply support.
+  TV, iOS, tvOS, and JVM desktop. tvOS installs the existing full download graph
+  with shared Apple adapters; Original and converted/HLS copies use VLC offline.
 - `DownloadId` and `DownloadArtifactKey` are opaque device-local identities.
   The one retained-download business identity is
   `(serverId, userId, itemId, mediaSourceId)`: enqueueing the same identity
@@ -2174,10 +2173,12 @@ than restating it.
   other staging remains resumable, and `MissingArtifact` retains its guarded
   completed-area cleanup. The explicit current-account resume-all command
   moves every `Paused` row, but not `BlockedByQuota` or `Failed`, back to the
-  FIFO and issues one platform wake after any row applies. Each shared or TV
+  FIFO and issues one platform wake after any row applies. Each shared or Android TV
   Downloads-screen resume also requests one queue-level wake without targeting
   a row; a lifecycle wake failure is safe-diagnostic-only and never a UI error.
-  Passive app start never wakes the queue.
+  Native tvOS instead exposes an explicit queue wake and reports scheduling
+  rejection without changing durable row state. Its screen entry and Refresh
+  remain passive. Passive app start never wakes the queue.
 - The user must configure a device-wide hard allocation in positive whole
   decimal GB, with a 1 GB minimum. Admission and every durable transfer
   checkpoint account for completed and partial physical bytes plus outstanding
@@ -2229,6 +2230,12 @@ than restating it.
   Support subtree excluded from backup; JVM keeps them under one private app-data
   subtree. Mobile restore therefore cannot recreate completed rows without their
   media, and the device-local allocation returns unconfigured with that subtree.
+  tvOS uses a private Caches subtree for both the download database and media.
+  Apple TV may reclaim either independently: offline playback verifies files,
+  recovery tolerates missing rows or artifacts, and the UI explains that copies
+  may need downloading again. Transfers run only while the app is active; the
+  shared Apple lifecycle host checkpoints on inactivity and termination. This
+  provides no background-transfer or durable-retention guarantee.
 
 ### Offline playback, progress, and removal
 
@@ -2241,10 +2248,11 @@ than restating it.
   acquire a project-owned artifact lease before resolving a local resource.
   Delete and account cleanup return `ArtifactInUse` while that generation is
   leased. Android and JVM preserve the normally resolved platform backend. On
-  iOS, every offline artifact requires VLCKit for that playback session without
-  changing the stored backend preference; missing, wrong, or failed VLCKit
+  iOS and tvOS, every offline artifact requires VLCKit for that playback session
+  without changing the stored backend preference; missing, wrong, or failed VLCKit
   returns `OfflinePlayerUnavailable`, never falls back to AVPlayer, and retains
-  the artifact.
+  the artifact. Apple VLC preparsing uses local-only flags for offline plans;
+  network metadata and cover fetching remain enabled only for online plans.
 - Offline playback durably coalesces the latest local resume position onto the
   download record first. Only a genuine controller `Completed` state marks the
   record watched; an ordinary stop or near-end position cannot. When the same
@@ -2252,7 +2260,10 @@ than restating it.
   calls may also run and failures remain best effort. There is deliberately no
   reachability monitor, outbox, delayed synchronization,
   server-progress overlay, cross-device conflict claim, or guarantee that local
-  progress ever reaches Jellyfin.
+  progress ever reaches Jellyfin. Native tvOS offline playback is local-only:
+  it updates the download record and performs no Jellyfin reporting. Subtitle
+  replacement retains the content checkpoint through native teardown and
+  preparation; temporary reset positions cannot overwrite local resume progress.
 - Manual Cancel/Delete never marks the server item unplayed and never rewrites
   Jellyfin watch history. If the server item is deleted after completion, the
   verified local artifact and snapshot remain usable; there is no periodic
@@ -2710,10 +2721,11 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   controller that actually activated (the eager AVPlayer controller released by
   a backend swap never activated and must not deactivate). All session mutations
   run on one serialized executor so a stale delayed deactivation can never land
-  after a newer activation. System interruptions (call/Siri/alarm) pause through
-  the controller's normal `pause()` path (clearing play intent so the state poll
-  cannot fight the OS) and auto-resume only when iOS reports `shouldResume` AND
-  playback was playing before the interruption. Its interruption and route
+  after a newer activation. System interruptions (call/Siri/alarm) capture resume
+  intent once and pause without revoking that captured intent. Active play intent
+  is cleared so the state poll cannot fight the OS. Resume requires
+  `shouldResume`, prior play intent, and no later explicit pause or output loss.
+  Prepare and release reset interruption intent. Its interruption and route
   observers exist only while a current activation owner exists and deliver to
   that captured owner on the main queue. An `oldDeviceUnavailable` route change
   pauses through the normal controller path without recording interruption
@@ -2966,9 +2978,22 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   sanitized exception class through `formatSafeFailureDiagnostic`, never a
   message, cause, or stack.
 
-### tvOS system player
+### tvOS native player
 
-- The tvOS shell reuses the Apple-family AVPlayer controller
+- The app-global playback-info-at-start setting is snapshotted when either an
+  online or offline presenter is created. The first installed/Active native
+  player opportunity opens diagnostics once when no panel, sheet, error, or
+  higher-priority prompt owns interaction. A blocked opportunity is consumed;
+  dismissal, retry, reprepare, and queue advance never reopen it automatically.
+- Native device settings expose Audio Auto/Stereo PCM and HDR Auto/Prefer SDR
+  through the existing shared device policy for the next online play/replan.
+  Effective formats/channels and fallback reasons describe the cached Apple
+  capability snapshot; unsupported saved passthrough is shown as Auto without
+  rewriting it. No capability re-probe is offered. Serialized writes preserve
+  unexposed fields from the latest observed settings; the shared store's
+  asynchronous startup/default-state semantics remain unchanged. These controls
+  do not modify offline VLC's saved plan or an already prepared player.
+- Online tvOS playback reuses the Apple-family AVPlayer controller
   (`AppleAVPlayerController`, `appleMain`) behind the shared `PlayerController`
   contract; `TvPlaybackSessionPresenter` (shared-tvos) owns plan -> prepare ->
   play, executes `PlaybackSessionRecoveryPolicy` decisions (including the
@@ -2979,9 +3004,15 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   consumers. Its Swift watch projection suppresses only changes limited to
   those two clock fields. Any semantic boundary still emits the complete
   current state, including the latest position and buffer values.
-- Playback UI is the system `AVPlayerViewController`. Its transport drives
-  AVPlayer directly (the polling controller still observes pause/play edges for
-  reporting), so free scrubbing must be disabled for transcode plans via
+- Online playback uses `AVPlayerViewController`. Its transport drives AVPlayer
+  directly. The native host forwards explicit rate-change notifications through
+  the current player/item/plan identity to update controller play intent without
+  repeating the native command. System interruption/background reasons are
+  excluded; unchanged intent is a no-op. An explicit pause publishes `Paused`
+  and preserves it through startup or stalls until play is requested again.
+  The controller retains readiness/stall recovery for active play intent and
+  pause-qualified seek completion. Free scrubbing remains disabled
+  for transcode plans via
   `requiresLinearPlayback` — a system-UI seek outside the produced window would
   bypass the Kotlin transcode-restart path and wedge AVPlayer.
 - Track/quality selection rides `transportBarCustomMenuItems` over the shared
@@ -2989,19 +3020,31 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   PlayerViewModel local-switch-vs-replan rules and durable subtitle intent
   (stored intent validated against options, invalid entries deleted — the intent
   store is device-local — then preferred language, default track, Off). Menus
-  render confirmed activation truth, never pending requests, and rebuild only on
-  a menu-configuration key (plan epoch + track lists + confirmed selections +
+  render confirmed activation truth, never pending requests; a separate local
+  selection intent keeps Off available while local activation is pending. They
+  rebuild only on a menu-configuration key (plan epoch + track lists + confirmed selections +
   bitrate), never per position tick. Settings and the in-player menu share the
   same quality ladder so defaults always match a rung.
 - Chapters render as `AVNavigationMarkersGroup` on the player item; segment
   skipping honors the per-type `SegmentSkipPolicy` (`contextualActions` for Ask,
   presenter-driven once-per-item auto-skip while Playing, ordered after the
-  Start report); next-episode auto-advance requires a verified natural end
-  (position within ~1.5 s of a known duration) and never publishes the Completed
-  phase mid-queue — Completed is terminal-only, so the Swift dismiss handler
-  can't race an advance. Item-scoped AVKit decorations re-apply on every
-  plan-epoch change. A queue advance cancels any in-flight replan and clears
-  track menus so stale selections cannot act on the outgoing item.
+  Start report). A verified natural completion starts the normalized shared
+  0–60 second next-up delay (default 10); a pre-end suggestion never starts it.
+  While the chronological queue is pending, verified completion retains the host
+  until that identity-qualified request settles. A next item starts next-up;
+  an empty or failed result ends playback. Item, queue-order and launch-generation
+  identity qualify countdown/dismissal.
+  Manual selection, queue changes, close, or background cancel it. The autoplay
+  preference is read at each item start; a disabled preference prevents that
+  item's countdown. Dismiss suppresses automatic advance for that completion while
+  preserving manual Next. The player remains mounted while countdown or
+  still-watching owns completion. The shared `PlayerStillWatchingState` gates
+  three consecutive automatic advances; manual navigation resets it.
+  Item-scoped AVKit decorations re-apply on plan-epoch changes. Queue changes
+  invalidate in-flight loads/replans and clear outgoing track menus. Committed
+  manual navigation stops the outgoing engine, retaining its final position for
+  ordered Stop reporting. A failed replacement stays authoritative until a valid
+  new prepare; stale controller updates cannot replace it.
 - A failed detail fetch surfaces `PlaybackError.Network`; `UnsupportedMedia` is
   reserved for a successful detail response with no usable media version.
 - Backgrounding closes the playback presenter (final Stop report + release) via
@@ -3018,9 +3061,24 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   UI, including initial missing-response and runtime activation recovery,
   position and play/pause preservation, ordered Stop reporting, and stale/stop
   invalidation. Final failure stays nonfatal with no subtitle selected.
-- Deferred to the custom overlay: trickplay scrubber thumbnails (transcodes get
-  HLS I-frame previews from the system scrubber) and the in-player episode
-  panel.
+- Offline playback uses `TvOfflinePlaybackPresenter`, the same core offline
+  plan construction as shared UI, and the required Apple VLC controller. Only
+  persisted snapshot metadata, local tracks, chapters, and local progress enter
+  this path; no detail, PlaybackInfo, image, segment, queue, or reporting calls
+  occur and no online fallback is attempted. The presenter applies saved audio
+  and subtitle activation targets before playback, reasserts embedded selections
+  and Off, and retains real local-asset identity for downloaded sidecars. VLC
+  attaches sidecars only through the validated offline lease; a trusted leased
+  sidecar starts pending activation without requiring a remote subtitle asset.
+  Menu checkmarks follow confirmed activation. The native VLC host provides
+  play/pause, seek, progress and supported controls over the retained drawable.
+- Advanced controls expose confirmed speed, supported text subtitle style,
+  AVKit surface sizing, and sanitized diagnostics. Timing and VLC surface sizing
+  are unavailable. VLC keeps `appliesSubtitleStyle=false`, so live styling is unavailable there. Local
+  subtitle selection carries asset identity through detail and online playback;
+  missing/purged files fail nonfatally without remote Encode fallback.
+- Custom trickplay scrubber thumbnails remain deferred; online transcodes retain
+  the system HLS I-frame preview path.
 
 ### Runtime playback diagnostics
 
@@ -3493,7 +3551,7 @@ operative text lives in the body sections above, never here.
   the checkpoint manifest one same-filesystem atomic boundary without turning
   package writes into a general transaction system; media writers retain their
   bounded rewrite/truncation contract.
-  iOS selects VLCKit for every offline session and fails visibly when the
+  iOS and tvOS select VLCKit for every offline session and fail visibly when the
   required backend is unavailable.
 - **One active transfer and one hard device allocation keep resource use
   explainable.** Parallel workers, per-account quotas, automatic eviction, and
@@ -3592,7 +3650,8 @@ operative text lives in the body sections above, never here.
   removed wired, USB, or Bluetooth route expresses lost output, but reconnecting
   hardware is not permission to restart media. Dispatching only the captured
   current audio-session owner through normal `pause()` clears play intent and
-  prevents polling or a stale callback from resurrecting playback. Reusing the
+  revokes any captured interruption resume, preventing polling or a later
+  interruption-end callback from resurrecting playback. Reusing the
   interruption intent was rejected because it would auto-resume on reconnect.
 - **Desktop mpv subtitle clearance follows the composed bottom chrome.** mpv's
   native/default `34` scaled-pixel margin is the correct hidden-controls and PiP
@@ -3626,15 +3685,35 @@ operative text lives in the body sections above, never here.
   race. When the playlist entry ID is unavailable, only an explicit non-EOF
   sample proves that the outgoing latch cleared; treating a failed/null property
   read as false would recreate the same false-completion path.
-- **tvOS keeps the system player.** `AVPlayerViewController` provides chapters,
-  segment skipping, and track menus far more cheaply than a custom overlay.
-  A custom overlay, and trickplay thumbnails with it, are deferred behind it.
+- **Native tvOS keeps AVKit online and shares VLC offline.** AVKit supplies
+  online transport and system metadata. Its cause-qualified transport bridge
+  preserves user pause without treating buffering as a new user intent; the
+  published paused state remains authoritative across readiness/stall samples
+  so reporting and toggles honor that intent. Raw rate observation or remote-key
+  interception alone cannot provide that distinction.
+  Downloads need the same Original/HLS
+  consumer as iOS, so a retained VLC drawable and native transport serve the
+  separate local path. Both share existing playback contracts; a second
+  download policy, online backend picker, and custom trickplay engine were
+  rejected for this scope. Offline track intent is applied through the existing
+  activation contract so a saved selection cannot become an enabled no-op; only
+  the resolver-owned sidecar establishes trusted local input. Retaining the
+  content checkpoint prevents a native reset from erasing resume progress; local
+  preparsing avoids authorizing network artwork fetches for an offline file.
+  Completion waits
+  for the current queue result so network timing cannot turn an episode into a
+  terminal item. Native device controls expose only effective shared online
+  policies; a cached-capability refresh button and offline conversion controls
+  would imply behavior the platform path does not provide. Startup diagnostics
+  captures a preference once and consumes a blocked opportunity so later user
+  interaction cannot trigger a surprise panel.
 - **iOS ships two players with one guarded session switch.** One controller is
   authoritative at a time: explicit remote switching plans before teardown and
   has at most one default-construction fallback, while planning failure leaves
   the current controller untouched. AVPlayer stays the default and Auto routes to it — including
   HDR/Dolby Vision — falling to VLCKit only when the source needs something
-  AVPlayer lacks. VLCKit is iOS-only; tvOS never links it.
+  AVPlayer lacks. tvOS reuses the VLC engine for offline sessions while its
+  online session keeps AVPlayer; iOS PiP adapters remain iOS-only.
 - **iOS VLCKit transition readiness is strict only inside its bounded window.**
   Prepare, deferred resume, and seek keep the requested target published until
   target arrival, later clock progress, and two fresh displayed-picture
@@ -3933,9 +4012,10 @@ operative text lives in the body sections above, never here.
   by construction. Teaching detail screens to respect it was rejected (still a
   setting whose only effect is to ignore server progress), as was hiding it
   behind Advanced (keeps the contradiction).
-- **Still watching stays a separate toggle from Autoplay next** because the
-  prompt is a distinct safety concern; tvOS gets no toggle because it has no
-  gate to disable, and an inert control is worse than its absence.
+- **Still watching stays a separate toggle from Autoplay next** because its
+  repeated-advance prompt is a separate decision from whether to advance at all.
+  Shared UI and native tvOS consume one policy state so their thresholds cannot
+  drift, while each surface retains its own focus and presentation state.
 - **Inactive player controls are hidden, not disabled.** The audio-offset
   control keeps the one timing exception: an audio offset is meaningful with a
   single track (A/V sync) while a subtitle offset is meaningless with no

@@ -5,24 +5,14 @@ package com.jellyscope.ui.screen.player
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadArtifactKind
 import com.jellyscope.core.domain.model.DownloadId
-import com.jellyscope.core.domain.model.OfflineArtifactRef
 import com.jellyscope.core.domain.model.OfflineMediaSnapshot
 import com.jellyscope.core.domain.model.OfflineTrackKind
 import com.jellyscope.core.domain.model.OfflineTrackSnapshot
 import com.jellyscope.core.domain.playback.Chapter
-import com.jellyscope.core.domain.playback.DEFAULT_PLAYBACK_REPORT_INTERVAL_MS
-import com.jellyscope.core.domain.playback.PlannedEmbeddedTrack
-import com.jellyscope.core.domain.playback.PlannedSubtitle
-import com.jellyscope.core.domain.playback.PlaybackContentTimeline
-import com.jellyscope.core.domain.playback.PlaybackContentTimelineSource
 import com.jellyscope.core.domain.playback.PlaybackMediaStream
 import com.jellyscope.core.domain.playback.PlaybackPlan
-import com.jellyscope.core.domain.playback.ProgressReportingPolicy
-import com.jellyscope.core.domain.playback.StreamMode
-import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
-import com.jellyscope.core.domain.playback.SubtitleKind
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
-import com.jellyscope.core.domain.playback.ticksToMilliseconds
+import com.jellyscope.core.domain.playback.buildOfflinePlaybackPlan
 
 internal data class OfflinePlaybackProjectionInput(
     val snapshot: OfflineMediaSnapshot,
@@ -52,7 +42,6 @@ internal data class OfflinePlaybackProjection(
 internal fun projectOfflinePlayback(input: OfflinePlaybackProjectionInput): OfflinePlaybackProjection {
     val snapshot = input.snapshot
     val chapters = snapshot.chapters.map { chapter -> Chapter(chapter.name, chapter.startTicks) }
-    val selectedSubtitle = snapshot.selectedSubtitleTrack?.toPlannedEmbeddedTrack(0)
     val selectedSubtitleStreamIndex = snapshot.selectedSubtitleTrack?.streamIndex
     return OfflinePlaybackProjection(
         metadata =
@@ -89,58 +78,16 @@ internal fun projectOfflinePlayback(input: OfflinePlaybackProjectionInput): Offl
             selectedSubtitleStreamIndex?.let(SubtitleSelectionIntent::Track)
                 ?: SubtitleSelectionIntent.Off,
         offlinePlan =
-            PlaybackPlan(
+            buildOfflinePlaybackPlan(
+                snapshot = snapshot,
                 itemId = input.itemId,
                 mediaSourceId = input.mediaSourceId,
-                startPositionMs =
-                    if (input.startPositionTicks > 0L) {
-                        ticksToMilliseconds(input.startPositionTicks)
-                    } else {
-                        input.localResumePositionMs
-                    },
-                streamMode = StreamMode.Offline,
-                streamUrl = "",
-                progressReportingPolicy =
-                    ProgressReportingPolicy(
-                        reportIntervalMs = DEFAULT_PLAYBACK_REPORT_INTERVAL_MS,
-                    ),
-                selectedAudioStreamIndex = snapshot.selectedAudioTrack?.streamIndex,
-                embeddedAudioTracks =
-                    snapshot.embeddedTracks
-                        .filter { track -> track.kind == OfflineTrackKind.Audio && !track.isExternal }
-                        .mapIndexed { ordinal, track -> track.toPlannedEmbeddedTrack(ordinal) },
-                embeddedSubtitleTracks =
-                    snapshot.embeddedTracks
-                        .filter { track -> track.kind == OfflineTrackKind.Subtitle && !track.isExternal }
-                        .mapIndexed { ordinal, track -> track.toPlannedEmbeddedTrack(ordinal) },
-                selectedSubtitleStreamIndex = selectedSubtitleStreamIndex,
-                plannedSubtitle =
-                    selectedSubtitle?.let { descriptor ->
-                        PlannedSubtitle.Track(
-                            streamIndex = descriptor.jellyfinStreamIndex,
-                            embeddedTrack = descriptor.takeUnless { snapshot.selectedSubtitleTrack?.isExternal == true },
-                            deliveryMethod =
-                                if (snapshot.selectedSubtitleTrack?.isExternal == true) {
-                                    SubtitleDeliveryMethod.External
-                                } else {
-                                    SubtitleDeliveryMethod.Embed
-                                },
-                            kind = SubtitleKind.Text,
-                        )
-                    } ?: PlannedSubtitle.Off,
-                chapters = chapters,
-                contentTimeline =
-                    snapshot.durationMs?.takeIf { duration -> duration > 0L }?.let { duration ->
-                        PlaybackContentTimeline.BoundedVod(
-                            durationMs = duration,
-                            source = PlaybackContentTimelineSource.SelectedMediaSource,
-                        )
-                    } ?: PlaybackContentTimeline.UnknownOrUnbounded,
-                videoExpected = true,
-                container = snapshot.backendSource.container,
-                offlineArtifactRef = OfflineArtifactRef(input.downloadId, input.attemptGeneration),
-                offlineArtifactKind = input.artifactKind,
-                offlineAccountIdentity = input.accountIdentity,
+                downloadId = input.downloadId,
+                attemptGeneration = input.attemptGeneration,
+                artifactKind = input.artifactKind,
+                accountIdentity = input.accountIdentity,
+                startPositionTicks = input.startPositionTicks,
+                localResumePositionMs = input.localResumePositionMs,
             ),
     )
 }
@@ -160,15 +107,4 @@ private fun OfflineTrackSnapshot.toPlaybackMediaStream(): PlaybackMediaStream =
         isExternal = isExternal,
         deliveryMethod = if (isExternal) "External" else "Embedded",
         deliveryUrl = null,
-    )
-
-private fun OfflineTrackSnapshot.toPlannedEmbeddedTrack(ordinal: Int): PlannedEmbeddedTrack =
-    PlannedEmbeddedTrack(
-        jellyfinStreamIndex = streamIndex ?: ordinal,
-        filteredContainerOrdinal = ordinal,
-        codec = codec,
-        normalizedLanguage = language,
-        label = label,
-        directPlayAdmissible = true,
-        responseAuthoritativeCohortSize = null,
     )

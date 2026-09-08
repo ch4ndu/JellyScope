@@ -67,24 +67,47 @@ final class ImageFetcher: @unchecked Sendable {
 /// Focus-friendly remote artwork view backed by [ImageFetcher].
 struct RemoteImage: View {
     let url: String?
+    let contentMode: ContentMode
+    let fallbackTitle: String?
 
     @State private var image: UIImage?
 
+    init(
+        url: String?,
+        contentMode: ContentMode = .fill,
+        fallbackTitle: String? = nil
+    ) {
+        self.url = url
+        self.contentMode = contentMode
+        self.fallbackTitle = fallbackTitle
+    }
+
     var body: some View {
         ZStack {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.2))
+            if image == nil {
+                if let fallbackTitle {
+                    Text(fallbackTitle)
+                        .font(.largeTitle.bold())
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                } else {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.2))
+                }
+            }
             if let image {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             }
         }
         .clipped()
         .task(id: url) {
             image = nil
             guard let url else { return }
-            image = await ImageFetcher.shared.image(for: url)
+            let loadedImage = await ImageFetcher.shared.image(for: url)
+            guard !Task.isCancelled, self.url == url else { return }
+            image = loadedImage
         }
     }
 }

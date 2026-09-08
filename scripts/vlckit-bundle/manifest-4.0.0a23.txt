@@ -6,6 +6,8 @@ artifact.upstream-copying-path=COPYING.txt
 artifact.linkage=dynamic XCFramework
 artifact.ios-device-slice=ios-arm64/VLCKit.framework
 artifact.ios-simulator-slice=ios-arm64_x86_64-simulator/VLCKit.framework
+artifact.tvos-device-slice=tvos-arm64/VLCKit.framework
+artifact.tvos-simulator-slice=tvos-arm64_x86_64-simulator/VLCKit.framework
 
 release.version=4.0.0a23
 release.publication-commit=e3774eb25c62c902e9066ba267e6416d82e83382

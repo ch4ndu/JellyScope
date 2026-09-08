@@ -1,8 +1,8 @@
 # VLCKit Attribution And Corresponding Source
 
-JellyScope's iOS application can link the unmodified official VideoLAN
+JellyScope's iOS and tvOS applications link the unmodified official VideoLAN
 VLCKit 4.0.0a23 dynamic XCFramework downloaded by
-`scripts/fetch-vlckit.sh`. The tvOS application does not link this framework.
+`scripts/fetch-vlckit.sh`.
 
 - Component: VLCKit 4.0.0a23, including its embedded libVLC and contributed
   codec/runtime graph.
@@ -22,7 +22,7 @@ tools and place a compatible `VLCKit.xcframework` in `ios-app/Frameworks/`.
 The local Swift package and Kotlin cinterop use that path. JellyScope does not
 duplicate VideoLAN's build scripts.
 
-The XCFramework is dynamically linked by the iOS application. The project owner
+The XCFramework is dynamically linked by both Apple applications. The project owner
 accepts VideoLAN's LGPL declaration, exact source route, and replace-and-rebuild
 path for this pinned input. A new version, source revision, patch set, or linkage
 mode requires a fresh review.

@@ -3,11 +3,7 @@
 package com.jellyscope.tvos.presenter
 
 import com.jellyscope.core.domain.action.AuthError
-import com.jellyscope.core.domain.model.JellyfinImageType
-import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
-import com.jellyscope.core.domain.model.MediaItem
 import com.jellyscope.core.domain.model.MediaKind
-import com.jellyscope.core.domain.model.Session
 
 /**
  * Swift-facing error taxonomy. Presenters never expose user-facing strings;
@@ -67,6 +63,10 @@ data class TvMediaCard(
     val imageUrl: String? = null,
     val backdropUrl: String? = null,
     val logoUrl: String? = null,
+    val overview: String? = null,
+    val officialRating: String? = null,
+    val communityRating: Double? = null,
+    val runtimeMinutes: Long? = null,
     val progressPercent: Double? = null,
     val playbackPositionTicks: Long = 0L,
     val played: Boolean = false,
@@ -131,51 +131,3 @@ data class TvActiveSegment(
     // AutoSkip segments surface too while the presenter's skip is in flight.
     val askUser: Boolean,
 )
-
-internal fun MediaItem.toTvMediaCard(
-    session: Session,
-    imageUrlBuilder: JellyfinImageUrlBuilder,
-): TvMediaCard =
-    TvMediaCard(
-        id = id,
-        title = name,
-        kind = kind.toTvCardKind(),
-        seriesId = seriesId,
-        seriesName = seriesName,
-        episodeLabel = episodeLabel,
-        productionYear = productionYear,
-        imageUrl =
-            imageRefs.primaryTag?.let { tag ->
-                imageUrlBuilder.build(
-                    serverUrl = session.serverUrl,
-                    itemId = id,
-                    type = JellyfinImageType.Primary,
-                    tag = tag,
-                    maxWidth = CARD_IMAGE_MAX_WIDTH,
-                )
-            },
-        backdropUrl =
-            imageRefs.backdropTag?.let { tag ->
-                imageUrlBuilder.build(
-                    serverUrl = session.serverUrl,
-                    itemId = id,
-                    type = JellyfinImageType.Backdrop,
-                    tag = tag,
-                    maxWidth = BACKDROP_IMAGE_MAX_WIDTH,
-                )
-            },
-        logoUrl =
-            imageRefs.logoTag?.let { tag ->
-                imageUrlBuilder.build(
-                    serverUrl = session.serverUrl,
-                    itemId = id,
-                    type = JellyfinImageType.Logo,
-                    tag = tag,
-                    maxWidth = LOGO_IMAGE_MAX_WIDTH,
-                )
-            },
-        progressPercent = playedPercentage,
-        playbackPositionTicks = playbackPositionTicks ?: 0L,
-        played = played,
-        isFavorite = isFavorite,
-    )

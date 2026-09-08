@@ -207,8 +207,8 @@ offline branch never enters a remote URL or credential-attachment path, and
 deletion must refuse that leased generation.
 
 Android and JVM keep the normally resolved concrete backend for both artifact
-kinds. iOS selects VLCKit for every offline session, never writes that
-session-only choice to preferences, and makes the backend required. A missing,
+kinds. iOS and tvOS select VLCKit for every offline session, never write that
+session-only choice to preferences, and make the backend required. A missing,
 wrong, or failing VLCKit controller returns `OfflinePlayerUnavailable`; it does
 not prepare AVPlayer, fall back to it, or delete the artifact. The complete
 identity, artifact, and progress rules live in
@@ -481,9 +481,9 @@ quality policy. Desktop presents the same persistent actionable notice contract
 through shared Compose, with its pinned runtime supply, surface, and lifecycle
 ownership left intact.
 
-### tvOS / AVKit
+### tvOS native playback
 
-tvOS is native SwiftUI/AVKit over the shared Kotlin presenter, not Compose.
+tvOS uses native SwiftUI player hosts over shared Kotlin presenters.
 `TvPlaybackSessionPresenter` resolves the same typed policy, keeps player
 choices session-only, and consumes the same session-recovery and Auto-recovery
 kernels as the Compose player. The
@@ -501,6 +501,16 @@ instead of retaining an initialization snapshot. A close before installation
 reports nothing and leaves any late candidate to startup ownership for one
 release; a close after installation retains final reporting settlement and one
 native release.
+
+Online sessions remain AVPlayer-only. `TvOfflinePlaybackPresenter` loads the
+account-qualified local download and shared `buildOfflinePlaybackPlan`, requires
+VLC, and updates local progress without online planning or reporting. The
+MainActor native model watches exactly one presenter and mounts the host for its
+installed backend: AVKit online, or a controller-owned VLC drawable with native
+transport offline. The Apple engine owns leases and native teardown; Swift never
+resolves artifact paths. Queue/countdown and native panel behavior are owned by
+[data-playback.md](data-playback.md#tvos-native-player) and
+[ui.md](ui.md#native-tvos-screens).
 
 ## 6. Verification boundary
 

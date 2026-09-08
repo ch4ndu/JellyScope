@@ -85,11 +85,11 @@ checks the final APKs for the recorded native libraries and release metadata.
 
 ### iOS And tvOS
 
-The iOS build currently uses the pinned VLCKit 4 pre-release
+The iOS and tvOS builds use the same pinned VLCKit 4 pre-release
 XCFramework fetched by [`scripts/fetch-vlckit.sh`](../../scripts/fetch-vlckit.sh)
 and linked through the local binary Swift package in
 [`ios-app/VLCKitLocal/Package.swift`](../../ios-app/VLCKitLocal/Package.swift).
-The device slice is a dynamically linked framework. The exact archive,
+Each target links its matching dynamic framework slice. The exact archive,
 upstream LGPL-2.1 declaration and license text, official build revision,
 libVLC base revision, patch set, and source routes are recorded in
 [`scripts/vlckit-bundle/manifest-4.0.0a23.txt`](../../scripts/vlckit-bundle/manifest-4.0.0a23.txt).
@@ -101,9 +101,11 @@ tools and place the resulting compatible `VLCKit.xcframework` at
 that path. JellyScope does not mirror VLCKit or maintain a duplicate build
 script.
 
-The current tvOS target uses the Apple player path and does not consume the iOS
-VLCKit cinterop. Its managed dependency graph is still `review-required`. If a
-native player is later added to tvOS, that graph must be reviewed separately.
+tvOS consumes its own device/simulator VLCKit cinterop and links the matching
+XCFramework slice through the same local package. This enables VLC offline
+playback; online playback continues through AVPlayer. Its managed dependency
+graph remains `review-required`; successful compilation and the pinned native
+source record do not constitute tvOS distribution approval.
 
 The iOS release gate requires the exact source/notices record and a clean source
 revision. App signing, App Store metadata, privacy declarations, and final

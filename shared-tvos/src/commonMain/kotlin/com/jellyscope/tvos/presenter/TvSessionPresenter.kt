@@ -23,6 +23,7 @@ data class TvSessionState(
     val phase: TvSessionPhase,
     val session: Session? = null,
     val lastServerUrl: String? = null,
+    val boundaryEpoch: Long = 0L,
 )
 
 /**
@@ -64,5 +65,6 @@ private fun SessionState.toTvSessionState(): TvSessionState =
             TvSessionState(
                 phase = TvSessionPhase.LoggedIn,
                 session = session,
+                boundaryEpoch = boundaryEpoch,
             )
     }

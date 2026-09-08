@@ -21,6 +21,8 @@ OLD_ARCHIVE="$DEST_DIR/MobileVLCKit-3.7.3.tar.xz"
 if [[ -d "$XCFRAMEWORK" &&
       -d "$XCFRAMEWORK/ios-arm64" &&
       -d "$XCFRAMEWORK/ios-arm64_x86_64-simulator" &&
+      -d "$XCFRAMEWORK/tvos-arm64" &&
+      -d "$XCFRAMEWORK/tvos-arm64_x86_64-simulator" &&
       -f "$STAMP" &&
       "$(<"$STAMP")" == "$VERSION" ]]; then
   echo "VLCKit $VERSION already present at $XCFRAMEWORK"
@@ -45,8 +47,9 @@ if [[ -z "$SRC" ]]; then
   echo "ERROR: VLCKit.xcframework not found in archive" >&2
   exit 1
 fi
-if [[ ! -d "$SRC/ios-arm64" || ! -d "$SRC/ios-arm64_x86_64-simulator" ]]; then
-  echo "ERROR: VLCKit.xcframework is missing the required iOS device/simulator slices" >&2
+if [[ ! -d "$SRC/ios-arm64" || ! -d "$SRC/ios-arm64_x86_64-simulator" ||
+      ! -d "$SRC/tvos-arm64" || ! -d "$SRC/tvos-arm64_x86_64-simulator" ]]; then
+  echo "ERROR: VLCKit.xcframework is missing the required iOS/tvOS device/simulator slices" >&2
   exit 1
 fi
 rm -rf "$XCFRAMEWORK"

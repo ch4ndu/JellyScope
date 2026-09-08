@@ -4,6 +4,7 @@ package com.jellyscope.tvos.presenter
 
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
 import com.jellyscope.core.domain.usecase.GetContinueWatchingUseCase
+import com.jellyscope.core.domain.usecase.GetFavoritesUseCase
 import com.jellyscope.core.domain.usecase.GetNextUpUseCase
 import com.jellyscope.core.domain.usecase.GetRecentlyAddedUseCase
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -13,12 +14,11 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TvHomePresenterTest {
     @Test
-    fun continueWatchingBecomesHeroAndLeavesShelves() =
+    fun rowsPublishInCanonicalOrderWithoutDedicatedHero() =
         runTest {
             val repository =
                 FakeTvMediaRepository(
@@ -36,15 +36,27 @@ class TvHomePresenterTest {
             presenter.load()
             runCurrent()
 
-            val state = presenter.state.value
-            assertFalse(state.isLoading)
-            assertEquals(listOf(false), repository.nextUpIncludeResumableCalls)
-            assertEquals(TvHomeRowKind.ContinueWatching, state.hero?.kind)
+            val rows = presenter.state.value.rows
             assertEquals(
-                listOf(TvHomeRowKind.RecentlyAdded),
-                state.rows.map { row -> row.kind },
+                listOf(
+                    TvHomeRowKind.ContinueWatching,
+                    TvHomeRowKind.Favorites,
+                    TvHomeRowKind.NextUp,
+                    TvHomeRowKind.RecentlyAdded,
+                ),
+                rows.map { row -> row.kind },
             )
-            val card = requireNotNull(state.hero).items.first()
+            assertEquals(
+                listOf(
+                    TvHomeRowStatus.Content,
+                    TvHomeRowStatus.Empty,
+                    TvHomeRowStatus.Empty,
+                    TvHomeRowStatus.Content,
+                ),
+                rows.map { row -> row.status },
+            )
+            assertEquals(listOf(false), repository.nextUpIncludeResumableCalls)
+            val card = rows.first().items.first()
             assertEquals("item-1", card.id)
             assertEquals(40.0, card.progressPercent)
             assertTrue(requireNotNull(card.imageUrl).contains("/Items/item-1/Images/Primary"))
@@ -52,7 +64,7 @@ class TvHomePresenterTest {
         }
 
     @Test
-    fun recentlyAddedFallsBackAsHeroWhenNothingInProgress() =
+    fun oneRowFailureDoesNotBlockSuccessfulRows() =
         runTest {
             val repository =
                 FakeTvMediaRepository(
@@ -64,75 +76,45 @@ class TvHomePresenterTest {
             presenter.load()
             runCurrent()
 
-            assertEquals(
-                TvHomeRowKind.RecentlyAdded,
-                presenter.state.value.hero
-                    ?.kind,
-            )
-            assertTrue(
-                presenter.state.value.rows
-                    .isEmpty(),
-            )
-            assertNull(presenter.state.value.error)
+            val rows = presenter.state.value.rows
+            assertEquals(TvHomeRowStatus.Error, rows[0].status)
+            assertEquals(TvErrorKind.Network, rows[0].error)
+            assertEquals(TvHomeRowStatus.Content, rows[3].status)
+            assertEquals(listOf("item-2"), rows[3].items.map { card -> card.id })
             presenter.close()
         }
 
     @Test
-    fun favoritesAndPerLibraryLatestRowsComposeWithStableIds() =
+    fun retryReloadsOnlyTheRequestedRow() =
         runTest {
             val repository =
                 FakeTvMediaRepository(
-                    recentlyAdded = Result.success(listOf(mediaItem(id = "item-2"))),
-                    favorites = Result.success(listOf(mediaItem(id = "fav-1"))),
-                    libraries =
-                        Result.success(
-                            listOf(
-                                com.jellyscope.core.domain.model.Library(
-                                    id = "lib-movies",
-                                    name = "Movies",
-                                    collectionType = com.jellyscope.core.domain.model.LibraryCollectionType.Movies,
-                                ),
-                                com.jellyscope.core.domain.model.Library(
-                                    id = "lib-shows",
-                                    name = "Shows",
-                                    collectionType = com.jellyscope.core.domain.model.LibraryCollectionType.TvShows,
-                                ),
-                            ),
-                        ),
-                    recommendationRowsByParent =
-                        mapOf(
-                            "lib-movies" to
-                                listOf(
-                                    com.jellyscope.core.domain.model.LibraryRecommendationRow(
-                                        key = "latest",
-                                        section = com.jellyscope.core.domain.model.LibraryRecommendationSection.RecentlyAdded,
-                                        items = listOf(mediaItem(id = "new-movie")),
-                                    ),
-                                ),
-                        ),
+                    continueWatching = Result.success(listOf(mediaItem(id = "continue"))),
+                    favorites = Result.failure(IllegalStateException("down")),
                 )
             val presenter = presenter(repository)
 
             presenter.load()
             runCurrent()
+            repository.favorites = Result.success(listOf(mediaItem(id = "favorite")))
 
-            val state = presenter.state.value
-            assertEquals(TvHomeRowKind.RecentlyAdded, state.hero?.kind)
-            assertEquals(
-                listOf(TvHomeRowKind.Favorites, TvHomeRowKind.LatestInLibrary),
-                state.rows.map { row -> row.kind },
-            )
-            val latestRow = state.rows.last()
-            assertEquals("latest:lib-movies", latestRow.stableId)
-            assertEquals("Movies", latestRow.libraryName)
-            assertEquals(listOf("new-movie"), latestRow.items.map { card -> card.id })
+            presenter.retry(TvHomeRowKind.Favorites)
+            runCurrent()
+
+            val rows = presenter.state.value.rows
+            assertEquals(listOf("continue"), rows[0].items.map { card -> card.id })
+            assertEquals(TvHomeRowStatus.Content, rows[1].status)
+            assertEquals(listOf("favorite"), rows[1].items.map { card -> card.id })
             presenter.close()
         }
 
     @Test
-    fun allRowsFailingSurfacesError() =
+    fun allRowsFailIndependently() =
         runTest {
-            val failure = Result.failure<List<com.jellyscope.core.domain.model.MediaItem>>(IllegalStateException("down"))
+            val failure =
+                Result.failure<List<com.jellyscope.core.domain.model.MediaItem>>(
+                    IllegalStateException("down"),
+                )
             val repository =
                 FakeTvMediaRepository(
                     continueWatching = failure,
@@ -145,29 +127,26 @@ class TvHomePresenterTest {
             presenter.load()
             runCurrent()
 
-            assertEquals(TvErrorKind.Network, presenter.state.value.error)
-            assertTrue(
-                presenter.state.value.rows
-                    .isEmpty(),
-            )
+            val rows = presenter.state.value.rows
+            assertTrue(rows.all { row -> row.status == TvHomeRowStatus.Error })
+            assertTrue(rows.all { row -> row.error == TvErrorKind.Network })
+            assertTrue(rows.all { row -> row.items.isEmpty() })
             presenter.close()
         }
 
     @Test
-    fun emptyServerIsAValidEmptyHomeNotAnError() =
+    fun emptyServerCollapsesEveryRowWithoutErrors() =
         runTest {
-            // Every source succeeds with nothing — a fresh server, not a failure.
             val presenter = presenter(FakeTvMediaRepository())
 
             presenter.load()
             runCurrent()
 
-            assertNull(presenter.state.value.error)
-            assertNull(presenter.state.value.hero)
-            assertTrue(
-                presenter.state.value.rows
-                    .isEmpty(),
-            )
+            val rows = presenter.state.value.rows
+            assertFalse(rows.isEmpty())
+            assertTrue(rows.all { row -> row.status == TvHomeRowStatus.Empty })
+            assertTrue(rows.all { row -> row.items.isEmpty() })
+            assertTrue(rows.all { row -> row.error == null })
             presenter.close()
         }
 
@@ -177,15 +156,7 @@ class TvHomePresenterTest {
             getContinueWatching = GetContinueWatchingUseCase(repository),
             getNextUp = GetNextUpUseCase(repository),
             getRecentlyAdded = GetRecentlyAddedUseCase(repository),
-            getFavorites =
-                com.jellyscope.core.domain.usecase
-                    .GetFavoritesUseCase(repository),
-            getUserLibraries =
-                com.jellyscope.core.domain.usecase
-                    .GetUserLibrariesUseCase(repository),
-            getLibraryRecommendationSection =
-                com.jellyscope.core.domain.usecase
-                    .GetLibraryRecommendationSectionUseCase(repository),
+            getFavorites = GetFavoritesUseCase(repository),
             imageUrlBuilder = JellyfinImageUrlBuilder(),
             dispatchers = testDispatchers(StandardTestDispatcher(testScheduler)),
         )

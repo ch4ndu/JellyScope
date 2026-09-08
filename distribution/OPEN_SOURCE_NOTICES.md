@@ -24,7 +24,7 @@ application is distributed under GPL-3.0 terms. JellyScope-owned files remain
 available under MPL-2.0 and are additionally distributed under GPL-3.0 for this
 Larger Work through MPL-2.0 Section 3.3.
 
-iOS packages include the exact pinned VLCKit 4.0.0a23 artifact, LGPL-2.1
+iOS and tvOS packages include the exact pinned VLCKit 4.0.0a23 artifact, LGPL-2.1
 notice, build revision, patch set, and source routes from
 `scripts/vlckit-bundle/`. A compatible framework built with VideoLAN's upstream
 tools can replace the downloaded framework at the documented local path.

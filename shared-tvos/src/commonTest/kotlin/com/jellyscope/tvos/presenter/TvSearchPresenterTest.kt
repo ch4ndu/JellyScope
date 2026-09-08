@@ -6,6 +6,7 @@ import com.jellyscope.core.domain.action.AddRecentSearchAction
 import com.jellyscope.core.domain.action.ClearRecentSearchesAction
 import com.jellyscope.core.domain.model.FindResults
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
+import com.jellyscope.core.domain.usecase.FindPersonsUseCase
 import com.jellyscope.core.domain.usecase.GetRecentSearchesUseCase
 import com.jellyscope.core.domain.usecase.SearchLibraryUseCase
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -109,7 +110,7 @@ class TvSearchPresenterTest {
         }
 
     @Test
-    fun failedQueryClearsPreviousResults() =
+    fun failedQueryRetainsPreviousResults() =
         runTest {
             var fail = false
             val repository =
@@ -132,7 +133,7 @@ class TvSearchPresenterTest {
             fixture.presenter.submit("second")
             runCurrent()
             val state = fixture.presenter.state.value
-            assertTrue(!state.hasResults)
+            assertEquals(listOf("movie-1"), state.movies.map(TvMediaCard::id))
             assertEquals(TvErrorKind.Network, state.error)
             presenterClose(fixture)
         }
@@ -245,6 +246,7 @@ class TvSearchPresenterTest {
             TvSearchPresenter(
                 session = testSession(),
                 searchLibrary = SearchLibraryUseCase(repository),
+                findPersons = FindPersonsUseCase(repository),
                 getRecentSearches = GetRecentSearchesUseCase(store),
                 addRecentSearch = AddRecentSearchAction(store),
                 clearRecentSearches = ClearRecentSearchesAction(store),

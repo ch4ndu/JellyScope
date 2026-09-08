@@ -11,7 +11,7 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-// Fetches the vendored VLCKit xcframework (gitignored) before the iOS
+// Fetches the vendored VLCKit xcframework (gitignored) before the Apple
 // cinterop needs its headers. Idempotent: the script skips when already present.
 val fetchVlcKit =
     tasks.register<Exec>("fetchVlcKit") {
@@ -42,8 +42,7 @@ kotlin {
         withHostTest {}
     }
 
-    // VLCKit cinterop is iOS-only (never tvOS). Each iOS target points at
-    // its matching xcframework slice; the cinterop task fetches the framework first.
+    // Each Apple target uses its matching slice; appleMain consumes the commonized API.
     fun org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget.vlcKitCinterop(slice: String) {
         val cinterop =
             compilations.getByName("main").cinterops.create("vlckit") {
@@ -54,8 +53,8 @@ kotlin {
     }
     iosArm64 { vlcKitCinterop("ios-arm64") }
     iosSimulatorArm64 { vlcKitCinterop("ios-arm64_x86_64-simulator") }
-    tvosArm64()
-    tvosSimulatorArm64()
+    tvosArm64 { vlcKitCinterop("tvos-arm64") }
+    tvosSimulatorArm64 { vlcKitCinterop("tvos-arm64_x86_64-simulator") }
     jvm()
 
     sourceSets {

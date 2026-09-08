@@ -2,10 +2,14 @@
 
 package com.jellyscope.tvos.presenter
 
+import com.jellyscope.core.data.local.LibraryViewPreferencesStore
 import com.jellyscope.core.data.local.LogCollectionPreferenceStore
 import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
+import com.jellyscope.core.domain.action.SetPlaybackInfoAtStartEnabledAction
+import com.jellyscope.core.domain.action.SetRememberLastLibraryViewAction
+import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.model.SendClientLogsResult
@@ -16,7 +20,9 @@ import com.jellyscope.core.domain.playback.MediaSegmentType
 import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.usecase.GetLogCollectionStateUseCase
+import com.jellyscope.core.domain.usecase.GetPlaybackInfoAtStartStateUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackPreferencesUseCase
+import com.jellyscope.core.domain.usecase.ObserveRememberLastLibraryViewUseCase
 import com.jellyscope.core.playback.PlaybackDiagnosticsContext
 import com.jellyscope.core.util.LogBufferStore
 import kotlinx.coroutines.currentCoroutineContext
@@ -223,6 +229,28 @@ class TvSettingsPresenterTest {
             store.expectedDispatcher = workDispatcher
             preferenceStore.expectedDispatcher = workDispatcher
             repository.expectedUploadDispatcher = workDispatcher
+            val libraryViewStore =
+                object : LibraryViewPreferencesStore {
+                    override val rememberLastView = MutableStateFlow(false)
+
+                    override fun lastLibraryId(accountKey: String): String? = null
+
+                    override fun savedView(libraryKey: String): LibraryInnerView? = null
+
+                    override suspend fun setRememberLastView(enabled: Boolean) {
+                        rememberLastView.value = enabled
+                    }
+
+                    override suspend fun setLastLibraryId(
+                        accountKey: String,
+                        libraryId: String,
+                    ) = Unit
+
+                    override suspend fun setSavedView(
+                        libraryKey: String,
+                        view: LibraryInnerView,
+                    ) = Unit
+                }
             val logBufferStore =
                 LogBufferStore(
                     preferenceStore = preferenceStore,
@@ -233,8 +261,12 @@ class TvSettingsPresenterTest {
                 session = testSession(),
                 getPlaybackPreferences = GetPlaybackPreferencesUseCase(store),
                 savePlaybackPreferences = SavePlaybackPreferencesAction(store),
+                observeRememberLastLibraryView = ObserveRememberLastLibraryViewUseCase(libraryViewStore),
+                setRememberLastLibraryView = SetRememberLastLibraryViewAction(libraryViewStore),
                 getLogCollectionState = GetLogCollectionStateUseCase(preferenceStore, logBufferStore),
                 setLogCollectionEnabled = SetLogCollectionEnabledAction(preferenceStore, logBufferStore),
+                getPlaybackInfoAtStartState = GetPlaybackInfoAtStartStateUseCase(preferenceStore),
+                setPlaybackInfoAtStartEnabled = SetPlaybackInfoAtStartEnabledAction(preferenceStore),
                 sendClientLogsAction =
                     SendClientLogsAction(
                         logBufferStore = logBufferStore,

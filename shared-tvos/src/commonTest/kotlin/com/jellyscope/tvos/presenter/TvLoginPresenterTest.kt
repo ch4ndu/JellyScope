@@ -6,8 +6,12 @@ import com.jellyscope.core.domain.action.AuthError
 import com.jellyscope.core.domain.action.LoginAction
 import com.jellyscope.core.domain.action.QuickConnectLoginAction
 import com.jellyscope.core.domain.action.ValidateServerAction
+import com.jellyscope.core.domain.discovery.DiscoveredServer
+import com.jellyscope.core.domain.discovery.ServerDiscovery
 import com.jellyscope.core.domain.model.QuickConnectCode
 import com.jellyscope.core.domain.model.QuickConnectLoginUpdate
+import com.jellyscope.core.domain.usecase.DiscoverServersUseCase
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -143,6 +147,14 @@ class TvLoginPresenterTest {
             validateServerAction = ValidateServerAction(repository),
             loginAction = LoginAction(repository),
             quickConnectLoginAction = QuickConnectLoginAction(repository),
+            discoverServers =
+                DiscoverServersUseCase(
+                    object : ServerDiscovery {
+                        override val isAvailable = false
+
+                        override fun discover(timeoutMs: Long) = emptyFlow<DiscoveredServer>()
+                    },
+                ),
             dispatchers = testDispatchers(StandardTestDispatcher(testScheduler)),
         )
 }

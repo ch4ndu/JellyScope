@@ -480,9 +480,8 @@ without resetting Settings scroll or focus.
   content-sized, not bar-width: label and chevron sit adjacent with a small gap
   and both centre vertically, so the chevron reads as part of the title rather
   than a detached control at the far edge, and a long library name ellipsizes
-  instead of pushing the chevron off-screen. Movies expose Recommended,
-  Library, Genres, and Collections; shows expose Recommended, Library, and
-  Genres; other library types expose Library only. Recommended is the default
+  instead of pushing the chevron off-screen. Movies and shows expose
+  Recommended and Library; other library types expose Library only. Recommended is the default
   for movie/show libraries. Each inner view preserves its own scroll state and
   creates/loads its data owner only after the view is selected. The inner
   selector uses the same pill geometry and minimum touch target as Detail
@@ -581,6 +580,129 @@ without resetting Settings scroll or focus.
   items.forEach { ... } }`; emit keyed lazy `items(...)` where virtualization
   matters.
 
+## Native tvOS screens
+
+The SwiftUI shell uses native `TabView` and `NavigationStack` navigation, with
+sidebar tabs on tvOS 18 and standard tabs on tvOS 17, ordered Home, Favorites,
+Libraries, Search, Downloads, and Settings. Favorites has its own navigation
+history and reuses the bounded View All grid. View All refresh keeps cards
+mounted, reports refresh failure inline, and restores surviving focus; its
+newest re-entry refresh replaces an older request. Its playable cards use the
+same home variant as Search. System Back pops the
+current destination. Browsing state follows the
+[shared account lifecycle](architecture.md#account-boundary-and-lifecycle).
+App-global appearance watches live outside the account-keyed subtree: Ocean,
+Midnight and Ember colors and Small/Medium/Large card sizes update browsing and
+settings through a native environment. Resizing preserves aspect ratios, clipped
+viewports, focus reserve and stable media identity; player video remains black.
+
+Home presents Continue Watching, Favorites, Next Up, and Recently Added in
+that order. Each ribbon loads and retries independently; successful empty
+ribbons collapse. Re-entry refresh retains visible cards. The cinematic hero
+stays above the clipped vertical shelf viewport, follows settled media focus,
+and preserves its last item while controls have focus. Artwork has stable
+fallbacks and respects Reduce Motion.
+
+Libraries opens a collection-specific hub with Recommended and Library views
+where supported. Recommendation sections load and retry independently. The
+Library view retains a paged grid, collection-specific sort choices, and draft
+filters with Apply, Reset, and Cancel. Sort and the optional last inner view use
+shared preferences. Paging tracks consumed server offsets independently of
+card deduplication; re-entry refresh is bounded to 200 consumed items. A newer
+query or page invalidates older refresh results. The grid clips beneath its
+controls and the fixed hero; horizontal ribbons reserve room for focus scaling.
+
+Media focus identity includes its ribbon and item, so the same title can appear
+in multiple ribbons. Return navigation reveals the saved target before restoring
+focus, falling back within that ribbon when the item disappears. Select opens
+detail; Play/Pause on a movie or episode opens playback at its
+resume position. View All uses the shared bounded ribbon query. Swift renders
+typed presenter state and owns native focus; business projection remains in
+Kotlin. Android-specific focus algorithms are owned by the TV UX guide.
+
+Item detail presents readable metadata, source-qualified version/audio/subtitle
+choices, media information, people, and related titles. Play, Resume, and
+Restart follow the shared resume decision. Watched applies to movies and
+episodes; an explicit change clears the launch bookmark, and a failed change
+restores the confirmed watched status and progress. Series exposes favorite.
+Explicit track choices travel with the
+playback route and are validated against its original item and source. Local
+subtitle handoff keeps Play, Restart, and Download mounted but disabled until
+selection settles; failures require a new subtitle or source choice. A person
+credited in both Cast and Crew remains in both sections, with distinct role
+labels preserved within each section.
+
+Series opens seasons and Next Up; an explicit season keeps precedence over
+Next Up. Account-qualified final Stop settlement refreshes retained detail,
+relevant episodes and Next Up, including when settlement follows the initial
+return refresh. Refresh preserves visible content and explicit choices.
+Episode Select opens detail, while Play/Pause and row actions target
+that episode. Season errors and item-action failures remain visible and
+retryable. Person links open a header and paged Movies/Shows filmography.
+Detail headers scroll with content; the fixed browsing hero is specific to
+Home and Libraries.
+
+Search uses the system field and keyboard for the full Find query: text/year,
+person, genre, runtime, and watched status. Person and filter-only requests work
+without free text; keyboard edits clear a person selection while retaining
+questionnaire filters. All, Movies, Shows, and Episodes select cached result
+sections. Query, filters, results, focus, and navigation survive detail/player
+return and tab changes. Recent queries are account-scoped and recorded on
+submit, recent selection, or person selection; filter edits never add blank
+recents. Failed searches retain useful results with Retry.
+
+Settings uses native forms and navigation-link pickers for supported playback,
+language, segment, browsing, appearance, subtitles, diagnostics, and account
+controls. A failed playback-preference load shows Retry and keeps only playback,
+language, and segment controls disabled until a successful read; recovery retains
+the last confirmed values. Remember Library Tab uses the
+shared preference; autoplay-next controls automatic advancement while keeping
+manual Next available. Delay and still-watching preferences use the shared
+playback writer. Diagnostics disclosure and open-source notices remain
+reachable. Account information and Manage Accounts show each configured server
+URL, including its base path. Account switching and confirmed removal use shared Actions; removal
+shows the captured account's download count/bytes, refreshes stale previews,
+blocks leased artifacts, and releases canceled previews. Native dismissal cannot
+cancel a consumed confirmation; Cancel and Back still release an unconfirmed
+preview. Add Account presents
+the same login flow, with cancellation preserving the session.
+
+Login keeps manual server entry available alongside capability-gated nearby
+discovery. Sign-in presents Quick Connect with a visible code and a password
+alternative. Native Back from sign-in cancels its work, clears password input,
+and returns to server entry while retaining discovered rows. An idle scan offers
+Search Again with or without results; discovery failure has an explicit Retry
+and never blocks manual entry. Root Back and keyboard
+editing retain system behavior; shared session state owns successful routing.
+
+Player components separate the installed native host, transport and panels.
+Queue offers the current item, direct selection, previous/next and shuffle.
+Next-up offers identity/artwork, Play Now and Dismiss; completion countdown and
+still-watching semantics are owned by
+[data-playback.md](data-playback.md#tvos-native-player). Modal precedence is
+action/error, still-watching, a user-opened panel, then next-up. Back closes the
+topmost panel and returns focus to its invoker; unobscured Back closes playback.
+Progress updates do not steal focus or rebuild AVKit menus. Controls expose
+speed, supported subtitle style, AVKit video sizing and sanitized diagnostics.
+Timing and VLC video sizing are explicitly unavailable.
+
+OpenSubtitles settings provide a masked consumer-key editor, result preference
+and confirmed local-asset clearing. Movie/episode detail and online playback
+open account/item/source-qualified search. Results show loading, empty, failure,
+unsupported, quota and installation states; local rows offer Select, Delete and
+Retry Sync. Off clears selection. Offline playback has no remote subtitle-search
+entry or arbitrary file import.
+
+Downloads has its own tab and navigation path. Movie/episode detail previews the
+current version and track selection for Original or supported converted quality
+before enqueue. The local list groups completed, active, queued, paused and
+failed records and provides guarded playback, pause/resume/retry, Resume All,
+explicit Resume Queued Downloads with pending and retryable failure states,
+Cancel/Delete and storage allocation controls. Destructive actions confirm and
+respect active leases. Retained-account access survives server failure; the UI
+explains Apple TV's reclaimable storage and app-active transfer limit. The
+[download contract](data-playback.md#downloads-and-offline) owns those rules.
+
 ## Previews
 
 - Keep previews focused on content composables with sample data.
@@ -605,6 +727,31 @@ Rationale for rules this guide states: the choice, the reason, and what was
 rejected. An entry is deleted when its rule changes.
 
 ### Theme, launch, and layout
+
+- **Native tvOS owns focus and navigation.** SwiftUI controls preserve Siri
+  Remote behavior while the Kotlin presenter owns loading, paging, filter
+  projection, and media data.
+  Search, forms, and login also use system controls so keyboard and Back
+  behavior follow tvOS. Favorites reuses View All and Find reuses the shared
+  query contracts, avoiding duplicate retrieval or search policy. Independent
+  tab paths and retained cards keep refresh from replacing return navigation.
+  Account and authentication Actions keep one shared
+  session authority instead of a second native credential store.
+  Detail choices use the shared playback contracts through explicit native
+  routes, so a refreshed or fallback source cannot inherit another source's
+  track intent. Settlement-driven refresh closes the late-report return race;
+  preserving played status and progress together prevents a local watched action
+  from restoring a stale bookmark. Buttons resolve routes when pressed so a prior render cannot
+  bypass the subtitle handoff gate. Consumed account intent is checked after
+  native dismissal callbacks so callback ordering cannot turn Confirm into
+  Cancel. Failed preference reads keep controls disabled because defaults are
+  not store truth. Feature-sized player/subtitle/download components reuse those
+  domain actions and local state instead of creating native business stores.
+  Appearance belongs outside the account subtree because an account change must
+  not restart its watches or reset installation-wide preferences.
+  Ribbon-and-item identity preserves distinct appearances of one title. The
+  Android focus coordinator and a generic Swift focus framework were rejected
+  because native navigation and small view-local return state meet this scope.
 
 - **Unavailable discovery is omitted from logged-out presentation.** The
   server-entry layout has no result, spinner, empty state, or retry affordance

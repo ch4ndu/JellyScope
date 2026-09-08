@@ -1423,6 +1423,10 @@ class TvPlaybackSessionPresenterTest {
                 fixture(
                     detail = Result.success(testDetail(item = episode1)),
                     itemId = "ep-1",
+                    preferences =
+                        com.jellyscope.core.domain.model.PlaybackPreferences(
+                            autoPlayNextDelaySeconds = 0,
+                        ),
                 )
             fixture.repository.detailsById =
                 mapOf(
@@ -1527,6 +1531,10 @@ class TvPlaybackSessionPresenterTest {
                 fixture(
                     detail = Result.success(testDetail(item = episode1)),
                     itemId = "ep-1",
+                    preferences =
+                        com.jellyscope.core.domain.model.PlaybackPreferences(
+                            autoPlayNextDelaySeconds = 0,
+                        ),
                 )
             fixture.repository.detailsById =
                 mapOf(
@@ -1599,6 +1607,10 @@ class TvPlaybackSessionPresenterTest {
                     playbackInfos = List(3) { Result.success(directPlayInfo()) },
                     detail = Result.success(testDetail(item = episode1)),
                     itemId = "ep-1",
+                    preferences =
+                        com.jellyscope.core.domain.model.PlaybackPreferences(
+                            autoPlayNextDelaySeconds = 0,
+                        ),
                 )
             fixture.repository.detailsById =
                 mapOf(
@@ -1691,6 +1703,7 @@ class TvPlaybackSessionPresenterTest {
         val presenter =
             TvPlaybackSessionPresenter(
                 session = testSession(),
+                startWithPlaybackInfoOverlay = false,
                 initialItemId = itemId,
                 requestedMediaSourceId = "source-1",
                 initialStartPositionTicks = startTicks,

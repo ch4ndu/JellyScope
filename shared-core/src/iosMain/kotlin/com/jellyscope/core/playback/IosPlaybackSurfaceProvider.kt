@@ -2,12 +2,8 @@
 
 package com.jellyscope.core.playback
 
-import platform.UIKit.UIView
-
 /** Provides a native iOS view for player backends that do not use AVPlayerLayer. */
-public interface IosPlaybackSurfaceProvider {
-    public fun createSurfaceView(): UIView
-}
+public interface IosPlaybackSurfaceProvider : ApplePlaybackSurfaceProvider
 
 /** iOS-only PiP capability kept separate from the common player contract. */
 public interface IosPictureInPictureSurfaceProvider {

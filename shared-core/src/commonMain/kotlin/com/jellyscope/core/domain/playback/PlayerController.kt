@@ -69,6 +69,12 @@ interface PlayerController {
         observedAtMs: Long = 0L,
     ) = Unit
 
+    /** Records explicit native-host transport intent without issuing another native command. */
+    fun recordHostPlaybackIntent(
+        generation: Long,
+        isPlaying: Boolean,
+    ): Boolean = false
+
     fun selectEmbeddedAudio(selection: EmbeddedAudioSelection)
 
     fun selectEmbeddedSubtitle(selection: EmbeddedSubtitleSelection?)

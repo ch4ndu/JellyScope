@@ -290,6 +290,11 @@ behavior is validated manually. A feature or bug fix does not by itself require
 a new regression test, and several edge cases may need design analysis without
 needing one test each.
 
+Native tvOS SwiftUI code in `tvos-app` has no automated test target. Do not add
+SwiftUI unit, UI, or snapshot tests. Verify that shell through source tracing
+and its platform build; device checks still need the authorization below.
+This rule does not remove the existing Kotlin presenter suite in `shared-tvos`.
+
 Without separate approval, add at most one new causal automated test only when
 all of these are true:
 
@@ -648,6 +653,10 @@ its rule changes.
   exposes its incremental value and cost before implementation. This keeps
   coverage focused on durable regressions instead of turning every feature and
   edge case into permanent maintenance work.
+- **Native tvOS SwiftUI carries no automated test suite.** Its verification
+  boundary uses source tracing and compilation to limit ongoing native test
+  maintenance. The Kotlin presenter suite remains separate; a SwiftUI policy
+  does not justify deleting shared presentation coverage.
 - **Diagnostics preserve decisions at their owning boundaries.** Closed
   first-capture records were chosen over generic terminal errors because a
   successful request can still fail during decode, projection, admission, or

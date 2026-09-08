@@ -40,8 +40,8 @@ The current alpha release is **0.1.0-alpha94**.
 
 Android TV and Android mobile are the primary platforms, with full browse,
 discovery, detail, settings, and playback surfaces. iPhone, iPad, and macOS
-share the same browse experience with native playback. Apple TV is an
-unsupported alpha preview: its native shell is available only for best-effort
+share the same browse experience with native playback. Apple TV is a
+permanently unsupported alpha preview: its native shell is available only for best-effort
 simulator/build experimentation, with no hardware validation, feature-parity,
 or ongoing support commitment.
 
@@ -51,7 +51,7 @@ or ongoing support commitment.
 | Android phone and tablet | ExoPlayer (default), mpv, LibVLC (beta) |
 | iPhone and iPad | AVPlayer (default), VLCKit |
 | macOS | mpv (default), LibVLC (beta) |
-| Apple TV | System player (unsupported alpha preview) |
+| Apple TV | [Native playback](docs/guides/playback-architecture.md#tvos-native-playback) (unsupported alpha preview) |
 
 Android builds install on Android 7.1 / API 25 or newer, including Fire OS 6
 devices (original Fire TV Cube). The mpv backend requires API 26+ and reports
