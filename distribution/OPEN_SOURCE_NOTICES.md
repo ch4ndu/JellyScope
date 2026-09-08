@@ -8,13 +8,11 @@ https://github.com/ch4ndu/JellyScope
 Each release metadata set records the exact source revision in
 `SOURCE_REVISION.txt` and the complete tracked project tree in
 `PROJECT_FILES.git-tree`. The repository's `LICENSE` file contains the project
-license text.
+license text. Open `SOURCE_URL.txt` from the metadata set to browse the exact
+JellyScope revision; repository paths below are relative to that source tree.
 
-Each binary also carries the licenses and obligations of its third-party
-dependency and native-artifact graph.
-
-JellyScope also uses separately licensed third-party software. The generated
-release metadata includes `THIRD_PARTY_COMPONENTS.tsv`, the Android/iOS managed
+Each binary carries its third-party licenses and obligations. Release metadata
+includes `THIRD_PARTY_COMPONENTS.tsv`, the Android/iOS managed
 runtime notices, the reviewed desktop JVM inventory, the Gradle version catalog,
 and the platform-native manifests, license texts, and source routes.
 
@@ -33,8 +31,7 @@ Apple Silicon macOS packages include the
 recorded VLC 3.0.23 notice set from `scripts/vlc-bundle/` and the IINA 1.4.0
 arm64 mpv dylib manifest, GPL texts, and source routes from
 `scripts/desktop-mpv-bundle/`. The IINA/upstream declarations were not
-independently audited; the project owner accepts them as ordinary OSS
-provenance, and the combined macOS package is available under GPL-compatible
+independently audited; the recorded policy accepts that upstream provenance, and the combined macOS package is available under GPL-compatible
 terms through MPL-2.0 Section 3.3. The desktop JVM inventory records the accepted
 macOS arm64 runtime families, resolved versions, published licenses, and source
 routes; release verification rejects any family or version outside that record.
@@ -47,5 +44,7 @@ versions are recorded in the packaged Gradle version catalog.
 
 This notice supplements rather than replaces any third-party license text.
 JellyScope is provided without warranty. Third-party licenses and notices must
-be preserved unchanged. The Android GPL-3.0 text is available at
-[`scripts/android-mpv-bundle/licenses/GPL-3.0-only.txt`](../scripts/android-mpv-bundle/licenses/GPL-3.0-only.txt).
+be preserved unchanged. In the distributed `license-metadata` directory, the
+Android GPL-3.0 text is at
+`platform-notices/android/licenses/GPL-3.0-only.txt`. In a source checkout, it
+is at `scripts/android-mpv-bundle/licenses/GPL-3.0-only.txt`.

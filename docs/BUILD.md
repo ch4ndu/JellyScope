@@ -1,10 +1,6 @@
 # Building And Running JellyScope
 
-Setup, build, and local-verification instructions for every platform shell,
-including the broad verification baseline for wide changes.
-[`README.md`](../README.md) is the product/capability entry point.
-
-All commands run from the repository root.
+Run commands from the repository root. Product capabilities: [`README.md`](../README.md).
 
 Release variants may be built from a dirty worktree for local testing. Their
 packaged metadata records that state. Only `scripts/build-release-artifacts.sh`
@@ -14,10 +10,15 @@ success, that script collects the versioned files in the ignored
 
 ## Toolchain
 
-- **JDK 21, installed locally.** Modules target it through `jvmToolchain`, and
-  no toolchain-download resolver is configured, so Gradle will not fetch it for
-  you.
-- Android SDK, for either Android shell.
+- **JDK 21, installed locally.** Modules select it through `jvmToolchain`; no
+  toolchain-download resolver is configured.
+- Android SDK, for either Android shell. Install the platform matching
+  `compileSdk` in the version catalog (currently API 37), plus the side-by-side
+  NDK and CMake versions pinned by
+  [`android-libmpv/build.gradle.kts`](../android-libmpv/build.gradle.kts).
+  Use Android Studio's SDK Manager, including **Show Package Details** for
+  native tools. Set `sdk.dir` in the ignored root `local.properties` to the
+  SDK directory, or configure `ANDROID_HOME`.
 - Android 7.1 / API 25 or newer for both Android shells, which keeps Fire OS 6
   devices installable. The mpv backend additionally requires API 26+ and
   reports typed unavailability below that.
@@ -27,12 +28,22 @@ success, that script collects the versioned files in the ignored
 
 Dependencies are pinned in
 [`gradle/libs.versions.toml`](../gradle/libs.versions.toml). Bumping Media3
-means bumping `media3` and `media3Ffmpeg` together. The Android `android-libmpv` wrapper, its pinned AAR build
-input, native ABI/license manifest, and corresponding-source process are owned by the
+means bumping `media3` and `media3Ffmpeg` together. The Android
+`android-libmpv` wrapper, its pinned AAR build input, native ABI/license
+manifest, and corresponding-source process are owned by the
 [`android-native-dependencies.md`](operations/android-native-dependencies.md)
-runbook; its exact `dev.jdtech.mpv:libmpv:1.0.0` input pin is Android-only and
-does not change the desktop libmpv path. The AAR is extracted during the
-`android-libmpv` build and its original bridge is not packaged directly.
+runbook. That Android-only input does not change the desktop libmpv path; the
+AAR is extracted during the `android-libmpv` build and its original bridge is
+not packaged directly.
+
+`compileSdk` selects build APIs; `targetSdk` selects Android compatibility
+behavior and is currently API 36. Neither raises the installation floors above.
+The version catalog and native module are the authoritative version owners.
+Use the committed Gradle wrapper. Check the selected Kotlin version against
+the [Kotlin Multiplatform compatibility table](https://kotlinlang.org/docs/multiplatform/multiplatform-compatibility-guide.html)
+when selecting Xcode or changing Gradle/AGP. Successful local verification of a
+combination does not extend the vendor's supported range. `xcodebuild -version`
+and `xcode-select -p` identify the active Xcode installation.
 
 ## Local developer prefill
 
@@ -53,7 +64,7 @@ tvOS Debug, and desktop/macOS builds. `CI=true` or `CI=1` (case-insensitive),
 `StoreRelease`, and an explicit `-PjellyscopeDeveloperPropertiesEnabled=false`
 compile empty values without reading it; `CI=false` remains local mode. Release
 tooling also force-disables the file before Gradle, which remains authoritative
-even when a user or project Gradle property requests enablement. A persisted
+even when another Gradle property requests enablement. A persisted
 OpenSubtitles key remains authoritative; the local value is an unpersisted
 fallback only and is never displayed or logged.
 
@@ -73,16 +84,16 @@ fallback only and is never displayed or logged.
 ./gradlew :android-tv-app:bundleRelease
 ```
 
-Android Debug and local Release builds may consume the optional developer
-prefill described above. Both still fall back to debug signing when no release
-keystore is configured; see [`RELEASE.md`](RELEASE.md).
+Both Android shells fall back to debug signing without release credentials;
+see [`RELEASE.md`](RELEASE.md).
 
 LibVLC playback is degraded on debug builds. Test playback on a release build.
 The release candidate also carries the pinned Android mpv native payload and
 must pass `bash scripts/verify-android-native-bundle.sh` against both release
-APKs after assembly. That package check is separate from the physical mpv/
-LibVLC coexistence and playback validation tracked in the internal
-`.local/KNOWN-ISSUES.md` ledger.
+APKs after assembly. That package check is separate from physical mpv/LibVLC
+coexistence and playback validation, which requires minified release APKs on
+representative hardware under the
+[runtime-validation rules](guides/workflow.md#manual-and-platform-validation).
 
 ## Desktop (JVM)
 
@@ -122,29 +133,36 @@ fails.
 
 ## iOS
 
-`ios-app/` hosts the shared Compose app through SwiftUI. With Xcode installed
-and network access:
+`ios-app/` hosts the shared Compose app through SwiftUI. Before opening the
+project in Xcode or running the first build, prepare its local Swift package's
+binary target. With Xcode installed and network access:
 
 ```bash
+./scripts/fetch-vlckit.sh
 xcodebuild -project ios-app/iosApp.xcodeproj -scheme iosApp \
   -configuration Debug -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
 ```
 
-Use the `devRelease` scheme for local Release Run/Test. Every archive must use
-the `storeRelease` scheme and its `StoreRelease` configuration; it exports the
-Release Kotlin framework build type and disables developer properties before
-Gradle. An archive or install action under ordinary `Release` stops before
-Gradle. The StoreRelease package-license phase applies the iOS release-ready
-check, while ordinary local Release uses the non-distribution check.
+The fetch script reuses a prepared framework on later builds. Use `devRelease`
+for local Release Run/Test and `storeRelease` for distribution work. The
+enforced archive/install boundary is the **StoreRelease configuration**; all
+committed iOS schemes already select it for Archive. It exports the Release
+Kotlin framework build type and disables developer properties before Gradle.
+Archive/install actions under other configurations stop before Gradle. The
+StoreRelease package-license phase applies the iOS release-ready check, while
+ordinary local Release uses the non-distribution check.
 
 ## tvOS
 
 `tvos-app/` hosts the native SwiftUI shell over the `SharedTv` framework
-(Compose Multiplatform publishes no tvOS UI targets):
+(Compose Multiplatform publishes no tvOS UI targets). It uses the matching tvOS
+slices from the same local VLCKit package as iOS. Prepare that package before
+opening Xcode:
 
 ```bash
+./scripts/fetch-vlckit.sh
 ./gradlew :shared-tvos:jvmTest :shared-tvos:linkDebugFrameworkTvosSimulatorArm64
 xcodebuild -project tvos-app/tvosApp.xcodeproj -scheme tvosApp \
   -configuration Debug \
@@ -154,20 +172,40 @@ xcodebuild -project tvos-app/tvosApp.xcodeproj -scheme tvosApp \
 Only tvOS Debug uses the optional developer server prefill; tvOS Release always
 uses empty values.
 
-## Local verification
+## Installing and upgrading
 
-```bash
-./scripts/verify.sh
-```
+Choose the platform artifact. Build commands above produce local
+artifacts; the [release runbook](RELEASE.md) owns signed distribution output
+and publication. A source checkout or build command does not imply that a
+public download or store listing is available.
 
-That is the local pre-flight check, and it stops the Gradle daemons when it
-finishes. What it covers, what else a given change must run, and what counts as
-verified are owned by [`guides/workflow.md`](guides/workflow.md); the broad
-baseline for wide changes is the Verification Baseline section below.
+| Platform | Artifact and installation |
+| --- | --- |
+| Android phone/tablet | Use the mobile APK. Local Release output is `android-app/build/outputs/apk/release/android-app-release.apk`. Open it on the device with installation allowed for the source app, or use Android SDK platform-tools: `adb install -r path/to/mobile.apk`. |
+| Android TV / Fire TV | Use the TV APK, locally `android-tv-app/build/outputs/apk/release/android-tv-app-release.apk`. Install it on the TV, for example with `adb install -r path/to/tv.apk` through an authorized ADB connection. |
+| macOS | On a supported Apple Silicon Mac, open the DMG and drag JellyScope to Applications, then launch that copy. Direct packaging writes under `desktop-app/build/compose/binaries/main-release/dmg/`; signed release collection is described in the runbook. |
+| iOS | Use the distribution route supplied with the build, such as a TestFlight invitation or a provisioned development/ad hoc install. See [iOS release artifacts](RELEASE.md#ios-release-artifacts); an arbitrary IPA or simulator app is not a general device installer. |
+| tvOS | Build the Xcode shell above and use Xcode's signing/install route for development. This guide does not advertise a public tvOS release. |
 
-## Verification Baseline
+An Android AAB is a store publishing bundle, not a file to install directly.
+Local bundles are under each Android module's `build/outputs/bundle/release/`;
+Debug APKs are under `build/outputs/apk/debug/`.
 
-For broad changes:
+For Android upgrades, retain the same variant and signing key and install a
+compatible newer version over the existing app. Mobile and TV share the
+`com.jellyscope` application ID, so they cannot coexist as separate installs
+on one device. A differently signed APK cannot update the installed app;
+uninstalling to change signing removes its local app data and downloads.
+[Release signing](RELEASE.md#android-release-keystore) differs from the local
+debug-signing fallback. On macOS, quit JellyScope before replacing its copy in
+Applications. Follow the original distribution route for Apple mobile/TV
+updates. After installation, see the [usage guide](USAGE.md).
+
+## Verification
+
+The preflight stops Gradle daemons when finished. The
+[development workflow](guides/workflow.md) defines change-specific checks and
+completion criteria. Broad changes use this baseline:
 
 ```bash
 ./scripts/verify.sh
@@ -182,9 +220,8 @@ For broad changes:
 #   -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' build
 ```
 
-Build success is not behavior verification. UI/player/platform work must also
-exercise the affected click, D-pad, keyboard, route, playback, lifecycle, or
-platform path against its owning contract.
+Apply the workflow's [behavior verification and runtime-authorization rules](guides/workflow.md#7-verify-the-final-candidate)
+to UI, playback, and platform changes.
 
 ## Module map
 
@@ -195,6 +232,8 @@ platform path against its owning contract.
 - `android-app`: Android mobile application shell over the shared app root.
 - `android-tv-app`: Android TV shell with TV-native navigation, focus, player,
   and Watch Next integration.
+- `android-libmpv`: project-owned Android mpv JNI bridge and extraction of the
+  pinned native build inputs.
 - `desktop-app`: Compose Desktop shell and JVM/libmpv playback path.
 - `ios-app`: SwiftUI host for the shared Compose iOS app.
 - `shared-tvos`: tvOS Kotlin presentation layer (presenters, Swift bridge,
@@ -204,5 +243,6 @@ platform path against its owning contract.
 Layers, platform seams, and source-layout rules are owned by
 [`guides/architecture.md`](guides/architecture.md).
 
-Code conventions and pull-request expectations are in
-[`../CONTRIBUTING.md`](../CONTRIBUTING.md).
+Change requirements are in [`../CONTRIBUTING.md`](../CONTRIBUTING.md). Detailed
+code conventions live in the
+[development workflow](guides/workflow.md#4-write-clear-maintainable-code).

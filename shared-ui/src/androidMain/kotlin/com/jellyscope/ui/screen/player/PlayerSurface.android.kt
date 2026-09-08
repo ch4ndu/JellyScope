@@ -14,6 +14,7 @@ actual fun PlayerSurface(
     resizeMode: PlayerResizeMode,
     subtitleStyle: SubtitleStyle,
     subtitleClearanceActive: Boolean,
+    pictureInPictureRequiresLinearPlayback: Boolean,
 ) {
     // Android owns its subtitle inset calculation; this desktop-only signal is inert here.
     AndroidPlayerSurfaceHost(

@@ -22,7 +22,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.PlaybackAction
-import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.ui.screen.player.PlayerLaunchOptions
 import com.jellyscope.ui.screen.player.PlayerUiState
@@ -140,16 +139,7 @@ fun TvPlayerScreen(
     }
 
     val onPlaybackItemId = remember(viewModel) { { (viewModel.state.value as? PlayerUiState.Content)?.playbackItemId } }
-    val onTogglePlayPause =
-        remember(viewModel) {
-            {
-                if (viewModel.playbackState.value.status == PlaybackStatus.Playing) {
-                    viewModel.pause()
-                } else {
-                    viewModel.play()
-                }
-            }
-        }
+    val onTogglePlayPause = remember(viewModel) { viewModel::togglePlayPause }
     val onNextAction =
         remember(viewModel) {
             {
@@ -195,6 +185,7 @@ fun TvPlayerScreen(
         onResetAudioTiming = viewModel::resetAudioTiming,
         onSelectSubtitle = viewModel::selectSubtitle,
         onSelectLocalSubtitle = viewModel::selectLocalSubtitle,
+        onSelectOfflineSidecar = viewModel::selectOfflineSidecar,
         onAdjustSubtitleTiming = viewModel::adjustSubtitleTiming,
         onResetSubtitleTiming = viewModel::resetSubtitleTiming,
         onSelectQuality = viewModel::selectQuality,

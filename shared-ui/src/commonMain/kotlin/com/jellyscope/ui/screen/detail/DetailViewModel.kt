@@ -223,7 +223,7 @@ class DetailViewModel(
             }
             is OriginalDownloadDraftBuildResult.Ready -> Unit
         }
-        val draft = (draftResult as OriginalDownloadDraftBuildResult.Ready).draft
+        val draft = draftResult.draft
         _downloadState.value = DetailDownloadState.Previewing
         viewModelScope.launch {
             val result =
@@ -341,7 +341,7 @@ class DetailViewModel(
             }
             is FixedDownloadDraftBuildResult.Ready -> Unit
         }
-        val draft = (draftResult as FixedDownloadDraftBuildResult.Ready).draft
+        val draft = draftResult.draft
         val previewKey =
             FixedDownloadPreviewKey(
                 generation = fixedDownloadPreviewGeneration,

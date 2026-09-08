@@ -574,6 +574,7 @@ fun decidePlan(
             PlannedSubtitle.Off -> SubtitleDeliveryMethod.Drop
             is PlannedSubtitle.Track -> plannedSubtitle.deliveryMethod
             is PlannedSubtitle.LocalAsset -> SubtitleDeliveryMethod.Drop
+            is PlannedSubtitle.OfflineSidecar -> SubtitleDeliveryMethod.Drop
             is PlannedSubtitle.Unavailable -> SubtitleDeliveryMethod.Drop
         }
     val directStreamSubtitleIndex =

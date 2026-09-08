@@ -31,6 +31,18 @@ data class OpenSubtitleSearchUiState(
     val quotaResetTime: String? = null,
 )
 
+internal class DetailSubtitleSelectionOwner
+
+internal data class DetailSubtitleSelectionToken(
+    val owner: DetailSubtitleSelectionOwner,
+    val revision: Int,
+)
+
+internal data class InstalledSubtitleAcknowledgement(
+    val asset: LocalSubtitleAsset,
+    val selectionToken: DetailSubtitleSelectionToken,
+)
+
 class OpenSubtitleSearchViewModel(
     private val request: OpenSubtitleSearchRequest,
     private val searchOpenSubtitlesUseCase: SearchOpenSubtitlesUseCase,
@@ -38,8 +50,8 @@ class OpenSubtitleSearchViewModel(
 ) : ViewModel() {
     private val _state = MutableStateFlow(OpenSubtitleSearchUiState())
     val state = _state.asStateFlow()
-    private val installedEvents = Channel<LocalSubtitleAsset>(Channel.BUFFERED)
-    val installed = installedEvents.receiveAsFlow()
+    private val installedAcknowledgementEvents = Channel<InstalledSubtitleAcknowledgement>(Channel.BUFFERED)
+    internal val installedAcknowledgements = installedAcknowledgementEvents.receiveAsFlow()
     private var searchJob: Job? = null
     private var downloadJob: Job? = null
 
@@ -71,7 +83,10 @@ class OpenSubtitleSearchViewModel(
             }
     }
 
-    fun install(result: OpenSubtitleSearchResult) {
+    internal fun install(
+        result: OpenSubtitleSearchResult,
+        selectionToken: DetailSubtitleSelectionToken,
+    ) {
         if (!result.selectable || downloadJob?.isActive == true) return
         downloadJob =
             viewModelScope.launch {
@@ -86,7 +101,12 @@ class OpenSubtitleSearchViewModel(
                         )
                     }
                     if (installed.selectionApplied) {
-                        installedEvents.send(installed.asset)
+                        installedAcknowledgementEvents.send(
+                            InstalledSubtitleAcknowledgement(
+                                asset = installed.asset,
+                                selectionToken = selectionToken,
+                            ),
+                        )
                     }
                 } catch (exception: CancellationException) {
                     throw exception

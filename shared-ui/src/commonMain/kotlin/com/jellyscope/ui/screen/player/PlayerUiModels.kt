@@ -25,6 +25,7 @@ import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerTimingState
 import com.jellyscope.core.domain.playback.PlayerVolumeState
 import com.jellyscope.core.domain.playback.QualityOption
+import com.jellyscope.core.domain.playback.SubtitleActivationIdentity
 import com.jellyscope.core.domain.playback.SubtitleRenderInfo
 import com.jellyscope.core.domain.playback.SubtitleRenderMode
 import com.jellyscope.core.domain.playback.SubtitleRenderStatus
@@ -51,10 +52,12 @@ sealed interface PlayerUiState {
         val audioOptions: List<AudioTrackOption> = emptyList(),
         val subtitleOptions: List<SubtitleTrackOption> = emptyList(),
         val localSubtitleOptions: List<LocalSubtitleAsset> = emptyList(),
+        val offlineSidecarOption: OfflineSidecarOption? = null,
         val qualityOptions: List<QualityOption> = emptyList(),
         val selectedAudioStreamIndex: Int? = null,
         val selectedSubtitleStreamIndex: Int? = null,
         val selectedSubtitleAssetId: String? = null,
+        val offlineSidecarSelected: Boolean = false,
         val selectedQualityMaxBitrate: Long? = null,
         val selectedQualityPolicy: PlaybackQualityPolicy = PlaybackQualityPolicy.Auto,
         val qualityOverrideExplicit: Boolean = false,
@@ -95,15 +98,24 @@ sealed interface PlayerUiState {
         val timingState: PlayerTimingState = PlayerTimingState.Unsupported,
         val debugInfo: PlayerDebugInfo? = null,
         val videoPresentation: PlannedVideoPresentation? = null,
+        val pictureInPictureRequiresLinearPlayback: Boolean = false,
         val isSeekable: Boolean = false,
         // Null during a queue switch so held seeks cannot cross items.
         val playbackItemId: String? = null,
     ) : PlayerUiState
 }
 
-/** True for any selectable remote track or local subtitle asset. */
+/** True for any selectable subtitle source. */
 fun PlayerUiState.Content.hasSubtitlePickerChoice(): Boolean =
-    subtitleOptions.hasSelectableSubtitleChoice() || localSubtitleOptions.isNotEmpty()
+    subtitleOptions.hasSelectableSubtitleChoice() ||
+        localSubtitleOptions.isNotEmpty() ||
+        offlineSidecarOption != null
+
+data class OfflineSidecarOption(
+    val identity: SubtitleActivationIdentity.OfflineSidecar,
+    val displayName: String?,
+    val language: String?,
+)
 
 data class PlayerNotice(
     val token: Long,

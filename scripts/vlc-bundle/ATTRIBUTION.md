@@ -1,8 +1,10 @@
 # Bundled VLC (LibVLC) Attribution
 
-JellyScope's macOS desktop package bundles an unmodified subset of the
+JellyScope's macOS desktop package bundles a selected subset of the
 official VideoLAN VLC 3.0.23 macOS (arm64) binaries so the optional LibVLC
-player backend works without a separate VLC installation.
+player backend works without a separate VLC installation. Staging may rewrite
+Mach-O install names and dependency paths for the application bundle; this
+preparation route does not rebuild VLC from source.
 
 - libvlc / libvlccore: LGPL-2.1-or-later — © VideoLAN and authors.
 - VLC plugins: LGPL-2.1-or-later and GPL-2.0-or-later — © VideoLAN and authors.
@@ -17,9 +19,9 @@ Excluded from the bundle relative to the upstream distribution:
 
 Corresponding source: VLC 3.0.23 sources are published by VideoLAN at
 <https://download.videolan.org/pub/videolan/vlc/3.0.23/vlc-3.0.23.tar.xz>.
-Releases that distribute this bundle outside the development team must retain
-a copy of that source archive (or an equivalent written offer) alongside the
-release artifacts to satisfy GPL/LGPL source-availability obligations.
+External distributions of this bundle must retain that source archive (or an
+equivalent written offer) alongside the release artifacts to satisfy GPL/LGPL
+source-availability obligations.
 
 The audited input is pinned by `manifest-3.0.23-arm64.txt`; the bundle script
 requires its selected files, expected architecture, and dependency closure.

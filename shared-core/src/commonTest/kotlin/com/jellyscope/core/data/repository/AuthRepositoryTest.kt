@@ -97,7 +97,7 @@ class AuthRepositoryTest {
                                 "/Users/AuthenticateByName" -> {
                                     val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                                     assertEquals(" demo-user", body.getValue("Username").jsonPrimitive.content)
-                                    assertEquals(" pw", body.getValue("Pw").jsonPrimitive.content)
+                                    assertEquals(" pw\n ", body.getValue("Pw").jsonPrimitive.content)
                                     respondJson(authJson)
                                 }
                                 else -> error("Unexpected path ${request.url.encodedPath}")

@@ -24,7 +24,9 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   Keep `NSLocalNetworkUsageDescription` and `NSAllowsLocalNetworking`: manual
   server URLs, including direct local HTTP, and restored sessions/accounts remain
   supported. Do not substitute Bonjour or a permission probe for discovery.
-- Keep auth token/header creation centralized.
+- Keep auth token/header creation centralized. Password authentication sends the
+  supplied password unchanged, including trailing whitespace; username and
+  server-input normalization remain separate from secret handling.
 - Every value in both Jellyfin `MediaBrowser` authorization forms uses the same
   encoder: trim outer whitespace, remove CR/LF, then UTF-8 percent-encode every
   byte except RFC 3986 unreserved characters using uppercase hex and `%20` for
@@ -67,7 +69,7 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 - Use kotlinx.serialization for Jellyfin DTO JSON unless a later API decision
   changes the facade implementation.
 - Any future SDK adoption must remain behind the same repository boundary and
-  pass target-support, API-compatibility, and license review first.
+  satisfy target-support, API-compatibility, and licensing constraints.
 
 ### Related shelves
 
@@ -94,6 +96,8 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 
 ## Settings And Credentials
 
+### General settings
+
 - Server URL, auth token, selected user, and lightweight preferences should flow
   through settings repositories and UseCases/Actions.
 - Settings value models live in `domain.model`; persistence stores under
@@ -116,6 +120,9 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   preference in that same settings snapshot. It is surfaced only in Android TV
   settings and deliberately does not participate in effective device policy,
   device profiles, PlaybackInfo requests, or stream-mode selection.
+
+### Persistence and account isolation
+
 - Session persistence flows through the project `SecureStore` boundary. Android
   uses Android Keystore-backed storage under `Context.noBackupFilesDir`, so Auto
   Backup never captures the undecryptable `secure-store.bin`; unreadable or
@@ -128,8 +135,7 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   account/device/logout state, and the OpenSubtitles API key and preference;
   passwords are not persisted. Application credentials must never be written
   to, read from, migrated from, or cleaned up through Apple Keychain or
-  Security.framework. Existing Keychain entries are intentionally left
-  orphaned and existing Apple users may need to log in once after this change.
+  Security.framework. Existing Keychain entries are intentionally ignored;
   Android Keystore storage is unchanged.
 - `SessionStore` persists ordered accounts, active account, envelope-era marker,
   and logout-pending state in one versioned secure envelope; the device ID is a
@@ -212,6 +218,9 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   returns distinct item ids in server order. Playback starts the first id with
   normal media-version selection and keeps the process-local queue only for the
   active player session.
+
+### Diagnostics, logging, and privacy
+
 - Logging uses the Kermit facade (`Logger.withTag(...)`) in EVERY module,
   including Android app modules — never `android.util.Log` or `println`. Never
   log tokens, passwords, auth headers, or credentialed URLs. Ktor HTTP logging
@@ -285,13 +294,12 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   report backend; stale cross-backend metadata is omitted and capabilities are
   probed for the resolved backend instead.
 - The in-memory holder behind that failure snapshot is written only when
-  playback fails, and from exactly two places because neither sees both failure
-  classes: the planner records its own capability fallbacks (it publishes them
-  internally and still returns a successful plan), and the player ViewModel
-  records controller failures. A successful playback must never write to it —
-  recording "current state" on success lets a later good session overwrite the
-  failure the report exists to explain. Adding a third writer, or widening an
-  existing writer to the success path, destroys the diagnostic silently.
+  playback fails. Two failure classes have separate owners: `PlaybackInfoPlanner`
+  records its capability fallbacks (it still returns a successful plan), while
+  the active presentation shell records controller failures through
+  `PlayerViewModel` or `TvPlaybackSessionPresenter`. Successful playback must
+  never write to it: recording current state on success would overwrite the
+  failure the report exists to explain.
 - Release app entries retain the sanitized `LogBufferStore` writer and install
   a bounded platform writer that forwards only allowlisted structured
   diagnostics after the same scrubber accepts them. It drops ordinary messages
@@ -301,13 +309,15 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   iOS derives the flag from the Xcode `CONFIGURATION`. Debug builds or the
   explicit verbose-log preference install the raw platform writer instead. This
   gate does not alter the bounded safe-history store or its scrubber.
-- `adb shell setprop log.tag.<TAG> <LEVEL>` cannot turn logging on in a release
-  build. A log-level system property only filters writers that already exist, so
-  a build that installed no raw platform writer emits nothing regardless of what
-  the host sets. Verbose on-device logging therefore has to be an in-app,
+- `adb shell setprop log.tag.<TAG> <LEVEL>` cannot enable raw logging in a release
+  build. A log-level system property only filters writers that already exist;
+  sanitized release records remain available, but adb cannot restore raw lines
+  excluded by the logging configuration. Verbose on-device logging is an in-app,
   persisted, off-by-default preference that re-installs the writer at runtime;
-  there is no adb-side substitute, and the preference is not redundant
-  machinery.
+  there is no adb-side substitute.
+
+### Resource authentication
+
 - Jellyfin auth headers use injected device identity and injected app client
   version. Do not hardcode `Device` or `Version` values in shared UI, playback
   bridges, or API clients.
@@ -362,6 +372,9 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   authorities — an accepted trusted-initial-authority residual, parallel to the
   AVPlayer same-origin subtitle-redirect residual above. No other credential
   (header or cookie) is attached on the VLC path.
+
+### Backend selection
+
 - Player backend is user-selectable per platform. iOS retains `Auto`/`AVPlayer`/
   `VlcKit` with AVPlayer as its default. Desktop exposes `mpv` and
   `LibVLC` and defaults legacy or foreign values to mpv. Android exposes the
@@ -388,7 +401,7 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   While the probe is still resolving, and if it fails, the picker keeps the full
   policy list rather than showing nothing; a probe that reports no backends
   falls back to the policy default backend.
-  `resolvePlayerBackend` picks one concrete backend once per initial playback session
+- `resolvePlayerBackend` picks one concrete backend once per initial playback session
   from the server setting, any compatible item override, source descriptor, and
   runtime availability. That durable initial backend remains authoritative for
   queue switches unless the user makes an explicit session-only switch, and
@@ -405,7 +418,8 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   keeps that playback. The factory's actual backend requires a matching clean
   plan; only an explicit target switch
   may construct the concrete platform default once after target construction
-  fails, never the Android automatic-health fallback. Android's ExoPlayer path is Media3 1.9.0 with decoder fallback and
+  fails, never the Android automatic-health fallback.
+- Android's ExoPlayer path is Media3 1.9.0 with decoder fallback and
   the Jellyfin FFmpeg extension (`org.jellyfin.media3:media3-ffmpeg-decoder`
   from Maven Central); FFmpeg is an ExoPlayer decoder extension, not a third
   backend. Media3 is pinned to 1.9.0 because the published decoder's version
@@ -413,16 +427,19 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   build is required. Media3's server-facing audio capability is the union of
   its MediaCodec probe and a process-cached, fail-closed check that this shipped
   extension is available and supports E-AC-3. Only that E-AC-3 result is added;
-  the extension's broader decoder list is not enumerated. Android's LibVLC path
-  is the in-process libvlc 3.7.5 controller/surface bridge and is used only when
-  selected and available. A
-  startup/prepare failure in mpv or LibVLC ends that controller session and
-  replans from the last confirmed position with ExoPlayer; the planner is never
-  given an alternate-backend plan and then handed to ExoPlayer. Android mpv is
-  the project-owned `android-libmpv` controller and project-owned SurfaceView
-  bridge described in the Android mpv section below; its pinned
-  `dev.jdtech.mpv:libmpv:1.0.0` AAR is a verified build input for the unchanged
-  native graph, not the runtime wrapper dependency.
+  the extension's broader decoder list is not enumerated.
+- Android's LibVLC path is the in-process libvlc 3.7.5 controller/surface bridge
+  and is used only when selected and available. An eligible startup/prepare
+  failure in mpv or LibVLC
+  while streaming from Jellyfin can end that controller session and request a
+  fresh ExoPlayer-qualified plan at the last confirmed position. Installed
+  offline playback never enters that recovery. Where offline policy permits,
+  controller construction may fall back before preparation using the existing
+  offline plan; a required offline backend cannot fall back.
+- Android mpv uses the project-owned controller and SurfaceView bridge described
+  in the Android mpv section below. Its source/native input and package/runtime
+  gates are owned by the
+  [Android native dependency runbook](../operations/android-native-dependencies.md).
 - Android LibVLC keeps its pinned-engine declaration as the base profile. The
   Android provider preserves each finite width, height, padded frame-area, or
   frame-area-per-second fact from the cached active MediaCodec probe only when
@@ -456,6 +473,9 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   bitrate cap, quality preference, or reason to transcode. The same option
   applies consistently on Android phone and TV, while iOS VLCKit and desktop
   LibVLC remain unchanged.
+
+### Media projection and platform logging
+
 - List-style item requests for home rows, grids, search, similar items, and
   season lists use the lighter default field set without `People` or
   `MediaSources`. Detail and episode fetches use the detail/media-source field
@@ -488,8 +508,10 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 - Distinguish re-fetchable server cache from durable user-authored local data.
 - Room downgrade recovery is cache-scoped: only refetchable recent searches and
   Watch Next rows are recreated when a higher-version database is opened by the
-  schema-10 app. Durable user-authored Room rows are never covered by a
-  destructive all-table fallback.
+  current app schema described in
+  [persistence and account isolation](#persistence-and-account-isolation).
+  Durable
+  user-authored Room rows are never covered by a destructive all-table fallback.
 - `AccountIdentity` qualifies every media, image, playback-memory, Watch Next,
   recent-search, and non-local subtitle-selection namespace.
   `SessionState.LoggedIn` carries a process-local boundary epoch; cached
@@ -544,7 +566,7 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 
 - JellyScope talks directly to `https://api.opensubtitles.com/api/v1` through a
   dedicated `OpenSubtitlesApi`/repository boundary. API requests send only the
-  persisted user-supplied consumer key, or the local developer fallback when no
+  persisted user-supplied consumer key, or the local development fallback when no
   persisted key exists, and the JellyScope User-Agent; the separate download
   client never receives OpenSubtitles or Jellyfin credentials. Download links
   must remain HTTPS on an allowlisted OpenSubtitles host across at most three
@@ -560,7 +582,7 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   persisted beside it as `NoPreference`, `PreferHearingImpaired`, or
   `PreferForced`, with missing or unknown values falling back to `NoPreference`.
   It uses the existing platform `SecureStore` implementations, including their
-  documented platform limitations. The optional ignored repo-root developer
+  documented platform limitations. The optional ignored repo-root development
   property is a local runtime fallback only: it never changes the persisted
   getter or settings surface, and it is never logged. Search starts from movie
   or concrete episode detail, prefers IMDb plus season/episode identity, falls back to movie
@@ -683,73 +705,18 @@ owns the detailed data, request, persistence, player, and runtime contracts.
 
 ## Playback Planning
 
-- `PlaybackPlan` is the shared contract between domain logic and platform
-  players. Keep it limited to values platform players need to prepare and run a
-  session; do not move Jellyfin metadata fetching or stream-mode decisions into
-  platform code.
-- Add new plan fields only with the capability that consumes them. Avoid
-  speculative offline, track, chapter, trickplay, segment, or recovery fields.
-- Model stream modes explicitly: direct play, direct stream, transcode, and
-  offline.
-- Keep capability modeling explicit: codecs, containers, HDR/Dolby Vision,
-  subtitle formats, audio formats, bitrate limits, server transcode support, and
-  platform player support.
-- Player capability policy is split from raw detection. `DeviceProfileProvider`
-  reports raw route/display capabilities, while `PlayerDeviceSettings` records
-  the user's intent: audio Auto, Stereo PCM, or Passthrough When Supported; HDR
-  Auto or Prefer SDR. Unsupported saved choices stay stored but resolve to a
-  safe effective policy with a disabled reason, so settings can explain why an
-  option is unavailable instead of silently changing the user's value.
-- Capability restrictions require an active decoder/platform probe, a pinned
-  engine/runtime declaration, or applicable platform-vendor documentation.
-  Apple AVPlayer/VideoToolbox facts and VLCKit engine facts are separate; a
-  hardware probe for one must not remove a codec from the other. Android
-  ExoPlayer selects one ordinary MediaCodec candidate per video codec before
-  projecting its complete resolution/throughput tuple and profile, level, and
-  bit-depth constraints. Hardware is preferred over unclassified and software
-  candidates; a secure-required decoder is ineligible for ordinary Jellyfin
-  playback, and API 25-28 codec-name classification never becomes an
-  authoritative hardware-probe claim. Media3 then adds only runtime-confirmed
-  bundled-FFmpeg E-AC-3 audio decode support. Android mpv uses its pinned
-  capability declaration plus only the explicitly delegated complete bounds,
-  and Android LibVLC uses its engine facts plus only the intersecting finite
-  probe limits described above. Media3 FFmpeg support never leaks into
-  either VLC-family backend. iOS additionally intersects both AVPlayer and
-  VLCKit with the same conservative 4K30 frame-area/throughput input envelope
-  when playback compatibility is **Standard**. On macOS only, Standard
-  intersects LibVLC with a separate 3840x2160, 8,294,400-pixel,
-  497,664,000-pixels-per-second input envelope. The server profile receives
-  only finite width/height conditions; finite frame area and proportional
-  throughput remain local source-copy facts because the wire contract cannot
-  encode them.
-  **Unrestricted (experimental)** removes only the active backend's marked
-  app-owned envelope from the device profile and source-copy preflight; it does
-  not remove backend codec, container, range, explicit-quality, or
-  runtime-health constraints. The envelopes are JellyScope product policy, not
-  shared decoder evidence: codec declarations and decode provenance remain
-  backend-owned. Every claimed codec also carries closed decode and finite-limit
-  evidence. Multiple sources may compose one claim; missing facts remain
-  `Unknown`, and a static fallback or legacy name classification is never
-  promoted to a platform hardware/software probe. Desktop mpv and LibVLC use
-  separate immutable declarations and snapshots: mpv owns pinned-engine
-  evidence and its HDR10 ranges for software tone mapping, while LibVLC's base
-  declaration remains static with unknown limits and SDR-only ranges so the
-  server converts HDR to SDR. The macOS product envelope does not affect mpv or
-  non-macOS LibVLC.
-  Measurements from JellyScope's limited device/server/content combinations may
-  guide validation and a deliberately conservative product envelope, but they
-  never become universal platform decoder evidence or codec/range/bit-depth
-  claims. Unknown decoder limits remain unknown, and neither window nor screen
-  geometry is decoder capability.
-- The known portrait VP9 safety gate is planner-first: host coverage must prove
-  `Transcode` with `SourceCopyRejected`, `VerifiedDeviceCap`, and Auto/Original
-  `NoClientLimit` before a candidate is installed. On a physical run, inspect
-  that planner record before native prepare and abort if it still resolves
-  DirectPlay; retained decoder-safety evidence is evidence, not a test oracle.
-- Platform players should not directly decide stream mode or fetch Jellyfin
-  metadata.
-- Platform-player bridges follow `architecture.md`: common code owns the
-  contract and platform code owns native mapping.
+`PlaybackPlan` is the immutable domain-to-player contract. It contains only the
+values required to prepare and run a session, models DirectPlay, DirectStream,
+Transcode, and Offline explicitly, and gains a field only with the capability
+that consumes it. Platform players map the plan to native APIs; they do not
+fetch Jellyfin metadata or choose a stream mode.
+
+The ordered pipeline, quality semantics, capability provenance, product input
+envelopes, backend switching, and recovery ownership are defined in
+[`playback-architecture.md`](playback-architecture.md). The sections below own
+the wire profile, track and subtitle identity, reporting, persistence, and
+runtime behavior that implement that architecture. Platform bridges follow
+[`architecture.md`](architecture.md#platform-bridge-rules).
 
 ## Player Control And State
 
@@ -920,21 +887,18 @@ symptom, while a frozen clock is ordinary slow startup and is already reported a
 fire; if it has not moved, no signal is emitted. The threshold is
 backend-qualified — 20 seconds for VLC-family backends, 5 seconds elsewhere —
 because LibVLC reports `Playing` well before its first displayed picture. The
-diagnostic threshold class carries the bound that actually applied, so a
-20-second signal is never reported as the 5-second class. Without
-these two qualifications a false `NoVideoOutput` also forced an unnecessary
-compatibility replan that abandoned a working DirectPlay stream.
+diagnostic threshold class records the bound that actually applied. These
+qualifications prevent a slow or frozen startup from triggering a false
+`NoVideoOutput` compatibility replan.
 
 A seek or a play/pause **restarts the evidence window**: accumulated buffering
 intervals, stall events, and dropped-frame spans are cleared so evidence gathered
 under previous conditions cannot reach a threshold. Restarting during an active
 buffering episode reopens the interval at the boundary — the retained status is
-unchanged, so without the reopen the wait the user is still experiencing would
-stop being measured entirely. The once-per-session emission latches deliberately
-survive a restart, so a signal kind already reported does not report again in the
-same item session; that is why a second unreported stall remains a diagnosis
-item rather than a fixed behavior. Auto's compatibility and quality budgets are
-untouched by a restart and stay one-per-item-session. The bounded
+unchanged, so the ongoing wait remains measurable. Once-per-session emission
+latches survive a restart, so a signal kind reports at most once in an item
+session. Auto's compatibility and quality budgets also survive and remain
+one-per-item-session. The bounded
 health summary additionally records which gate suppressed a would-be warning
 (`postStartGuidanceShown`, `noVideoOutputGuidanceShown`, the resolved guidance
 policy, `guidancePublishable`, and whether a buffering interval opened since the
@@ -982,15 +946,12 @@ controller does not repeat an unchanged outcome. The dedup is one shared
 both a background poll and a synchronous command path, and without atomicity both can pass the
 equality check before either records, emitting the same line twice.
 
-Its `reset()` is **conditional, not a lifecycle requirement**, and that asymmetry is
-deliberate. A reset is not an ordering barrier, so a controller whose resolution work can be
-in flight across the call must not call it — a stale admission landing afterwards re-logs an
-outcome already logged. The single-threaded controllers (Media3 on the ExoPlayer app thread,
-VLCKit on its main-queue callbacks, AppleAV main-marshalled) reset at `prepare()`; **mpv
-deliberately never resets** and retains recorded outcomes for the controller's lifetime, which
-is bounded by the number of track kinds. Do not "fix" that inconsistency.
-
-What makes retention safe is that activation targets are unique per request: both
+Its `reset()` is conditional because it is not an ordering barrier. A controller
+whose resolution work can remain in flight across the call must retain the gate.
+The single-threaded Media3, VLCKit, and AppleAV controllers reset at `prepare()`;
+mpv retains recorded outcomes for the controller's lifetime, bounded by the
+number of track kinds. Retention is safe because activation targets are unique
+per request: both
 `AudioActivationTarget` and `SubtitleActivationTarget` carry a monotonically incremented
 `requestId`, so a new session's key can never equal the previous session's and no per-item
 mapping line can be suppressed. If target reuse is ever introduced, the remedy is
@@ -1135,12 +1096,15 @@ suppresses interactive recovery until it is safe to show the consequence.
   server release signs or ignores these parameters, both features break
   together and must be re-verified.
 - Runtime player failures may retry PlaybackInfo with stricter request policy
-  before surfacing a fatal error. For direct-play/direct-stream decoder,
-  unsupported-media, or unknown failures, shared player logic first retries with
-  direct play disabled; if that also fails, it retries with direct play, direct
-  stream, and audio/video stream copy disabled. Transcode/offline failures do
-  not enter this fallback ladder. Fallback policies preserve the incoming
-  backend, so a future VlcKit retry continues to use VlcKit capability data. A
+  before surfacing a fatal error. `AutoPlaybackRecoveryCoordinator` owns one
+  policy-gated compatibility attempt for eligible decoder, unsupported-media,
+  or no-output evidence on a direct-play/direct-stream plan. It disables direct
+  play, direct stream and video stream copy together, retaining the audio-copy
+  policy. Original prompts instead of automatically replanning; transcode and
+  offline plans cannot enter this compatibility path. The current quality and
+  recovery policy is owned by
+  [Error and audio recovery](#error-and-audio-recovery). Fallback requests
+  preserve the incoming backend and its capability data. A
   request whose backend is not AVPlayer is non-default even when all stream
   flags retain their defaults; its PlaybackInfo failure propagates rather than
   silently reinstalling the local direct-play plan.
@@ -1152,8 +1116,8 @@ suppresses interactive recovery until it is safe to show the consequence.
   method. Use a nonblank `TranscodingUrl` only when transcoding is supported. A
   malformed direct-stream response falls through to valid transcode before a
   typed planning failure. Response container/subprotocol determines stream MIME;
-  HLS always uses the HLS MIME. Runtime decoder fallback ordering remains direct
-  play disabled, then direct stream and stream copy disabled.
+  HLS always uses the HLS MIME. Runtime recovery follows the separate bounded
+  policy above; response preference order is not a decoder-retry ladder.
 - Device profiles are platform/container-qualified, not one global container
   list. They intersect platform containers/codecs with the effective audio/HDR
   policy and mirror a non-null bitrate cap into request, device-profile, and
@@ -1186,7 +1150,7 @@ suppresses interactive recovery until it is safe to show the consequence.
   clears Jellyfin Off/Track intent for the affected server but retains local
   asset rows and LocalAsset selections; explicit deletion clears them. Writes
   are serialized so rapid choices cannot finish out of order. Process-local
-  playback memory remains limited to audio and quality.
+  playback memory retains audio choice only; session quality is separate.
 - PlaybackInfo always receives the resolved subtitle index, including `-1` for
   Off or a local asset and the real Jellyfin index for remote external tracks.
   `PlaybackPlan` carries response-derived embedded audio descriptors and a
@@ -1332,7 +1296,7 @@ suppresses interactive recovery until it is safe to show the consequence.
   native attempt**, taking the same single DirectPlay-disabled recovery below.
   Without this, an in-player switch to an undecodable codec selects successfully
   and then plays silence with video still running — the server validates the
-  default track against the profile we sent, but never validates a mid-session
+  default track against the supplied profile, but never validates a mid-session
   switch. The predicate (`admitsDirectPlayAudioCodec`) is stamped per descriptor
   by the planner from backend-keyed capabilities, so it covers every backend at
   once; it fails open on absent capabilities/profiles and missing codec metadata,
@@ -1479,16 +1443,23 @@ rather than porting code. When probing a live server:
   disposal for both `PlayerViewModel` and the tvOS playback presenter. Compose
   supplies its stable shared playback-state projection across controller
   replacement; the coordinator never retains a replaceable controller flow.
-- A single ordered executor (`PlaybackReportingQueue`, shared-core
-  `playback/`) serializes each owner's immutable playback sessions as Start ->
-  Progress -> Stopped. Old-session Stop drains before a replacement session can
-  Start, and disposal drains its final Stop independently of owner-scope
-  cancellation. No coordinator or shell sends reports through another path.
-- A reporting session becomes started only after Start succeeds. Progress and
-  Stopped are suppressed for a failed Start; later ready-state samples may retry
-  Start without allowing a failed attempt to reset Continue Watching state.
-- Every accepted Stop attempt publishes an app-scoped settlement after the
-  report succeeds or terminally fails. The replayable settlement registry is
+- `PlaybackReportingQueue` owns ordered ingress and local settlement, plus a
+  separate ordered remote drain. Offline Start/Progress/Stopped acknowledge the
+  durable local write without waiting for optional Jellyfin reporting. Online
+  reports retain the existing primary-reporter result semantics. Each guarded
+  remote call rechecks the
+  current matching account, and local rejection never forwards a remote report.
+- Start must succeed at the applicable local or primary-reporter boundary before that
+  route accepts Progress or Stopped. A failed Start may retry on a later ready
+  sample. Periodic TimeUpdate coalesces within a session/control segment; Start,
+  Pause, Unpause and Stop preserve their order and the captured Stop position.
+  The front drain settles an old Offline Stop before forwarding a new Online
+  Start. Idempotent Close rejects new ingress, finishes accepted local work,
+  then closes the remote drain after its forwarded work; owner cancellation
+  cannot strand the final Stop.
+- Offline Stop publishes an app-scoped settlement only after local persistence
+  succeeds. Online Stop retains settlement after a successful or terminally failed
+  primary-report attempt. The replayable settlement registry is
   keyed by `(serverId, userId, itemId)` and assigns its own app-global sequence
   (never a player-local reporting generation). Shared detail screens consume it
   through `ObservePlaybackStopSettlementUseCase` and silently refresh relevant
@@ -1508,15 +1479,15 @@ rather than porting code. When probing a live server:
   [Downloads And Offline](#downloads-and-offline); it does not treat server
   progress as authoritative for that local session.
 - Offline reporting to a matching currently online account is best effort only.
-  There is no offline reporting outbox, delayed-sync queue, acknowledgement,
-  server overlay, cross-device conflict resolution, or eventual-delivery
-  guarantee.
+  There is no offline reporting outbox, durable delayed-sync queue, remote
+  acknowledgement guarantee, server overlay, cross-device conflict resolution,
+  or eventual-delivery guarantee.
 
 ## Durable Playback Controls And Android Engines
 
 ### Android mpv backend
 
-- `docs/guides/playback-architecture.md` owns Android backend policy — the
+- [Backend selection](#backend-selection) owns Android backend policy — the
   default, `Auto` normalization, and the visible per-shell order. Within that
   policy, mpv is the TV opt-in alternate backend and the existing backend
   dialog is the explicit opt-in; the persisted server-scoped choice resolves
@@ -1607,8 +1578,10 @@ rather than porting code. When probing a live server:
   the renderer rationale is owned by
   [`playback-architecture.md`](playback-architecture.md)),
   Android/OpenGL ES, no mpv config/scripts/ytdl/cookies/autoloaded resources or
-  native UI/input bindings, disabled automatic track selection, `idle=yes`,
-  `keep-open=always`, TLS verification, and cache pause. The initial cache policy
+  native UI/input bindings, disabled subtitle auto-selection (`sid=no`), `idle=yes`,
+  `keep-open=always`, TLS verification, and cache pause. Audio starts with
+  `aid=auto`; the controller separately applies the pending exact audio mapping
+  after FILE_LOADED and gates activation confirmation. The initial cache policy
   is a 10-second target with 64 MiB forward and 16 MiB backward caps. Mobile
   uses `mediacodec-copy`, emulators use software decode, and TV uses zero-copy
   `mediacodec` with the `fast` profile in its explicitly selected opt-in
@@ -1664,10 +1637,9 @@ rather than porting code. When probing a live server:
   that generation is loaded, and `keep-open=always` keeps the property readable
   after natural EOF. An in-player embedded-subtitle switch also updates the
   controller-owned activation target, so Retry and TV surface-loss reloads do
-  not restore the earlier Subtitle Off state. A native
-  create/init/decoder/unsupported failure releases
-  the alternate controller and requests one fresh ExoPlayer-qualified plan at
-  the last confirmed position; it never changes a live controller in place.
+  not restore the earlier Subtitle Off state. Native startup recovery follows
+  the qualified [backend fallback contract](#settings-and-credentials); it never
+  changes a live controller in place.
 - The shared Android player-surface host sets `keepScreenOn` on every mobile
   and TV playback view, whether the backend supplies an
   `AndroidPlayerSurfaceBridge` view or uses the Media3 wrapper. The view flag
@@ -1706,16 +1678,11 @@ rather than porting code. When probing a live server:
   key and numeric code. Those records must make an audio-with-black-video report
   distinguish missing geometry, native-window rejection, current detach, and a
   late stale detach from logs alone.
-- The Android native dependency is the project-owned `android-libmpv` module,
-  built from the audited `dev.jdtech.mpv:libmpv:1.0.0` source/native input
-  recorded in the [Android native dependency runbook](../operations/android-native-dependencies.md).
-  The API-26 artifact, NDK-29 `libc++_shared.so` selection, shipped/excluded ABI
-  set, required native libraries, license assets, attribution, and
-  corresponding-source route are checked by the APK verifier.
-  The wrapper POM's MIT declaration is not treated as the complete native
-  license; the distributed FFmpeg/GPL payload remains a GPLv3-compatible
-  licensing and source-obligation gate. Desktop libmpv remains a separate
-  unchanged integration.
+- Android mpv uses the project-owned `android-libmpv` module. Its source/build
+  provenance, native inventory, license/source obligations, package verification,
+  and separate runtime gate are owned by the
+  [Android native dependency runbook](../operations/android-native-dependencies.md).
+  Desktop libmpv remains a separate integration.
 
 - `PlaybackPreferences.autoPlayNext` defaults to enabled with a shared 10-second
   delay. The persisted delay is normalized to 0–60 seconds. Disabled autoplay
@@ -1808,10 +1775,18 @@ rather than porting code. When probing a live server:
   `ActivityManager.isLowRamDevice` is resolved once when the controller is
   created; missing or failed classification is conservatively low-RAM. Low-RAM
   and regular devices currently use the 16 MiB control target. A regular-device
-  one-third-heap target capped at 384 MiB exists only as an A/B candidate and
-  must not become the default without the validation rows recorded in
-  `.local/KNOWN-ISSUES.md` (Android Media3 load-control
-  rows).
+  `min(Runtime.maxMemory()/3, 384 MiB)` target exists only as an A/B candidate.
+  It must not become the default until a controlled comparison uses the same
+  high-bitrate DirectPlay, HLS DirectStream, and server Transcode fixtures for
+  five cold-process runs per policy with server, route, quality, start position,
+  and duration fixed. Retain the candidate only if it eliminates a reproducible
+  rebuffer or improves median post-start rebuffer duration by at least 20%, while
+  median launch-to-first-frame regresses by no more than the larger of 500 ms or
+  20%, peak total PSS grows by no more than the larger of 64 MiB or 20%, and no
+  OOM, process kill, critical trim, or sustained GC thrash occurs. An API-26+
+  low-RAM TV baseline must also keep the 1-second initial, 2-second rebuffer, and
+  8-second loading floors despite reaching 16 MiB. Otherwise retain 16 MiB and
+  do not weaken the time floors.
 - The Media3 byte value is a **load-decision target**, not a Java-heap or
   process-memory ceiling. Time priority may allocate beyond it while reaching
   the duration floor, and codec, decoder, audio, graphics, and other native
@@ -1835,19 +1810,10 @@ rather than porting code. When probing a live server:
   leaving audio running with no video surface. Android uses LibVLC's
   `SurfaceView` output path as the backend presentation contract.
 - Android LibVLC **coalesces** seek requests through `SeekCoalescer` (250 ms
-  window, newest target wins) before touching the native player. Every
-  `setTime()` flushes libVLC's decoder, so a burst of discrete seeks (repeated
-  D-pad taps, double-tap skips) otherwise presented frames from superseded
-  targets and restarted the arrival-then-advance detection on each one, leaving
-  the published status trailing reality until the fallback probe corrected it.
-  The window is flushed by `pause()` (so a seek made just before pausing still
-  lands) and cancelled by `prepare()`/`stop()`/`release()`. While a seek is
-  outstanding — either inside the coalescing window or issued but not yet
-  arrived — the published position is the **requested target**, not the native
-  clock: that clock still reads the pre-seek position, and letting it through
-  made the seek bar travel target -> old position -> target on every skip. The
-  target is published as soon as the seek is requested, so the bar moves once
-  and stays.
+  window, newest target wins) before `setTime()` flushes the decoder. `pause()`
+  flushes a pending target; `prepare()`, `stop()`, and `release()` cancel it.
+  From request until native arrival, the published position remains the requested
+  target rather than the stale pre-seek clock, so the seek bar moves once.
 - Android LibVLC seeks explicitly enter `Buffering` while the requested target
   is being resolved. High-frequency native buffering callbacks are coalesced;
   the initial clock jump to the requested timestamp remains `Buffering`, and the
@@ -1869,10 +1835,8 @@ rather than porting code. When probing a live server:
   as an explicit seek, so an early native `Playing` event or immediate
   `setTime()` readback cannot expose a black frame as ready playback.
 - Android LibVLC quality replans detach the retained VLC views before replacing
-  native media, then serialize the potentially blocking `MediaPlayer.stop()` and
-  media assignment on the platform IO dispatcher. The existing release ordering
-  showed that detachment must precede native teardown, but detachment alone did
-  not protect `prepare()` while its stop remained on Main. Prepare completion is
+  native media, then run the potentially blocking `MediaPlayer.stop()` and media
+  assignment serially on the platform IO dispatcher. Prepare completion is
   generation-gated; a newer request coalesces the pending native transition, and
   the current generation reapplies the retained surface, latest track/speed
   selections, seek target, play/pause intent, and the existing bounded resume
@@ -1897,8 +1861,7 @@ rather than porting code. When probing a live server:
   -1.
   - libvlc emits `Stopped` immediately after `EndReached`. That trailing
     `Stopped` must **preserve** a `Completed` status; mapping it to `Buffering`
-    (as the code once did while the play intent stood) cancelled the Up
-    Next countdown keyed on `Completed` and stalled the queue one event later.
+    cancels the Up Next countdown keyed on `Completed`.
   - The sample that **resolves** a seek is discarded via
     `VlcEndOfStreamEvidence.ignoreNextSample()`, because a resume seek can
     overshoot its target by seconds and that position is seek-derived, not proof
@@ -2008,10 +1971,8 @@ rather than porting code. When probing a live server:
   to a third-party service. Diagnostics leave the device only through the
   explicit, user-triggered Send Client Logs upload.
 - Diagnostics upload is server-upload-only; there is no local export path. The
-  export path was deleted rather than fixed because the platform share intent
-  no-ops on the TV platform where playback bugs actually get reported, so the
-  button silently did nothing — worse than absent. The Send Client Logs action
-  posts the structured diagnostics report plus bounded, `LogScrubber`-admitted
+  Send Client Logs action posts the structured diagnostics report plus bounded,
+  `LogScrubber`-admitted
   `LogBufferStore` history to the connected Jellyfin server's
   `/ClientLog/Document` endpoint. Raw native-player files and free-form excerpts
   never enter this payload; a server that disallows
@@ -2050,7 +2011,7 @@ than restating it.
 ### Scope and identity
 
 - Downloads support individual Movies and Episodes on Android mobile, Android
-  TV, iOS, tvOS, and JVM desktop. tvOS installs the existing full download graph
+  TV, iOS, tvOS, and JVM desktop. tvOS installs the existing download graph
   with shared Apple adapters; Original and converted/HLS copies use VLC offline.
 - `DownloadId` and `DownloadArtifactKey` are opaque device-local identities.
   The one retained-download business identity is
@@ -2081,8 +2042,7 @@ than restating it.
 - Admission first fails closed unless there is an authenticated session whose
   effective session permission enables content downloading. This client-side
   permission gate runs before current-account matching, account-boundary lease
-  acquisition, API preflight, enqueue, or platform wake work; the temporary
-  `false` projection therefore rejects before any downstream work. Once a
+  acquisition, API preflight, enqueue, or platform wake work. Once a
   request passes that gate, Jellyfin current-user account, raw policy, item, and
   exact-source facts are revalidated during admitted preflight and again
   immediately before every start or resume. The effective session permission is
@@ -2173,12 +2133,12 @@ than restating it.
   other staging remains resumable, and `MissingArtifact` retains its guarded
   completed-area cleanup. The explicit current-account resume-all command
   moves every `Paused` row, but not `BlockedByQuota` or `Failed`, back to the
-  FIFO and issues one platform wake after any row applies. Each shared or Android TV
-  Downloads-screen resume also requests one queue-level wake without targeting
-  a row; a lifecycle wake failure is safe-diagnostic-only and never a UI error.
+  FIFO and issues one platform wake after any row applies. Each shared or Android
+  TV Downloads-screen resume requests one queue-level wake without targeting a
+  row; a lifecycle wake failure is safe-diagnostic-only and never a UI error.
   Native tvOS instead exposes an explicit queue wake and reports scheduling
-  rejection without changing durable row state. Its screen entry and Refresh
-  remain passive. Passive app start never wakes the queue.
+  rejection without changing durable row state. Its entry and Refresh stay
+  passive. Passive app start never wakes the queue.
 - The user must configure a device-wide hard allocation in positive whole
   decimal GB, with a 1 GB minimum. Admission and every durable transfer
   checkpoint account for completed and partial physical bytes plus outstanding
@@ -2231,11 +2191,11 @@ than restating it.
   subtree. Mobile restore therefore cannot recreate completed rows without their
   media, and the device-local allocation returns unconfigured with that subtree.
   tvOS uses a private Caches subtree for both the download database and media.
-  Apple TV may reclaim either independently: offline playback verifies files,
-  recovery tolerates missing rows or artifacts, and the UI explains that copies
-  may need downloading again. Transfers run only while the app is active; the
-  shared Apple lifecycle host checkpoints on inactivity and termination. This
-  provides no background-transfer or durable-retention guarantee.
+  Apple TV may reclaim either independently: playback verifies files, recovery
+  tolerates missing rows/artifacts, and the UI explains possible redownloads.
+  Transfers run only while the app is active; the shared Apple lifecycle host
+  checkpoints on inactivity/termination. There is no background-transfer or
+  durable-retention guarantee.
 
 ### Offline playback, progress, and removal
 
@@ -2253,11 +2213,23 @@ than restating it.
   returns `OfflinePlayerUnavailable`, never falls back to AVPlayer, and retains
   the artifact. Apple VLC preparsing uses local-only flags for offline plans;
   network metadata and cover fetching remain enabled only for online plans.
+- An Original package's retained subtitle is a separate artifact-qualified
+  sidecar choice, including imported subtitles with no Jellyfin stream index.
+  Initial selection and reselection carry a non-null ExternalText activation
+  target; trusted lease contents supply the bytes, and native confirmation still
+  determines whether the subtitle is active. Off and embedded rows remain
+  mutually exclusive with that choice. Reselection uses the offline prepare
+  lifecycle, preserving position, audio, speed, timing, style, play/pause intent
+  and reporting generation; it never resolves a local-asset ID or remote URL.
+  Missing or stale package members fail Offline without remote fallback.
 - Offline playback durably coalesces the latest local resume position onto the
   download record first. Only a genuine controller `Completed` state marks the
-  record watched; an ordinary stop or near-end position cannot. When the same
+  record watched; an ordinary stop or near-end position cannot, and an ordinary
+  stop never clears an already watched record. When the same
   account is currently online, the existing Jellyfin Start/Progress/Stopped
-  calls may also run and failures remain best effort. There is deliberately no
+  calls may also run in the independent remote drain and failures remain best
+  effort; a slow remote call cannot delay newer local resume/completion writes.
+  There is deliberately no
   reachability monitor, outbox, delayed synchronization,
   server-progress overlay, cross-device conflict claim, or guarantee that local
   progress ever reaches Jellyfin. Native tvOS offline playback is local-only:
@@ -2299,11 +2271,9 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   dismisses a visible picker first, then visible controls even while paused; a
   subsequent BACK leaves the player.
 - **[all]** Only POINTER-device movement reveals a hidden overlay; touch
-  movement merely keeps an already-visible overlay alive. A revealing touch made
-  the overlay appear during the Android back gesture's own touch stream, so BACK
-  always resolved to "hide the controls" and the player could never be dismissed
-  under gesture navigation. It also raced the tap toggle, showing the controls
-  on finger-down and hiding them on lift. Keep the reveal gated on pointer type.
+  movement only keeps an already-visible overlay alive. This pointer-type gate
+  prevents Android back gestures from revealing controls and preserves the tap
+  toggle's single owner.
 - **[touch]** A centre tap toggles the controls immediately — the centre zone
   has no double-tap gesture, so it never needed to wait out the double-tap
   window — and a second centre tap inside that window is swallowed so the
@@ -2358,7 +2328,7 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   from the target item, queue index, and autoplay countdown key; shared and TV
   surfaces retain their own local mutable dismissal/focus state. A new target,
   queue position, or playback generation changes the identity and re-arms the
-  card, superseding the earlier stop-and-dismiss rule.
+  card.
 - **[all]** Hide Chapters when there are none. The selected chapter is the last
   timestamp not after the current position; before the first timestamp none is
   selected. An open chapter picker reads the live playback position so selection
@@ -2528,8 +2498,10 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   Auto/Prefer SDR separately from per-item pickers. Unsupported values remain
   visible with a reason, stored unchanged, and resolve to safe effective policy.
   Android capability refresh re-probes the active route/display.
-- **[all]** Audio requires at least two real tracks. Subtitle remains available
-  with one real track because Off is an additional selectable state.
+- **[shared/Android TV]** Audio is available with at least two real tracks or
+  supported audio timing, preserving Offset access for a single track. Subtitle
+  remains available with one real track because Off is an additional selectable
+  state.
 - **[all]** Subtitle style is visible only for exact platform-confirmed local
   text AND a backend that can apply it
   (`PlayerController.appliesSubtitleStyle`). Burned/transcoded subtitles are
@@ -2640,7 +2612,7 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
 - **[all]** A failed Fixed policy remains user-controlled: it offers **Choose
   lower quality**, **Try higher quality**, **Try Original**, and **Dismiss**.
   It never lowers automatically or sends the user to Playback Settings.
-- **[Android]** Both Android backends declare
+- **[Android]** Media3, LibVLC and mpv declare
   `PlaybackHealthMeasurementCapabilities.BufferingAndDroppedFrames` and emit
   `DroppedFrameMeasurement` values on `PlayerController.droppedFrameMeasurements`.
   A measurement is an **occurrence with a known duration** — dropped frames, the
@@ -2650,8 +2622,9 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   interval, a negative count, or a non-finite rate, so a half-formed measurement
   is never emitted at all. Media3 emits one per `onDroppedVideoFrames` callback
   using the `elapsedMs` it carries; LibVLC emits one per poll that yields a real
-  `lostPictures` delta over a real interval, sampling only while Playing. The
-  primitive is `Channel(Channel.BUFFERED).receiveAsFlow()` per
+  `lostPictures` delta over a real interval, sampling only while Playing. mpv
+  derives occurrences from its native dropped-frame counters and poll interval.
+  The primitive is `Channel(Channel.BUFFERED).receiveAsFlow()` per
   [`architecture.md`](architecture.md): occurrences need reliable
   single-consumer handoff, and because an event cannot be re-delivered, the
   consumer needs **no novelty inference** of any kind.
@@ -2679,15 +2652,16 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   sampling cannot work here: Media3 notifies only per 50-frame batch or on
   `onStopped()`, so at 2 fps a report arrives roughly every 25 seconds and a
   fixed short window mostly observes no change. Such a window therefore fires
-  only for higher sustained rates than its documented threshold. No diagnostic
-  field or log line is emitted for the rate.
+  only for higher sustained rates than its documented threshold. Runtime
+  diagnostics can expose `droppedVideoFramesPerSecond`; structured health logs
+  retain bounded duration/sample evidence rather than every raw rate sample.
 - **[all]** A `Network` playback failure gets exactly one automatic
   position-preserving replan with the default request policy before becoming
-  fatal. The one-shot flag is per item playback session (reset with the
-  decoder-ladder budget at playback start and retry), never per installed plan,
-  so a flapping stream cannot loop. Network failures never consume
-  decoder-ladder budget; a still-down network surfaces through the replan's
-  planning failure.
+  fatal. Offline plans are excluded. The one-shot flag is per item playback
+  session, reset at playback start and explicit retry, so replacing the
+  installed plan cannot create a loop. Network failures never consume the
+  compatibility-attempt budget; a still-down network surfaces through the
+  replan's planning failure.
 - **[all]** Initial DirectPlay audio mapping alone gates startup. Pending
   mapping starts its deadline only after native readiness; failure gets one
   independent DirectPlay-disabled recovery and never consumes decoder or
@@ -2709,7 +2683,9 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   into the next prepared item, replan, or queue advance (retry()/replans reset
   it via prepare — intended semantics).
 - `playWhenReady` reasserts play after seek/re-plan when a Ready item has rate
-  0.
+  0 only after the held initial audio gate permits native playback. Shared
+  Play/Pause toggle uses durable intent during Loading/Buffering; Playing pauses,
+  and Idle/Paused/Failed/Completed plays. iOS Now Playing uses that same callback.
 - The iOS player keeps `UIApplication.idleTimerDisabled = true` while player
   content is composed (parity with Android's `keepScreenOn`), restoring it on
   dispose. Without it the device auto-locks mid-playback, which backgrounds the
@@ -2721,11 +2697,12 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   controller that actually activated (the eager AVPlayer controller released by
   a backend swap never activated and must not deactivate). All session mutations
   run on one serialized executor so a stale delayed deactivation can never land
-  after a newer activation. System interruptions (call/Siri/alarm) capture resume
-  intent once and pause without revoking that captured intent. Active play intent
-  is cleared so the state poll cannot fight the OS. Resume requires
-  `shouldResume`, prior play intent, and no later explicit pause or output loss.
-  Prepare and release reset interruption intent. Its interruption and route
+  after a newer activation. System interruptions (call/Siri/alarm) capture the
+  current play intent once and use an internal pause that preserves that capture
+  while clearing active play intent. A later public Pause or output-loss pause
+  revokes the capture. Repeated begin callbacks cannot restore revoked intent;
+  interruption end consumes it once and resumes only when iOS also reports
+  `shouldResume`. Replacement and release reset it. Its interruption and route
   observers exist only while a current activation owner exists and deliver to
   that captured owner on the main queue. An `oldDeviceUnavailable` route change
   pauses through the normal controller path without recording interruption
@@ -2798,9 +2775,12 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
 - VLCKit failures are classified `Network` only when the media parse failed or
   timed out before playback ever progressed; everything ambiguous stays
   `Unknown` (fallback-ladder eligible). Never guess Decoder/UnsupportedMedia.
-- Apple controllers feed the shared health evaluator with native buffering,
-  startup, and dropped-frame facts. VLCKit opts into the shared actionable
-  guidance presentation; the banner may offer a safe next lower rung and Open
+- Apple controllers supply buffering/startup state and only the first-output
+  evidence their measurement capabilities support. Neither supplies shared
+  dropped-frame health measurements; VLCKit's best-effort debug lost-picture
+  counter is separate, and its first-output measurement is not reliable.
+  VLCKit opts into the shared actionable guidance presentation; the banner may
+  offer a safe next lower rung and Open
   Playback Settings, but no controller changes quality automatically. Android
   and desktop use their own source-level presentation policies (actionable on
   Android, passive on desktop); their device/runtime acceptance is still a
@@ -2815,8 +2795,9 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   play/pause/toggle/skip±15s/change-position commands; they hop to the main queue
   and route through ViewModel callbacks so remote seeks honor transcode-window
   restart and reporting rules. Android and non-macOS desktop actuals are no-ops.
-- AV1 direct play is advertised only with hardware decode support. Unsupported
-  extreme sources should fail cleanly rather than stall.
+- AVPlayer advertises AV1 direct play only with hardware decode support;
+  VLCKit uses its separate VLC-family codec declarations. Unsupported extreme
+  sources should fail cleanly rather than stall.
 - On iOS, AVPlayer is the recommended fresh-install default. Auto remains an
   explicit user choice and may route a source to VLCKit when AVPlayer cannot
   direct play it. VLCKit is labeled beta in Settings; its Picture in Picture
@@ -2840,9 +2821,14 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   appear in PiP; burned-in transcode subtitles remain visible as video pixels.
   The AVPlayer layer observes distinct prepare epochs and replaces native
   player/PiP ownership only when the exact controller, AVPlayer, or prepare
-  epoch changes. Gravity and PiP-enabled presentation changes do not rebind;
+  epoch changes. Gravity, PiP-enabled and linear-playback policy changes do not rebind;
   an immutable delegate retains each retired binding's epoch for any already
-  queued native callback.
+  queued native callback. AVPlayer PiP requires linear playback when the installed
+  plan is Transcode and the controller restarts streams for seeking. Set that
+  policy before automatic PiP registration, update it on the retained binding,
+  and clear it on disposal. Native transcode PiP seeking is disabled; direct-play
+  seeking and play/pause retain their existing controls. VLCKit's public-protocol
+  integration and disclosed PiP limitations remain separate.
 - Diagnostics include sanitized player/wait/buffer/error/access state and never
   include URLs, auth headers, or tokens.
 
@@ -2932,34 +2918,22 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   control cluster) and making ArrowUp/ArrowDown/M keys unconsumed.
 - **Desktop volume persistence — the write bound lives in the store, not the
   controller.** `setVolume`/`setMuted` publish to `_volumeState` and submit to
-  `DesktopPlayerVolumeStore` **immediately, with no controller-side timer**;
-  identical on both backends. `JvmFileVolumeStore`'s
-  `SerializedLatestValueWriter` then debounces the disk write until **500 ms of
-  quiet** on an injectable **monotonic** clock (never wall-clock: a forward jump
-  would fire early, a backward jump would strand the write), restarting the
-  interval on every submission and always writing the *trailing* value. Rules
-  that are load-bearing, not stylistic:
-  - **`submit` suppresses a state equal to `latestState`** (it still assigns it).
-    Without this, a held volume key at the 0/100 clamp re-submits the same value
-    forever and starves the write for as long as the key is down. **A failed write
-    revokes that suppression for one retry** (`lastWriteFailed`), because
-    suppression means "already accounted for" and a failure means it is not —
-    otherwise resubmitting the same value could never repair a failed write, and a
-    cold start would restore the older one with no user-reachable fix. Do **not**
-    recast this as suppressing against a "last *persisted*" value: nothing has
-    persisted during the pending window, so held-key repeats would stop being
-    suppressed and the starvation above comes straight back.
-  - **There is exactly one writer and no flush, drain, or other direct write
-    path.** That absence is what makes the single-writer invariant hold by
-    construction, so adding an "urgent" path re-opens the ordering hazard the
-    design removes. `Main.kt` has no close-path drain by owner decision.
-  - **The engine is never a source of volume truth.** The mpv poll must not
-    publish `volume`/`mute` into `_volumeState`; state flows app → engine only
-    (restored onto a newly attached engine), because a native readback landing
-    between a user change and a write persists the stale value.
-  - **Accepted, documented loss:** a change made within 500 ms of *quitting the
-    app* is lost on both desktop backends. Closing the player and staying in the
-    app persists normally via the in-process `latestState`.
+  `DesktopPlayerVolumeStore` immediately on both backends, with no controller-side
+  timer. `JvmFileVolumeStore` passes changed values and failed-write retries to its
+  single `SerializedLatestValueWriter`, which restarts a **500 ms trailing
+  debounce** on an injectable **monotonic** clock for each submission it receives.
+  - `submit` suppresses a state equal to `latestState`, preventing held input at
+    the 0/100 clamp from starving the quiet window. A failed write revokes that
+    suppression for one retry; suppression is never based on the last persisted
+    value.
+  - There is exactly one writer and no flush, drain, direct write, or close-path
+    drain. This preserves serialized ordering.
+  - App state is the only volume truth and flows app → engine, including when an
+    engine is newly attached. Native poll readback must never publish `volume` or
+    `mute` into `_volumeState` because it can overwrite newer user intent.
+  - The accepted loss is a change made within 500 ms of quitting the app on
+    either desktop backend. Closing the player while the app stays open persists
+    normally via the in-process `latestState`.
 
   This is a documented controller-owned persistence exception to the
   UseCase/Action write rule; the writer runs `NonCancellable` on IO.
@@ -3067,7 +3041,7 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   this path; no detail, PlaybackInfo, image, segment, queue, or reporting calls
   occur and no online fallback is attempted. The presenter applies saved audio
   and subtitle activation targets before playback, reasserts embedded selections
-  and Off, and retains real local-asset identity for downloaded sidecars. VLC
+  and Off, and retains artifact-qualified identity for downloaded sidecars. VLC
   attaches sidecars only through the validated offline lease; a trusted leased
   sidecar starts pending activation without requiring a remote subtitle asset.
   Menu checkmarks follow confirmed activation. The native VLC host provides
@@ -3120,7 +3094,7 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
 - These additional fields are observations only. They must not feed
   `droppedFrameMeasurements`, the shared health evaluator's native facts,
   stream planning, device profiles, backend selection, or transcode decisions.
-- Runtime diagnostics are developer diagnostic data. Only the compact allowlist
+- Runtime diagnostics are internal diagnostic data. Only the compact allowlist
   below is projected on screen; a separate bounded subset of current
   allocation, buffered-ahead, cache, output, and health facts is copied into
   correlated `PlaybackDiagnostic` health and terminal records. Related logging
@@ -3157,9 +3131,7 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
 
 - The frame-ready, double-buffered software Render API bridge remains
   the Windows/Linux presentation and the automatic macOS compatibility
-  fallback. It is not a high-resolution acceptance path; the remaining
-  presentation limitation and candidate order are owned by the internal
-  `.local/KNOWN-ISSUES.md` ledger.
+  fallback. It is not a high-resolution acceptance path.
 - macOS mpv uses an app-owned IOSurface Render API surface by default. A private
   CGL context renders into a three-buffer IOSurface swapchain, and the render
   executor publishes each completed surface through a disabled-actions
@@ -3171,12 +3143,8 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   `wid` or `gpu-context=macvk`.
 - The app-owned IOSurface removes the shared-context presentation bottleneck,
   but libmpv's OpenGL-only Render API still has a high-resolution and pointer-
-  movement limitation on macOS. A Metal-capable embedded render API or a
-  contained `wid` revisit remains future work; the full ruled-out list and
-  candidate order are owned by the internal `.local/KNOWN-ISSUES.md` ledger.
-- The earlier `wid` experiment remains rejected. Although its playback of that
-  source path opened a separate full-resolution window with independent
-  scaling, cropping, and focus instead of rendering inside the player region.
+  movement limitation on macOS. Keep this limitation explicit until a replacement
+  demonstrates continuous embedded presentation under sustained pointer input.
 - Settings → Playback → Default player exposes independent macOS `mpv` and
   `LibVLC` choices for the next playback session. LibVLC is selectable
   only when the cached file-based runtime check finds a usable VLC layout; the
@@ -3189,18 +3157,14 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   compatibility envelope in Playback Planning bounds LibVLC's independent
   very-high-resolution input risk; Unrestricted permits a deliberate unchanged
   attempt, so LibVLC is still not a universal fallback.
-- macOS Apple Silicon release package tasks stage the audited VLC **3.0.23
-  arm64** runtime with `scripts/prepare-desktop-vlc-bundle.sh`, validating
-  `scripts/vlc-bundle/manifest-3.0.23-arm64.txt` before copying the `lib/` and
-  `plugins/` layout that `DesktopVlcRuntimeDiscovery` expects. The bundled
-  resource root is preferred; development runs retain the `/Applications/VLC.app`
-  fallback. Sparkle/Growl UI plugins, dvdread/dvdnav/libbluray disc plugins,
-  and `plugins.dat` are excluded; libvlc rescans plugins when the cache is
-  absent. GPL-2.0/LGPL-2.1 texts and `ATTRIBUTION.md` ship in `licenses/`,
-  with `ATTRIBUTION.md` recording the corresponding-source obligation. The existing native-dylib
-  signing walk covers VLC alongside mpv, and the per-variant
-  `verifyPackagedDesktopVlcBundleMain`/`verifyPackagedDesktopVlcBundleMainRelease`
-  tasks check the required files in their own variant's app image.
+- `DesktopVlcRuntimeDiscovery` checks for `lib/libvlc.dylib`,
+  `lib/libvlccore.dylib`, and a `plugins/` directory. The bundled root is
+  preferred; development runs may use `/Applications/VLC.app`, and engine
+  creation validates VLC 3 compatibility. [BUILD.md](../BUILD.md#desktop-jvm)
+  owns fetch/cache/offline behavior, the [release runbook](../RELEASE.md#manual-macos-stages)
+  owns packaging, signing, and verification, and
+  [licensing and distribution](../operations/licensing-and-distribution.md#desktop)
+  owns provenance and source obligations.
 - Desktop player hosts and native video surfaces start black. For a non-zero
   LibVLC start, the controller supplies a per-media `:start-time` input option
   before playback and retains its bounded post-start seek as a compatibility
@@ -3218,8 +3182,8 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   lifecycle. Very-high-resolution desktop playback limits are backend-specific:
   mpv can accumulate output drops under continuous system pointer movement even
   with IOSurface presentation, while LibVLC can independently lose output
-  pictures on streams beyond sustainable client capacity. Current exceptions
-  and candidate work are owned by the internal `.local/KNOWN-ISSUES.md` ledger.
+  pictures on streams beyond sustainable client capacity. Neither backend has a
+  universal very-high-resolution acceptance claim.
 - Resolved playback diagnostics keep Jellyfin `Transcode reasons` separate from
   `App trigger`. The compact desktop/TV overlay shows only the server's
   `Transcode reasons`; app triggers remain in structured diagnostics, including
@@ -3272,755 +3236,236 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   metadata is absent or invalid, a fatal playback error occurs, the player
   ends/stops or routes back, lifecycle `ON_STOP` fires, and the player
   composition is disposed. This cleanup must happen before leaving the player;
-  the default must not change until the pending validation gate recorded in
-  `.local/KNOWN-ISSUES.md` is complete.
+  the default must remain off until physical Android TV validation confirms
+  exact, integer-multiple, and 2.5× fallback choices plus restoration on every
+  listed exit, with no stranded display-mode request or Media3 strategy.
 
 ## Why
 
-Rationale for rules this guide states: the choice, the reason, and the
-rejected alternative. An entry here is deleted when its rule changes; a rule's
-operative text lives in the body sections above, never here.
+Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
+[playback-architecture.md](playback-architecture.md#why).
 
 ### Server contract and capability modeling
 
-- **Discovery availability is a platform capability, not a retry state.** iOS
-  intentionally declines the multicast entitlement required for UDP broadcast,
-  so its unavailable discovery path prevents UDP work while preserving manual
-  URLs, direct local HTTP, and restored sessions/accounts through the existing
-  Local Network declarations. Rejected: a multicast entitlement, a permission
-  probe, and treating Bonjour as an equivalent protocol.
-- **Related shelves are priority-gated data, not a completion race.** The
-  repository launches independent source requests to reduce total latency, but
-  awaits them in the selected Cast-first order so visible shelf order and
-  deduplication remain deterministic. A shared four-shelf cap is applied by
-  each cross-platform consumer. Episode Next Up/Similar and the Series single
-  flattened shelf are separate product exceptions. Rejected: progressive
-  completion-order publication, a Director source job, and platform-local
-  shelf limits.
-- **Next Up excludes resumables only where another surface owns them.** Home
-  and Watch Next already merge Continue Watching, so accepting Jellyfin's
-  resumable Next Up rows there duplicates the same asset and ownership. The
-  API default stays inclusive because series-detail Next Up has no companion
-  Continue Watching section. Rejected: forcing one raw-API value globally.
-- **Find request limits belong to each selected category.** A mixed 60-item
-  limit lets a common kind starve another selected kind before projection.
-  Per-kind requests preserve the same filters while ordered join and ID
-  de-duplication keep presentation deterministic. Rejected: partial results on
-  sibling failure, which would make a failed category look empty.
-- **Trickplay identity follows the selected playback source.** Resolution-only
-  flattening can pair thumbnails from one media version with playback of
-  another. Retaining the outer source key and using a singleton-only fallback
-  preserves compatibility with unambiguous responses without guessing across
-  versions. The source remains in URL and cache identity so switches invalidate
-  stale tiles.
-- **Trickplay availability requires a delivered tile.** Server metadata proves
-  only that a sprite sheet is advertised; it does not prove the image still
-  exists or can be fetched. A user-driven seek target starts the preview request;
-  seek-bar focus and the already-visible live video do not. A final-commit
-  callback retains that target across the seek-to-buffering handoff, and player
-  status removes it when loading/buffering recovery ends; cancellation cannot
-  retain a target, while a bounded grace clears already-buffered seeks that
-  never report buffering. The preview is centered over the target until edge
-  clamping is required, where its shallow curved pointer narrows and leans
-  toward the exact position instead of forming a broad edge hook.
-  A presence-keyed fade and size collapse makes removal deliberate without
-  cross-fading each seek step; item identity resets it to prevent stale frames.
-  Preview chrome waits for image success and stays absent on loading or failure.
-  The sheet is painted directly through the clipped preview because measuring it
-  as a child of that frame clamps it to one thumbnail before the row/column
-  offset and can move every pixel outside the viewport. Identity-free request,
-  decode, and crop diagnostics remain visible in release Logcat so the first
-  capture distinguishes delivery from rendering. Rejected: querying an
-  administrator-level library setting, prefetching or showing the
-  current-position frame on focus alone, retaining canceled or stale targets,
-  an unbounded wait for buffering, showing an empty frame, permanently disabling
-  previews after a potentially transient request failure, or using a
-  constraint-clamped oversized image child.
-
-- **Apple profile conditions are per-player.** AVFoundation only decodes HEVC
-  in MP4/MOV when the sample-entry tag is `hvc1`/`dvh1` (parameter sets
-  in-container); `hev1`/`dvhe` (in-band parameter sets) produce black screen
-  with audio and no hard decoder error. VLCKit decodes `hev1` and deinterlaces;
-  AVPlayer does neither and its HEVC path is bounded to 60 fps — so a shared
-  Apple profile would either deny valid VLCKit playback or mis-offer sources
-  AVPlayer cannot render. The tag and frame-rate bounds stay HEVC-only because
-  there is no evidence for narrowing AVPlayer H.264 or AV1.
-- **Denying direct play can be cheap.** When a direct-play condition fails on
-  a container/tag technicality, the server typically remuxes (bitstream
-  repackage) rather than fully re-encoding — so tight, correct profile
-  conditions cost little.
-- **HDR/DV range conditions are a 10.11+ contract.** Per-codec
-  `VideoRangeType` conditions are only handled correctly by server 10.11+; the
-  entire server-behavior contract is verified against 10.11 specifically, and
-  any new server major requires contract re-verification, not code porting.
-- **Explicit range exclusions remain small device facts, not a quirk
-  framework.** The four exact Fire TV models and two demonstrated HEVC
-  Dolby-Vision-plus-HDR10+ combinations are subtracted from the positive set
-  because the devices can advertise decode and still render black. A global
-  Dolby Vision/HDR10+ restriction, inferred model families, remote quirk
-  service, and `NotEquals` wire conditions were rejected: each weakens truthful
-  capability claims or leaks subtype ranges through Jellyfin's condition
-  processor. Applying the same fact in local source-copy preflight prevents a
-  failed PlaybackInfo request from bypassing it.
-- **No SDK, wire-format obligation.** The client deliberately ships a
-  hand-rolled Ktor client and DTOs with no Jellyfin SDK dependency, so server
-  upgrades can never break the build at compile time — the trade-off is that
-  the obligation is manual wire-format and behavior tracking against each
-  server release.
-- **Public system identity is authoritative across authentication variants.**
-  Display metadata and authentication-result IDs vary across supported server
-  responses, but `/System/Info/Public` supplies the stable identity used before
-  credential persistence. Treating an auth response mismatch as cosmetic could
-  bind a credential to the wrong server; requiring display fields or a duplicate
-  result ID would reject otherwise compatible servers. Rejected: trusting a
-  nonblank conflicting auth ID or deriving identity from optional display text.
-- **Authorization parameters use one CR/LF-safe RFC 3986 wire policy.** Raw
-  quoting leaves delimiter, control-character, and non-ASCII ambiguity, while
-  form encoding changes spaces to `+`. One UTF-8 percent encoder for both full
-  and token-only headers keeps their shapes stable without allowing any value
-  to bypass normalization. Rejected: field-specific escaping and token-only raw
-  interpolation.
-- **Playback transport failures are mapped below presentation.** Retryability
-  and the allowlisted source exception type are stable domain facts used by the
-  planner, while client exception classes are an implementation detail that may
-  change with the HTTP stack. Rejected: importing `JellyfinApiException` into a
-  ViewModel or discarding the existing safe diagnostic source type.
-- **The portrait transcode-URL rewrite is future-proof by construction.** It
-  stays correct even if a future server fixes the width-tier scaler, because
-  it only ever requests dimensions already inside the decoder's limits.
-- **`SubtitleStreamIndex=-1` was rejected as the strip mechanism.** The
-  verified server ignores it on transcode URLs, so honesty about subtitle
-  intent requires stripping the server-attached parameters instead.
-- **Every track-identity canonicalization rule traces to a real defect.**
-  Alias spellings, server-synthesized display titles, unknown-language
-  taggings, and codec-family distinctions each caused a real activation
-  timeout that replanned a healthy DirectPlay into a transcode; capability
-  providers keep advertising exact wire spellings because Jellyfin negotiation
-  is exact-name-sensitive, while local matching compares canonical forms.
-- **Platform audio capability baselines are truthful, not conservative.**
-  Hardcoded stereo ceilings transcoded every 5.1 asset for nothing; each
-  platform advertises what its selected backend can actually accept. Android
-  advertises DTS only with a confirmed decoder or passthrough route, and Media3
-  advertises E-AC-3 from bundled FFmpeg only after the shipped runtime confirms
-  that decoder. A single active-route channel count was rejected because a
-  stereo PCM sink can still render multichannel encoded input after local
-  decode/downmix, while passthrough is a separate route fact. Per-codec decode
-  ceilings plus codec-qualified passthrough preserve both truths; the Stereo PCM
-  policy mode keeps its explicit clamp.
-- **Capability provenance explains a claim without changing the claim.** Decode
-  support and a finite ceiling can come from different sources, so flattening
-  them into one label was rejected. Closed multi-source evidence preserves a
-  platform probe, bundled runtime probe, pinned engine declaration, static
-  declaration, documented limit, or explicit unknown independently. Sending
-  that metadata to Jellyfin was also rejected: it is diagnostic context, not a
-  server negotiation field. Separate desktop snapshots prevent a later mpv or
-  LibVLC correction from leaking across engines: mpv retains HDR10 wire ranges
-  for its software tone mapping, while LibVLC intentionally advertises SDR-only
-  ranges for server HDR-to-SDR conversion.
-- **The iOS 4K30 envelope is product policy, not a per-model decoder table.**
-  AVPlayer already rejects sources outside that frame box and throughput. iOS
-  VLCKit now intersects its separately owned codec declaration with the same
-  envelope so oversized sources transcode before native prepare under the
-  default Standard setting. Unrestricted is an explicit, persistent escape
-  hatch for future hardware: on iOS it bypasses only the app envelope for both
-  AVPlayer and VLCKit while preserving their real compatibility facts. Copying
-  AVPlayer codec filtering or hardware-probe provenance was rejected because
-  VLCKit can use different decoders and pixel-conversion paths. Per-model rows
-  were rejected because a sparse hardware catalog would generalize local
-  validation inconsistently; a custom device-profile editor was rejected as
-  unnecessary and unsafe for this bounded override; an unbounded default was
-  rejected because it makes visible output failure the first compatibility
-  decision.
-- **The macOS LibVLC 4K60-equivalent envelope is backend-scoped product
-  policy.** A clean 4K/60 path and a failing 8K/60 path justify a conservative
-  Standard input boundary for that backend only; they do not establish mpv,
-  Windows/Linux, codec-wide, or machine-model capability. Width/height go on
-  the wire while local proportional throughput avoids inventing a constant
-  60-fps limit. Reusing the existing Unrestricted escape hatch was chosen over
-  a new desktop policy or custom profile editor; it removes only the marked
-  envelope and leaves Original's no-stream-change promise intact.
-- **Media-version choice is exact-source and session-only.** All source-owned
-  fields are reprojected together from the already-fetched source, and playback
-  defaults resolve through the existing exact-source launch-context use case.
-  Persisting a preferred version was rejected because it adds schema and stale
-  source identity for a choice that is meaningful only among the current
-  response. Refetching, adding a repository/use case, or keeping separate
-  composable-owned fields was rejected because the data and boundary already
-  exist and partial updates can mix two versions in one frame.
-- **Backend availability is domain truth from `DeviceProfileProvider`.**
-  Settings previously trusted a platform actual that claimed every backend
-  available, so devices without a runtime offered it and playback fell back.
-  Filtering unavailable backends out of the list was rejected: it deletes the
-  "unavailable on this device" row and contradicts the policy that an
-  unsupported stored choice stays stored and resolves to a safe effective
-  policy with a visible reason.
-- **Metadata borrowing across media-source versions was bounded, not chosen
-  once.** Always borrowing was rejected for the cross-version hazard (a 60fps
-  alternate inheriting 24fps detail metadata); never borrowing was rejected
-  because it hard-errors a playable file whose response merely omits optional
-  metadata that detail carries.
+- **Discovery availability is a platform capability.** iOS omits the multicast
+  entitlement required by UDP discovery, so marking discovery unavailable
+  prevents futile network work while preserving manual URLs, local HTTP, and
+  restored sessions. Bonjour and permission probes are not equivalent to the
+  Jellyfin broadcast protocol.
+- **Related shelves and Find use deterministic ordering.** Priority-gated joins
+  prevent faster low-priority requests from reordering shelves, while per-kind
+  Find limits prevent one selected category from starving another. Ordered
+  joins, ID de-duplication, and all-or-nothing failure keep missing data from
+  looking like an empty category.
+- **Trickplay is source- and delivery-qualified.** Resolution alone can pair a
+  tile sheet with the wrong media version, and advertised metadata does not
+  prove a tile can be fetched and decoded. Source identity therefore participates
+  in URL/cache keys, while preview chrome appears only after image delivery.
+- **Public server identity is authoritative.** `/System/Info/Public` binds
+  credentials to a stable server before persistence; optional display fields
+  and inconsistent authentication-result fields cannot safely replace it.
+  Password bytes remain untouched, while authorization values use one CR/LF-safe
+  RFC 3986 encoder because secret handling and header syntax are separate
+  boundaries.
+- **The API facade owns transport and wire-format drift.** Mapping transport
+  failures below presentation keeps retryability stable if the HTTP stack
+  changes. The hand-rolled Ktor client avoids an SDK dependency but requires
+  explicit wire and behavior verification for each supported server release.
+- **DTS claims remain backend-specific.** Media3 advertises DTS only with a
+  confirmed decoder or active passthrough route, while Android mpv retains its
+  pinned dca/DTS declaration. The bundled FFmpeg E-AC-3 result augments only
+  Media3, and an active route's channel count remains separate from local
+  decode/downmix capability.
+- **Source identity remains exact and session-scoped.** Media-version changes
+  reproject every source-owned field together; persisting an ID from a transient
+  server response risks stale or mixed-version state. Backend availability also
+  comes from the active `DeviceProfileProvider`, allowing an unsupported stored
+  choice to remain visible without treating it as usable.
+- **Profile and URL rewrites preserve declared intent.** Exact server spellings
+  remain on the wire while local mapping canonicalizes known aliases. Portrait
+  transcode dimensions are constrained on both URL parameter sets, and
+  server-attached subtitle parameters are stripped when they conflict with the
+  resolved selection; `SubtitleStreamIndex=-1` alone does not reliably strip a
+  server-selected subtitle.
 
 ### Persistence
 
-- **Apple application credentials stay out of Keychain by policy.** Keychain
-  prompts during ordinary app launch make an open-source media client appear to
-  request broader system trust than it needs. iOS, tvOS, and macOS therefore use
-  app-owned plaintext persistence and accept its lower at-rest security. Do not
-  restore Security.framework, Keychain APIs, command-line `security` access, or
-  migration/cleanup reads for application credentials. Release signing and
-  notarization credentials are separate developer tooling and remain governed
-  by the release runbook. The plaintext-at-rest tradeoff itself is an accepted
-  product decision, not an open security finding or distribution blocker;
-  audits should report only a concrete violation of this boundary or a newly
-  applicable external requirement.
-- **Diagnostic collection requires an explicit opt-in.** Even sanitized,
-  bounded local history is behavior data, so a missing or malformed preference
-  stays off. Persisted user choices continue to win, and upload still requires
-  a separate explicit Send action.
-- **A present session envelope is the only authority because fallback can
-  resurrect credentials.** Independent account, active, and pending keys could
-  expose a mixed generation after a partial write, while treating an empty
-  result as absence lets stale aliases undo logout. The versioned envelope makes
-  one commit authoritative, including an empty tombstone; migration commits it
-  before best-effort alias cleanup, and corrupt or unsupported envelopes fail
-  closed for diagnosis instead of consulting legacy state. Rejected: continued
-  dual writes, delete-on-empty, and fallback from any present envelope.
-- **Delayed Room settings initialization yields only to a successful write.**
-  Marking a write before its DAO upsert can suppress the stored value even when
-  persistence failed, and publishing first can expose a value that never became
-  durable. DAO success therefore precedes both the write marker and publication.
-
-- **Plaintext desktop credentials are an accepted application-storage risk.**
-  Desktop targets use the same app-owned JSON-file policy. Distribution or
-  support decisions must not reintroduce native credential stores; any future
-  hardening must preserve the no-Keychain rule and avoid OS credential prompts.
-  Audits must not reopen the accepted at-rest tradeoff itself.
-
-- **The Room owner preserves durable state across schema 11 migrations.** The
-  database registers the complete 1→2 through 10→11 migration chain, including
-  data-only preference changes, so an installed alpha can reach the current
-  schema without a destructive reset. The 10→11 preference migration uses a
-  single legacy sentinel because the old row has no user identity; claiming and
-  deleting it in one transaction prevents two accounts from inheriting one
-  user's settings while preserving the first authenticated user's upgrade.
-  Duplicating the row for every account or assigning it to an arbitrary stored
-  user was rejected. A future-version downgrade driver may recreate only
-  refetchable recent-search and Watch Next cache tables before Room validates
-  the schema; durable playback, settings, subtitle, and local asset rows are
-  preserved. Rejected: the retired clean-install-only v1 premise, a missing
-  historical migration chain, and whole-database destructive fallback.
-- **Launch persistence reads fail independently and report closed outcomes.**
-  A single aggregate try/catch was rejected because one corrupt or unavailable
-  store would erase successful sibling values; sequential owner-local reads
-  were rejected because they duplicated key construction, cancellation rules,
-  defaults, and durable-store availability semantics. Concurrent child reads
-  with per-field fallback preserve successful values and latency, while
-  rethrowing cancellation prevents a superseded launch from becoming a
-  default-valued launch. Raw keys, exception text, and media identity stay out
-  of the result and diagnostics.
+- **Apple application credentials remain in app-owned plaintext storage by
+  policy.** Avoiding Keychain access prevents application-triggered system
+  credential prompts, with the documented lower at-rest security tradeoff.
+  Release signing credentials are a separate concern; application code must not
+  read, migrate, or clean Keychain entries.
+- **The session envelope is the sole credential authority.** One versioned
+  commit prevents accounts, active selection, and logout-pending state from
+  exposing mixed generations. An empty envelope is a logout tombstone, and any
+  present corrupt or unsupported envelope fails closed instead of reviving
+  legacy aliases.
+- **Durable Room state migrates without blanket destruction.** The full schema
+  chain preserves playback preferences, device settings, subtitle selections,
+  and local assets. Only explicitly refetchable tables may be recreated during
+  future-version recovery; transactional legacy-row claiming prevents two
+  accounts from inheriting one old preference snapshot.
+- **Persistence reads and writes fail independently.** Per-field launch reads
+  preserve successful sibling values and cancellation, while submitted Room
+  settings become visible only after the DAO write succeeds. Whole-snapshot
+  writers serialize and coalesce updates so slow older writes cannot overwrite
+  newer state.
 
 ### Downloads and offline
 
-- **Download authorization is an app-owned current-user boundary.** Jellyfin
-  exposes user policy through an authenticated endpoint and exact-source bytes
-  through a separate static route; treating success from that byte route as
-  permission proof was rejected because the verified server contract does not
-  enforce those facts as one operation. Revalidating the Jellyfin current-user
-  account, raw policy, item, source, and Range validators during admitted
-  preflight and before every start or resume fails closed when access or content
-  changes without inventing a server guarantee. The effective
-  `Session.enableContentDownloading` gate is checked earlier, before lease/API/
-  enqueue work, and does not replace those remote revalidations. Authentication
-  projects Jellyfin's current `EnableContentDownloading` user policy into the
-  effective session value, while a missing policy fails closed.
-- **Original and Fixed are two closed artifact contracts, not one adaptive
-  download mode.** Original preserves the selected source and embedded tracks;
-  Fixed deliberately converts one canonical rung/audio/subtitle choice into the
-  small finite HLS-TS/H.264/AAC subset JellyScope can validate and localize.
-  Auto/custom quality, progressive transcode output, OS-managed HLS packages,
-  and a general HLS parser were rejected because they make artifact identity,
-  resumption, completeness, or offline backend behavior ambiguous. A proven
-  Original decoder mismatch is rejected before transfer rather than retaining
-  bytes the selected device/backend cannot play; unknown limits remain allowed.
-  Fixed keeps the master envelope small while allowing a larger finite media
-  envelope for long valid segment lists; the independent segment/line caps and
-  credential-free checkpoint ceiling keep parsing and persistence bounded.
-  Package-scaled progress checkpoints retain the existing cadence for small
-  downloads without turning the largest bounded manifest into gigabytes of
-  routine metadata writes. A fixed private-root sibling replacement file gives
-  the checkpoint manifest one same-filesystem atomic boundary without turning
-  package writes into a general transaction system; media writers retain their
-  bounded rewrite/truncation contract.
-  iOS and tvOS select VLCKit for every offline session and fail visibly when the
-  required backend is unavailable.
-- **One active transfer and one hard device allocation keep resource use
-  explainable.** Parallel workers, per-account quotas, automatic eviction, and
-  best-effort overage were rejected: concurrency races reservations, per-account
-  limits hide a shared filesystem, and eviction can silently delete another
-  account's media. One global slot, current-account eligibility, whole decimal-GB
-  allocation, outstanding reservations, and a 1 GB free-space floor make every
-  admission and block visible. A visible resume-all command preserves explicit
-  recovery after an Android system stop while returning all paused work to that
-  same FIFO with one scheduler wake. A Downloads-screen resume can request the
-  same queue-level wake on active hosts, with scheduling failure logged but not
-  presented as a row error; silently restarting on launch and waking once per
-  row were rejected.
-- **Android notification permission is an app-shell visibility concern, not a
-  download admission rule.** Requesting it at the two explicit Start boundaries
-  gives Android 13+ a timely opportunity to show transfer progress and Cancel
-  without moving platform policy into shared state. Blocking enqueue on Allow,
-  retaining prompt history, or treating denial as Jellyfin authorization were
-  rejected because a transfer remains valid when Android suppresses its
-  notification.
-- **Offline progress is local truth with an optional online side effect.** A
-  reachability monitor, reporting outbox, server overlay, and conflict resolver
-  were rejected because none can promise acknowledgement or define which device
-  wins. Persisting local resume/watch state first keeps the downloaded artifact
-  useful without a server; ordinary reporting is allowed only for the matching
-  currently online account and remains explicitly best effort.
-- **Account deletion is a durable cross-store saga because credentials and
-  artifacts cannot commit atomically together.** Deleting downloads before the
-  account, deleting credentials first without a recovery record, or trusting a
-  stale dialog snapshot can each strand private media or an unrepeatable partial
-  removal. Quiesced exact-count confirmation, a pre-credential durable header,
-  generation-bound leases, and startup replay make the irreversible operation
-  explicit and recoverable; account switching stays non-destructive.
+- **Download authorization is a current-account boundary.** A successful static
+  byte request does not prove Jellyfin's content-download policy, so session
+  admission and every start/resume revalidate the current account, policy,
+  source, and validators under the captured work lease.
+- **Original and Fixed are closed artifact formats.** Original preserves the
+  selected source; Fixed produces the bounded HLS-TS/H.264/AAC package that can
+  be validated, resumed, and localized. Adaptive/custom packages and general HLS
+  parsing would make artifact identity and completeness ambiguous.
+- **One transfer queue and one device allocation make admission deterministic.**
+  Outstanding reservations and the free-space floor prevent overcommit without
+  silently evicting another account's media. Notification permission controls
+  Android visibility, not download authorization, so denial never invalidates a
+  queued transfer.
+- **Offline progress is local truth.** Its persistence drains independently of
+  optional ordered server reporting so network delay cannot block the saved
+  resume point. No reachability monitor or outbox can promise eventual server
+  acknowledgement or define cross-device conflict resolution.
+- **Account removal is a recoverable cross-store operation.** Credentials and
+  artifacts cannot commit atomically, so a durable removal header,
+  generation-bound leases, exact confirmation snapshot, and startup replay
+  prevent stranded private media. Account switching remains non-destructive.
 
 ### Quality policy
 
-- **A quality rung caps resolution absolutely because a label must not lie.**
-  Rung resolution used to be a display label the request never sent, so a low
-  rung capped bitrate alone and the server transcoded at source resolution no
-  device could decode. The planner derives the bound centrally so every caller
-  inherits the cap with no signature change. Rejected: threading a dimension
-  parameter through every caller (a future caller silently opts out), clamping
-  the rung to the device ceiling only (the picker's label would stay a lie),
-  persisting dimensions (schema change for a derivable value), and mapping
-  automatic bitrate ceilings to rungs (content nobody asked to downscale).
-- **The copy preflight never assumes a worst-case frame rate.** Assuming 60fps
-  was rejected because 120fps sources exist; preflighting DirectPlay only and
-  unbounded retry were rejected with it.
-- **The VLC 8 Mbps seed is a stored value, not a resolution-time platform
-  default.** A resolution-time default was rejected because it makes "Use
-  playback default" a lie and risks persisting a default as a user choice.
-- **The no-video-output threshold is backend-qualified rather than tuned
-  globally.** Raising the threshold globally delays genuine detection on
-  faster backends; disabling the check for the affected backend loses
-  detection exactly where the symptom was reported from.
-- **The health evidence window restarts instead of fully resetting.** A full
-  evaluator reset was rejected because it also clears the once-per-session
-  emission latches and startup semantics; resetting the one-per-item-session
-  recovery budgets was rejected with it.
-- **Media3 keeps the default byte target with time priority.** One aggressive
-  target for every device was rejected, as was treating a warning's absence as
-  proof of headroom, and wake mode as an active-stutter fix without a
-  suspension reproduction; the larger regular-memory target stays an
-  evidence-gated A/B candidate.
-- **The dropped-frame warning carries no telemetry and changes nothing
-  automatically.** Rejected: forking the player's renderer stack to lower the
-  notify batch, automatic quality reduction (the user owns that choice),
-  automatic A/V drift correction (the actual offset cannot be measured, and a
-  guess can make it worse), and a new numeric log field for a warning already
-  visible on screen.
-- **The Android LibVLC capability projection stays narrow on purpose.** A
-  global resolution ceiling, VP9 ban, or forced transcode was rejected as
-  broader than the evidence; importing MediaCodec capability wholesale erases
-  software capability; automatic backend switching changes the user's
-  decision; an unbounded output re-lock loop thrashes the decoder.
+- **A named quality rung carries an absolute resolution cap.** Bitrate-only
+  enforcement can produce source-resolution video that contradicts the visible
+  rung and exceeds the decoder. Canonical dimensions are derived centrally;
+  custom and unrelated automatic bitrate limits remain bitrate-only.
+- **Health evidence is qualified rather than globally tuned.** Backend-specific
+  first-output thresholds, advancing-clock checks, generation exclusions, and
+  evidence-window restarts prevent slow start, seek, resume, or surface work
+  from becoming false no-output or stall recovery. Restarting the window retains
+  one-per-session signal and recovery budgets.
+- **Media3 prioritizes time thresholds over a claimed memory ceiling.** The
+  allocator target does not cover codec, graphics, audio, or other native
+  allocations, and time priority can exceed it. A larger regular-device target
+  therefore remains an evidence-gated candidate rather than a silent default.
 
 ### Backends and players
 
-- **Desktop mpv derives trust from the JVM and fails closed by default.** The
-  native engine does not automatically inherit the JVM trust store, so an
-  app-owned PEM makes its accepted issuers explicit without querying a second
-  macOS-specific authority. Export and required-option failures abort engine
-  construction because silently omitting either would misrepresent secure
-  playback. The insecure exception is account/server-scoped and construction-
-  time-only so one local server choice cannot weaken another account or an
-  already-running engine. Rejected: automatic certificate retry, a global
-  toggle, and Keychain enumeration.
-- **Desktop mpv timing reuses the existing offset contract.** libmpv already
-  owns both-sign `audio-delay` and `sub-delay`; a JVM-only adapter keeps that
-  native detail behind `PlayerTimingController` while the shared coordinator
-  retains account/item/source persistence and reset policy. Reapplying retained
-  values at engine installation and load avoids a new schema, DI path, or
-  desktop-only UI. Desktop LibVLC remains unsupported until it has equivalent
-  native evidence.
-- **Apple output loss is a pause event, not an interruption-resume event.** A
-  removed wired, USB, or Bluetooth route expresses lost output, but reconnecting
-  hardware is not permission to restart media. Dispatching only the captured
-  current audio-session owner through normal `pause()` clears play intent and
-  revokes any captured interruption resume, preventing polling or a later
-  interruption-end callback from resurrecting playback. Reusing the
-  interruption intent was rejected because it would auto-resume on reconnect.
-- **Desktop mpv subtitle clearance follows the composed bottom chrome.** mpv's
-  native/default `34` scaled-pixel margin is the correct hidden-controls and PiP
-  baseline, while the existing accepted controls-visible position is retained by
-  adding a fixed `146` offset when normal controls or a bottom picker is active.
-  The base font size stays pinned at `38` so mpv runtime updates cannot redefine
-  the desktop Normal size.
-  One Boolean from the already-owned controls, picker, and PiP state is sufficient;
-  a preference, timer, measured geometry, media heuristic, animation, or shared
-  player abstraction would create state or ownership beyond this transient
-  presentation need. LibVLC remains on its native placement because its instance
-  option cannot express the same proportional clearance.
-
-- **Android TV wakefulness belongs to the mounted player route and its Activity
-  window.** A nested playback-view flag was insufficient on the connected
-  Chromecast and can disappear during backend replacement, while the route
-  remains stable through loading, paused, picker, and dialog states. The TV
-  route therefore owns the standard window flag and retains the per-view flag
-  as a fallback. A process singleton, service, CPU wake lock, permission,
-  Ambient Mode mutation, polling loop, and vendor branch were rejected because
-  they outlive or exceed the actual player-route ownership boundary. Hardware
-  acceptance remains open in `.local/KNOWN-ISSUES.md` until playback exceeds the
-  configured screensaver timeout.
-
-- **Desktop mpv completion is a generation-and-entry fact, not a raw EOF
-  property.** mpv keeps `eof-reached` readable and may leave it latched while a
-  reused context replaces a file. Accepting EOF before matching replacement
-  lifecycle events can therefore complete the wrong item; rebuilding the
-  backend or launching an external mpv process was rejected because a small
-  controller-owned readiness state plus a lifecycle-locked commit closes the
-  race. When the playlist entry ID is unavailable, only an explicit non-EOF
-  sample proves that the outgoing latch cleared; treating a failed/null property
-  read as false would recreate the same false-completion path.
-- **Native tvOS keeps AVKit online and shares VLC offline.** AVKit supplies
-  online transport and system metadata. Its cause-qualified transport bridge
-  preserves user pause without treating buffering as a new user intent; the
-  published paused state remains authoritative across readiness/stall samples
-  so reporting and toggles honor that intent. Raw rate observation or remote-key
-  interception alone cannot provide that distinction.
-  Downloads need the same Original/HLS
-  consumer as iOS, so a retained VLC drawable and native transport serve the
-  separate local path. Both share existing playback contracts; a second
-  download policy, online backend picker, and custom trickplay engine were
-  rejected for this scope. Offline track intent is applied through the existing
-  activation contract so a saved selection cannot become an enabled no-op; only
-  the resolver-owned sidecar establishes trusted local input. Retaining the
-  content checkpoint prevents a native reset from erasing resume progress; local
-  preparsing avoids authorizing network artwork fetches for an offline file.
-  Completion waits
-  for the current queue result so network timing cannot turn an episode into a
-  terminal item. Native device controls expose only effective shared online
-  policies; a cached-capability refresh button and offline conversion controls
-  would imply behavior the platform path does not provide. Startup diagnostics
-  captures a preference once and consumes a blocked opportunity so later user
-  interaction cannot trigger a surprise panel.
-- **iOS ships two players with one guarded session switch.** One controller is
-  authoritative at a time: explicit remote switching plans before teardown and
-  has at most one default-construction fallback, while planning failure leaves
-  the current controller untouched. AVPlayer stays the default and Auto routes to it — including
-  HDR/Dolby Vision — falling to VLCKit only when the source needs something
-  AVPlayer lacks. tvOS reuses the VLC engine for offline sessions while its
-  online session keeps AVPlayer; iOS PiP adapters remain iOS-only.
-- **iOS VLCKit transition readiness is strict only inside its bounded window.**
-  Prepare, deferred resume, and seek keep the requested target published until
-  target arrival, later clock progress, and two fresh displayed-picture
-  advances agree. Target arrival alone was rejected because clock/audio progress
-  can precede video; a continuous whole-session cadence detector was rejected
-  because advancing or intentionally dropped frames are not frozen-output
-  evidence. Physical-device HLS evidence also proved that VLCKit's public
-  `displayedPictures` statistic can remain zero while video is visibly advancing.
-  It therefore remains useful as best-effort transition evidence but is not
-  advertised to shared health policy as reliable first-video-output measurement.
-  A generation-local sequence rejects stale timeout/success observations; when
-  the bounded window expires, `TimedOut` remains observable but fails open to
-  honest native state instead of becoming a permanent UI/end-of-stream lock.
-  PiP admission retains a separate session-local content latch so marking the
-  shared measurement unsupported cannot disable PiP; its timeout fallback needs
-  both `hasVideoOut` and active native playback.
-  A fresh Resume accepts its first serialized clock observation at or beyond the
-  requested target: native playback can advance before the
-  always-asynchronous owner lane samples the new session, and requiring one
-  absolute in-tolerance sample left healthy output permanently pinned once that
-  sample had already been skipped. Explicit seeks retain the symmetric
-  tolerance because their pre-seek clock belongs to an already-running session
-  and must not establish arrival.
-  The active transition's bounded kind, state, native/target clock, arrival,
-  later-clock, and displayed-picture facts remain available in runtime
-  diagnostics but are deliberately outside the universal compact developer
-  overlay owned by [`ui.md`](ui.md#player-playback-notices). Event-scoped support
-  logs add the public output-existence, decoded/displayed/
-  lost-picture, buffering, published-clock, progress-latch, and terminal-decision
-  facts needed to reconstruct the visible outcome; they add no polling loop,
-  media identity, URL, path, credential, or free-form native payload.
-- **iOS VLCKit PiP follows the engine's public protocol ownership.** The
-  retained drawable supplies VLCKit's PiP drawable and media-controller
-  contracts, VLCKit supplies its window controller, and the surface binds the
-  active prepare generation even when Compose creates it after prepare. Private
-  layer traversal and a project-owned sample-buffer/AVKit controller were
-  rejected because they duplicate native ownership and depend on internals.
-  Relative PiP skips use VLCKit's public `jumpWithOffset(...completion:)` path,
-  matching VideoLAN's own PiP integration: the completion is the engine's native
-  seek-finished event, while JellyScope's transition remains the separate owner
-  of UI buffering and output readiness. Three device candidates still collapsed
-  PiP because JellyScope exposed the transition-pinned requested target as
-  VLCKit's current PiP media time—one used native seek-finished completion, one
-  completed at absolute command acceptance, and one delayed completion until
-  picture readiness. AVKit's time range must instead describe the actual sample-
-  buffer clock. Caching that native clock separately preserves the foreground
-  target → target seek-bar contract without telling AVKit that output has already
-  reached the target.
-  A foreground session that never requested or entered PiP releases its window
-  controller without calling native PiP stop; only a requested/started window
-  needs that teardown. This keeps ordinary Player Back independent of unused
-  PiP shutdown while preserving explicit and automatic PiP close behavior.
-- **iOS player-layer ownership follows prepare identity, not diagnostics
-  cadence.** Runtime dimensions, bandwidth, and dropped-frame snapshots can
-  change many times inside one prepare. Rebinding AVPlayer/PiP from those hot
-  snapshots duplicated native ownership work and could relabel a queued old
-  callback with the new epoch. Exact controller/player/epoch identity plus an
-  immutable delegate preserves stale-callback rejection without making gravity
-  or the PiP preference part of source identity.
-- **AVPlayer is the iOS default; VLCKit PiP is a disclosed beta capability.**
-  Making Auto the default would implicitly route unsupported AVPlayer sources
-  into a backend whose foreground compatibility is broader but whose native PiP
-  seek behavior is not yet reliable. AVPlayer therefore remains the recommended
-  unset/fresh-install choice, while Auto and VLCKit remain explicit choices for
-  users who accept that tradeoff. Hiding VLCKit or globally disabling its PiP
-  route was rejected because entry, playback, pause, and restore work on tested
-  assets and the limitation is concentrated around PiP seeking.
-- **mpv is gated to API 26+ by typed availability refusal, not a rebuilt
-  native stack.** The pinned libmpv payload requires API 26 (AImageReader
-  hwdec) and is consumed unmodified per the wrapper provenance contract; older
-  devices keep the app with the default backend. Rebuilding mpv/FFmpeg for an
-  older API level was rejected — it forks the entire native supply chain for
-  one aging device whose validated backend is ExoPlayer.
-- **Android mpv treats native option and command shapes as versioned API, not
-  best-effort strings.** The engine rejected an empty singular `script` option
-  and `start=` in `loadfile`'s fourth argument (that position is the playlist
-  index); `sub-add` likewise treats its fourth argument as the title value, not
-  a `title=` assignment. The accepted shapes and their real native readbacks are
-  locked with tests. Rejected: ignoring
-  negative option results, removing
-  resume-at-load semantics, a tokenized-URL credential fallback, and a
-  misleading hardcoded network timeout for an unclassified startup failure.
-- **Android mobile platform playback uses plan truth and owner identity, not
-  layout churn.** Unknown or unbounded content cannot truthfully advertise an
-  in-item MediaSession seek even if a native backend accepts arbitrary seek
-  calls, while queue navigation remains meaningful independently. A normally
-  returning prepare is likewise not installed truth when the controller has
-  already published `Failed`; treating it as installed would expose selection,
-  play, or seek commands after terminal refusal. Monotonic registry/surface
-  ownership prevents stale Compose release or update work from reaching a
-  replacement without adding a timer or backend-specific UI path.
-  Animated controls, insets, and player transitions can move or briefly
-  collapse the composed surface many times while the video itself remains the
-  same. Feeding those rectangles into the aspect repeatedly exhausts Android's
-  aspect-change quota, so only the stable coded dimensions own aspect and the
-  live rectangle remains an aspect-free transition hint. A timer or debounce
-  was rejected because it makes correctness depend on animation timing, and
-  backend-specific PiP handling was rejected because the platform owner already
-  serves ExoPlayer, LibVLC, and mpv through one command contract.
-- **Hot playback clocks are reduced at their owning boundary, not downstream.**
-  Launching one Main coroutine per mpv callback and publishing both halves of a
-  LibVLC callback pair made scheduler and observer work scale with native event
-  rate. Throttling the tvOS presenter itself would instead make reporting and
-  segment decisions stale. An mpv replacement generation alone is insufficient:
-  a late outgoing callback could otherwise be retagged as replacement truth.
-  Keeping hot admission closed through the retiring `END_FILE` and opening it
-  only on the following `START_FILE` for the awaited replacement generation
-  rejects those samples without delaying lifecycle or other immediate edges.
-  Generation-bound latest-sample ownership for mpv, native-freshness ownership
-  for LibVLC, and a clock-only Swift watch projection then bound ordinary work.
-  Rejected: downstream debounce, arming replacement samples at command dispatch,
-  ticker ownership during healthy native callbacks, and suppression of the raw
-  tvOS state.
-- **Raw mpv logs stay app-internal and out of uploads.** Uploading or attempting
-  to redact free-form native text cannot prove that arbitrary titles, usernames,
-  IDs, paths, or credentials are absent. The raw file remains useful for local
-  device collection, but the user-triggered server upload uses only typed,
-  allowlisted records; disabling collection deletes both retained raw files.
-- **Desktop clamps foreign player-backend values instead of changing the
-  shared default.** Switching the shared default to Auto would make iOS
-  resolve per source and hand non-direct-playable items to the secondary
-  backend — a behavior trade nobody asked for. Suppressing only the
-  backend-fallback notice was rejected because it leaves the wrong backend
-  feeding the PlaybackInfo device profile.
-- **Retry replay is controller-owned.** Moving replay ownership into the
-  ViewModel/presenter was rejected because controller-internal re-prepares
-  still need local state, and a common retry helper was rejected because
-  lifecycles and retained fields differ per backend.
-- **The desktop OpenGL force flag exists because the seam was otherwise
-  unreachable.** The normal presentation attempt is deliberately never taken
-  on macOS, so consolidation work under it could never be validated; a
-  multi-value presentation selector or force-software option was rejected so
-  the flag cannot become presentation policy.
-- **macOS Now Playing uses exported framework key objects, not matching text.**
-  MediaPlayer owns the `NSString * const` identities consumed by
-  `MPNowPlayingInfoCenter`; ad-hoc strings can look correct while failing
-  publication. Separate load/install/publish/clear boundaries keep native
-  failure observable without allowing throwable payloads into diagnostics.
-- **macOS IOSurface uses VideoToolbox copy-back to avoid startup flashing.**
-  Counterbalanced packaged-app testing isolated direct decode as the trigger;
-  copy-back removed it without replacing the IOSurface presenter. Copy-back can
-  cost memory bandwidth and power, but making OpenGL the default and adding
-  codec- or asset-specific exceptions were broader than the evidence.
-- **The desktop volume write bound lives in the store because a caller-side
-  bound produced four defects at once** (a stale non-volatile read,
-  cancel-then-submit reordering on release, a false "same value means settled"
-  heuristic, and a native readback re-persisting a stale field). Rejected: a
-  critical section (serializes the ordering bug), `@Volatile` alone
-  (visibility, not ordering), check-then-act `isActive` guards, and a
-  start-to-start throttle (which does not provide the same write coalescing as
-  the debounce). A final volume adjustment may be lost when the app quits within
-  roughly 500 ms; the policy deliberately has no close-path drain or second
-  write path. Closing only the player is unaffected because the in-process
-  `latestState` persists normally.
-- **DirectPlay keeps approved embedded text descriptors while subtitles are
-  Off** because treating Off as proof that no descriptor is needed forces a
-  replan for a switch the native session can do locally; forcing all subtitle
-  formats through the native fast path was rejected with it.
+- **Desktop mpv trust derives from the JVM and fails closed.** The native engine
+  does not inherit the JVM trust store automatically, so an exported PEM and its
+  required native option are construction prerequisites. The insecure exception
+  remains account/server-scoped and cannot weaken another session.
+- **Timing and subtitle placement remain backend-owned.** Desktop mpv maps the
+  shared offset contract to native delay properties and applies its transient
+  subtitle margin from existing bottom-chrome state. Desktop LibVLC stays on its
+  native placement and has no timing support until equivalent evidence exists.
+- **Apple route loss revokes play intent.** Output removal is a pause event, not
+  permission to resume on newly connected hardware; only a matching interruption
+  end may consume a captured one-shot resume intent.
+- **Android TV wakefulness follows the mounted player route.** Activity-window
+  ownership survives backend replacement and loading/picker states without a
+  process singleton, service, CPU wake lock, vendor branch, or screensaver
+  mutation. Physical acceptance remains an explicit validation limit.
+- **Completion is generation-qualified.** Desktop mpv's sticky EOF and Android
+  LibVLC's trailing `Stopped` event can otherwise complete the wrong media or
+  cancel a valid `Completed` state. Entry/generation readiness and
+  playback-derived progress separate true completion from seek or resume state.
+- **Native tvOS uses AVKit online and shares VLC offline.** Cause-qualified native
+  transport preserves explicit pause while active play retains readiness/stall
+  recovery. System AVKit supplies online menus and chapters; VLC consumes the
+  same trusted offline packages as iOS through a retained native drawable.
+  Artifact-qualified sidecar activation and teardown checkpoints preserve trust
+  and local resume state. Timing and VLC sizing remain unavailable. Simulator
+  builds do not prove native notifications, decoding, focus, or presentation.
+- **Android mpv native option and command shapes are versioned API.**
+  Omit the singular `script` option instead of passing an empty value, preserve
+  the defined `loadfile` and `sub-add` argument positions, and treat rejected
+  return values or failed readback as failures.
+- **Android platform playback uses installed-plan truth.** MediaSession
+  seekability, PiP aspect, and command callbacks follow the current successful
+  plan and monotonic owner identity, never a merely returned prepare call or
+  transient layout bounds. Stable coded dimensions own aspect; composed bounds
+  supply only an aspect-free source rectangle.
+- **Hot native clocks are reduced at their source.** Generation-bound latest
+  samples for mpv, native freshness for LibVLC, and a clock-only tvOS projection
+  bound work without delaying lifecycle edges or making reporting stale.
+  Downstream debounce cannot reject a late outgoing callback relabelled as new
+  state.
+- **Desktop volume coalescing stays inside its store.** That boundary guarantees
+  write ordering; quitting may still lose a change made within the documented
+  500 ms debounce window.
+- **Desktop presentation keeps platform-native ownership.** macOS IOSurface
+  copy-back avoids the observed startup flash while retaining the embedded
+  presenter; OpenGL and software paths remain explicit fallbacks. Now Playing
+  uses exported MediaPlayer key objects because matching string values are not
+  framework identity.
 
 ### Subtitles and OpenSubtitles
 
-- **The OpenSubtitles consumer key is user- or developer-supplied, never
-  app-owned.** A key embedded in a distributable client binary is inherently
-  extractable, and its quota is abusable against the whole install base. The
-  ignored local developer fallback only helps a developer build and never
-  persists or appears in settings. A project-owned or pro key would need
-  OpenSubtitles consumer/subscription terms, quota, key rotation, revocation,
-  and app-identification review before distribution.
-- **A sealed `SubtitleAsset` exists instead of reusing the Jellyfin
-  external-subtitle URL type** because the Jellyfin-remote type is
-  credential-bearing (iOS attaches Jellyfin auth headers; desktop rejects URLs
-  outside the active server) — reusing it for an OpenSubtitles/CDN URL either
-  rejects a valid subtitle or leaks Jellyfin credentials cross-origin.
-- **Explicit subtitle-result preference outranks release-name and provider
-  popularity heuristics, but reorders instead of filtering.** A user choice is
-  stronger evidence than a filename similarity or popularity signal, while
-  keeping nonmatching candidates visible avoids hiding the only installable
-  result. Release matching stays local and uses only the selected source
-  basename; bounded normalization removes allowlisted extensions, separators,
-  codec/channel aliases, and technical noise before exact/Jaccard comparison,
-  with original encounter order retained for deterministic ties. Sending,
-  logging, displaying, or persisting the full media path and filtering out
-  nonpreferred results were rejected as unnecessary privacy and usability
-  regressions.
-- **One subtitle mutation actor and one startup owner preserve ordering and
-  compensation because per-call locks and live observation cannot order delayed
-  work.** Download, normalization, and network completion can arrive after a
-  newer user intent or destructive boundary; logical tickets and barriers reject
-  stale writes while the FIFO keeps file/metadata/selection order deterministic.
-  Startup reconciliation settles before observation, and restored
-  `UploadedUnconfirmed` work enters through one bounded boundary-snapshot pass
-  instead of a self-triggering live query. CPU transforms stay on the injected
-  worker while network stays outside the actor. Sync compensation restores only
-  the exact prior generation still owned by its claim/order, and only the
-  terminal/no-op finalization winner owns release. Idempotent absent-file
-  deletion plus one fixed path-free still-present failure keeps cleanup
-  retryable without leaking local identity. Rejected: independent action
-  writers, direct DAO cleanup, live `UploadedUnconfirmed` admission, and a
-  mutex-only approximation.
-- **OpenSubtitle rows stay raw until composition, and raw bytes stay below the
-  stable domain-model boundary.** Eager localization/materialization performs
-  work for offscreen results, while a `ByteArray` is mutable and cannot satisfy
-  the package-wide Compose stability promise. Stable provider-file keys retain
-  list identity without either compromise. Rejected: eager row projection and
-  annotations that assert stability without immutable structure.
+- **Subtitle Off does not erase approved embedded descriptors.** Keeping the
+  descriptor permits a later native DirectPlay switch without a needless
+  replan; actual selection remains explicitly Off.
+- **The OpenSubtitles key is supplied per installation.** Embedding an app-owned
+  consumer key exposes shared quota and requires subscription, rotation,
+  revocation, and identification policy. The ignored local development fallback
+  is neither persisted nor distributable configuration.
+- **`SubtitleAsset` separates credential domains.** Jellyfin remote subtitle
+  URLs can carry same-origin authorization, while an OpenSubtitles/CDN asset
+  must remain credential-free. Reusing one URL type would either reject the
+  third-party asset or risk cross-origin credential attachment.
+- **Result preference reorders without filtering.** An explicit preference is
+  stronger than filename similarity or popularity, but nonmatching candidates
+  may be the only installable choice. Release-name comparison stays bounded and
+  local; raw media paths are never displayed, persisted, or logged.
+- **Subtitle mutation has one serialized owner.** Logical tickets, barriers,
+  startup reconciliation, and exact-generation compensation prevent delayed
+  download, normalization, sync, or delete work from overwriting newer intent.
+  CPU transforms use the worker dispatcher while network calls stay outside the
+  actor; raw bytes remain below stable domain and Compose models.
 
-### Diagnostics, logging, and privacy
+### Diagnostic privacy rationale
 
-- **Trust and URL sanitization are one project-owned decision.** Keeping those
-  operations inline in each native adapter allowed a caller to authorize one
-  URL while loading another or to retain inherited credentials on a redirect.
-  A credential-free shared result was chosen so Media3 can apply it per hop and
-  AVFoundation can apply the same rule to its initial assets. A custom Apple
-  resource loader or proxy was rejected for this batch because it would require
-  separate streaming, seeking, HLS, cancellation, and credential contracts;
-  the unsupported AVFoundation redirect hook remains explicit instead.
-- **Modern native authorization is one backward-compatible server contract,
-  not a Jellyfin-version branch.** Jellyfin 10.11.11 and 12 RC5 accept the
-  comma-free token-only Authorization value and guarded `ApiKey` spelling, so
-  desktop mpv and the VLC family use those forms unconditionally. A legacy
-  `X-Emby-Token`/`api_key` fallback or server toggle was rejected because it
-  preserves a code path disabled by default on Jellyfin 12; the broad inbound
-  query stripper remains only to sanitize stale URLs. The full MediaBrowser
-  client/device header was also rejected for mpv because its comma-delimited
-  option would split that value.
-- **No automatic third-party crash or behavior reporting.** Local, sanitized
-  diagnostics retained in the isolated bounded store leave the device only
-  through an explicit user action (the server upload) were chosen instead;
-  every upload path in this guide (structured report and allowlist buffer)
-  exists inside that boundary. Raw native-player files never cross it.
-- **Desktop probes join the typed diagnostic boundary instead of stdout.** A
-  dynamic Settings gate makes Finder-launched reproductions collectable, while
-  the legacy property remains a force-on development seam. Closed records plus
-  per-event admission were chosen over redacting free-form lines because
-  redaction cannot prove that an unknown field never carried identity.
-- **The scrubber allowlist derives from the same source the formatter reads**
-  because the two had silently drifted, dropping whole classes of diagnostic —
-  a tag that is permitted but always dropped. Broadening the allowlist while
-  leaving messages unstructured was rejected for the same reason.
-- **Fixed-download diagnostics retain each admission and transfer decision
-  before generic projection.** An HTTP success alone cannot distinguish decode,
-  response-shape, trust, estimate, post-preflight, playlist, or preparation
-  rejection, and the same preflight can run for preview, enqueue, and transfer.
-  Preserving the closed fetch cause until its causal record is written prevents
-  declared size, streamed size, trust, HTTP, network, and content mismatch from
-  collapsing into the same public failure. Closed caller kinds, reasons, and
-  completion markers were chosen over raw PlaybackInfo/playlists, URLs,
-  identifiers, and throwable text so release logs remain both actionable and
-  safe to retain.
-- **The verbose platform-writer opt-in enables release-equivalent capture.**
-  Debug builds already install the raw platform writer, but they do not
-  reproduce release-only native playback behavior faithfully; the opt-in
-  installs that same raw writer in release builds for controlled reproduction.
-- **iOS ships no bespoke release-log mechanism.** The in-app buffer plus
-  server upload is the primary path, and the existing verbose toggle already
-  routes Kermit through OSLog into Apple's unified logging on release builds,
-  which persists beyond the bounded safe-history store and remains collectible after the
-  fact with `log collect --device`, live through Console.app, or through
-  sysdiagnose when a Mac is unavailable. A dedicated OSLog writer is warranted
-  only if the open privacy-redaction check in `.local/KNOWN-ISSUES.md` shows
-  that unified logging elides Kermit message bodies.
-- **Accepted cosmetic debt:** the Settings toggle says "logcat" on all
-  platforms; on iOS it means the system log. A per-platform string would stop
-  implying the toggle is Android-only.
+- **Trust and credential attachment are one project-owned decision.** A
+  sanitized, credential-free URL result lets each native transport attach only
+  current same-origin authorization. Inline per-adapter checks can authorize one
+  URL and load another; unsupported redirect interception remains explicit.
+- **Native authorization uses one backward-compatible form.** Verified modern
+  Jellyfin releases accept the comma-free token or guarded `ApiKey` form, while
+  legacy fallbacks preserve insecure or disabled routes. Broad inbound query
+  stripping remains only to sanitize stale URLs.
+- **Diagnostics never leave automatically.** Bounded, sanitized history and
+  typed snapshots upload only through the explicit server action. Raw native
+  files stay local because arbitrary free-form text cannot be proven free of
+  titles, IDs, paths, or credentials.
+- **Formatting and admission share one closed schema.** The scrubber allowlist
+  covers the same fields emitted by structured formatters, preventing permitted
+  tags from being silently discarded. Playback, fixed-download, persistence,
+  and native-stage records preserve causal decisions before generic projection
+  without carrying raw requests, URLs, identifiers, or throwable text.
+- **Platform logs supplement the safe upload path.** Desktop probes use typed
+  records rather than stdout; the verbose writer enables controlled
+  release-equivalent capture. iOS uses the existing Kermit-to-OSLog route and
+  bounded in-app history rather than a second release logger; unified logs
+  remain available through Console, `log collect --device`, or sysdiagnose.
 
 ### Player UX
 
-- **Android player brightness is borrowed window state.** Capturing ownership
-  once preserves the exact value to restore, while reading the live window at
-  each gesture start lets repeated swipes continue from JellyScope's current
-  override. The system brightness setting is consulted only when the live
-  window has no override. Rejected: using the ownership-time restore value as
-  every gesture baseline, a fixed 50% fallback for a readable system setting,
-  and unconditional restoration to the no-override sentinel.
-- **Do not enable approximate constant-bitrate seeking without a demonstrated
-  failure that requires it.** The flag trades seek accuracy for an unproven
-  workaround, so the normal container/index-aware seek path remains the
-  default.
-- **Playback speed is a Now Playing publication edge.** A speed-only change
-  alters the system transport rate even when metadata and position are stable,
-  so waiting for a later metadata edge or a greater-than-five-second position
-  drift publishes stale state. Paused playback still exports zero rate; the
-  speed edge only ensures the snapshot is refreshed.
-- **Only pointer movement reveals the overlay.** BACK exiting unconditionally
-  on touch was rejected, and widening the gesture-exclusion band treats the
-  symptom while costing usable area.
-- **Up Next "Not now" dismisses only the card** because keeping it as a player
-  exit read as data loss when the user only meant "stop counting down". A
-  shared immutable item/queue/generation identity re-arms new content, while
-  mutable dismissal remains local because shared and TV surfaces have
-  different BACK, focus, and Still Watching behavior; one global UI state was
-  rejected.
-- **The resume-behavior preference was removed rather than fixed.** It only
-  overrode the start position after the user pressed Resume, so detail could
-  offer "Resume from a position" and start from zero — the surfaces disagreed
-  by construction. Teaching detail screens to respect it was rejected (still a
-  setting whose only effect is to ignore server progress), as was hiding it
-  behind Advanced (keeps the contradiction).
-- **Still watching stays a separate toggle from Autoplay next** because its
-  repeated-advance prompt is a separate decision from whether to advance at all.
-  Shared UI and native tvOS consume one policy state so their thresholds cannot
-  drift, while each surface retains its own focus and presentation state.
-- **Inactive player controls are hidden, not disabled.** The audio-offset
-  control keeps the one timing exception: an audio offset is meaningful with a
-  single track (A/V sync) while a subtitle offset is meaningless with no
-  subtitles.
-- **Hold-to-seek velocity is halved by gating repeat advancement, not by
-  halving step constants.** Halving the base step would silently change tap
-  granularity; throttling at the key-event layer was rejected because the
-  aggregator owns step semantics and is unit-testable.
+- **Android brightness borrows window state.** Ownership captures the exact
+  restore value, while each gesture begins from the live override so repeated
+  swipes remain continuous.
+- **Seek policy stays evidence-based.** Approximate constant-bitrate seeking is
+  disabled without a demonstrated need, and hold-to-seek velocity is reduced by
+  gating repeat advancement rather than changing tap granularity.
+- **Playback speed is a system-publication edge.** A speed-only change updates
+  transport rate even when metadata and position are unchanged; paused playback
+  still publishes a zero rate.
+- **Overlay and navigation actions keep their existing scope.** Pointer movement
+  reveals desktop controls; Back retains its platform exit behavior. **Not now**
+  dismisses only the current Up Next identity, and new item/queue/generation
+  state re-arms it.
+- **Settings expose only effective behavior.** The contradictory resume override
+  was removed, while Still Watching remains independent from Autoplay next.
+  Inactive controls are hidden; audio offset remains available with one audio
+  track because A/V synchronization is still meaningful.

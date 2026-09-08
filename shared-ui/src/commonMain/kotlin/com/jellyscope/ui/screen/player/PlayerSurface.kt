@@ -14,6 +14,7 @@ expect fun PlayerSurface(
     resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
     subtitleStyle: SubtitleStyle = SubtitleStyle(),
     subtitleClearanceActive: Boolean,
+    pictureInPictureRequiresLinearPlayback: Boolean,
 )
 
 @Composable

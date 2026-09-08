@@ -1791,6 +1791,7 @@ class TvPlaybackSessionPresenter(
                     )
                 PlannedSubtitle.Off,
                 is PlannedSubtitle.LocalAsset,
+                is PlannedSubtitle.OfflineSidecar,
                 -> return
             }
         playerController.selectEmbeddedSubtitle(null)
@@ -2130,6 +2131,7 @@ class TvPlaybackSessionPresenter(
         when (val plannedSubtitle = playbackPlan.plannedSubtitle) {
             is PlannedSubtitle.Off, is PlannedSubtitle.Unavailable -> playerController.selectEmbeddedSubtitle(null)
             is PlannedSubtitle.LocalAsset -> Unit
+            is PlannedSubtitle.OfflineSidecar -> Unit
             is PlannedSubtitle.Track ->
                 if (plannedSubtitle.deliveryMethod in localEmbeddedDeliveryMethods) {
                     val target = plannedSubtitle.activationTarget ?: return

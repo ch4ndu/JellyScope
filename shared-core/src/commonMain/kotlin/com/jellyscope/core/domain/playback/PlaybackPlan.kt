@@ -91,6 +91,20 @@ data class PlannedVideoPresentation(
 sealed interface PlannedSubtitle {
     data object Off : PlannedSubtitle
 
+    data class OfflineSidecar(
+        val identity: SubtitleActivationIdentity.OfflineSidecar,
+        val label: String?,
+        val language: String?,
+        val activationTarget: SubtitleActivationTarget,
+    ) : PlannedSubtitle {
+        init {
+            require(activationTarget.identity == identity) { "Offline sidecar activation identity must match the package member." }
+            require(activationTarget.kind == LocalSubtitleKind.ExternalText) {
+                "Offline sidecar activation must use an external text target."
+            }
+        }
+    }
+
     data class Track(
         val streamIndex: Int,
         val embeddedTrack: PlannedEmbeddedTrack?,

@@ -622,13 +622,9 @@ class AppleAVPlayerController(
     override fun play() {
         if (released) return warnReleased(PlayerOperation.Play)
         playWhenReady = true
-        if (initialAudioGate && _playbackState.value.audioActivation is AudioActivationState.Pending) {
+        if (!resumeNativePlaybackIfAudioReady()) {
             updateStateFromPlayer()
             return
-        }
-        player.play()
-        if (requestedPlaybackSpeed != DEFAULT_PLAYBACK_SPEED) {
-            player.setRate(requestedPlaybackSpeed)
         }
         updateStateFromPlayer()
     }
@@ -683,10 +679,7 @@ class AppleAVPlayerController(
             dispatch_async(dispatch_get_main_queue()) {
                 if (released || sequence.load() != seekSequence) return@dispatch_async
                 if (wasPlaying && pauseGeneration == pauseGenerationAtStart) {
-                    player.play()
-                    if (requestedPlaybackSpeed != DEFAULT_PLAYBACK_SPEED) {
-                        player.setRate(requestedPlaybackSpeed)
-                    }
+                    resumeNativePlaybackIfAudioReady()
                 }
                 updateStateFromPlayer()
             }
@@ -772,6 +765,7 @@ class AppleAVPlayerController(
         videoOutputObservationsChannel.close()
         playWhenReady = false
         interruptionIntent.reset()
+        initialAudioGate = false
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
         selectedAudioOption = null
@@ -1210,10 +1204,16 @@ class AppleAVPlayerController(
                 player.rate == 0.0f
         if (!playerPaused || isAtEnd(positionMs = positionMs, durationMs = durationMs)) return
 
+        resumeNativePlaybackIfAudioReady()
+    }
+
+    private fun resumeNativePlaybackIfAudioReady(): Boolean {
+        if (initialAudioGate) return false
         player.play()
         if (requestedPlaybackSpeed != DEFAULT_PLAYBACK_SPEED) {
             player.setRate(requestedPlaybackSpeed)
         }
+        return true
     }
 
     private fun isAtEnd(
@@ -1302,8 +1302,8 @@ class AppleAVPlayerController(
             // The media-selection group is loading asynchronously (iOS 18 returns
             // nil synchronously). Arm the 3s activation deadline now so that if the
             // loader completion never fires, activation resolves to Unavailable →
-            // DirectPlay-disabled recovery, and play() is never blocked forever
-            // behind initialAudioGate. armTimeout is idempotent and a successful
+            // DirectPlay-disabled recovery while initialAudioGate remains held.
+            // armTimeout is idempotent and a successful
             // load re-runs this mapping, which confirm()s and cancels the deadline.
             // Use the longer LOAD-wait timeout: on-device the async asset load can
             // exceed the 3s activation deadline, and a merely-slow load must not be
@@ -1324,7 +1324,6 @@ class AppleAVPlayerController(
             // confirm it instead of falling through to Unsupported → DirectPlay
             // recovery → a needless transcode. Multi-track assets have candidateCount
             // > 0 and still go through real selection below.
-            initialAudioGate = false
             audioActivationConfirmation.confirm(selection.target)
             return
         }
@@ -1342,7 +1341,6 @@ class AppleAVPlayerController(
                 item.selectMediaOption(option, group)
                 selectedAudioOption = option
                 if (item.selectedMediaOptionInMediaSelectionGroup(group) == selectedAudioOption) {
-                    initialAudioGate = false
                     audioActivationConfirmation.confirm(selection.target)
                 } else {
                     audioActivationConfirmation.armTimeout(selection.target, candidateCount)
@@ -1360,10 +1358,7 @@ class AppleAVPlayerController(
     private fun releasePlayIntentAfterAudioActivation() {
         initialAudioGate = false
         if (playWhenReady && !released) {
-            player.play()
-            if (requestedPlaybackSpeed != DEFAULT_PLAYBACK_SPEED) {
-                player.setRate(requestedPlaybackSpeed)
-            }
+            resumeNativePlaybackIfAudioReady()
             updateStateFromPlayer()
         }
     }

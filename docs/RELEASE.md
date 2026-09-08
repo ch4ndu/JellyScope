@@ -1,7 +1,5 @@
 # Releasing JellyScope
 
-The release runbook: signing setup, release builds, and the release checklist.
-
 Release credentials stay local. Ordinary Android `assembleRelease` builds use
 the release signing config only when `~/Private/Keystores/keystore.properties`
 contains all required values and otherwise retain the debug-signing fallback
@@ -68,9 +66,9 @@ signing output.
 The Xcode projects intentionally do not commit an Apple Development Team ID.
 Simulator builds disable code signing. For iOS, the committed
 `ios-app/Signing.xcconfig` optionally includes the ignored
-`LocalSigning.xcconfig`. Put `DEVELOPMENT_TEAM = your-team-id` in that local
-file, assign `Signing.xcconfig` as the target's Debug and Release Base
-Configuration in Xcode, and remove any literal Team ID from `project.pbxproj`.
+`LocalSigning.xcconfig`. Put `DEVELOPMENT_TEAM = TEAMID` in that local
+file. The project and target already use `Signing.xcconfig` for Debug, Release,
+and StoreRelease; no Base Configuration or committed Team ID edit is needed.
 For tvOS, choose the team locally or supply `DEVELOPMENT_TEAM` to `xcodebuild`;
 never include a Team ID in a commit.
 
@@ -80,16 +78,14 @@ in this repository.
 
 Apple release version ownership is separate from Android and desktop Gradle
 properties. Each Xcode project owns its `MARKETING_VERSION` (the displayed
-Apple version) and `CURRENT_PROJECT_VERSION` (the Apple build number); update
-those values deliberately as part of an Apple release and keep them aligned
-within that platform family. This runbook does not derive them from an Android
-prerelease or change the current project values.
+Apple version) and `CURRENT_PROJECT_VERSION` (the Apple build number). Update
+and align them within each Apple platform family; neither derives from Android
+prerelease versions.
 
 ## macOS Developer ID signing
 
 1. Enroll in the [Apple Developer Program](https://developer.apple.com/programs/)
-   using the Apple organization or individual that will distribute JellyScope.
-   Wait until membership is active.
+   with the distribution account; wait until membership is active.
 
 2. Create a certificate signing request in Keychain Access (`Keychain Access` →
    `Certificate Assistant` → `Request a Certificate From a Certificate
@@ -124,11 +120,11 @@ prerelease or change the current project values.
    keys read by `desktop-app/build.gradle.kts` are:
 
    ```properties
-   signingIdentity=Developer ID Application: Your Name (TEAMID)
+   signingIdentity=Developer ID Application: Certificate Name (TEAMID)
    teamId=TEAMID
 
    # Use these three for an Apple ID app-specific-password flow.
-   appleId=you@example.com
+   appleId=account@example.com
    appleAppSpecificPassword=app-specific-password
 
    # Or use these three for an App Store Connect API-key flow.
@@ -144,95 +140,22 @@ prerelease or change the current project values.
    file value takes precedence over its environment variable. A relative
    private-key path is resolved from `~/Private/Keystores`.
 
-Once the Android and macOS credentials are configured, the maintained
-repository command for all Gradle-owned release artifacts is:
+### Manual macOS stages
 
-```sh
-./scripts/build-release-artifacts.sh
-```
+The individual commands below allow local edits and are for testing or
+troubleshooting one stage in isolation.
 
-It runs the repository preflight, builds Android mobile and Android TV with the
-configured release key, verifies their APK and AAB signatures, then signs,
-notarizes, staples, and validates the macOS Release DMG and its
-corresponding-source artifacts. It fails before building when the Git tree is
-dirty or Android release signing is absent or incomplete, and rechecks the tree
-after building. On success, it moves the publishable files into the ignored
-`release-artifacts/` directory at the repository root and renames them with
-`jellyscope.versionName` for Android and `jellyscope.desktop.version` for macOS:
-
-```text
-JellyScope-<version>-android.apk
-JellyScope-<version>-android.aab
-JellyScope-<version>-android-tv.apk
-JellyScope-<version>-android-tv.aab
-JellyScope-<version>-macos-arm64.dmg
-JellyScope-<version>-source-<revision>.tar.gz
-JellyScope-<version>-vlc-3.0.23-source.tar.xz
-JellyScope-<version>-source-manifest.txt
-```
-
-iOS and tvOS archives remain Xcode-owned. The individual commands below allow
-local edits and remain useful for testing or troubleshooting one stage in
-isolation.
-
-The script does not create a tag, GitHub Release, Play release, or remote upload.
-After the remaining smoke-test, binary-compliance, and release checks pass,
-publish the APKs for direct downloads and the AABs through Google Play. Publish
-the DMG and macOS corresponding-source files from the same output directory.
-
-## iOS release artifacts
-
-Before archiving, fetch the pinned official framework and run the scoped
-license-metadata gate from a clean release commit:
-
-```sh
-./scripts/fetch-vlckit.sh
-./gradlew verifyCleanSourceReleaseBinding verifyIosBinaryLicenseMetadataReadiness
-```
-
-To use a locally rebuilt VLCKit, build the recorded revision with VideoLAN's
-upstream tools and replace `ios-app/Frameworks/VLCKit.xcframework`. JellyScope
-does not maintain a separate VLCKit build script.
-
-Archive the iOS application through Xcode using a generic iOS device, then use
-the Organizer's **Distribute App** flow.
-
-- For normal public beta distribution, upload the archive to App Store Connect
-  and use TestFlight. For general public distribution, use the App Store or an
-  Apple-approved alternative-distribution route where available.
-- Xcode can export a development or ad hoc `.ipa`. GitHub Releases can store
-  that file, but it installs only on devices covered by its provisioning route;
-  ad hoc distribution requires registered device identifiers, and users must
-  enable Developer Mode. It is not a general public iOS download.
-- Do not publish the raw `.xcarchive` as an end-user release. Keep it as a local
-  release record for re-exporting and crash-symbolication.
-- A zipped simulator `.app` may help developers, but it runs only in a
-  compatible simulator and must be labeled as a developer artifact.
-
-Apple's current workflows are documented in
-[Distributing your app to registered devices](https://developer.apple.com/documentation/xcode/distributing-your-app-to-registered-devices)
-and the [TestFlight overview](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview).
-
-7. Verify the pinned IINA 1.4.0 arm64 mpv runtime before signing. The task
-   rechecks the complete 69-file manifest, stages only arm64
-   dylibs targeting no newer than macOS 13, relocates their non-system closure,
-   and fails instead of reading a machine-installed mpv:
+7. Verify the bundled desktop mpv runtime and resolved JVM runtime inventory
+   before signing:
 
    ```sh
    ./gradlew :desktop-app:verifyDesktopMpvBundle
-   ```
-
-   The exact input and GPL/source route are owned by
-   `scripts/desktop-mpv-bundle/manifest-iina-1.4.0-arm64.txt` and
-   `scripts/desktop-mpv-bundle/ATTRIBUTION.md`. A cold cache needs network; a
-   valid warm cache is offline-capable.
-
-   Verify the resolved desktop JVM runtime against its reviewed family/version,
-   published-license, and upstream-source inventory as well:
-
-   ```sh
    ./gradlew :desktop-app:verifyDesktopJvmRuntimeLicenseInventory
    ```
+
+   [BUILD.md](BUILD.md#desktop-jvm) owns acquisition, cache, and offline
+   behavior. [Licensing and distribution](operations/licensing-and-distribution.md#desktop)
+   owns the accepted provenance and source obligations.
 
 8. Build the signed DMG. The committed `desktop-app/entitlements.plist`
    supplies the hardened-runtime exceptions required by the JVM, JNA, and the
@@ -242,6 +165,15 @@ and the [TestFlight overview](https://developer.apple.com/help/app-store-connect
    ```sh
    ./gradlew :desktop-app:packageReleaseDistributionForCurrentOS
    ```
+
+   Compose packages resources only from `common`, `<os>`, and `<os>-<arch>`
+   directories; files staged at the `appResourcesRootDir` root are dropped.
+   Inspect every `@loader_path` dependency in the produced `.app`; a supported
+   package cannot depend on system libmpv. DMG production normalizes the root
+   `Applications` symlink to `/Applications`, then remount-verifies it, the app,
+   declared icon, and complete iconset before container signing. Finder
+   automation is not required. Remounting verifies the produced container rather
+   than trusting packaging-task success after layout setup.
 
    Release-DMG production stages `JellyScope-source-<revision>.tar.gz`,
    `vlc-3.0.23.tar.xz`, and `SOURCE_MANIFEST.txt` in
@@ -280,6 +212,83 @@ and the [TestFlight overview](https://developer.apple.com/help/app-store-connect
     spctl -a -t exec -vv path/to/JellyScope-*.app
     ```
 
+### Maintained release script
+
+Once the Android and macOS credentials are configured, the maintained command
+for all Gradle-owned release artifacts is:
+
+```sh
+./scripts/build-release-artifacts.sh
+```
+
+It runs the repository preflight, builds Android mobile and Android TV with the
+configured release key, verifies their APK and AAB signatures, then signs,
+notarizes, staples, and validates the macOS Release DMG and its
+corresponding-source artifacts. It fails before building when the Git tree is
+dirty or Android release signing is absent or incomplete, and rechecks the tree
+after building. On success, it moves the publishable files into the ignored
+`release-artifacts/` directory at the repository root and renames them with
+`jellyscope.versionName` for Android and `jellyscope.desktop.version` for macOS.
+
+#### Collected artifact names
+
+```text
+JellyScope-<version>-android.apk
+JellyScope-<version>-android.aab
+JellyScope-<version>-android-tv.apk
+JellyScope-<version>-android-tv.aab
+JellyScope-<version>-macos-arm64.dmg
+JellyScope-<version>-source-<revision>.tar.gz
+JellyScope-<version>-vlc-3.0.23-source.tar.xz
+JellyScope-<version>-source-manifest.txt
+```
+
+iOS and tvOS archives remain Xcode-owned. The script does not create a tag,
+GitHub Release, Play release, or remote upload. After the remaining smoke-test,
+binary-compliance, and release checks pass, publish the APKs for direct downloads
+and the AABs through Google Play. Publish the DMG and macOS corresponding-source
+files from the same output directory.
+
+## iOS release artifacts
+
+Before archiving, fetch the pinned official framework and run the scoped
+license-metadata gate from a clean release commit:
+
+```sh
+./scripts/fetch-vlckit.sh
+./gradlew verifyCleanSourceReleaseBinding verifyIosBinaryLicenseMetadataReadiness
+```
+
+To use a locally rebuilt VLCKit, run the fetch step first, then replace only
+`ios-app/Frameworks/VLCKit.xcframework` with a compatible framework built from
+the recorded revision using VideoLAN's upstream tools. Preserve the adjacent
+version stamp created by the fetch script and both required device/simulator
+slices. The fetch script runs before cinterop and replaces an unprepared copy
+if the stamp or slices are missing. The stamp records preparation, not proof
+of the replacement's provenance; review its source and license record before
+distribution. JellyScope does not maintain a separate VLCKit build script.
+
+Archive with the `storeRelease` scheme and a generic iOS device, then use the
+Organizer's **Distribute App** flow. All committed schemes select StoreRelease
+for Archive; that configuration, rather than the scheme name, enforces the
+distribution settings described in [BUILD.md](BUILD.md#ios).
+
+- For normal public beta distribution, upload the archive to App Store Connect
+  and use TestFlight. For general public distribution, use the App Store or an
+  Apple-approved alternative-distribution route where available.
+- Xcode can export a development or ad hoc `.ipa`. GitHub Releases can store
+  that file, but it installs only on devices covered by its provisioning route;
+  ad hoc distribution requires registered device identifiers and enabled
+  Developer Mode. It is not a general public iOS download.
+- Do not publish the raw `.xcarchive` as an installable release. Keep it as a local
+  release record for re-exporting and crash-symbolication.
+- A zipped simulator `.app` runs only in a compatible simulator; label it as a
+  simulator artifact.
+
+Apple's current workflows are documented in
+[Registered-device distribution](https://developer.apple.com/documentation/xcode/distributing-your-app-to-registered-devices)
+and the [TestFlight overview](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview).
+
 ## Source and license metadata
 
 Every platform release package carries a `license-metadata` set
@@ -288,8 +297,14 @@ matching source URL, tracked project tree, current top-level license, open-sourc
 notice, third-party inventory, dependency inputs, and the available Android,
 iOS, and macOS native notice/source manifests. The set also contains the
 Android/iOS managed-runtime notice and the reviewed desktop JVM runtime-family
-inventory; each required record is compared with its repository owner during
+inventory; each required record is compared with its source file during
 verification.
+
+The release-metadata preparer resolves output through its nearest existing
+parent. It accepts an empty unmarked directory or marker-owned symlink-free
+rerun; it rejects files, nonempty unmarked directories, symlinks, repository/home
+roots, and `/`. These marker and resolved-path guards prevent replacement from
+reaching unrelated data.
 
 Verify the generated set during ordinary development work:
 
@@ -300,8 +315,8 @@ Verify the generated set during ordinary development work:
 Release build tasks record whether the worktree is dirty but do not reject it,
 so release variants remain available for local testing. The maintained
 `build-release-artifacts.sh` command runs the strict source-binding check before
-and after building Gradle-owned publishable artifacts. iOS and tvOS publication
-remains manual, so run the equivalent check before archiving:
+and after building Gradle-owned publishable artifacts. iOS and tvOS archives
+are Xcode-owned, so run the equivalent check before archiving:
 
 ```sh
 ./gradlew verifyCleanSourceReleaseBinding
@@ -320,8 +335,10 @@ Use the scoped gate for the platform being released:
 ./gradlew verifyMacosArm64BinaryLicenseMetadataReadiness
 ```
 
-Android release builds and the iOS Release metadata phase run their matching
-gate automatically. macOS DMG packaging does the same. These readiness gates
+Android release builds and the iOS StoreRelease metadata phase run their
+matching readiness gate automatically. Ordinary local iOS Release checks
+metadata consistency without requiring distribution readiness. macOS DMG
+packaging runs its scoped readiness gate. These readiness gates
 fail on a `review-required` entry for that platform; clean-source verification
 is the separate publication gate above.
 
@@ -352,13 +369,11 @@ the next code. Advance the property by two for the next coordinated release.
   it automatically.
 - Require the packaged release-license metadata and Android native-bundle
   verifier to pass.
-- Confirm the minified release artifacts exist:
-  - Mobile: `release-artifacts/JellyScope-<versionName>-android.apk`
-  - Mobile Play bundle: `release-artifacts/JellyScope-<versionName>-android.aab`
-  - TV: `release-artifacts/JellyScope-<versionName>-android-tv.apk`
-  - TV Play bundle: `release-artifacts/JellyScope-<versionName>-android-tv.aab`
-- Hosted CI verifies pull requests but does not publish releases. Run the local
-  release verification gate and retain its output before distributing builds.
+- Confirm the minified Android release artifacts in the
+  [collected artifact list](#collected-artifact-names) exist.
+- No hosted CI workflow is committed. Run the committed local verification gate
+  and retain its output before distributing builds;
+  do not assume an external pull-request check supplies release verification.
 - Without a configured release keystore (above), release variants are
   debug-signed and suitable for local testing only; production signing and
   store distribution require the keystore.

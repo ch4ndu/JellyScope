@@ -36,6 +36,7 @@ fun LoadMoreOnApproachEnd(
     hasMore: Boolean,
     isLoading: Boolean,
     isLoadingMore: Boolean,
+    automaticPagingAllowed: Boolean = true,
     lastVisibleIndex: () -> Int,
     threshold: Int = DEFAULT_LOAD_MORE_THRESHOLD,
     debounceMs: Long = 0L,
@@ -45,6 +46,7 @@ fun LoadMoreOnApproachEnd(
     val currentHasMore by rememberUpdatedState(hasMore)
     val currentIsLoading by rememberUpdatedState(isLoading)
     val currentIsLoadingMore by rememberUpdatedState(isLoadingMore)
+    val currentAutomaticPagingAllowed by rememberUpdatedState(automaticPagingAllowed)
     val currentLastVisibleIndex by rememberUpdatedState(lastVisibleIndex)
     val currentThreshold by rememberUpdatedState(threshold)
     val currentDebounceMs by rememberUpdatedState(debounceMs)
@@ -57,6 +59,7 @@ fun LoadMoreOnApproachEnd(
                 hasMore = currentHasMore,
                 isLoading = currentIsLoading,
                 isLoadingMore = currentIsLoadingMore,
+                automaticPagingAllowed = currentAutomaticPagingAllowed,
                 lastVisibleIndex = currentLastVisibleIndex(),
                 threshold = currentThreshold,
             )
@@ -82,11 +85,13 @@ internal fun shouldLoadMore(
     hasMore: Boolean,
     isLoading: Boolean,
     isLoadingMore: Boolean,
+    automaticPagingAllowed: Boolean = true,
     lastVisibleIndex: Int,
     threshold: Int,
 ): Boolean =
     hasMore &&
         !isLoading &&
         !isLoadingMore &&
+        automaticPagingAllowed &&
         itemCount > 0 &&
         lastVisibleIndex >= itemCount - threshold

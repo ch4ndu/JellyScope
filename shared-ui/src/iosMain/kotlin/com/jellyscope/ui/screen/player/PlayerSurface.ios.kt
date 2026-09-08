@@ -53,6 +53,7 @@ actual fun PlayerSurface(
     // by the iOS PlayerController rather than this AVPlayerLayer surface.
     subtitleStyle: com.jellyscope.core.domain.playback.SubtitleStyle,
     subtitleClearanceActive: Boolean,
+    pictureInPictureRequiresLinearPlayback: Boolean,
 ) {
     // iOS owns subtitle rendering in its player/controller; this desktop-only signal is inert.
     val pictureInPictureStore = koinInject<PictureInPictureStore>()
@@ -103,6 +104,7 @@ actual fun PlayerSurface(
                     owner = controller,
                     player = controller.platformPlayer as? AVPlayer,
                     prepareEpoch = prepareEpoch,
+                    pictureInPictureRequiresLinearPlayback = pictureInPictureRequiresLinearPlayback,
                     onVideoOutputReady = { epoch ->
                         controller.recordVideoOutputObservation(generation = epoch)
                     },
@@ -116,6 +118,7 @@ actual fun PlayerSurface(
                 owner = controller,
                 player = controller.platformPlayer as? AVPlayer,
                 prepareEpoch = prepareEpoch,
+                pictureInPictureRequiresLinearPlayback = pictureInPictureRequiresLinearPlayback,
                 onVideoOutputReady = { epoch ->
                     controller.recordVideoOutputObservation(generation = epoch)
                 },
@@ -142,6 +145,7 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
     private var readinessTimer: NSTimer? = null
     private var expectedPrepareEpoch: Long? = null
     private var observedPrepareEpoch: Long? = null
+    private var pictureInPictureRequiresLinearPlayback = false
     private var onVideoOutputReady: ((Long) -> Unit)? = null
 
     var videoGravity: AVLayerVideoGravity
@@ -168,6 +172,7 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
         owner: PlayerController,
         player: AVPlayer?,
         prepareEpoch: Long?,
+        pictureInPictureRequiresLinearPlayback: Boolean,
         onVideoOutputReady: (Long) -> Unit,
     ) {
         val bindingChanged =
@@ -179,8 +184,14 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
                 nextPlayer = player,
                 nextPrepareEpoch = prepareEpoch,
             )
+        val pictureInPicturePolicyChanged =
+            this.pictureInPictureRequiresLinearPlayback != pictureInPictureRequiresLinearPlayback
+        this.pictureInPictureRequiresLinearPlayback = pictureInPictureRequiresLinearPlayback
         this.onVideoOutputReady = onVideoOutputReady
         if (!bindingChanged) {
+            if (pictureInPicturePolicyChanged) {
+                updatePictureInPictureController()
+            }
             notifyVideoOutputIfReady()
             updateReadinessPolling()
             updateAutomaticStartRegistration()
@@ -245,6 +256,7 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
                 ?: return
 
         pictureInPictureController = controller
+        controller.requiresLinearPlayback = pictureInPictureRequiresLinearPlayback
         controller.canStartPictureInPictureAutomaticallyFromInline = pictureInPictureEnabled
         updateAutomaticStartRegistration()
     }
@@ -253,6 +265,7 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
         bindingOwner?.let { owner ->
             IosPictureInPictureCoordinator.clearAutomaticStartController(owner, this)
         }
+        pictureInPictureController?.requiresLinearPlayback = false
         pictureInPictureController?.stopPictureInPicture()
         pictureInPictureController?.delegate = null
         pictureInPictureController = null
@@ -295,6 +308,7 @@ private class AVPlayerLayerView : UIView(frame = CGRectMake(0.0, 0.0, 0.0, 0.0))
         pictureInPictureDelegate = null
         expectedPrepareEpoch = null
         observedPrepareEpoch = null
+        pictureInPictureRequiresLinearPlayback = false
         onVideoOutputReady = null
     }
 

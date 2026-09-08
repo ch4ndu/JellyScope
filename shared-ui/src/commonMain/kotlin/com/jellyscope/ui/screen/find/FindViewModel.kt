@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.jvm.JvmInline
 
 data class FindUiState(
     val queryText: String = "",
@@ -44,6 +45,13 @@ data class FindUiState(
     val isSearching: Boolean = false,
     val recentSearches: List<String> = emptyList(),
     val error: Boolean = false,
+    val activeRequestToken: FindRequestToken? = null,
+    val completedRequestToken: FindRequestToken? = null,
+)
+
+@JvmInline
+value class FindRequestToken internal constructor(
+    val value: Long,
 )
 
 data class FindResultsUi(
@@ -87,18 +95,23 @@ class FindViewModel(
     private var personSuggestionsRefreshJob: Job? = null
     private var recentSearchesGeneration = 0
     private var personSuggestionsRefreshGeneration = 0
+    private var requestSequence = 0L
 
     init {
         loadRecentSearches()
     }
 
     fun onQueryTextChanged(text: String) {
+        cancelActiveSearch()
         personSuggestionsRefreshGeneration += 1
         _state.update { current ->
             current.copy(
                 queryText = text,
                 selectedPerson = null,
+                isSearching = false,
                 error = false,
+                activeRequestToken = null,
+                completedRequestToken = null,
             )
         }
         scheduleSearch()
@@ -106,6 +119,7 @@ class FindViewModel(
 
     fun clearQuery() {
         debounceJob?.cancel()
+        cancelActiveSearch()
         personSuggestionsRefreshGeneration += 1
         _state.update { current ->
             current.copy(
@@ -115,6 +129,8 @@ class FindViewModel(
                 groupedResults = FindResultsUi(),
                 isSearching = false,
                 error = false,
+                activeRequestToken = null,
+                completedRequestToken = null,
             )
         }
         searchIfActive()
@@ -161,6 +177,16 @@ class FindViewModel(
     }
 
     fun selectRecentSearch(search: String) {
+        selectRecentSearchState(search)
+        executeSearch(addRecent = search)
+    }
+
+    fun submitRecentSearch(search: String): FindRequestToken {
+        selectRecentSearchState(search)
+        return executeSearch(addRecent = search)
+    }
+
+    private fun selectRecentSearchState(search: String) {
         debounceJob?.cancel()
         personSuggestionsRefreshGeneration += 1
         _state.update { current ->
@@ -170,7 +196,6 @@ class FindViewModel(
                 error = false,
             )
         }
-        executeSearch(addRecent = search)
     }
 
     fun clearRecentSearches() {
@@ -201,6 +226,11 @@ class FindViewModel(
     fun retry() {
         debounceJob?.cancel()
         executeSearch(addRecent = state.value.recentLabel())
+    }
+
+    fun submitSearch(): FindRequestToken {
+        debounceJob?.cancel()
+        return executeSearch(addRecent = null)
     }
 
     fun commitRecentSearch() {
@@ -237,28 +267,50 @@ class FindViewModel(
         if (state.value.hasActiveFindQuery()) {
             executeSearch(addRecent = null)
         } else {
-            searchJob?.cancel()
-            searchJob = null
+            cancelActiveSearch()
             _state.update { current ->
                 current.copy(
                     personSuggestions = emptyList(),
                     groupedResults = FindResultsUi(),
                     isSearching = false,
                     error = false,
+                    activeRequestToken = null,
+                    completedRequestToken = null,
                 )
             }
         }
     }
 
-    private fun executeSearch(addRecent: String?) {
+    private fun executeSearch(addRecent: String?): FindRequestToken {
         val queryState = state.value
+        val requestToken = FindRequestToken(++requestSequence)
+        if (!queryState.hasActiveFindQuery()) {
+            cancelActiveSearch()
+            _state.update { current ->
+                current.copy(
+                    personSuggestions = emptyList(),
+                    groupedResults = FindResultsUi(),
+                    isSearching = false,
+                    error = false,
+                    activeRequestToken = null,
+                    completedRequestToken = requestToken,
+                )
+            }
+            return requestToken
+        }
         val query = queryState.toFindQuery()
 
         searchJob?.cancel()
+        _state.update { current ->
+            current.copy(
+                isSearching = true,
+                error = false,
+                activeRequestToken = requestToken,
+                completedRequestToken = null,
+            )
+        }
         searchJob =
             viewModelScope.launch {
-                _state.update { current -> current.copy(isSearching = true, error = false) }
-
                 val suggestions =
                     if (queryState.queryText.isNotBlank() && queryState.selectedPerson == null) {
                         findPersonsUseCase(queryState.queryText).getOrElse { emptyList() }
@@ -274,26 +326,45 @@ class FindViewModel(
                         val persistedRecentSearches = persistedRecentSearchesAfter(addRecent)
                         val mappedResults = withContext(workDispatcher) { results.toUi() }
                         _state.update { current ->
-                            current.copy(
-                                personSuggestions = mappedSuggestions,
-                                groupedResults = mappedResults,
-                                isSearching = false,
-                                recentSearches = persistedRecentSearches ?: current.recentSearches.withRecent(addRecent),
-                                error = false,
-                            )
+                            if (current.activeRequestToken != requestToken) {
+                                current
+                            } else {
+                                current.copy(
+                                    personSuggestions = mappedSuggestions,
+                                    groupedResults = mappedResults,
+                                    isSearching = false,
+                                    recentSearches =
+                                        persistedRecentSearches ?: current.recentSearches.withRecent(addRecent),
+                                    error = false,
+                                    activeRequestToken = null,
+                                    completedRequestToken = requestToken,
+                                )
+                            }
                         }
                     },
                     onFailure = {
                         _state.update { current ->
-                            current.copy(
-                                personSuggestions = mappedSuggestions,
-                                isSearching = false,
-                                error = true,
-                            )
+                            if (current.activeRequestToken != requestToken) {
+                                current
+                            } else {
+                                current.copy(
+                                    personSuggestions = mappedSuggestions,
+                                    isSearching = false,
+                                    error = true,
+                                    activeRequestToken = null,
+                                    completedRequestToken = requestToken,
+                                )
+                            }
                         }
                     },
                 )
             }
+        return requestToken
+    }
+
+    private fun cancelActiveSearch() {
+        searchJob?.cancel()
+        searchJob = null
     }
 
     private fun loadRecentSearches(keepExistingOnFailure: Boolean = false) {

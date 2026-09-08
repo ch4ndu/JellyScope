@@ -45,6 +45,7 @@ Do not float this module to upstream main. To refresh it deliberately:
 4. Refresh `scripts/android-mpv-bundle/manifest-1.0.0.txt` with the reviewed
    source, patch, toolchain, ABI, library, license, and corresponding-source
    records. Re-run the APK verifier.
-5. Update this file, `SOURCE_MANIFEST.md`, `ATTRIBUTION.md`, and the owned
-   architecture/status/decision records in the same change. Do not commit
+5. Update this file, `SOURCE_MANIFEST.md`, `ATTRIBUTION.md`, and the
+   [native dependency guide](../docs/operations/android-native-dependencies.md)
+   in the same change. Do not commit
    generated extraction directories, AARs, APKs, or native build output.

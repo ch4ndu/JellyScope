@@ -276,8 +276,8 @@ private fun TvGrid(
                         gridScope.register(itemKey, itemFocusRequester)
                         onDispose { gridScope.unregister(itemKey, itemFocusRequester) }
                     }
-                    val onItemClick = remember(item.id, onItemSelected) { { onItemSelected(item) } }
-                    val onItemPlay = remember(item.id, onItemPlayDirect) { { onItemPlayDirect(item) } }
+                    val onItemClick = remember(item, onItemSelected) { { onItemSelected(item) } }
+                    val onItemPlay = remember(item, onItemPlayDirect) { { onItemPlayDirect(item) } }
                     TvMediaCard(
                         session = session,
                         item = item,

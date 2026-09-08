@@ -2,6 +2,8 @@
 
 package com.jellyscope.core.domain.playback
 
+import com.jellyscope.core.domain.model.OfflineArtifactRef
+
 data class PlaybackMediaStream(
     val index: Int?,
     val type: String?,
@@ -70,6 +72,10 @@ sealed interface SubtitleActivationIdentity {
 
     data class LocalAsset(
         val assetId: String,
+    ) : SubtitleActivationIdentity
+
+    data class OfflineSidecar(
+        val artifactRef: OfflineArtifactRef,
     ) : SubtitleActivationIdentity
 }
 
@@ -479,6 +485,29 @@ fun subtitleRenderInfo(
                     "Local subtitle unavailable"
                 } else {
                     "Local subtitle pending"
+                },
+        )
+    }
+
+    if (plannedSubtitle is PlannedSubtitle.OfflineSidecar) {
+        val target = plannedSubtitle.activationTarget
+        val active = (activationState as? SubtitleActivationState.Active)?.target == target
+        val unavailable = (activationState as? SubtitleActivationState.Unavailable)?.target == target
+        return SubtitleRenderInfo(
+            status =
+                when {
+                    active -> SubtitleRenderStatus.Active
+                    unavailable -> SubtitleRenderStatus.Unavailable
+                    else -> SubtitleRenderStatus.Pending
+                },
+            mode = SubtitleRenderMode.LocalExternalText,
+            label = plannedSubtitle.label,
+            language = plannedSubtitle.language,
+            reason =
+                when {
+                    active -> "Offline subtitle active"
+                    unavailable -> "Offline subtitle unavailable"
+                    else -> "Offline subtitle pending"
                 },
         )
     }

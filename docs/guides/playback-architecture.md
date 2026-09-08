@@ -2,9 +2,7 @@
 
 This guide owns JellyScope's playback decision pipeline and the platform/backend
 variation around it. The wire contract, persistence, tracks, diagnostics, and
-runtime detail live in [data-playback.md](data-playback.md). The durable product
-choices and their rejected alternatives are recorded in the [Why](#why) section
-at the end of this guide.
+runtime detail live in [data-playback.md](data-playback.md).
 
 ## 1. Product policy and invariants
 
@@ -201,7 +199,9 @@ pipeline above. It resolves a current-account, Completed, current-generation
 record and its persisted snapshot into `StreamMode.Offline`; it does not call
 detail, PlaybackInfo, remote image/trickplay/segment, or autoplay resolution,
 and ordinary remote Play never substitutes this branch. The plan carries only a
-generation-bound opaque artifact reference. Every accepting controller must
+generation-bound opaque artifact reference and a typed package-sidecar choice
+when selected, never a fabricated Jellyfin index or raw local path. Every
+accepting controller must
 acquire the trusted local artifact lease before resolving the resource; the
 offline branch never enters a remote URL or credential-attachment path, and
 deletion must refuse that leased generation.
@@ -307,7 +307,9 @@ does not move into the policy.
 `PlaybackReportingCoordinator` is the per-session-owner common coordinator for
 Start readiness and retry, pause/unpause edges, periodic progress sampling, and
 Stop/disposal settlement. It composes the existing `PlaybackReportingQueue`,
-which remains the only executor and ordered settlement publisher. The Compose
+which owns a serial ingress/local-settlement drain and a serial remote drain.
+The domain reporting capability separates local durability from guarded remote
+forwarding without exposing the data router to presentation. The Compose
 owner supplies its stable shared playback-state projection so controller
 replacement cannot strand reporting on an outgoing controller flow. tvOS creates
 its reporting coordinator only after concrete installation and uses that
@@ -358,38 +360,51 @@ Two renderings of that one decision exist, and the difference is deliberate:
   also guarded on having no pending user audio selection, so a choice made before the
   transition wins over the plan's gate.
 
+AVPlayer's existing held gate guards every native resume entry: public Play,
+poll recovery and seek completion. Pending or Unavailable activation cannot
+clear it; the matching activation callback releases it, while shared recovery
+or explicit failure resolves unavailable audio. VLCKit's start-before-discovery
+behavior is unchanged.
+
 Do not collapse the two renderings, and do not add an `initialAudioGate` field to a
 controller that does not already have one — only Media3, AVPlayer, and mpv read the flag
-after prepare. The audio-gate defect class recurred once per copy of this table,
-which is why it now has exactly one home and its own host tests. `PlaybackInterruptionIntent`
+after prepare. Keep this decision table in its one shared home with its host tests.
+`PlaybackInterruptionIntent`
 follows the same rule from the other direction: it is `commonMain` with Apple-only
 consumers, because Android uses audio focus rather than interruption callbacks — do not
-wire it into the Android controllers by analogy.
+wire it into the Android controllers by analogy. It owns one captured resume
+intent with explicit revocation and one-shot consumption; Apple controllers
+distinguish internal interruption pause from public Pause. User-visible policy
+is owned by [iOS recovery](data-playback.md#ios-recovery).
 
 ### Android mobile
 
-The concrete Android choices are ExoPlayer/Media3, mpv, and LibVLC. ExoPlayer
-is the default and `Auto` normalizes to it; the Android backend policy owns the
-visible order ExoPlayer, mpv, LibVLC (beta), which both Settings shells consume.
+The concrete Android choices, default, normalization, and visible order come from
+the [Android backend policy](data-playback.md#backend-selection), which both
+Settings shells consume.
 Media3 derives video decoder facts from MediaCodec and the active display path.
 For each codec it keeps resolution, throughput, profiles, levels, bit depth,
 acceleration class, and ordinary/secure eligibility on one candidate until it
-selects the preferred ordinary decoder; finite limits and constraints are then
-projected from that same candidate. Its audio decode list combines the platform
+selects the preferred ordinary decoder: hardware before unclassified before
+software, excluding secure-required candidates. Finite limits and constraints
+are projected from that same candidate. Its audio decode list combines the platform
 probe with the process-cached, fail-closed E-AC-3 result from JellyScope's bundled
 Media3 FFmpeg extension. Decode-input channel ceilings remain per codec, while
 the active route separately supplies PCM-output and encoded-passthrough facts.
-LibVLC uses its pinned engine/runtime facts; MediaCodec ceilings and Media3
-FFmpeg support do not become LibVLC claims. mpv uses its separate pinned
-capability declaration and does not inherit Media3 or LibVLC claims. All three
+LibVLC and mpv retain separately pinned codec/audio/subtitle declarations.
+For intersecting declared and probed video codecs whose declared resolution
+tuple is entirely unknown, LibVLC projects available MediaCodec width, height,
+frame-area, and throughput bounds, including partial bounds; mpv requires
+complete probed bounds. Existing declared bounds remain unchanged. This
+projection does not import Media3's
+audio support, profiles, or full capability set into either engine. All three
 attach the source that owns each decode and finite-limit claim; pre-29 name
 classification and unclassified platform results retain those weaker identities
 instead of becoming hardware-probe evidence. All three map the same immutable
 plan, share policy/recovery logic, and retain their own native lifecycle,
-audio, subtitle, surface, and error mappings. A native
-create/init/decoder/unsupported-media failure on an alternate backend takes
-exactly one fresh ExoPlayer-qualified replan at the last confirmed position;
-`docs/guides/data-playback.md` owns that fallback contract. Media3 emits native first-frame
+audio, subtitle, surface, and error mappings. Alternate-backend startup recovery
+and the distinct offline construction-fallback boundary are owned by
+`docs/guides/data-playback.md`. Media3 emits native first-frame
 evidence, LibVLC emits a positive displayed-picture-counter observation, and
 Android mpv currently declares first-video-output measurement unsupported;
 surface attachment is never treated as displayed output. Android LibVLC
@@ -428,11 +443,9 @@ ignored stale callbacks, but never a surface handle or media identity.
 
 Android TV uses the Android planners/controllers but owns its D-pad, native
 surface, and focus shell; unlike Android mobile, it does not own a MediaSession.
-The Android domain policy supplies the backend order ExoPlayer, mpv, LibVLC
-(beta) and the ExoPlayer default. The server-scoped backend dialog consumes
-that policy projection directly; mpv is an ordinary explicit opt-in and the
-durable choice applies to the next playback session. The player overlay also
-uses the same projection for a session-only live switch. ExoPlayer, LibVLC, and mpv retain
+Its server-scoped backend dialog and session-only live switch consume the
+[shared Android policy projection](data-playback.md#backend-selection) directly.
+ExoPlayer, LibVLC, and mpv retain
 their backend-specific capability/evidence rules from Android mobile. The TV
 notice is a persistent, dismissible bottom action surface above visible
 controls; it never steals focus on appearance. Its explicit actions are
@@ -446,14 +459,24 @@ their own Advisory bindings.
 
 iOS Compose selects AVPlayer or VLCKit before initial planning and also exposes
 the shared explicit remote session switch. AVPlayer uses the narrow
-ready-for-display bridge from its native presentation surface. VLCKit reports a
-positive displayed-picture counter. AVPlayer/VideoToolbox capability facts and
+ready-for-display bridge from its native presentation surface. VLCKit uses
+best-effort transition counters but does not advertise reliable shared
+first-output measurement; see the [iOS recovery contract](data-playback.md#ios-recovery).
+AVPlayer/VideoToolbox capability facts and
 VLCKit engine facts are separate: one backend's hardware probe cannot erase a
 codec from the other. Capability provenance likewise keeps the AV1 hardware
 probe, static codec declarations, documented finite ceilings, and unknown
 VLCKit limits distinct. Both receive the shared policy/notice model, while
 Apple audio session, PiP, native track mapping, and authenticated URL handling
 stay in Apple-owned code.
+
+Standard compatibility applies the same app-owned 4K30 frame-area/throughput
+input envelope to both AVPlayer and VLCKit. Only finite width/height conditions
+reach the server profile; frame area and proportional throughput remain local
+source-copy limits. Unrestricted removes only this marked envelope from the
+profile and preflight, preserving backend codec, container, range, explicit
+quality, and runtime-health constraints. This is product policy, not shared
+decoder evidence.
 
 ### Desktop
 
@@ -517,251 +540,92 @@ resolves artifact paths. Queue/countdown and native panel behavior are owned by
 Automated tests cover typed-policy normalization, schema migration, exact
 request/profile encoding, planner permissions, bounded recovery state,
 generation-safe output observations, durable presenter/ViewModel state,
-and diagnostics. They do not prove real decoder behavior,
-Jellyfin's forced-transcode arithmetic, native presentation, or remote/PiP
-interaction. Current platform validation gaps and evidence status — including the
-explicitly pending physical iPhone validation — are owned by the internal
-`.local/KNOWN-ISSUES.md` ledger. The repeatable Android device and runtime
-measurement procedure lives with its Android Media3 load-control and
-playback-performance rows.
-The project-owned Android `android-libmpv` wrapper, its pinned AAR build input,
-ABI/native inventory, license assets, and corresponding-source route are owned by the
-[Android native dependency runbook](../operations/android-native-dependencies.md);
-package inspection and native coexistence remain release-gate evidence rather
-than host-test evidence. Physical playback evidence follows the
-minified-release-build rule in `docs/guides/workflow.md`.
+and diagnostics. They do not prove real decoder behavior, Jellyfin's
+forced-transcode arithmetic, native presentation, or remote/PiP interaction;
+physical iPhone validation remains pending. Android device/runtime evidence must
+use a minified release build and the shortest owning-guide procedure. The
+project-owned Android wrapper, native inventory, license/source route, package
+inspection, and coexistence gates are owned by the
+[Android native dependency runbook](../operations/android-native-dependencies.md).
 
 ## Why
 
-Durable product choices and their rejected alternatives. Each entry explains a
-rule the body above states; the body remains authoritative for the rule itself.
+- **Backend switching is a guarded controller replacement.** Planning and
+  intent validation happen while current playback and reporting remain
+  authoritative, then one release-first installation commits. Persisting the
+  switch, importing outgoing health facts, or retaining two live controllers
+  would blur session and ownership boundaries.
 
-- **An explicit backend switch is a guarded replacement, not a preference
-  write or recovery path.** Planning before teardown means a bad target leaves
-  proven playback and reporting intact; plan/reporting authority and the
-  release-first installation preserve one controller owner after a switch has
-  committed. Reusing Android's automatic health fallback would conflate a user
-  choice with decoder recovery and hardcode ExoPlayer. Reusing runtime caps or
-  health facts would turn an outgoing-controller observation into target
-  capability. Retrying construction beyond the one concrete platform default,
-  retaining a second controller while preparing it, or adding a recovery state
-  machine were rejected because each obscures the one authoritative
-  controller/session.
+- **Quality has one precedence chain and no learned capacity.** A current-player
+  choice outranks the active VLC-family Fixed default, which outranks the
+  general server default. Quality remains session-scoped because per-item
+  persistence and learned limits let stale experiments override current policy;
+  inherited Auto also remains distinct from an explicit session Auto choice.
+  The no-client-limit sentinel is required because both a finite stand-in and an
+  omitted field can impose a server cap.
 
-- **Player quality is session-only, resolved by one precedence chain.** A
-  fresh playback resolves its quality as: explicit choice made in the current
-  player session, else the per-server VLC-family Fixed default when the
-  concrete backend is LibVLC/VLCKit, else the per-server general default.
-  Durable per-item/source quality persistence was rejected: it made the
-  effective value unpredictable and let stale experiments silently override
-  current settings (durable audio selection stays source-keyed — track choice
-  is a stable per-title fact, unlike quality experiments). Applying the VLC
-  value only after a failed first attempt was rejected: it cannot prevent the
-  bad first attempt, a bitrate-only second request has different semantics
-  from the visible quality ladder, and the setting exists precisely so a user
-  can pick a known-working default before playback; it is therefore a normal
-  Fixed policy on the initial request, never a decoder capability or learned
-  limit. The most recent explicit user decision wins, so the VLC default never
-  overrides an explicit in-player Original. Inherited Auto is not explicit
-  Auto: the settings default governs the initial request, but only a
-  deliberate in-player Auto choice authorizes an automatic downgrade — a
-  configured default must never silently change streams. Fixed never
-  auto-lowers: it is an explicit value, and only Auto grants quality recovery.
-  Exhausted-recovery notices open the in-player lower-quality picker rather
-  than routing to Settings, because the player already owns those choices.
+- **Original has one manual failure contract.** Decoder, unsupported-media,
+  missing-output, buffering, stall, and dropped-frame triggers all preserve the
+  source and present the same actions. Trigger-specific hidden replans would
+  make Original's no-stream-change promise depend on implementation detail.
 
-- **Original failure remains a user decision for every recovery trigger.**
-  Decoder failure, unsupported media, missing video output, cumulative
-  buffering, repeated stalls, and dropped frames all preserve the selected
-  source and return the same `OriginalPlaybackFailed` prompt. Granting one of
-  those triggers an exception would make Original's no-stream-change promise
-  dependent on implementation detail; a budget, runtime cap, or hidden replan
-  was therefore rejected. The user can explicitly accept Auto, open Playback
-  Settings, dismiss, or close instead.
+- **Offline playback is a separate trusted-local branch.** Routing it through
+  remote planning could contact the server, expose a local path, or bypass
+  account and generation authority. Opaque artifact references and leases keep
+  resolution and deletion coherent; iOS and tvOS require session-only VLCKit so
+  a missing backend fails visibly without changing ownership.
 
-- **Offline playback is a separate trusted-local resolution branch.** Sending
-  an offline request through the remote planner, putting a raw path in
-  `PlaybackPlan`, or silently replacing ordinary Play with a local copy was
-  rejected because each can contact the server, bypass account/generation
-  authority, or expose filesystem identity. The opaque reference plus
-  controller-held lease keeps resolution and deletion coherent. iOS requires
-  session-only VLCKit for every offline artifact so one local playback route
-  has one lease-aware native owner; automatic AVPlayer fallback would bypass
-  that ownership decision and reproduce backend-dependent offline failures.
+- **Recovery and reporting decisions are shared without moving lifecycle
+  ownership.** Common immutable coordinators keep activation precedence,
+  strongest-trigger PiP arbitration, one-shot budgets, reporting order, and
+  local-versus-remote settlement consistent across Compose and tvOS. Jobs,
+  notices, controller commands, navigation, and stale-result cancellation stay
+  with each presentation owner; a stateful universal player base would couple
+  unrelated native lifecycles.
 
-- **No client limit is an honest wire sentinel, never a finite stand-in.** A
-  finite "unlimited" guard (for example 100 or 120 Mbps standing in for Auto
-  or Original) was rejected because a finite value is a client limiter that
-  can cause the very transcode it claims not to request; simply omitting the
-  bitrate fields was equally rejected, because an omitted field is a
-  server-side default cap, not neutrality. The honest no-client-limit wire
-  sentinel replaced both. A working bitrate tied to one
-  device/server/content combination can never become a platform-wide ceiling —
-  the VLC default stays exact,
-  user-owned, and tunable by trial and error. Also rejected: erasing backend
-  capability differences behind one shared claim set, and duplicating policy
-  orchestration in every platform shell.
+- **Controller installation is serialized.** A current launch waits for an
+  earlier installer and rechecks generation and item authority. Dropping a
+  launch while installation is busy can leave the current item without a
+  controller.
 
-- **Session recovery shares decisions, and PiP retains the decisive cause.**
-  Activation-first precedence, exact-target eligibility, one-shot budgets, and
-  typed causes are identical across Compose and tvOS, so keeping shell-local
-  booleans let the paths drift. Strongest-wins prevents a weak earlier signal
-  from hiding a later decoder or unsupported failure, while equal severity keeps
-  the first for deterministic stability. Latest-wins was rejected because a
-  later weak signal can erase stronger evidence; unconditional first-wins was
-  rejected because a weak early signal can hide stronger later evidence;
-  replaying or queueing all triggers was rejected because one PiP exit could
-  cause multiple prompts or replans. Clearing on launch or retry keeps stale
-  evidence from crossing item or session authority. Original and inherited Auto
-  remain manual because the winner still enters the existing coordinator. A pure
-  immutable reducer gives shared decisions one owner while each shell retains
-  jobs, notices, diagnostics, stale-work cancellation, and native commands.
-  Rejected: a universal player base class or stateful mega-kernel, which would
-  move platform lifecycle and presentation ownership into common code.
+- **Same-plan Retry shares validation, not mutable replay state.** The common
+  policy validates exact audio/subtitle targets and explicit Off only from the
+  vocabulary each controller already owns. Assets, timing, play intent,
+  reinitialization, and native command order remain controller-specific.
 
-- **Reporting coordination is shared above one ordered executor.** Start
-  success/pending state, ready-state retry, progress eligibility, periodic
-  sampling, edge mapping, and Stop suppression are identical across Compose
-  and tvOS, so retaining them in both shells made ordering fixes incomplete by
-  construction. Compose supplies a projection stable across controller
-  replacement, while tvOS creates its coordinator after concrete installation
-  so that controller flow is stable for the coordinator lifetime; both delegate
-  every request to `PlaybackReportingQueue`. Eager native-controller or
-  coordinator allocation before `start()` was rejected because it performs
-  resource and callback work before presentation authority exists, and Swift's
-  former immutable player snapshot could not observe delayed installation. A
-  second queue or an immutable event helper that left timer ownership in each
-  shell was rejected.
-  Completion, navigation, controller commands, and general previous-status
-  state remain shell-owned because those semantics are not reporting policy.
+- **Capability facts remain concrete-backend owned.** Combining unrelated
+  decoder maxima, platform probes, static declarations, or extension support
+  can describe a path that does not exist. Closed provenance preserves what was
+  measured or declared without turning evidence into a new capability or
+  sharing Media3 FFmpeg support with mpv or LibVLC.
 
-- **Compose serializes delayed controller installation.** A current launch
-  waits for an earlier installer and rechecks its generation and item authority
-  before replacement work. Drop-on-busy was rejected because a stale installer
-  could make the current launch terminate without an installed controller.
+- **Android TV mpv uses the selected supported rendering baseline.** Zero-copy
+  `mediacodec` avoids the copy path's audio/video drift, and classic `gpu`
+  avoids the supported-TV external-sampler failure. TV-wide configuration avoids
+  an unsupported per-SoC matrix; surface teardown synchronizes with mpv's native
+  queue because asynchronous detach can race framework surface destruction.
 
-- **Same-plan Retry shares selection validation, not capture or native replay.**
-  Exact target matching and the three subtitle outcomes are identical across
-  controllers, but nullable local state is not: three controllers already track
-  explicit Off and four do not. Controllers therefore classify their existing
-  vocabulary before calling the pure policy; the policy never infers Off from
-  null. Rejected: adding a shared mutable retry holder, teaching ambiguous
-  controllers a new Off bit, or moving assets, timing, play intent, engine setup,
-  and native command order into common code.
+- **Desktop and iOS product envelopes are scoped policy.** The macOS LibVLC
+  4K60-equivalent and iOS 4K30-equivalent Standard envelopes prevent known
+  unsafe inputs without claiming a universal hardware ceiling. Unrestricted
+  removes only the marked envelope; per-backend codec, container, range,
+  explicit-quality, and output facts remain active. Screen geometry, guessed
+  machine tables, and sparse per-model catalogs are not decoder evidence.
 
-- **Android backend policy and capability facts stay concrete-backend owned.**
-  Auto normalizes to ExoPlayer; the durable initial concrete backend is selected
-  before PlaybackInfo and remains authoritative across queue items unless the
-  user makes an explicit session-only switch, with mpv and LibVLC (beta) as
-  explicit alternates. TV exposes mpv as an explicit alternate, while
-  availability and native readiness remain typed runtime concerns. MediaCodec
-  candidates stay coherent through selection because combining the largest
-  software-decoder box with a hardware decoder's profile/throughput facts
-  describes no real path. Media3's bundled FFmpeg E-AC-3 result augments only
-  Media3 because an extension renderer is not evidence for mpv or LibVLC.
-  Closed provenance preserves the distinction between authoritative platform
-  flags, legacy name classification, runtime extension support, pinned engine
-  declarations, and static/unknown fallbacks; calling every accepted candidate
-  a hardware probe was rejected because it would make the diagnostic stronger
-  than the source fact.
-  Rejected: making mpv the default, hiding it behind a runtime check, enabling
-  it through a second mutable TV feature flag, treating host/emulator success
-  as native presentation evidence, flattening unrelated decoders into one
-  synthetic capability, or sharing Media3 extension support across backends.
+- **iOS transition and PiP evidence stays native and identity-bound.** Target
+  arrival alone cannot prove fresh video, so bounded transition evidence also
+  requires later clock and displayed-picture progress and rejects stale
+  generations. VLCKit's public PiP protocols retain engine ownership; private
+  layer traversal or a parallel sample-buffer controller would duplicate it.
 
-- **`mediacodec-copy` is rejected for Android TV mpv; zero-copy `mediacodec`
-  is the baseline.** The copy path can advance video behind audio, so a small
-  dropped-frame count is not evidence of healthy presentation when the video
-  clock itself is lagging. Zero-copy has its own defect but remains the less
-  broken baseline. Rejected: shipping the copy path because its counter looks
-  better, waiting for video to catch audio, lowering quality when a lower-rate
-  decode is healthy, disabling frame dropping and accepting drift, or treating
-  refresh-rate matching as the fix.
+- **Health policy is selected by the application surface.** Android TV uses the
+  shared Actionable policy, while desktop and tvOS remain Advisory; placing that
+  choice on `PlayerController` would conflate measurement support with
+  presentation behavior. Android LibVLC's one-frame dav1d delay bound is a
+  backend resource safeguard, not a source, quality, or device-profile rule.
 
-- **Android TV mpv's classic `gpu` renderer applies TV-wide — a deliberate
-  product call, not a defect record.** One TV rendering configuration avoids a
-  per-SoC table for the external-sampler compatibility path. Scoping the
-  fallback by renderer string was rejected because it adds detection complexity
-  without a separate supported configuration contract. If a supported TV later shows an mpv
-  rendering regression, revisit the scope of this call rather than treating
-  the TV-wide setting as an oversight.
-
-- **Android TV surface teardown synchronizes with mpv's native queue.** The
-  framework disconnects the Surface the moment `surfaceDestroyed` returns, and
-  mpv's video output racing that disconnect can deadlock the GPU driver against
-  main-thread buffer teardown. Relying on asynchronous detach ordering was
-  rejected: a callback can be ignored as stale exactly when the detach is still
-  queued.
-
-- **Desktop keeps backend-owned provenance; macOS LibVLC has one scoped product
-  envelope.** A demonstrated clean 4K/60 path and failing 8K/60 output justify
-  a conservative macOS-LibVLC Standard policy, not a decoder claim or a desktop
-  ceiling. Width/height participate in server negotiation while proportional
-  frame-area throughput stays in local source-copy preflight; a blanket 60 fps
-  condition was rejected because lower-resolution high-frame-rate sources can
-  fit the same throughput. The existing Unrestricted choice removes only the
-  marked envelope so a user can deliberately attempt the source unchanged.
-  Separate snapshots keep that correction from leaking into mpv or non-macOS
-  LibVLC. Also rejected: one global desktop cap, guessed machine tables,
-  window/screen-derived limits, learned limits, and changing Original's
-  no-stream-change promise. The macOS mpv runtime supply and loading rationale
-  are owned by `architecture.md`.
-
-- **iOS VLCKit transition and PiP evidence stay native and identity-bound.**
-  Prepare, deferred resume, and seek retain the requested target until target
-  arrival, later clock progress, and two fresh displayed-picture advances
-  agree; a generation-local transition sequence prevents stale settlement.
-  Target arrival alone was rejected because audio/clock progress can precede
-  fresh video. A continuous whole-session cadence detector was rejected because
-  frame dropping and variable cadence are not frozen-output evidence. PiP uses
-  VLCKit's public drawable/media/window protocols and binds a lazily created
-  surface to the active prepare generation. Private layer traversal and a
-  project-owned sample-buffer controller were rejected because they duplicate
-  native ownership and depend on engine internals.
-
-- **iOS uses one conservative input envelope across AVPlayer and VLCKit.** The
-  existing 4K30 frame-area and throughput bound is an app-supported iOS input
-  policy, so applying it before either backend prevents 4K60 and 8K60 sources
-  from reaching a route that cannot sustain them under the default **Standard**
-  setting. **Unrestricted (experimental)** removes only this product envelope
-  from server negotiation and local source-copy preflight for both backends;
-  backend codec/container/range constraints, explicit quality choices, and
-  transition-scoped output qualification remain active. It does not make AVPlayer's
-  hardware probe a VLCKit codec fact: each backend retains its own codecs and
-  provenance, and VLCKit's finite Standard bound remains a static declaration.
-  Per-model tables were rejected because they turn a production safety policy
-  into an incomplete hardware catalog; a fully custom device-profile editor was
-  rejected because the required future-device escape hatch needs one bounded
-  policy choice, not user-authored decoder claims. Leaving VLCKit unbounded by
-  default was rejected because it waits for visible output failure before
-  requesting a compatible stream.
-
-- **Android TV binds the shared Actionable health contract; desktop and tvOS
-  stay Advisory.** Qualified Auto dropped-frame evidence on TV executes the
-  same evaluator thresholds, canonical lower-rung selection, one-shot session
-  budget, and replan path as mobile. Presentation policy is selected at each
-  app root, never on `PlayerController` — leaving it on the controller would
-  couple native measurement capability to shell UX and make Android mobile
-  and Android TV indistinguishable. Rejected: a TV-specific measurement or
-  threshold, a second recovery coordinator, new playback state for the
-  overlay, one Android-wide policy (it removes the mobile safe action or puts
-  mobile-only actions on TV), and treating the VLC budget as selected quality.
-
-- **Android LibVLC bounds dav1d frame delay at one frame per media; the bound
-  is backend readiness, never playback policy.** A very-high-resolution AV1
-  baseline reached near-kill memory before the health window could recover;
-  the option is owned by dav1d and inert when another decoder opens, and it
-  changes no plan, codec, resolution, bitrate, or device rule. The value is
-  experiment-selected, not generalized. Rejected: a global AV1/resolution/
-  bitrate cap (limited combination evidence cannot define capability),
-  low-RAM/model gates (proxies for a native allocation failure), a
-  user-visible decoder-thread setting (implementation detail without a user
-  contract), and hidden preflight transcode or automatic backend switch
-  (changes the user's decision).
-
-- **The initial audio-activation table has one home because copies kept
-  regressing.** The DirectPlay audio gate once existed as six copies in three
-  shapes, and its defect class recurred per copy; the fix was consolidation
-  into one common function with two explicit adopters, not another patched
-  copy. Because no host test can construct the riskiest controller, the
-  rendering is covered by testing the adopters directly.
+- **Initial audio activation has one shared decision table.** DirectPlay waits
+  for exact native mapping while other modes begin active, with two deliberate
+  renderings for controller state differences. Centralizing the table prevents
+  controller copies from drifting without forcing unrelated lifecycle state
+  into a common base class.

@@ -225,8 +225,8 @@ private fun TvDiscoverMediaGrid(
                 itemKey = { item -> item.id },
                 contentStartPadding = contentStartPadding,
             ) { item, itemRequester, onFocused ->
-                val onItemClick = remember(item.id, onItemSelected) { { onItemSelected(item) } }
-                val onItemPlay = onItemPlayDirect?.let { callback -> remember(item.id, callback) { { callback(item) } } }
+                val onItemClick = remember(item, onItemSelected) { { onItemSelected(item) } }
+                val onItemPlay = onItemPlayDirect?.let { callback -> remember(item, callback) { { callback(item) } } }
                 TvMediaCard(
                     session = session,
                     item = item,

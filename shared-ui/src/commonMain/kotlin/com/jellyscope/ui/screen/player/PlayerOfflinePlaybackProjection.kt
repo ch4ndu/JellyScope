@@ -9,6 +9,7 @@ import com.jellyscope.core.domain.model.OfflineMediaSnapshot
 import com.jellyscope.core.domain.model.OfflineTrackKind
 import com.jellyscope.core.domain.model.OfflineTrackSnapshot
 import com.jellyscope.core.domain.playback.Chapter
+import com.jellyscope.core.domain.playback.PlannedSubtitle
 import com.jellyscope.core.domain.playback.PlaybackMediaStream
 import com.jellyscope.core.domain.playback.PlaybackPlan
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
@@ -25,6 +26,7 @@ internal data class OfflinePlaybackProjectionInput(
     val startPositionTicks: Long,
     val localResumePositionMs: Long,
     val launchGeneration: Long,
+    val subtitleActivationRequestId: Long,
 )
 
 internal data class OfflinePlaybackProjection(
@@ -36,13 +38,34 @@ internal data class OfflinePlaybackProjection(
     val selectedAudioStreamIndex: Int?,
     val selectedSubtitleStreamIndex: Int?,
     val selectedSubtitleSelection: SubtitleSelectionIntent,
+    val offlineSidecarOption: OfflineSidecarOption?,
     val offlinePlan: PlaybackPlan,
 )
 
 internal fun projectOfflinePlayback(input: OfflinePlaybackProjectionInput): OfflinePlaybackProjection {
     val snapshot = input.snapshot
-    val chapters = snapshot.chapters.map { chapter -> Chapter(chapter.name, chapter.startTicks) }
-    val selectedSubtitleStreamIndex = snapshot.selectedSubtitleTrack?.streamIndex
+    val offlinePlan =
+        buildOfflinePlaybackPlan(
+            snapshot = snapshot,
+            itemId = input.itemId,
+            mediaSourceId = input.mediaSourceId,
+            downloadId = input.downloadId,
+            attemptGeneration = input.attemptGeneration,
+            artifactKind = input.artifactKind,
+            accountIdentity = input.accountIdentity,
+            startPositionTicks = input.startPositionTicks,
+            localResumePositionMs = input.localResumePositionMs,
+            subtitleActivationRequestId = input.subtitleActivationRequestId,
+        )
+    val selectedSubtitleStreamIndex = offlinePlan.selectedSubtitleStreamIndex
+    val offlineSidecarOption =
+        (offlinePlan.plannedSubtitle as? PlannedSubtitle.OfflineSidecar)?.let { sidecar ->
+            OfflineSidecarOption(
+                identity = sidecar.identity,
+                displayName = sidecar.label,
+                language = sidecar.language,
+            )
+        }
     return OfflinePlaybackProjection(
         metadata =
             PlayerMediaMetadata(
@@ -69,26 +92,16 @@ internal fun projectOfflinePlayback(input: OfflinePlaybackProjectionInput): Offl
                             ),
                     ),
             ),
-        chapters = chapters,
-        sourceContainer = snapshot.backendSource.container,
+        chapters = offlinePlan.chapters,
+        sourceContainer = offlinePlan.container,
         mediaStreams = snapshot.embeddedTracks.map(OfflineTrackSnapshot::toPlaybackMediaStream),
-        selectedAudioStreamIndex = snapshot.selectedAudioTrack?.streamIndex,
+        selectedAudioStreamIndex = offlinePlan.selectedAudioStreamIndex,
         selectedSubtitleStreamIndex = selectedSubtitleStreamIndex,
         selectedSubtitleSelection =
             selectedSubtitleStreamIndex?.let(SubtitleSelectionIntent::Track)
                 ?: SubtitleSelectionIntent.Off,
-        offlinePlan =
-            buildOfflinePlaybackPlan(
-                snapshot = snapshot,
-                itemId = input.itemId,
-                mediaSourceId = input.mediaSourceId,
-                downloadId = input.downloadId,
-                attemptGeneration = input.attemptGeneration,
-                artifactKind = input.artifactKind,
-                accountIdentity = input.accountIdentity,
-                startPositionTicks = input.startPositionTicks,
-                localResumePositionMs = input.localResumePositionMs,
-            ),
+        offlineSidecarOption = offlineSidecarOption,
+        offlinePlan = offlinePlan,
     )
 }
 

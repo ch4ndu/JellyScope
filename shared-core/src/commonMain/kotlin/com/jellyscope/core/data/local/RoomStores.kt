@@ -2,19 +2,19 @@
 
 package com.jellyscope.core.data.local
 
-import androidx.room.ColumnInfo
-import androidx.room.ConstructedBy
-import androidx.room.Dao
-import androidx.room.Database
-import androidx.room.Entity
-import androidx.room.Index
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
-import androidx.room.RoomDatabase
-import androidx.room.RoomDatabaseConstructor
-import androidx.room.Transaction
-import androidx.room.migration.Migration
+import androidx.room3.ColumnInfo
+import androidx.room3.ConstructedBy
+import androidx.room3.Dao
+import androidx.room3.Database
+import androidx.room3.Entity
+import androidx.room3.Index
+import androidx.room3.Insert
+import androidx.room3.OnConflictStrategy
+import androidx.room3.Query
+import androidx.room3.RoomDatabase
+import androidx.room3.RoomDatabaseConstructor
+import androidx.room3.Transaction
+import androidx.room3.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
@@ -200,7 +200,7 @@ internal data class SubtitleSelectionEntity(
     ],
 )
 internal data class LocalSubtitleAssetEntity(
-    @androidx.room.PrimaryKey val id: String,
+    @androidx.room3.PrimaryKey val id: String,
     val serverId: String,
     val userId: String,
     val itemId: String,
@@ -620,7 +620,7 @@ internal const val JELLYFIN_STORE_IDENTITY_HASH = "1425a4f44d81f644419dd22d58062
 
 private val JELLYFIN_STORE_MIGRATION_1_2 =
     object : Migration(1, 2) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL("ALTER TABLE `playback_preferences` ADD COLUMN `autoPlayNext` INTEGER NOT NULL DEFAULT 1")
             connection.execSQL(
                 "ALTER TABLE `playback_preferences` ADD COLUMN `autoPlayNextDelaySeconds` INTEGER NOT NULL DEFAULT 10",
@@ -667,7 +667,7 @@ private val JELLYFIN_STORE_MIGRATION_1_2 =
 
 private val JELLYFIN_STORE_MIGRATION_2_3 =
     object : Migration(2, 3) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             // Distinguishes an explicit "Original" quality pick (null bitrate +
             // flag) from "nothing remembered"; existing rows default to false.
             connection.execSQL(
@@ -678,7 +678,7 @@ private val JELLYFIN_STORE_MIGRATION_2_3 =
 
 private val JELLYFIN_STORE_MIGRATION_3_4 =
     object : Migration(3, 4) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL(
                 """
                 CREATE TABLE `playback_preferences_new` (
@@ -740,7 +740,7 @@ private val JELLYFIN_STORE_MIGRATION_3_4 =
 
 private val JELLYFIN_STORE_MIGRATION_4_5 =
     object : Migration(4, 5) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS `player_device_settings_new` (
@@ -778,7 +778,7 @@ private val JELLYFIN_STORE_MIGRATION_4_5 =
 
 private val JELLYFIN_STORE_MIGRATION_5_6 =
     object : Migration(5, 6) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL(
                 "ALTER TABLE `playback_preferences` ADD COLUMN `vlcTranscodeMaxBitrateBps` INTEGER",
             )
@@ -787,7 +787,7 @@ private val JELLYFIN_STORE_MIGRATION_5_6 =
 
 private val JELLYFIN_STORE_MIGRATION_6_7 =
     object : Migration(6, 7) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL(
                 "ALTER TABLE `playback_preferences` ADD COLUMN `defaultQualityMode` TEXT DEFAULT 'Auto'",
             )
@@ -818,7 +818,7 @@ private val JELLYFIN_STORE_MIGRATION_6_7 =
 
 private val JELLYFIN_STORE_MIGRATION_7_8 =
     object : Migration(7, 8) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL(
                 "ALTER TABLE `playback_preferences` ADD COLUMN `playbackWarningsEnabled` INTEGER NOT NULL DEFAULT 1",
             )
@@ -835,7 +835,7 @@ private val JELLYFIN_STORE_MIGRATION_7_8 =
  */
 internal fun jellyfinStoreMigration8To9(seedVlcDefaultBps: Long?) =
     object : Migration(8, 9) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL("UPDATE `playback_preferences` SET `playbackWarningsEnabled` = 0")
             if (seedVlcDefaultBps != null) {
                 connection.execSQL(
@@ -848,7 +848,7 @@ internal fun jellyfinStoreMigration8To9(seedVlcDefaultBps: Long?) =
 
 private val JELLYFIN_STORE_MIGRATION_9_10 =
     object : Migration(9, 10) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL(
                 "ALTER TABLE `player_device_settings` ADD COLUMN " +
                     "`iosPlaybackCompatibilityMode` TEXT NOT NULL DEFAULT 'Standard'",
@@ -858,7 +858,7 @@ private val JELLYFIN_STORE_MIGRATION_9_10 =
 
 private val JELLYFIN_STORE_MIGRATION_10_11 =
     object : Migration(10, 11) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL(
                 """
                 CREATE TABLE `playback_preferences_new` (

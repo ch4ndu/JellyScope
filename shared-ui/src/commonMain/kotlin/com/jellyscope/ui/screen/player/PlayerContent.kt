@@ -101,6 +101,7 @@ fun PlayerContent(
     onResetAudioTiming: () -> Unit = {},
     onSelectSubtitle: (Int?) -> Unit,
     onSelectLocalSubtitle: (String) -> Unit = {},
+    onSelectOfflineSidecar: () -> Unit = {},
     onAdjustSubtitleTiming: (Long) -> Unit = {},
     onResetSubtitleTiming: () -> Unit = {},
     onSelectQuality: (Long?) -> Unit,
@@ -268,6 +269,7 @@ fun PlayerContent(
         content = content,
         onPlay = onPlay,
         onPause = onPause,
+        onToggle = commandCallbacks.toggle,
         onSeekTo = onSeekTo,
     )
 
@@ -295,6 +297,7 @@ fun PlayerContent(
         content?.pickerVisible,
         content?.subtitleOptions?.size,
         content?.localSubtitleOptions?.size,
+        content?.offlineSidecarOption,
         content?.subtitleStyleable,
     ) {
         val picker = content?.pickerVisible
@@ -444,6 +447,8 @@ fun PlayerContent(
             resizeMode = content?.resizeMode ?: PlayerResizeMode.Fit,
             subtitleStyle = content?.subtitleStyle ?: SubtitleStyle(),
             subtitleClearanceActive = subtitleClearanceActive,
+            pictureInPictureRequiresLinearPlayback =
+                content?.pictureInPictureRequiresLinearPlayback == true,
         )
         PlayerControlsOverlay(
             modifier = Modifier.size(maxWidth, maxHeight),
@@ -928,6 +933,7 @@ fun PlayerContent(
                             onResetAudioTiming = onResetAudioTiming,
                             onSelectSubtitle = onSelectSubtitle,
                             onSelectLocalSubtitle = onSelectLocalSubtitle,
+                            onSelectOfflineSidecar = onSelectOfflineSidecar,
                             onAdjustSubtitleTiming = onAdjustSubtitleTiming,
                             onResetSubtitleTiming = onResetSubtitleTiming,
                             onSelectQuality = onSelectQuality,

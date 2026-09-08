@@ -8,7 +8,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import com.jellyscope.core.domain.playback.PlaybackState
-import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlayerController
 import platform.Foundation.NSNumber
 import platform.Foundation.numberWithDouble
@@ -35,10 +34,12 @@ actual fun PlayerNowPlayingEffects(
     content: PlayerUiState.Content?,
     onPlay: () -> Unit,
     onPause: () -> Unit,
+    onToggle: () -> Unit,
     onSeekTo: (Long) -> Unit,
 ) {
     val currentOnPlay = rememberUpdatedState(onPlay)
     val currentOnPause = rememberUpdatedState(onPause)
+    val currentOnToggle = rememberUpdatedState(onToggle)
     val currentOnSeekTo = rememberUpdatedState(onSeekTo)
     val currentMetadata = rememberUpdatedState(content?.metadata)
 
@@ -48,6 +49,7 @@ actual fun PlayerNowPlayingEffects(
                 currentPositionMs = { controller.playbackState.value.positionMs },
                 onPlay = { currentOnPlay.value() },
                 onPause = { currentOnPause.value() },
+                onToggle = { currentOnToggle.value() },
                 onSeekTo = { positionMs -> currentOnSeekTo.value(positionMs) },
             )
         }
@@ -81,6 +83,7 @@ private class IosNowPlayingManager(
     private val currentPositionMs: () -> Long,
     private val onPlay: () -> Unit,
     private val onPause: () -> Unit,
+    private val onToggle: () -> Unit,
     private val onSeekTo: (Long) -> Unit,
 ) {
     private val commandCenter = MPRemoteCommandCenter.sharedCommandCenter()
@@ -103,7 +106,7 @@ private class IosNowPlayingManager(
             MPRemoteCommandHandlerStatusSuccess
         }
         registerCommand(commandCenter.togglePlayPauseCommand) {
-            if (publishedSnapshot?.status == PlaybackStatus.Playing) onPause() else onPlay()
+            onToggle()
             MPRemoteCommandHandlerStatusSuccess
         }
         commandCenter.skipForwardCommand.preferredIntervals =

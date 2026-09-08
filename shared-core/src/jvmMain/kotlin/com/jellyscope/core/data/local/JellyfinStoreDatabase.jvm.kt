@@ -2,7 +2,7 @@
 
 package com.jellyscope.core.data.local
 
-import androidx.room.Room
+import androidx.room3.Room
 import java.io.File
 
 internal fun jellyscopeDataDirectory(): File = File(System.getProperty("user.home"), ".jellyscope").apply { mkdirs() }

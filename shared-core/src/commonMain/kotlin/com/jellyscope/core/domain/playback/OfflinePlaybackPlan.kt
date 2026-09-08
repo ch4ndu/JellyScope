@@ -20,10 +20,47 @@ fun buildOfflinePlaybackPlan(
     accountIdentity: AccountIdentity,
     startPositionTicks: Long,
     localResumePositionMs: Long,
+    subtitleActivationRequestId: Long,
 ): PlaybackPlan {
     val chapters = snapshot.chapters.map { chapter -> Chapter(chapter.name, chapter.startTicks) }
-    val selectedSubtitle = snapshot.selectedSubtitleTrack?.toPlannedEmbeddedTrack(0)
-    val selectedSubtitleStreamIndex = snapshot.selectedSubtitleTrack?.streamIndex
+    val artifactRef = OfflineArtifactRef(downloadId, attemptGeneration)
+    val selectedSubtitleTrack = snapshot.selectedSubtitleTrack
+    val embeddedAudioTracks =
+        snapshot.embeddedTracks
+            .filter { track -> track.kind == OfflineTrackKind.Audio && !track.isExternal }
+            .mapIndexedNotNull { ordinal, track -> track.toPlannedEmbeddedTrack(ordinal) }
+    val embeddedSubtitleTracks =
+        snapshot.embeddedTracks
+            .filter { track -> track.kind == OfflineTrackKind.Subtitle && !track.isExternal }
+            .mapIndexedNotNull { ordinal, track -> track.toPlannedEmbeddedTrack(ordinal) }
+    val selectedSidecar =
+        selectedSubtitleTrack
+            ?.takeIf { track ->
+                artifactKind == DownloadArtifactKind.OriginalFile && track.isExternal
+            }?.let { track ->
+                val identity = SubtitleActivationIdentity.OfflineSidecar(artifactRef)
+                val target =
+                    SubtitleActivationTarget(
+                        requestId = subtitleActivationRequestId,
+                        itemId = itemId,
+                        identity = identity,
+                        kind = LocalSubtitleKind.ExternalText,
+                    )
+                PlannedSubtitle.OfflineSidecar(
+                    identity = identity,
+                    label = track.label,
+                    language = track.language,
+                    activationTarget = target,
+                )
+            }
+    val selectedSubtitle =
+        selectedSubtitleTrack
+            ?.takeUnless(OfflineTrackSnapshot::isExternal)
+            ?.streamIndex
+            ?.let { streamIndex ->
+                embeddedSubtitleTracks.firstOrNull { track -> track.jellyfinStreamIndex == streamIndex }
+            }
+    val selectedSubtitleStreamIndex = selectedSubtitle?.jellyfinStreamIndex
     return PlaybackPlan(
         itemId = itemId,
         mediaSourceId = mediaSourceId,
@@ -40,26 +77,15 @@ fun buildOfflinePlaybackPlan(
                 reportIntervalMs = DEFAULT_PLAYBACK_REPORT_INTERVAL_MS,
             ),
         selectedAudioStreamIndex = snapshot.selectedAudioTrack?.streamIndex,
-        embeddedAudioTracks =
-            snapshot.embeddedTracks
-                .filter { track -> track.kind == OfflineTrackKind.Audio && !track.isExternal }
-                .mapIndexed { ordinal, track -> track.toPlannedEmbeddedTrack(ordinal) },
-        embeddedSubtitleTracks =
-            snapshot.embeddedTracks
-                .filter { track -> track.kind == OfflineTrackKind.Subtitle && !track.isExternal }
-                .mapIndexed { ordinal, track -> track.toPlannedEmbeddedTrack(ordinal) },
+        embeddedAudioTracks = embeddedAudioTracks,
+        embeddedSubtitleTracks = embeddedSubtitleTracks,
         selectedSubtitleStreamIndex = selectedSubtitleStreamIndex,
         plannedSubtitle =
-            selectedSubtitle?.let { descriptor ->
+            selectedSidecar ?: selectedSubtitle?.let { descriptor ->
                 PlannedSubtitle.Track(
                     streamIndex = descriptor.jellyfinStreamIndex,
-                    embeddedTrack = descriptor.takeUnless { snapshot.selectedSubtitleTrack?.isExternal == true },
-                    deliveryMethod =
-                        if (snapshot.selectedSubtitleTrack?.isExternal == true) {
-                            SubtitleDeliveryMethod.External
-                        } else {
-                            SubtitleDeliveryMethod.Embed
-                        },
+                    embeddedTrack = descriptor,
+                    deliveryMethod = SubtitleDeliveryMethod.Embed,
                     kind = SubtitleKind.Text,
                 )
             } ?: PlannedSubtitle.Off,
@@ -73,15 +99,16 @@ fun buildOfflinePlaybackPlan(
             } ?: PlaybackContentTimeline.UnknownOrUnbounded,
         videoExpected = true,
         container = snapshot.backendSource.container,
-        offlineArtifactRef = OfflineArtifactRef(downloadId, attemptGeneration),
+        offlineArtifactRef = artifactRef,
         offlineArtifactKind = artifactKind,
         offlineAccountIdentity = accountIdentity,
     )
 }
 
-private fun OfflineTrackSnapshot.toPlannedEmbeddedTrack(ordinal: Int): PlannedEmbeddedTrack =
-    PlannedEmbeddedTrack(
-        jellyfinStreamIndex = streamIndex ?: ordinal,
+private fun OfflineTrackSnapshot.toPlannedEmbeddedTrack(ordinal: Int): PlannedEmbeddedTrack? {
+    val jellyfinStreamIndex = streamIndex ?: return null
+    return PlannedEmbeddedTrack(
+        jellyfinStreamIndex = jellyfinStreamIndex,
         filteredContainerOrdinal = ordinal,
         codec = codec,
         normalizedLanguage = language,
@@ -89,3 +116,4 @@ private fun OfflineTrackSnapshot.toPlannedEmbeddedTrack(ordinal: Int): PlannedEm
         directPlayAdmissible = true,
         responseAuthoritativeCohortSize = null,
     )
+}

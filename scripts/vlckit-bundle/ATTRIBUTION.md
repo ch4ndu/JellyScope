@@ -17,12 +17,16 @@ Corresponding source and build material are available from the exact official
 VLCKit revision recorded in the manifest. It identifies the libVLC base
 revision, wrapper build tools, and 27 applied patches.
 
-To replace the downloaded binary, build that revision with VideoLAN's upstream
-tools and place a compatible `VLCKit.xcframework` in `ios-app/Frameworks/`.
-The local Swift package and Kotlin cinterop use that path. JellyScope does not
-duplicate VideoLAN's build scripts.
+To replace the downloaded binary, follow `docs/RELEASE.md`, section "iOS release
+artifacts", in the JellyScope source revision identified by the accompanying
+release metadata's `SOURCE_URL.txt`. That procedure prepares the local fetch
+stamp before replacing the framework with a compatible upstream build, retaining
+the required slices so the next cinterop fetch does not overwrite it. The local
+Swift package and Kotlin cinterop use the prepared `ios-app/Frameworks/` path.
+JellyScope does not duplicate VideoLAN's build scripts.
 
-The XCFramework is dynamically linked by both Apple applications. The project owner
-accepts VideoLAN's LGPL declaration, exact source route, and replace-and-rebuild
-path for this pinned input. A new version, source revision, patch set, or linkage
+The XCFramework is dynamically linked by both Apple applications. The recorded
+policy accepts VideoLAN's LGPL declaration, exact source route, and
+replace-and-rebuild path for this pinned input. A new version, source revision,
+patch set, or linkage
 mode requires a fresh review.

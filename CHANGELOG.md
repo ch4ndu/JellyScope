@@ -9,13 +9,13 @@ Notable JellyScope changes, newest first.
 - Home, TV Home, Fire TV Watch Next, and Next Up ribbons exclude resumable overlap while series-detail Next Up remains inclusive. The Home Next Up ribbon uses uniform wide episode artwork, loading, and View All tiles, and Find independently requests each selected movie, series, or episode category so one kind cannot consume another's result limit.
 - Android brightness gestures continue from the live window level across repeated swipes and restore the exact pre-player window value on exit. iOS pauses through wired, USB, or Bluetooth output loss without resuming on reconnect, while preserving normal interruption behavior.
 - Desktop mpv supports persistent audio and subtitle timing offsets, and release DMGs deterministically include a verified Applications shortcut and declared app icon without relying on Finder Automation.
-- Automated formatting, shared host tests, Android TV tests, both Android release assemblies, native and license checks, desktop package verification, and the iOS Simulator framework link passed. The maintainer reports that the complete targeted Android, Android TV, iOS, macOS, Home/Watch Next, trickplay, TLS/timing, brightness, route-loss, DMG/Finder, and combined regression checklists passed runtime validation.
+- Automated formatting, shared host tests, Android TV tests, both Android release assemblies, native and license checks, desktop package verification, and the iOS Simulator framework link passed. Runtime validation was reported as passing: the complete targeted Android, Android TV, iOS, macOS, Home/Watch Next, trickplay, TLS/timing, brightness, route-loss, DMG/Finder, and combined regression checklists.
 
 ## 0.1.0-alpha93 — modularize playback orchestration · week 8 · 2026-09-01
 
 - Playback orchestration is split into focused diagnostics, debug, timeline, offline, queue, plan-transform, quality, Still Watching, and first-video-output responsibilities while retaining the ViewModel as the sole owner of launch, controller, backend, recovery, reporting, persistence, queue-switching, and UI-publication effects.
 - The PlayerViewModel test suite is divided into focused playback areas with all 170 existing cases and assertions preserved, making failures and future changes easier to locate without changing playback behavior.
-- Automated lint, shared host tests, Android release assemblies, desktop compilation, and the iOS Simulator framework link passed. The maintainer reports that all targeted playback regression paths also passed device validation.
+- Automated lint, shared host tests, Android release assemblies, desktop compilation, and the iOS Simulator framework link passed. Device validation was reported as passing: all targeted playback regression paths.
 
 ## 0.1.0-alpha92 — enable resilient offline downloads · week 8 · 2026-08-31
 
@@ -23,7 +23,7 @@ Notable JellyScope changes, newest first.
 - Fixed-quality downloads accept Jellyfin's direct media playlists and large HLS manifests, preserve authenticated media access through transfer and recovery, reject unsupported artifacts with actionable diagnostics, and recover finalizing packages without turning coroutine cancellation into a false failure.
 - Offline playback resolves local artifacts without a server connection, retains local resume progress, forces VLCKit for iOS offline sessions, and reports an unavailable offline backend instead of falling through to AVPlayer. Original and converted artifacts now use bounded, platform-private storage and lifecycle-aware checkpoint recovery.
 - Android 13 and newer request notification permission when a download starts without making permission a transfer requirement; allowed notifications expose progress and cancellation. Android TV adds its Downloads route, D-pad-safe actions and dialogs, bottom content clearance, stable focus, and guarded Home-row position updates.
-- Automated lint, shared-core and shared-UI host tests, Android TV tests, both minified Android release assemblies, native-payload and Android license-readiness checks, and the iOS Simulator framework link passed. The maintainer reports that the remaining Android mobile and Android TV Downloads acceptance paths passed device validation.
+- Automated lint, shared-core and shared-UI host tests, Android TV tests, both minified Android release assemblies, native-payload and Android license-readiness checks, and the iOS Simulator framework link passed. Device validation was reported as passing: the remaining Android mobile and Android TV Downloads acceptance paths.
 
 ## 0.1.0-alpha91 — harden sessions and Android TV lifecycle · week 7 · 2026-08-26
 
@@ -38,7 +38,7 @@ Notable JellyScope changes, newest first.
 - Android mobile and TV, iPhone, iPad, and macOS can switch to another available playback engine from the video-camera control while watching a video streamed from Jellyfin; the choice applies only to the current session, and unavailable engines remain visible with an explanation.
 - JellyScope checks the requested engine against the current media source, audio track, subtitle track, and playback position before replacing the player. If that plan cannot preserve the active choices, the picker closes and the video keeps playing with the current engine.
 - Successful switches retain play or pause intent, position, quality, tracks, queue and reporting continuity; Android TV keeps D-pad focus inside the picker and restores it to the invoking control after dismissal or a preserved-playback failure.
-- Automated lint, the focused causal test, shared host tests, Android TV tests, both minified Android release assemblies, native-payload and license checks, and iOS framework linkage passed. The maintainer reports that the complete backend-switching flow passed device validation on the targeted surfaces.
+- Automated lint, the focused causal test, shared host tests, Android TV tests, both minified Android release assemblies, native-payload and license checks, and iOS framework linkage passed. Device validation was reported as passing: the complete backend-switching flow on the targeted surfaces.
 
 ## 0.1.0-alpha89 — harden playback capability and startup ownership · week 6 · 2026-08-23
 
@@ -165,7 +165,7 @@ Notable JellyScope changes, newest first.
   stale-result outcomes without admitting those records to uploaded client logs.
 - Chromecast Home DEVICE-VALIDATED: 54 settled transitions covered uncached extraction and cached
   revisits with successful color application, and the corrected crossfade was visually approved.
-- Contributor guidance now requires the smallest stable regression set and explicit approval before
+- Development guidance now requires the smallest stable regression set and explicit approval before
   introducing permanent UI, integration, server-orchestration, or exhaustive test harnesses.
 
 ## 0.1.0-alpha73 — harden shared player architecture · week 5 · 2026-08-10
@@ -262,80 +262,9 @@ Notable JellyScope changes, newest first.
 
 ## 1.0.0 (unreleased)
 
-The pending first production release; it is not tagged yet, and the release flow
-owns the version bump. JellyScope is a fresh Kotlin Multiplatform and
-Compose Multiplatform Jellyfin client; Android TV and Android mobile are the
-primary product surfaces, with macOS/desktop and iOS reusing the shared browse
-UI over native playback bridges, and an alpha-quality tvOS SwiftUI shell over
-the same shared core.
-
-### Platforms
-
-- **Android TV** — TV-native navigation with D-pad focus throughout,
-  browse/detail/discovery/settings, TV transport-key routing, and Fire TV
-  Watch Next.
-- **Android mobile and tablet** — the shared touch app with gestures,
-  Picture-in-Picture, MediaSession controls, and adaptive layouts. Requires
-  API 25+ (Fire OS 6).
-- **Desktop (macOS)** — the shared Compose app with bundled release packaging
-  and in-scene player controls over native video surfaces.
-- **iOS** — the shared Compose app with persistent session restore, Now
-  Playing/lock-screen transport, and PiP.
-- **tvOS (alpha)** — a native SwiftUI shell over the shared core: login, home,
-  browse, detail, search, settings, and system-player playback. Simulator-
-  verified only.
-
-### Playback backends
-
-Every platform maps one immutable, server-authoritative playback plan through
-a platform backend — user-selectable where more than one exists:
-
-- **Android**: ExoPlayer/Media3 (default) with the Jellyfin FFmpeg decoder
-  extension and decoder fallback; an mpv backend built from a project-owned
-  wrapper (API 26+); and LibVLC (beta). Failed mpv starts fall back to a fresh
-  ExoPlayer plan resuming from the last confirmed position.
-- **Desktop**: a JVM libmpv bridge presenting through an app-owned IOSurface
-  swapchain on macOS (with automatic OpenGL and software fallbacks), and an
-  optional LibVLC (beta) backend with an audited bundled VLC runtime in macOS
-  packages.
-- **iOS**: AVPlayer (default) and a unified VLCKit 4 backend, both selectable in
-  Settings.
-- **tvOS**: the system player (AVPlayerViewController).
-
-### Capability highlights
-
-- **Playback planning and quality policy** — server-authoritative PlaybackInfo
-  with backend-qualified device profiles; DirectPlay/DirectStream/Transcode
-  selection with subtitle-honest URLs and remux when only audio is
-  incompatible; typed Auto/Original/Fixed quality on a shared eight-rung
-  ladder where only explicit in-player Auto may lower quality automatically;
-  canonical track-identity matching across codec aliases, languages, and
-  titles; and streams the device provably cannot decode are never handed to
-  it.
-- **TV focus architecture** — an app-owned drawer, payload-bearing route
-  history, a stable-key route focus coordinator and nested focus kernel,
-  hold-to-seek acceleration with pending-target scrubbing, and focus-safe
-  dialogs, warnings, and dismissal everywhere.
-- **Subtitles** — planned and external subtitle selection with durable intent,
-  a distinct durable "Off", OpenSubtitles search/install/cleanup from movie
-  and episode detail, sidecar normalization for VLC-family backends, and
-  client-side text rendering that never disturbs a transcode.
-- **Diagnostics** — structured, allowlisted, sanitized playback diagnostics;
-  an in-player playback-info overlay; opt-in bounded log collection with
-  user-initiated structured server upload; raw mpv logs stay on-device; and
-  passive, dismissible playback-health guidance that never changes playback by
-  itself.
-- **Multi-account** — canonical server/user identity scoping caches, stores,
-  images, playback memory, and Watch Next; serialized account-boundary epochs
-  rejecting stale work; all-or-nothing account removal; and deterministic
-  logout cleanup.
-- **Shared UX** — password and Quick Connect login, network discovery on
-  Android and desktop, direct server entry on iOS, adaptive navigation from
-  compact phones to full-width TV-style layouts,
-  three dark themes, window-tier-aware tile sizing, per-type media-segment
-  skip policies, Up Next auto-advance with an optional Still watching gate,
-  and a full-pane adaptive Settings surface shared by mobile, desktop, and
-  iOS.
+The first production release is pending and untagged. Current capabilities and
+platform limits live in the [overview](README.md) and [usage guide](docs/USAGE.md);
+[release preparation](docs/RELEASE.md) owns the version change and release gates.
 
 ## Pre-1.0 alpha development
 

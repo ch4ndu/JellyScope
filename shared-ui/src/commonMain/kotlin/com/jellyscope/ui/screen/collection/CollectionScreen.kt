@@ -142,6 +142,7 @@ internal fun CollectionContent(
                     hasMore = state.hasMore,
                     isLoading = state.isLoading,
                     isLoadingMore = state.isLoadingMore,
+                    automaticPagingAllowed = !state.error,
                     lastVisibleIndex = {
                         gridState.layoutInfo.visibleItemsInfo
                             .lastOrNull()
@@ -193,7 +194,7 @@ internal fun CollectionContent(
                     }
                     if (state.error && state.items.isNotEmpty()) {
                         item(
-                            key = "page-error",
+                            key = "collection:control:page-retry",
                             span = { GridItemSpan(maxLineSpan) },
                         ) {
                             ErrorMessage(onRetry = onRetry)

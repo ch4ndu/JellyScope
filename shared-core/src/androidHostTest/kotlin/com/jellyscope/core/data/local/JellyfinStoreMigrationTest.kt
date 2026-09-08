@@ -3,7 +3,7 @@
 package com.jellyscope.core.data.local
 
 import android.content.Context
-import androidx.room.Room
+import androidx.room3.Room
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.sqlite.execSQL
@@ -322,37 +322,38 @@ class JellyfinStoreMigrationTest {
         }
 
     @Test
-    fun vlcSeedSqlTargetsOnlyNullRowsAndWarningsFlipTargetsAll() {
-        writableConnection { connection ->
-            connection.execSQL(
-                "CREATE TABLE `playback_preferences` (`serverId` TEXT NOT NULL PRIMARY KEY, " +
-                    "`playbackWarningsEnabled` INTEGER NOT NULL DEFAULT 1, `vlcTranscodeMaxBitrateBps` INTEGER)",
-            )
-            connection.execSQL("INSERT INTO `playback_preferences` VALUES ('inherit', 1, NULL)")
-            connection.execSQL("INSERT INTO `playback_preferences` VALUES ('explicit', 1, 12000000)")
+    fun vlcSeedSqlTargetsOnlyNullRowsAndWarningsFlipTargetsAll() =
+        runTest {
+            writableConnection { connection ->
+                connection.execSQL(
+                    "CREATE TABLE `playback_preferences` (`serverId` TEXT NOT NULL PRIMARY KEY, " +
+                        "`playbackWarningsEnabled` INTEGER NOT NULL DEFAULT 1, `vlcTranscodeMaxBitrateBps` INTEGER)",
+                )
+                connection.execSQL("INSERT INTO `playback_preferences` VALUES ('inherit', 1, NULL)")
+                connection.execSQL("INSERT INTO `playback_preferences` VALUES ('explicit', 1, 12000000)")
 
-            jellyfinStoreMigration8To9(8_000_000L).migrate(connection)
+                jellyfinStoreMigration8To9(8_000_000L).migrate(connection)
 
-            connection
-                .prepare(
-                    "SELECT `playbackWarningsEnabled`, `vlcTranscodeMaxBitrateBps` FROM `playback_preferences` " +
-                        "WHERE `serverId` = 'inherit'",
-                ).use { statement ->
-                    assertTrue(statement.step())
-                    assertEquals(0, statement.getInt(0))
-                    assertEquals(8_000_000L, statement.getLong(1))
-                }
-            connection
-                .prepare(
-                    "SELECT `playbackWarningsEnabled`, `vlcTranscodeMaxBitrateBps` FROM `playback_preferences` " +
-                        "WHERE `serverId` = 'explicit'",
-                ).use { statement ->
-                    assertTrue(statement.step())
-                    assertEquals(0, statement.getInt(0))
-                    assertEquals(12_000_000L, statement.getLong(1))
-                }
+                connection
+                    .prepare(
+                        "SELECT `playbackWarningsEnabled`, `vlcTranscodeMaxBitrateBps` FROM `playback_preferences` " +
+                            "WHERE `serverId` = 'inherit'",
+                    ).use { statement ->
+                        assertTrue(statement.step())
+                        assertEquals(0, statement.getInt(0))
+                        assertEquals(8_000_000L, statement.getLong(1))
+                    }
+                connection
+                    .prepare(
+                        "SELECT `playbackWarningsEnabled`, `vlcTranscodeMaxBitrateBps` FROM `playback_preferences` " +
+                            "WHERE `serverId` = 'explicit'",
+                    ).use { statement ->
+                        assertTrue(statement.step())
+                        assertEquals(0, statement.getInt(0))
+                        assertEquals(12_000_000L, statement.getLong(1))
+                    }
+            }
         }
-    }
 
     private suspend fun openProductionDatabase(seedVlcDefaultBps: Long? = null): JellyfinStoreDatabase {
         val instance =
@@ -366,7 +367,7 @@ class JellyfinStoreMigrationTest {
         return instance
     }
 
-    private fun withV3Connection(block: (SQLiteConnection) -> Unit) {
+    private suspend fun withV3Connection(block: suspend (SQLiteConnection) -> Unit) {
         writableConnection { connection ->
             V3_SCHEMA.forEach { statement -> connection.execSQL(statement) }
             connection.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)")
@@ -378,7 +379,7 @@ class JellyfinStoreMigrationTest {
         }
     }
 
-    private fun writableConnection(block: (SQLiteConnection) -> Unit) {
+    private suspend fun writableConnection(block: suspend (SQLiteConnection) -> Unit) {
         val connection = AndroidSQLiteDriver().open(databaseFile.path)
         try {
             block(connection)
@@ -387,7 +388,7 @@ class JellyfinStoreMigrationTest {
         }
     }
 
-    private fun readOnlyConnection(block: (SQLiteConnection) -> Unit) {
+    private suspend fun readOnlyConnection(block: suspend (SQLiteConnection) -> Unit) {
         database?.close()
         database = null
         writableConnection(block)

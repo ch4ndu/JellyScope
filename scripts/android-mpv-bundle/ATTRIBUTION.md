@@ -28,10 +28,25 @@ checks the release APK package contents.
 | mbedTLS | 3.6.6 | Apache-2.0 | https://github.com/Mbed-TLS/mbedtls/tree/v3.6.6 |
 | Lua | 5.2.4 | MIT | https://www.lua.org/versions.html#5.2 |
 | libmpv-android wrapper base | 1.0.0 | MIT | https://github.com/jarnedemeulemeester/libmpv-android/tree/v1.0.0 |
-| JellyScope Android wrapper patch | in-repository `android-libmpv` | Upstream MIT wrapper with MPL-2.0 project integration | [`android-libmpv/UPSTREAM.md`](../../android-libmpv/UPSTREAM.md) |
+| JellyScope Android wrapper patch | in-repository `android-libmpv` | Upstream MIT wrapper with MPL-2.0 project integration | `android-libmpv/UPSTREAM.md` at the JellyScope revision identified by [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md) |
 | Android NDK libc++ runtime | 29.0.14206865 | Apache-2.0 with LLVM exception | https://android.googlesource.com/toolchain/llvm-project/ |
 | Jellyfin Media3 FFmpeg decoder | 1.9.0+1 | GPL-3.0 | https://github.com/jellyfin/jellyfin-androidx-media/tree/af9ee4e26b2045e3ea6f2ebf4a18ac8ebfeae396 |
 | LibVLC Android | 3.7.5; embedded VLC `3.0.23-2-850-gac1101d2c5` | LGPL-2.1 | https://code.videolan.org/videolan/libvlcjni/-/tree/libvlcjni-3.x and https://code.videolan.org/videolan/vlc/-/tree/ac1101d2c5 |
+
+## License-file coverage
+
+The `licenses/` directory contains generic GNU, Apache, and zlib license texts,
+the LLVM exception, component notices for the wrapper, dav1d and libass, and
+FreeType's license overview. `MIT.txt` names the wrapper's owners; it does not
+contain the separate fontconfig, HarfBuzz, libxml2, or Lua notices. `Zlib.txt`
+contains generic terms rather than libunibreak's component copyright notice.
+Generic license texts do not constitute a complete component-owner inventory.
+
+`FreeType.txt` describes the FTL and GPL-2.0-or-later alternatives; it does not
+record a selected branch. A release must record that choice and preserve its
+required notices, alongside the other pinned components' applicable notices.
+The component source links above support that review. Package metadata and
+filename checks alone do not establish complete notice coverage.
 
 The combined Android application is distributed under GPL-3.0 terms. Its
 JellyScope-owned files remain available under MPL-2.0 and are additionally

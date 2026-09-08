@@ -6,7 +6,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +54,7 @@ import org.koin.core.parameter.parametersOf
 @Composable
 internal fun OpenSubtitleSearchDialog(
     request: OpenSubtitleSearchRequest,
+    selectionToken: DetailSubtitleSelectionToken,
     onInstalled: (LocalSubtitleAsset) -> Unit,
     onDismiss: () -> Unit,
     viewModel: OpenSubtitleSearchViewModel =
@@ -63,6 +64,8 @@ internal fun OpenSubtitleSearchDialog(
         ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val currentSelectionToken by rememberUpdatedState(selectionToken)
+    val currentOnInstalled by rememberUpdatedState(onInstalled)
     val dpad = isDetailDpadMode()
     val rowLabels =
         OpenSubtitleRowLabels(
@@ -74,7 +77,13 @@ internal fun OpenSubtitleSearchDialog(
             downloads = { downloads -> downloads },
             fps = { fps -> fps },
         )
-    LaunchedEffect(viewModel) { viewModel.installed.collect { asset -> onInstalled(asset) } }
+    LaunchedEffect(viewModel) {
+        viewModel.installedAcknowledgements.collect { acknowledgement ->
+            if (acknowledgement.selectionToken == currentSelectionToken) {
+                currentOnInstalled(acknowledgement.asset)
+            }
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(Res.string.subtitles_search_title)) },
@@ -91,7 +100,7 @@ internal fun OpenSubtitleSearchDialog(
                 else ->
                     LazyColumn {
                         state.quotaRemaining?.let { remaining ->
-                            item {
+                            item(key = "open_subtitles_quota_remaining") {
                                 Text(
                                     stringResource(Res.string.subtitles_quota_remaining, remaining),
                                     modifier = Modifier.padding(bottom = Dimensions.contentSpacing),
@@ -99,7 +108,7 @@ internal fun OpenSubtitleSearchDialog(
                             }
                         }
                         state.quotaResetTime?.let { resetTime ->
-                            item {
+                            item(key = "open_subtitles_quota_reset_time") {
                                 Text(
                                     stringResource(Res.string.subtitles_quota_reset, resetTime),
                                     modifier = Modifier.padding(bottom = Dimensions.contentSpacing),
@@ -127,12 +136,13 @@ internal fun OpenSubtitleSearchDialog(
                                         },
                                     ).detailOnFocusChanged { focusState -> focused = focusState.isFocused }
                                     .fillMaxWidth()
-                                    .clickable(enabled = result.selectable) { viewModel.install(result) }
-                                    .detailFocusable(enabled = result.selectable)
+                                    .clickable(enabled = result.selectable) {
+                                        viewModel.install(result, currentSelectionToken)
+                                    }.detailFocusable(enabled = result.selectable)
                                     .padding(Dimensions.contentSpacing),
                             ) {
                                 Text(row.title)
-                                Row { Text(row.metadata) }
+                                Text(row.metadata)
                                 if (row.downloading) CircularProgressIndicator()
                             }
                         }

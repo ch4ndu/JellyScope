@@ -18,9 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -44,11 +44,13 @@ import com.jellyscope.ui.component.DesktopScrollOrientation
 import com.jellyscope.ui.component.LoadMoreOnApproachEnd
 import com.jellyscope.ui.component.MediaCard
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.component.RetryableError
 import com.jellyscope.ui.component.authenticatedImageRequest
 import com.jellyscope.ui.component.desktopScrollInput
 import com.jellyscope.ui.component.directPlayAction
 import com.jellyscope.ui.component.rememberCardImageDecode
 import com.jellyscope.ui.generated.resources.Res
+import com.jellyscope.ui.generated.resources.library_error
 import com.jellyscope.ui.generated.resources.library_item_cd
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
@@ -60,6 +62,7 @@ internal fun LibraryGrid(
     session: Session,
     state: LibraryBrowseUiState,
     gridState: LazyGridState,
+    onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onItemSelected: (MediaCardUi) -> Unit,
     onPlayItem: (String, Long) -> Unit,
@@ -70,6 +73,7 @@ internal fun LibraryGrid(
         hasMore = state.hasMore,
         isLoading = state.isLoading,
         isLoadingMore = state.isLoadingMore,
+        automaticPagingAllowed = !state.error,
         lastVisibleIndex = {
             gridState.layoutInfo.visibleItemsInfo
                 .lastOrNull()
@@ -100,6 +104,14 @@ internal fun LibraryGrid(
                 onLongClick = item.directPlayAction(onPlayItem),
             )
         }
+        if (state.error) {
+            item(
+                key = "library:control:page-retry",
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
+                LibraryPageError(onRetry = onRetry)
+            }
+        }
     }
 }
 
@@ -108,6 +120,7 @@ internal fun LibraryList(
     session: Session,
     state: LibraryBrowseUiState,
     listState: LazyListState,
+    onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onItemSelected: (MediaCardUi) -> Unit,
     onPlayItem: (String, Long) -> Unit,
@@ -118,6 +131,7 @@ internal fun LibraryList(
         hasMore = state.hasMore,
         isLoading = state.isLoading,
         isLoadingMore = state.isLoadingMore,
+        automaticPagingAllowed = !state.error,
         lastVisibleIndex = {
             listState.layoutInfo.visibleItemsInfo
                 .lastOrNull()
@@ -146,7 +160,21 @@ internal fun LibraryList(
                 onLongClick = item.directPlayAction(onPlayItem),
             )
         }
+        if (state.error) {
+            item(key = "library:control:page-retry") {
+                LibraryPageError(onRetry = onRetry)
+            }
+        }
     }
+}
+
+@Composable
+private fun LibraryPageError(onRetry: () -> Unit) {
+    RetryableError(
+        message = stringResource(Res.string.library_error),
+        retryable = true,
+        onRetry = onRetry,
+    )
 }
 
 @Composable

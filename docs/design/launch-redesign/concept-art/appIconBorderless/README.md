@@ -24,14 +24,13 @@ Included outputs:
 The TV compositions retain the existing poster background and typography while
 placing the jellyfish directly on the artwork without a framed icon container.
 
-Regenerate with a Python environment containing Pillow:
+Regenerate with Python and Pillow:
 
 ```bash
 python3 generate_assets.py
 ```
 
-Apply the generated launcher icons to the Android, iOS, desktop, and tvOS
-projects with:
+Apply launcher icons to Android, iOS, desktop, and tvOS:
 
 ```bash
 python3 apply_platform_assets.py

@@ -191,7 +191,10 @@ private fun LibraryErrorRow(
         horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("$title — ${stringResource(Res.string.library_view_error)}", modifier = Modifier.weight(1f))
+        Text(
+            stringResource(Res.string.library_view_error, title),
+            modifier = Modifier.weight(1f),
+        )
         OutlinedButton(onClick = onRetry) { Text(stringResource(Res.string.home_retry_button)) }
     }
 }

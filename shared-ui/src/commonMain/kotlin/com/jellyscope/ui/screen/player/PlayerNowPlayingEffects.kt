@@ -12,5 +12,6 @@ expect fun PlayerNowPlayingEffects(
     content: PlayerUiState.Content?,
     onPlay: () -> Unit,
     onPause: () -> Unit,
+    onToggle: () -> Unit,
     onSeekTo: (Long) -> Unit,
 )

@@ -8,6 +8,7 @@ import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.playback.PlaybackPlan
 import com.jellyscope.core.domain.playback.PlaybackProgressEvent
 import com.jellyscope.core.domain.playback.PlaybackProgressReporter
+import com.jellyscope.core.domain.playback.SplitPlaybackProgressReporter
 import com.jellyscope.core.domain.playback.StreamMode
 import kotlinx.coroutines.CancellationException
 
@@ -19,21 +20,20 @@ internal class RoutingPlaybackProgressReporter(
     private val downloadRepository: DownloadRepository,
     private val remoteReporter: PlaybackProgressReporter,
     private val sessionRepository: SessionRepository,
-) : PlaybackProgressReporter {
+) : PlaybackProgressReporter,
+    SplitPlaybackProgressReporter {
+    override val localSettlementReporter: PlaybackProgressReporter = LocalSettlementReporter()
+    override val guardedRemoteReporter: PlaybackProgressReporter = GuardedRemoteReporter()
+
     override suspend fun reportStart(
         session: Session,
         plan: PlaybackPlan,
         playSessionId: String,
         positionMs: Long,
     ) {
-        routeLocal(
-            session = session,
-            plan = plan,
-            positionMs = positionMs,
-            watched = null,
-        )
-        reportRemoteBestEffort(session, plan, playSessionId) {
-            remoteReporter.reportStart(session, plan, playSessionId, positionMs)
+        routeLocal(session, plan, positionMs, watched = null)
+        reportRemoteBestEffort {
+            guardedRemoteReporter.reportStart(session, plan, playSessionId, positionMs)
         }
     }
 
@@ -45,14 +45,9 @@ internal class RoutingPlaybackProgressReporter(
         isPaused: Boolean,
         eventName: PlaybackProgressEvent,
     ) {
-        routeLocal(
-            session = session,
-            plan = plan,
-            positionMs = positionMs,
-            watched = null,
-        )
-        reportRemoteBestEffort(session, plan, playSessionId) {
-            remoteReporter.reportProgress(session, plan, playSessionId, positionMs, isPaused, eventName)
+        routeLocal(session, plan, positionMs, watched = null)
+        reportRemoteBestEffort {
+            guardedRemoteReporter.reportProgress(session, plan, playSessionId, positionMs, isPaused, eventName)
         }
     }
 
@@ -72,16 +67,111 @@ internal class RoutingPlaybackProgressReporter(
         positionMs: Long,
         completed: Boolean,
     ) {
-        // `false` is intentionally null: an ordinary stop updates resume only and can never
-        // erase a previously watched record. Only controller-proven Completed writes true.
-        routeLocal(
-            session = session,
-            plan = plan,
-            positionMs = positionMs,
-            watched = completed.takeIf { value -> value },
-        )
-        reportRemoteBestEffort(session, plan, playSessionId) {
-            remoteReporter.reportStopped(session, plan, playSessionId, positionMs, completed)
+        routeLocal(session, plan, positionMs, watched = completed.takeIf { value -> value })
+        reportRemoteBestEffort {
+            guardedRemoteReporter.reportStopped(session, plan, playSessionId, positionMs, completed)
+        }
+    }
+
+    private inner class LocalSettlementReporter : PlaybackProgressReporter {
+        override suspend fun reportStart(
+            session: Session,
+            plan: PlaybackPlan,
+            playSessionId: String,
+            positionMs: Long,
+        ) {
+            requireOfflineScope(session, plan)
+            routeLocal(session, plan, positionMs, watched = null)
+        }
+
+        override suspend fun reportProgress(
+            session: Session,
+            plan: PlaybackPlan,
+            playSessionId: String,
+            positionMs: Long,
+            isPaused: Boolean,
+            eventName: PlaybackProgressEvent,
+        ) {
+            requireOfflineScope(session, plan)
+            routeLocal(session, plan, positionMs, watched = null)
+        }
+
+        override suspend fun reportStopped(
+            session: Session,
+            plan: PlaybackPlan,
+            playSessionId: String,
+            positionMs: Long,
+        ) {
+            reportStopped(session, plan, playSessionId, positionMs, completed = false)
+        }
+
+        override suspend fun reportStopped(
+            session: Session,
+            plan: PlaybackPlan,
+            playSessionId: String,
+            positionMs: Long,
+            completed: Boolean,
+        ) {
+            requireOfflineScope(session, plan)
+            routeLocal(session, plan, positionMs, watched = completed.takeIf { value -> value })
+        }
+    }
+
+    private fun requireOfflineScope(
+        session: Session,
+        plan: PlaybackPlan,
+    ) {
+        check(
+            plan.streamMode == StreamMode.Offline &&
+                plan.offlineArtifactRef != null &&
+                plan.offlineAccountIdentity == session.accountIdentity(),
+        ) { "Offline playback reporting scope is invalid." }
+    }
+
+    private inner class GuardedRemoteReporter : PlaybackProgressReporter {
+        override suspend fun reportStart(
+            session: Session,
+            plan: PlaybackPlan,
+            playSessionId: String,
+            positionMs: Long,
+        ) {
+            reportRemoteGuarded(session, plan) {
+                remoteReporter.reportStart(session, plan, playSessionId, positionMs)
+            }
+        }
+
+        override suspend fun reportProgress(
+            session: Session,
+            plan: PlaybackPlan,
+            playSessionId: String,
+            positionMs: Long,
+            isPaused: Boolean,
+            eventName: PlaybackProgressEvent,
+        ) {
+            reportRemoteGuarded(session, plan) {
+                remoteReporter.reportProgress(session, plan, playSessionId, positionMs, isPaused, eventName)
+            }
+        }
+
+        override suspend fun reportStopped(
+            session: Session,
+            plan: PlaybackPlan,
+            playSessionId: String,
+            positionMs: Long,
+        ) {
+            reportStopped(session, plan, playSessionId, positionMs, completed = false)
+        }
+
+        override suspend fun reportStopped(
+            session: Session,
+            plan: PlaybackPlan,
+            playSessionId: String,
+            positionMs: Long,
+            completed: Boolean,
+        ) {
+            reportRemoteGuarded(session, plan) {
+                remoteReporter.reportStopped(session, plan, playSessionId, positionMs, completed)
+            }
         }
     }
 
@@ -113,10 +203,9 @@ internal class RoutingPlaybackProgressReporter(
         }
     }
 
-    private suspend fun reportRemoteBestEffort(
+    private suspend fun reportRemoteGuarded(
         session: Session,
         plan: PlaybackPlan,
-        playSessionId: String,
         block: suspend () -> Unit,
     ) {
         // The captured playback Session is not sufficient authority after an account switch.
@@ -128,14 +217,18 @@ internal class RoutingPlaybackProgressReporter(
                 ?.session
                 ?.accountIdentity()
         if (currentOnlineAccountIdentity != session.accountIdentity()) {
-            return
+            throw RemoteReportingNotAuthorizedException()
         }
         if (plan.streamMode == StreamMode.Offline &&
             plan.offlineArtifactRef != null &&
             plan.offlineAccountIdentity != currentOnlineAccountIdentity
         ) {
-            return
+            throw RemoteReportingNotAuthorizedException()
         }
+        block()
+    }
+
+    private suspend fun reportRemoteBestEffort(block: suspend () -> Unit) {
         try {
             block()
         } catch (cancellation: CancellationException) {
@@ -152,3 +245,5 @@ internal class RoutingPlaybackProgressReporter(
 private class OfflineProgressPersistenceException(
     cause: Throwable,
 ) : IllegalStateException("Offline playback progress could not be persisted.", cause)
+
+private class RemoteReportingNotAuthorizedException : IllegalStateException("Remote playback reporting is not authorized.")

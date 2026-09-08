@@ -242,8 +242,8 @@ private fun MediaVersionUi.toOfflineMediaSnapshot(
                             streamSnapshot(stream, OfflineTrackKind.Subtitle, stream.index ?: ordinal)
                         },
             selectedAudioTrack =
-                audio?.let { stream ->
-                    streamSnapshot(stream, OfflineTrackKind.Audio, audioIndexed?.canonicalIndex ?: 0)
+                audioIndexed?.let { indexed ->
+                    streamSnapshot(indexed.stream, OfflineTrackKind.Audio, indexed.canonicalIndex)
                 },
             selectedSubtitleTrack = selectedSubtitle,
             backendSource =

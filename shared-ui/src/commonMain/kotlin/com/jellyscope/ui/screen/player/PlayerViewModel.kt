@@ -19,6 +19,7 @@ import com.jellyscope.core.domain.model.LocalSubtitleContext
 import com.jellyscope.core.domain.model.MediaItem
 import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.MediaVersion
+import com.jellyscope.core.domain.model.OfflineArtifactRef
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
 import com.jellyscope.core.domain.model.PlaybackTimingKey
@@ -98,7 +99,6 @@ import com.jellyscope.core.domain.playback.PlayerStillWatchingState
 import com.jellyscope.core.domain.playback.PlayerVolumeController
 import com.jellyscope.core.domain.playback.PlayerVolumeState
 import com.jellyscope.core.domain.playback.StreamMode
-import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
 import com.jellyscope.core.domain.playback.SubtitleAsset
 import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
@@ -296,7 +296,11 @@ class PlayerViewModel(
     private var requestedSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified
     private var requestedLocalSubtitleAsset: LocalSubtitleAsset? = null
     private var localSubtitleAssets: List<LocalSubtitleAsset> = emptyList()
+    private var offlineSidecarOption: OfflineSidecarOption? = null
     private var subtitleActivationRequestId = 0L
+    private var offlineSubtitleSelectionGeneration = 0L
+    private var offlineReprepareGeneration: Long? = null
+    private var offlineRepreparePositionMs: Long? = null
     private var subtitleFallbackTarget: SubtitleActivationTarget? = null
     private var subtitleFallbackGeneration = 0L
     private var subtitleNoticeToken = 0L
@@ -448,6 +452,7 @@ class PlayerViewModel(
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         desiredPlayWhenReady = true
+        if (offlineReprepareGeneration != null) return
         restartPlaybackHealthEvidence()
         playerController.play()
     }
@@ -456,15 +461,22 @@ class PlayerViewModel(
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         desiredPlayWhenReady = false
+        if (offlineReprepareGeneration != null) return
         restartPlaybackHealthEvidence()
         playerController.pause()
     }
 
     fun togglePlayPause() {
-        if (playbackState.value.status == PlaybackStatus.Playing) {
-            pause()
-        } else {
-            play()
+        when (playbackState.value.status) {
+            PlaybackStatus.Playing -> pause()
+            PlaybackStatus.Loading,
+            PlaybackStatus.Buffering,
+            -> if (desiredPlayWhenReady) pause() else play()
+            PlaybackStatus.Idle,
+            PlaybackStatus.Paused,
+            PlaybackStatus.Failed,
+            PlaybackStatus.Completed,
+            -> play()
         }
     }
 
@@ -877,7 +889,7 @@ class PlayerViewModel(
             _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
             return
         }
-        cancelAndInvalidateSubtitleFallback()
+        invalidateSubtitleFallback()
         audioRecoveryTarget = null
         requestedAudioStreamIndex = streamIndex
         explicitAudioStreamIndex = streamIndex
@@ -888,26 +900,30 @@ class PlayerViewModel(
                 selectedAudioStreamIndex = streamIndex,
                 audioActivationTarget = target,
             )
-        playerController.selectEmbeddedAudio(
-            EmbeddedAudioSelection(target = target, descriptor = descriptor),
-        )
+        if (offlineReprepareGeneration == null) {
+            playerController.selectEmbeddedAudio(
+                EmbeddedAudioSelection(target = target, descriptor = descriptor),
+            )
+        }
         reloadTimingForCurrentTracks()
         publishContent(pickerVisible = PlayerPicker.None)
     }
 
-    /** Offline subtitles may disable a sidecar or switch captured embedded tracks. */
+    /** Offline subtitles require a fresh trusted artifact lease. */
     private fun selectOfflineSubtitle(
         currentPlan: PlaybackPlan,
         option: SubtitleTrackOption?,
     ) {
+        if (currentPlan.offlineArtifactKind != DownloadArtifactKind.OriginalFile) return
         if (option?.isExternal == true) return
-        invalidateSubtitleFallback()
-        replanJob?.cancel()
-        replanJob = null
-        requestedSubtitleStreamIndex = option?.streamIndex
-        requestedLocalSubtitleAsset = null
-        requestedSubtitleSelection = option?.streamIndex.toSubtitleSelectionIntent()
-        val targetAndSelection =
+        if (option == null && currentPlan.plannedSubtitle is PlannedSubtitle.Off) return
+        if (
+            option != null &&
+            (currentPlan.plannedSubtitle as? PlannedSubtitle.Track)?.streamIndex == option.streamIndex
+        ) {
+            return
+        }
+        val targetAndDescriptor =
             option?.let { selectedOption ->
                 val descriptor =
                     currentPlan.embeddedSubtitleTracks.firstOrNull { track ->
@@ -923,33 +939,121 @@ class PlayerViewModel(
                                 LocalSubtitleKind.EmbeddedText
                             },
                     )
-                target to
-                    EmbeddedSubtitleSelection(
-                        target = target,
-                        descriptor = descriptor,
-                    )
+                target to descriptor
             }
-        val target = targetAndSelection?.first
-        plan =
+        val target = targetAndDescriptor?.first
+        val replacementPlan =
             currentPlan.copy(
                 selectedSubtitleStreamIndex = option?.streamIndex,
                 subtitleAsset = null,
                 subtitleActivationTarget = target,
                 plannedSubtitle =
-                    targetAndSelection?.let { (_, selection) ->
+                    targetAndDescriptor?.let { (_, descriptor) ->
                         PlannedSubtitle.Track(
-                            streamIndex = selection.target.streamIndex ?: return,
-                            embeddedTrack = selection.descriptor,
+                            streamIndex = option?.streamIndex ?: return,
+                            embeddedTrack = descriptor,
                             deliveryMethod = SubtitleDeliveryMethod.Embed,
-                            kind = subtitleKind(selection.descriptor.codec),
-                            activationTarget = selection.target,
-                            normalizedFormat = selection.descriptor.codec,
+                            kind = subtitleKind(descriptor.codec),
+                            activationTarget = target,
+                            normalizedFormat = descriptor.codec,
                         )
                     } ?: PlannedSubtitle.Off,
             )
-        playerController.selectEmbeddedSubtitle(targetAndSelection?.second)
-        reloadTimingForCurrentTracks()
-        publishContent(pickerVisible = PlayerPicker.None)
+        scheduleOfflineSubtitleReprepare(
+            replacementPlan = replacementPlan,
+            requestedSelection = option?.streamIndex.toSubtitleSelectionIntent(),
+        )
+    }
+
+    fun selectOfflineSidecar() {
+        if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
+        val currentPlan = plan ?: return
+        val option = offlineSidecarOption ?: return
+        if (
+            currentPlan.streamMode != StreamMode.Offline ||
+            currentPlan.offlineArtifactKind != DownloadArtifactKind.OriginalFile ||
+            currentPlan.offlineArtifactRef != option.identity.artifactRef
+        ) {
+            return
+        }
+        val installedSidecar = currentPlan.plannedSubtitle as? PlannedSubtitle.OfflineSidecar
+        if (installedSidecar?.identity == option.identity) return
+        val target =
+            SubtitleActivationTarget(
+                requestId = nextSubtitleActivationRequestId(),
+                itemId = currentItemId,
+                identity = option.identity,
+                kind = LocalSubtitleKind.ExternalText,
+            )
+        scheduleOfflineSubtitleReprepare(
+            replacementPlan =
+                currentPlan.copy(
+                    selectedSubtitleStreamIndex = null,
+                    subtitleAsset = null,
+                    subtitleActivationTarget = target,
+                    plannedSubtitle =
+                        PlannedSubtitle.OfflineSidecar(
+                            identity = option.identity,
+                            label = option.displayName,
+                            language = option.language,
+                            activationTarget = target,
+                        ),
+                ),
+            requestedSelection = SubtitleSelectionIntent.Off,
+        )
+    }
+
+    private fun scheduleOfflineSubtitleReprepare(
+        replacementPlan: PlaybackPlan,
+        requestedSelection: SubtitleSelectionIntent,
+    ) {
+        val artifactRef = replacementPlan.offlineArtifactRef ?: return
+        if (
+            replacementPlan.streamMode != StreamMode.Offline ||
+            plan?.offlineArtifactRef != artifactRef
+        ) {
+            return
+        }
+        val retainedPositionMs =
+            if (offlineReprepareGeneration != null) {
+                offlineRepreparePositionMs ?: playbackState.value.positionMs.coerceAtLeast(0L)
+            } else {
+                playbackState.value.positionMs.coerceAtLeast(0L)
+            }
+        invalidateSubtitleFallback()
+        replanJob?.cancel()
+        requestedSubtitleStreamIndex = replacementPlan.selectedSubtitleStreamIndex
+        requestedLocalSubtitleAsset = null
+        requestedSubtitleSelection = requestedSelection
+        val selectionGeneration = ++offlineSubtitleSelectionGeneration
+        offlineReprepareGeneration = selectionGeneration
+        offlineRepreparePositionMs = retainedPositionMs
+        val launchGeneration = playbackLaunchGeneration
+        val itemId = currentItemId
+        val controller = playerController
+        val replacementAtPosition =
+            replacementPlan.copy(
+                startPositionMs = retainedPositionMs,
+                playbackSpeed = playbackSpeed,
+                subtitleStyle = subtitleStyle,
+            )
+        replanJob =
+            viewModelScope.launch {
+                prepareOfflinePlayback(
+                    playbackPlan = replacementAtPosition,
+                    selectionGeneration = selectionGeneration,
+                    launchGeneration = launchGeneration,
+                    itemId = itemId,
+                    controller = controller,
+                    reportingAuthority = OfflinePrepareReportingAuthority.PreserveCurrent,
+                    resetReporting = false,
+                    unavailableBackend =
+                        backend.takeUnless { active -> active == PlayerBackend.Auto }
+                            ?: controller.activeBackend.takeUnless { active -> active == PlayerBackend.Auto }
+                            ?: PlayerBackend.AVPlayer,
+                )
+            }
     }
 
     fun selectSubtitle(streamIndex: Int?) {
@@ -1239,7 +1343,9 @@ class PlayerViewModel(
         }
         playbackSpeed = speed.coerceIn(MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED)
         plan = plan?.copy(playbackSpeed = playbackSpeed)
-        playerController.setPlaybackSpeed(playbackSpeed)
+        if (offlineReprepareGeneration == null) {
+            playerController.setPlaybackSpeed(playbackSpeed)
+        }
         publishContent(playbackState = playbackState.value.copy(playbackSpeed = playbackSpeed))
     }
 
@@ -1248,7 +1354,9 @@ class PlayerViewModel(
         invalidateBackendSwitch()
         subtitleStyle = style
         plan = plan?.copy(subtitleStyle = subtitleStyle)
-        playerController.setSubtitleStyle(style)
+        if (offlineReprepareGeneration == null) {
+            playerController.setSubtitleStyle(style)
+        }
         publishContent(playbackState = playbackState.value.copy(subtitleStyle = subtitleStyle))
     }
 
@@ -1722,6 +1830,7 @@ class PlayerViewModel(
         }
         val snapshot = record.request.snapshot
         val sourceId = record.businessKey.mediaSourceId
+        val activationRequestId = nextSubtitleActivationRequestId()
         val offlineProjection =
             projectOfflinePlayback(
                 OfflinePlaybackProjectionInput(
@@ -1735,6 +1844,7 @@ class PlayerViewModel(
                     startPositionTicks = startPositionTicks,
                     localResumePositionMs = record.localResumePositionMs,
                     launchGeneration = launchGeneration,
+                    subtitleActivationRequestId = activationRequestId,
                 ),
             )
         metadata = offlineProjection.metadata
@@ -1760,6 +1870,7 @@ class PlayerViewModel(
         requestedSubtitleStreamIndex = offlineProjection.selectedSubtitleStreamIndex
         requestedSubtitleSelection = offlineProjection.selectedSubtitleSelection
         requestedLocalSubtitleAsset = null
+        offlineSidecarOption = offlineProjection.offlineSidecarOption
         qualitySession =
             qualitySession.forOfflineSession(activePlaybackPreferences.effectiveDefaultQualityPolicy(backend))
         explicitAudioStreamIndex = offlineProjection.selectedAudioStreamIndex
@@ -1783,7 +1894,18 @@ class PlayerViewModel(
                 )
             }
         backend = resolvedBackend
-        val offlinePlan = offlineProjection.offlinePlan
+        val offlinePlan =
+            offlineProjection.offlinePlan
+                .withAudioActivationTarget(
+                    offlineProjection.selectedAudioStreamIndex?.let(::newAudioActivationTarget),
+                ).withSubtitleActivationTarget(
+                    requestId = activationRequestId,
+                    itemId = itemId,
+                    selectedSubtitle = selectedSubtitleMediaStream(),
+                ).copy(
+                    playbackSpeed = playbackSpeed,
+                    subtitleStyle = subtitleStyle,
+                )
         if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) return false
         val exactOfflineBackendRequired =
             !offlineControllerFallbackAllowed(
@@ -1827,57 +1949,260 @@ class PlayerViewModel(
                         },
                 ),
         )
-        installPlan(offlinePlan, resetReporting = resetReporting, stabilizesQueueSwitch = true)
-        publishContent(
-            playbackState =
+        desiredPlayWhenReady = true
+        return prepareOfflinePlayback(
+            playbackPlan = offlinePlan,
+            selectionGeneration = null,
+            launchGeneration = launchGeneration,
+            itemId = itemId,
+            controller = playerController,
+            reportingAuthority = OfflinePrepareReportingAuthority.InstallInitial,
+            resetReporting = resetReporting,
+            unavailableBackend =
+                if (exactOfflineBackendRequired) {
+                    resolvedBackend
+                } else {
+                    activeBackend
+                },
+        )
+    }
+
+    private suspend fun prepareOfflinePlayback(
+        playbackPlan: PlaybackPlan,
+        selectionGeneration: Long?,
+        launchGeneration: Long,
+        itemId: String,
+        controller: PlayerController,
+        reportingAuthority: OfflinePrepareReportingAuthority,
+        resetReporting: Boolean,
+        unavailableBackend: PlayerBackend,
+    ): Boolean {
+        val artifactRef = playbackPlan.offlineArtifactRef ?: return false
+        if (playbackPlan.streamMode != StreamMode.Offline || playbackPlan.itemId != itemId) {
+            clearOfflineReprepare(selectionGeneration)
+            return false
+        }
+        val requestIsCurrent =
+            when (reportingAuthority) {
+                OfflinePrepareReportingAuthority.InstallInitial ->
+                    !disposed &&
+                        isCurrentPlaybackLaunch(launchGeneration, itemId) &&
+                        playerController === controller
+                OfflinePrepareReportingAuthority.PreserveCurrent ->
+                    isCurrentOfflinePrepare(
+                        artifactRef = artifactRef,
+                        selectionGeneration = selectionGeneration,
+                        launchGeneration = launchGeneration,
+                        itemId = itemId,
+                        controller = controller,
+                        reportingAuthority = reportingAuthority,
+                    )
+            }
+        if (!requestIsCurrent) {
+            clearOfflineReprepare(selectionGeneration)
+            return false
+        }
+        val preparePlan =
+            if (reportingAuthority == OfflinePrepareReportingAuthority.PreserveCurrent) {
+                plan
+                    ?.takeIf { current ->
+                        current.streamMode == StreamMode.Offline &&
+                            current.itemId == itemId &&
+                            current.offlineArtifactRef == artifactRef
+                    }?.let { current ->
+                        playbackPlan.copy(
+                            selectedAudioStreamIndex = current.selectedAudioStreamIndex,
+                            audioActivationTarget = current.audioActivationTarget,
+                            playbackSpeed = playbackSpeed,
+                            subtitleStyle = subtitleStyle,
+                        )
+                    } ?: playbackPlan
+            } else {
+                playbackPlan
+            }
+        try {
+            when (reportingAuthority) {
+                OfflinePrepareReportingAuthority.InstallInitial ->
+                    installPlan(
+                        playbackPlan = preparePlan,
+                        resetReporting = resetReporting,
+                        stabilizesQueueSwitch = true,
+                    )
+                OfflinePrepareReportingAuthority.PreserveCurrent -> {
+                    installedPlan = null
+                    plan = preparePlan
+                    selectedMediaSourceId = preparePlan.mediaSourceId
+                    updatePlaybackHealthSessionContext()
+                }
+            }
+            val loadingState =
                 PlaybackState(
                     status = PlaybackStatus.Loading,
-                    positionMs = offlinePlan.startPositionMs,
-                    durationMs = resolvePlaybackDurationMs(offlinePlan.contentTimeline, null),
+                    positionMs = preparePlan.startPositionMs,
+                    durationMs = resolvePlaybackDurationMs(preparePlan.contentTimeline, null),
                     bufferedPositionMs = 0L,
-                ).withPlaybackMetadata(),
-            pickerVisible = PlayerPicker.None,
-        )
-        loadTimingOffsets()
-        markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
-        playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
-        try {
-            when (val result = playerController.prepareOffline(offlinePlan)) {
-                com.jellyscope.core.domain.playback.OfflinePrepareResult.Started -> {
-                    installedPlan = offlinePlan
-                }
+                ).withPlaybackMetadata()
+            publishContent(playbackState = loadingState, pickerVisible = PlayerPicker.None)
+            loadTimingOffsets()
+            currentCoroutineContext().ensureActive()
+            if (
+                !isCurrentOfflinePrepare(
+                    artifactRef = artifactRef,
+                    selectionGeneration = selectionGeneration,
+                    launchGeneration = launchGeneration,
+                    itemId = itemId,
+                    controller = controller,
+                    reportingAuthority = reportingAuthority,
+                )
+            ) {
+                return false
+            }
+            if (reportingAuthority == OfflinePrepareReportingAuthority.PreserveCurrent) {
+                val markerTimeMs = monotonicTimeMs()
+                playbackLaunchMarker =
+                    PlaybackLaunchMarker(
+                        generation = launchGeneration,
+                        startedAtMs = markerTimeMs,
+                        healthStartedAtMs = markerTimeMs,
+                    )
+                launchToFirstFrameMs = null
+            }
+            markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
+            playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
+            val result = controller.prepareOffline(preparePlan)
+            currentCoroutineContext().ensureActive()
+            if (
+                !isCurrentOfflinePrepare(
+                    artifactRef = artifactRef,
+                    selectionGeneration = selectionGeneration,
+                    launchGeneration = launchGeneration,
+                    itemId = itemId,
+                    controller = controller,
+                    reportingAuthority = reportingAuthority,
+                )
+            ) {
+                return false
+            }
+            when (result) {
+                com.jellyscope.core.domain.playback.OfflinePrepareResult.Started -> Unit
                 is com.jellyscope.core.domain.playback.OfflinePrepareResult.Unavailable -> {
                     releaseOwnedPlayerController()
                     return failOfflineLaunch(launchGeneration, result.error)
                 }
             }
+            val currentPlan =
+                plan?.takeIf { candidate ->
+                    candidate.streamMode == StreamMode.Offline &&
+                        candidate.itemId == itemId &&
+                        candidate.offlineArtifactRef == artifactRef
+                } ?: return false
+            installedPlan = currentPlan
+            controller.runtimeDiagnostics.value.prepareEpoch
+                ?.let(playbackHealthCoordinator::expectVideoOutput)
+            armFirstVideoOutputState()
+            playerDiagnosticsRecorder.recordPrepareDispatched(playerDiagnosticContext())
+            bindPlaybackLaunchToPrepare(launchGeneration, controller)
+            applyInitialEmbeddedSelections(currentPlan)
+            controller.setPlaybackSpeed(playbackSpeed)
+            controller.setSubtitleStyle(subtitleStyle)
+            if (desiredPlayWhenReady) {
+                controller.play()
+            } else {
+                controller.pause()
+            }
+            if (reportingAuthority == OfflinePrepareReportingAuthority.PreserveCurrent) {
+                clearOfflineReprepare(selectionGeneration)
+                handlePlaybackState(controller.playbackState.value)
+            } else {
+                publishContent(pickerVisible = PlayerPicker.None)
+            }
+            return true
         } catch (exception: CancellationException) {
             throw exception
         } catch (_: Throwable) {
-            releaseOwnedPlayerController()
-            return failOfflineLaunch(
-                launchGeneration,
-                PlaybackError.OfflinePlayerUnavailable(
-                    requiredBackend =
-                        if (exactOfflineBackendRequired) {
-                            resolvedBackend
-                        } else {
-                            activeBackend
-                        },
-                ),
-            )
+            if (
+                isCurrentOfflinePrepare(
+                    artifactRef = artifactRef,
+                    selectionGeneration = selectionGeneration,
+                    launchGeneration = launchGeneration,
+                    itemId = itemId,
+                    controller = controller,
+                    reportingAuthority = reportingAuthority,
+                )
+            ) {
+                releaseOwnedPlayerController()
+                return failOfflineLaunch(
+                    launchGeneration,
+                    PlaybackError.OfflinePlayerUnavailable(
+                        requiredBackend = unavailableBackend,
+                    ),
+                )
+            }
+            return false
+        } finally {
+            if (reportingAuthority == OfflinePrepareReportingAuthority.PreserveCurrent) {
+                clearOfflineReprepare(selectionGeneration)
+            }
         }
-        playerController.runtimeDiagnostics.value.prepareEpoch
-            ?.let(playbackHealthCoordinator::expectVideoOutput)
-        armFirstVideoOutputState()
-        playerDiagnosticsRecorder.recordPrepareDispatched(playerDiagnosticContext())
-        bindPlaybackLaunchToPrepare(launchGeneration, playerController)
-        applyInitialEmbeddedSelections(offlinePlan)
-        desiredPlayWhenReady = true
-        playerController.play()
-        publishContent()
-        return true
     }
+
+    private fun isCurrentOfflinePrepare(
+        artifactRef: OfflineArtifactRef,
+        selectionGeneration: Long?,
+        launchGeneration: Long,
+        itemId: String,
+        controller: PlayerController,
+        reportingAuthority: OfflinePrepareReportingAuthority,
+    ): Boolean =
+        when (reportingAuthority) {
+            OfflinePrepareReportingAuthority.InstallInitial ->
+                !disposed &&
+                    isCurrentPlaybackLaunch(launchGeneration, itemId) &&
+                    playerController === controller &&
+                    offlineReprepareGeneration == null &&
+                    plan?.streamMode == StreamMode.Offline &&
+                    plan?.itemId == itemId &&
+                    plan?.offlineArtifactRef == artifactRef
+            OfflinePrepareReportingAuthority.PreserveCurrent ->
+                selectionGeneration != null &&
+                    offlineReprepareGeneration == selectionGeneration &&
+                    isCurrentOfflineReprepare(
+                        artifactRef = artifactRef,
+                        selectionGeneration = selectionGeneration,
+                        launchGeneration = launchGeneration,
+                        itemId = itemId,
+                        controller = controller,
+                    )
+        }
+
+    private fun clearOfflineReprepare(selectionGeneration: Long?) {
+        if (selectionGeneration != null && offlineReprepareGeneration == selectionGeneration) {
+            offlineReprepareGeneration = null
+            offlineRepreparePositionMs = null
+        }
+    }
+
+    private enum class OfflinePrepareReportingAuthority {
+        InstallInitial,
+        PreserveCurrent,
+    }
+
+    private fun isCurrentOfflineReprepare(
+        artifactRef: OfflineArtifactRef,
+        selectionGeneration: Long,
+        launchGeneration: Long,
+        itemId: String,
+        controller: PlayerController,
+    ): Boolean =
+        !disposed &&
+            offlineReprepareGeneration == selectionGeneration &&
+            offlineSubtitleSelectionGeneration == selectionGeneration &&
+            playbackLaunchGeneration == launchGeneration &&
+            currentItemId == itemId &&
+            playerController === controller &&
+            plan?.streamMode == StreamMode.Offline &&
+            plan?.itemId == itemId &&
+            plan?.offlineArtifactRef == artifactRef
 
     private fun failOfflineLaunch(
         launchGeneration: Long,
@@ -3080,6 +3405,7 @@ class PlayerViewModel(
 
     private suspend fun handlePlaybackState(playbackState: PlaybackState) {
         if (controllerInstallInFlight) return
+        if (offlineReprepareGeneration != null) return
         val enrichedPlaybackState = playbackState.withPlaybackMetadata()
         _playbackState.value = enrichedPlaybackState
         val installedAudioChanged = updateInstalledAudio(enrichedPlaybackState)
@@ -3540,7 +3866,10 @@ class PlayerViewModel(
             }
 
             is PlaybackSessionRecoveryDecision.SubtitleUnavailable -> {
-                if (plan?.plannedSubtitle is PlannedSubtitle.LocalAsset) {
+                if (
+                    plan?.plannedSubtitle is PlannedSubtitle.LocalAsset ||
+                    plan?.plannedSubtitle is PlannedSubtitle.OfflineSidecar
+                ) {
                     playerDiagnosticsRecorder.recordDiagnostic(
                         context = playerDiagnosticContext(),
                         facts =
@@ -3630,7 +3959,10 @@ class PlayerViewModel(
     }
 
     private fun applyInitialEmbeddedSelections(playbackPlan: PlaybackPlan) {
-        if (playbackPlan.streamMode == StreamMode.DirectPlay) {
+        if (
+            playbackPlan.streamMode == StreamMode.DirectPlay ||
+            playbackPlan.streamMode == StreamMode.Offline
+        ) {
             val target = playbackPlan.audioActivationTarget
             val descriptor =
                 playbackPlan.embeddedAudioTracks.firstOrNull { track ->
@@ -3649,6 +3981,9 @@ class PlayerViewModel(
             return
         }
         if (plannedSubtitle is PlannedSubtitle.LocalAsset) {
+            return
+        }
+        if (plannedSubtitle is PlannedSubtitle.OfflineSidecar) {
             return
         }
         plannedSubtitle as PlannedSubtitle.Track
@@ -3948,6 +4283,7 @@ class PlayerViewModel(
                     )
                 PlannedSubtitle.Off,
                 is PlannedSubtitle.LocalAsset,
+                is PlannedSubtitle.OfflineSidecar,
                 -> return
             }
         playerDiagnosticsRecorder.recordDiagnostic(
@@ -4039,8 +4375,13 @@ class PlayerViewModel(
                 metadata = metadata,
                 // Stable list identity preserves Compose strong skipping.
                 audioOptions = projections.audioTrackOptions(currentItemId, mediaStreams),
-                subtitleOptions = projections.subtitleTrackOptions(currentItemId, mediaStreams),
+                subtitleOptions =
+                    projections
+                        .subtitleTrackOptions(currentItemId, mediaStreams)
+                        .takeUnless { plan?.offlineArtifactKind == DownloadArtifactKind.LocalHlsPackage }
+                        .orEmpty(),
                 localSubtitleOptions = localSubtitleAssets.takeUnless { plan?.streamMode == StreamMode.Offline }.orEmpty(),
+                offlineSidecarOption = offlineSidecarOption,
                 qualityOptions =
                     if (plan?.streamMode == StreamMode.Offline) {
                         emptyList()
@@ -4050,6 +4391,7 @@ class PlayerViewModel(
                 selectedAudioStreamIndex = installedAudioStreamIndex,
                 selectedSubtitleStreamIndex = subtitleRenderInfo.activeStreamIndex,
                 selectedSubtitleAssetId = requestedLocalSubtitleAsset?.id,
+                offlineSidecarSelected = plan?.plannedSubtitle is PlannedSubtitle.OfflineSidecar,
                 selectedQualityMaxBitrate = qualitySession.maximumBitrateBps,
                 selectedQualityPolicy = qualitySession.policy,
                 qualityOverrideExplicit = qualitySession.isExplicitSessionChoice,
@@ -4087,6 +4429,9 @@ class PlayerViewModel(
                 timingState = timingCoordinator.timingState,
                 debugInfo = buildDebugInfo(subtitleRenderInfo, subtitleStyleable),
                 videoPresentation = plan?.videoPresentation,
+                pictureInPictureRequiresLinearPlayback =
+                    installedPlan?.streamMode == StreamMode.Transcode &&
+                        playerController.transcodeSeekRestartsStream,
                 isSeekable = installedPlan?.contentTimeline is PlaybackContentTimeline.BoundedVod,
                 playbackItemId = currentItemId.takeUnless { queueSwitchInFlight },
             )
@@ -4269,7 +4614,7 @@ class PlayerViewModel(
     ) {
         val currentPlan = plan ?: return
         val confirmedSubtitle =
-            (playbackState.subtitleActivation as? SubtitleActivationState.Active)
+            (playbackState.subtitleActivation as? com.jellyscope.core.domain.playback.SubtitleActivationState.Active)
                 ?.target
                 ?.streamIndex
         playerDiagnosticsRecorder.recordTrackStates(

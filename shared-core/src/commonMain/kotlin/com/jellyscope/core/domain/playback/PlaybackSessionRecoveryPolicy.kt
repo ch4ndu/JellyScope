@@ -159,7 +159,10 @@ class PlaybackSessionRecoveryPolicy {
             return null
         }
         val nextState = state.copy(lastSubtitleRecoveryTarget = target)
-        if (plannedSubtitle is PlannedSubtitle.LocalAsset) {
+        if (
+            plannedSubtitle is PlannedSubtitle.LocalAsset ||
+            plannedSubtitle is PlannedSubtitle.OfflineSidecar
+        ) {
             return PlaybackSessionRecoveryResult(
                 decision = PlaybackSessionRecoveryDecision.SubtitleUnavailable(target),
                 state = nextState,
@@ -223,6 +226,7 @@ private fun PlannedSubtitle.activationTarget(): SubtitleActivationTarget? =
     when (this) {
         is PlannedSubtitle.Track -> activationTarget
         is PlannedSubtitle.LocalAsset -> activationTarget
+        is PlannedSubtitle.OfflineSidecar -> activationTarget
         is PlannedSubtitle.Unavailable -> activationTarget
         PlannedSubtitle.Off -> null
     }
@@ -233,5 +237,6 @@ private fun PlannedSubtitle.normalizedFormat(): String? =
         is PlannedSubtitle.Unavailable -> normalizedFormat
         PlannedSubtitle.Off,
         is PlannedSubtitle.LocalAsset,
+        is PlannedSubtitle.OfflineSidecar,
         -> null
     }

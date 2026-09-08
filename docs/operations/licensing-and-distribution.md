@@ -1,18 +1,14 @@
 # Licensing And Store Distribution
 
-This document owns JellyScope's active project-source license, the boundary
-between project and third-party licenses, platform-distribution obligations,
-source availability, trademark direction, and the remaining binary-release
-compliance gates.
-Exact Android native inputs and corresponding-source packaging remain owned by
-[`android-native-dependencies.md`](android-native-dependencies.md).
+This policy covers source and third-party licenses, platform distribution,
+source availability, trademarks, and binary-release gates. Exact Android native
+inputs and source packaging: [`android-native-dependencies.md`](android-native-dependencies.md).
 
-This is an owner-approved engineering and release policy, not legal advice. It
-uses the practical FOSS approach followed by comparable media clients: pin the
-distributed inputs, preserve their notices, record upstream source routes, and
-inspect the final package. The recorded Android, iOS, and macOS arm64 inputs use
-their publishers' license and source declarations without a separate legal-
-review blocker. A changed artifact or dependency graph requires a new review.
+The recorded Android, iOS, and macOS arm64 inputs use upstream license and
+source declarations without a separate legal-review blocker. Pin inputs,
+preserve notices and source routes, and inspect final packages; a changed
+artifact or dependency graph requires a new review. These are engineering
+release requirements, not a legal opinion.
 
 ## Current Source-License Status
 
@@ -23,7 +19,8 @@ MPL-2.0`. This source-only cutover does not change any imported or third-party
 license, notice, or obligation.
 
 The active MPL coverage is limited to material whose copyright is owned by, or
-validly relicensable by, Murali Vipparla as the JellyScope project owner.
+validly relicensable by, the JellyScope project under the recorded rights
+declaration below.
 Third-party code, generated wrappers derived from third-party sources, fonts,
 media, native binaries, and imported assets keep their existing terms. Official
 identity assets remain subject to the separate trademark gate.
@@ -79,8 +76,8 @@ linked manifests.
 The combined Android application is distributed under GPL-3.0 terms.
 JellyScope-owned files remain available under MPL-2.0 and are additionally
 distributed under GPL-3.0 for this Larger Work through MPL-2.0 Section 3.3.
-The project owner accepts the pinned upstream GPL/LGPL declarations and source
-routes. The scoped gate checks the inventory, and the Android bundle verifier
+The pinned upstream GPL/LGPL declarations and source routes are accepted under
+this policy. The scoped gate checks the inventory, and the Android bundle verifier
 checks the final APKs for the recorded native libraries and release metadata.
 
 ### iOS And tvOS
@@ -93,13 +90,14 @@ Each target links its matching dynamic framework slice. The exact archive,
 upstream LGPL-2.1 declaration and license text, official build revision,
 libVLC base revision, patch set, and source routes are recorded in
 [`scripts/vlckit-bundle/manifest-4.0.0a23.txt`](../../scripts/vlckit-bundle/manifest-4.0.0a23.txt).
-The project owner accepts that published provenance for this pinned input.
+That published provenance is accepted for this pinned input.
 
-A developer may build the recorded VLCKit revision with VideoLAN's upstream
-tools and place the resulting compatible `VLCKit.xcframework` at
-`ios-app/Frameworks/`. The existing local Swift package and Kotlin cinterop use
-that path. JellyScope does not mirror VLCKit or maintain a duplicate build
-script.
+VLCKit may be replaced with a compatible build of the recorded revision
+using VideoLAN's upstream tools. Follow the preparation and replacement order
+in [iOS release artifacts](../RELEASE.md#ios-release-artifacts), including the
+existing fetch stamp and required slices. The local Swift package and Kotlin
+cinterop use that prepared path. JellyScope does not mirror VLCKit or maintain
+a duplicate build script.
 
 tvOS consumes its own device/simulator VLCKit cinterop and links the matching
 XCFramework slice through the same local package. This enables VLC offline
@@ -140,9 +138,8 @@ IINA and each upstream component retain their own licenses. Their published
 licensing and source declarations are relied upon but were not independently
 audited. JellyScope-owned files remain MPL-2.0; under MPL-2.0 Section 3.3, the
 combined macOS distribution is made available under GPL-compatible terms while
-preserving the MPL terms for covered files. The project owner accepts this
-provenance and licensing route without a separate legal-review blocker for the
-pinned mpv runtime. A different IINA release, architecture, file inventory, or
+preserving the MPL terms for covered files. This provenance and licensing route is accepted without a separate
+legal-review blocker for the pinned mpv runtime. A different IINA release, architecture, file inventory, or
 native graph requires a new recorded decision.
 
 Apple Silicon macOS packages additionally carry a pinned VLC 3.0.23 arm64
@@ -158,23 +155,18 @@ Intel macOS packages are unsupported. Windows and Linux packages, and any future
 architecture, require their own artifact-level audit rather than an inference
 from the macOS manifest.
 
-## Contributors, Provenance, And Product Identity
+## Source Provenance And Product Identity
 
-Murali Vipparla is the sole contributor to the JellyScope-owned material
-currently in this repository. The project owner has confirmed that he owns, or
-has written relicensing permission for, all JellyScope-authored source and
-non-brand assets, including work produced in an employment or client context
-and material adapted from another source. Git author names or aliases do not
-represent additional contributors.
+The recorded rights declaration confirms ownership or written relicensing
+permission for all JellyScope-owned source and non-brand assets, including
+employment/client work and adapted material. Git author aliases do not establish
+additional copyright ownership. This declaration supports the source-license
+cutover; it excludes third-party material and does not alter existing notices
+or terms.
 
-That confirmation is the ownership and provenance record relied on for this
-source-only cutover. It does not claim ownership of imported code, generated
-third-party wrappers, fonts, media, native binaries, or other third-party
-material, and it does not change their existing licenses or notices.
-
-Adopt a contributor policy before accepting outside contributions. A future
-dual-license or relicensing plan may need a contributor agreement; a provenance
-attestation is not a copyright assignment.
+Outside contributions require a contribution policy before acceptance. Future
+dual licensing or relicensing may require an agreement; a provenance declaration
+is not a copyright assignment.
 
 The code license does not grant a fork the right to impersonate the official
 JellyScope product. A future trademark policy may cover the name, logo, app
@@ -199,12 +191,12 @@ Before publishing a platform artifact:
 4. Repeat the review when a pinned artifact, version, license, source route,
    linkage mode, runtime family, platform, or architecture changes.
 
-Contributor and trademark policies are separate governance work. Signing,
+Contribution and trademark policies are separate governance work. Signing,
 notarization, store terms, privacy declarations, and device smoke tests remain
 release operations; they are not third-party license-inventory entries.
-The owner-approved Apple application credential-persistence policy is owned by
-the [data and playback guide](../guides/data-playback.md#persistence). Its
-accepted plaintext-at-rest tradeoff is not a project licensing or binary-
+The documented Apple application credential-persistence policy is owned by
+the [data and playback guide](../guides/data-playback.md#persistence-and-account-isolation).
+Its accepted plaintext-at-rest tradeoff is not a project licensing or binary
 inventory blocker and must not be reopened by these gates; a newly applicable
 external store requirement remains a separate release review.
 
@@ -231,9 +223,7 @@ external store requirement remains a separate release review.
 - **MPL-2.0 is the approved balance between distribution flexibility and
   reciprocal source.** Its standardized file-level source obligations and
   Secondary Licenses mechanism fit the selected direction better than a custom
-  store exception. Permissive terms were rejected because they abandon the
-  reciprocity goal; noncommercial terms were rejected because they abandon
-  open-source status.
+  store exception.
 - **Brand protection is separate from source licensing.** Trademark, bundle
   identity, and store copycat rules address impersonation without taking away
   MPL rights.

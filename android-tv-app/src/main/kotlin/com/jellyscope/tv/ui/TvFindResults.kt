@@ -83,7 +83,7 @@ internal fun TvFindResultsPane(
         ) {
             items(
                 items = state.recentSearches,
-                key = { search -> search },
+                key = { search -> "find:history:query:$search" },
             ) { search ->
                 TvFindChip(
                     label = search,
@@ -91,7 +91,7 @@ internal fun TvFindResultsPane(
                     onClick = { onRecentSelected(search) },
                 )
             }
-            item(key = "clear-recent-searches") {
+            item(key = "find:history:control:clear") {
                 TvFindChip(
                     label = stringResource(R.string.tv_find_clear_recent_searches),
                     selected = false,
@@ -435,8 +435,8 @@ private fun TvFindResultRow(
                         } else {
                             rowScope.rememberChildRequester(itemKey)
                         }
-                    val onItemClick = remember(item.id, onItemSelected) { { onItemSelected(item) } }
-                    val onItemPlay = remember(item.id, onItemPlayDirect) { { onItemPlayDirect(item) } }
+                    val onItemClick = remember(item, onItemSelected) { { onItemSelected(item) } }
+                    val onItemPlay = remember(item, onItemPlayDirect) { { onItemPlayDirect(item) } }
                     TvMediaCard(
                         session = session,
                         item = item,

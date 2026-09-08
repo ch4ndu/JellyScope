@@ -1,9 +1,7 @@
 # Compose Performance And Correctness Audit
 
-Load this for Compose performance, recomposition, effect, lazy-layout, image,
-screen, or whole-project audits. Also load `docs/guides/ui.md` and whichever
-feature guide covers the area. This is a static, findings-first audit; profiling
-is optional unless the user explicitly requests measurement.
+Use with [`ui.md`](ui.md) and the relevant feature guide. Static audits do not
+run profiling or benchmarks unless measurement is explicitly authorized.
 
 Use the report format and evidence levels from `docs/guides/audit.md`. Use visible,
 searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
@@ -20,19 +18,13 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
   mechanism. But a large or repeated allocation with a cheaper equivalent is a
   defect rather than noise: allocation size costs UI smoothness through GC
   pressure and memory bandwidth, not only memory footprint.
-- Main-thread occupancy is the default suspicion, not the exception. Work that
-  can run off Main must run off Main; for every operation that stays — decode,
-  parse, map, sort, group, pixel sampling, file or database I/O, crypto, layout
-  math over large inputs — record why it cannot move. Only Compose and UI state
-  writes, framework calls that require the UI thread, and cheap bounded
-  transforms whose dispatch would cost more than the work itself belong there.
-  "Fast enough on this device" is not a reason; the slowest supported device
-  decides.
-- Attributing frame cost to a feature is the start of the analysis, not the end.
-  Before recording an accepted product tradeoff, establish that the
-  implementation is not unreasonably expensive. A cheaper implementation of the
-  same feature is a defect, not a tradeoff — and an audit that stops at
-  attribution will recommend degrading the feature instead of fixing it.
+- Require a reason for work remaining on Main. UI/framework calls that require
+  it, state writes, and cheap bounded transforms may stay; decode, projection,
+  pixel sampling, I/O, crypto, and large-input layout math belong off Main.
+  Evaluate the slowest supported devices rather than one fast device.
+- Before accepting a product tradeoff, check for an unnecessarily expensive
+  implementation of the same feature. Attribution alone does not justify
+  degrading the feature.
 - Recommend an optimization only when it preserves the current UI, focus,
   playback, and state contracts. Use `Measurement needed` when release/runtime
   evidence must distinguish a real cost from harmless work.
@@ -42,7 +34,7 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
 ## Stability And Inputs
 
 - Inspect the Kotlin/Compose compiler configuration and
-  `compose-stability.conf` before applying stability advice. Kotlin 2.4 uses
+  `compose-stability.conf` before applying stability advice. The project uses
   strong skipping: restartable composables with unstable inputs can skip, while
   unstable parameters are compared by identity.
 - Treat the configured `com.jellyscope.core.domain.model.*` package as a
@@ -121,11 +113,8 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
 
 ## Threads, Resources, And Build Configuration
 
-- Verify dispatcher choice at the actual call site; a suspend boundary does not
-  prove work is off Main. Flag network, database, decode/mapping, image cleanup,
-  search, grouping, sorting, playback planning, and large projection work left
-  on Main, and require a stated reason for whatever remains rather than only
-  flagging what visibly blocks interaction.
+- Check dispatcher choice at the actual call site against the Main-thread rule
+  above; a suspend boundary does not establish background execution.
 - Look for unbounded remembered collections, retained bitmaps/media lists,
   stale route/focus/player jobs, undisposed platform observers, and caches whose
   lifetime exceeds their screen, server, or playback-session owner.
@@ -138,15 +127,10 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
 
 ## Why
 
-Rationale for rules this guide states: the choice, the reason, and what was
-rejected. An entry is deleted when its rule changes.
-
-- **Shared player frame-timing items close on mechanism plus an owner iOS
-  release-build check, not on another platform's numbers.** Platform-specific
-  measurements are evidence only for the platform that produced them, and iOS
-  exposes no equivalent recomposition counter or frame-stats dump. Shared fixes
-  therefore ship on a demonstrated mechanism with the owning platform's
-  release-build check; a clean result elsewhere does not certify iOS.
+- **Performance evidence is platform-specific:** a clean measurement elsewhere
+  cannot certify iOS. Shared player frame-timing fixes require a demonstrated
+  mechanism and an iOS release-build check; the iOS integration has no equivalent
+  recomposition counter or frame-stats dump.
 
 Primary references:
 

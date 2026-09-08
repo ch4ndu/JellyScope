@@ -2,16 +2,16 @@
 
 package com.jellyscope.core.data.local
 
-import androidx.room.ConstructedBy
-import androidx.room.Dao
-import androidx.room.Database
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
-import androidx.room.RoomDatabase
-import androidx.room.RoomDatabaseConstructor
-import androidx.room.Transaction
-import androidx.room.migration.Migration
+import androidx.room3.ConstructedBy
+import androidx.room3.Dao
+import androidx.room3.Database
+import androidx.room3.Insert
+import androidx.room3.OnConflictStrategy
+import androidx.room3.Query
+import androidx.room3.RoomDatabase
+import androidx.room3.RoomDatabaseConstructor
+import androidx.room3.Transaction
+import androidx.room3.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
@@ -46,7 +46,7 @@ internal const val DOWNLOAD_DATABASE_SCHEMA_VERSION = 2
 
 private val DOWNLOAD_DATABASE_MIGRATION_1_2 =
     object : Migration(1, 2) {
-        override fun migrate(connection: SQLiteConnection) {
+        override suspend fun migrate(connection: SQLiteConnection) {
             connection.execSQL(
                 "UPDATE `download_settings` SET `quotaBytes` = CASE " +
                     "WHEN `quotaBytes` IS NULL THEN NULL " +

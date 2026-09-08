@@ -81,7 +81,7 @@ class TvOfflinePlaybackPresenter(
     private var subtitleRequestId = 0L
     private var lastPersistedPositionMs = 0L
     private var completedPersisted = false
-    private var initialExternalSubtitle: PlannedSubtitle.Track? = null
+    private var initialOfflineSidecar: PlannedSubtitle.OfflineSidecar? = null
     private var subtitleReprepareGeneration = 0L
     private var reprepareIntent: TvOfflineReprepareIntent? = null
 
@@ -139,15 +139,17 @@ class TvOfflinePlaybackPresenter(
                         publishFailure(PlaybackError.OfflinePlayerUnavailable(PlayerBackend.VlcKit))
                         return@launch
                     }
+                    val initialSubtitleRequestId = ++subtitleRequestId
                     val source =
                         withContext(dispatchers.work) {
                             prepareOfflineSource(
                                 record = offlineRecord,
                                 accountIdentity = accountIdentity,
                                 restart = request.restart,
+                                subtitleActivationRequestId = initialSubtitleRequestId,
                             )
                         }
-                    val offlinePlan = decorateOfflinePlan(source.initialPlan, offlineRecord)
+                    val offlinePlan = decorateOfflinePlan(source.initialPlan)
                     val candidate =
                         withContext(dispatchers.work) {
                             playerControllerFactory().also(candidateOwner::acquire)
@@ -172,9 +174,7 @@ class TvOfflinePlaybackPresenter(
                     }
                     preparedSource = source
                     plan = offlinePlan
-                    initialExternalSubtitle =
-                        (offlinePlan.plannedSubtitle as? PlannedSubtitle.Track)
-                            ?.takeIf { subtitle -> subtitle.deliveryMethod == SubtitleDeliveryMethod.External }
+                    initialOfflineSidecar = offlinePlan.plannedSubtitle as? PlannedSubtitle.OfflineSidecar
                     lastPersistedPositionMs = offlinePlan.startPositionMs
                     playerIdentity += 1L
                     observeController()
@@ -202,7 +202,7 @@ class TvOfflinePlaybackPresenter(
         releaseController()
         preparedSource = null
         plan = null
-        initialExternalSubtitle = null
+        initialOfflineSidecar = null
         completedPersisted = false
         reprepareIntent = null
         started = false
@@ -279,30 +279,16 @@ class TvOfflinePlaybackPresenter(
             publish(controller.playbackState.value)
             return
         }
-        if (streamIndex == OFFLINE_LOCAL_SUBTITLE_CHOICE_KEY) {
-            val localSelection =
-                (preparedSource?.record?.request?.subtitleSelection as? DownloadSubtitleSelection.ExternalTextSidecar)
-                    ?: return
+        val sidecar = initialOfflineSidecar
+        if (
+            sidecar != null &&
+            streamIndex == preparedSource?.offlineSidecarChoiceKey
+        ) {
             reprepareWithSubtitle(
                 currentPlan.copy(
                     selectedSubtitleStreamIndex = null,
-                    subtitleActivationTarget = null,
-                    plannedSubtitle =
-                        PlannedSubtitle.LocalAsset(
-                            assetId = localSelection.localAssetId,
-                            kind = SubtitleKind.Text,
-                        ),
-                ),
-            )
-            return
-        }
-        val external = initialExternalSubtitle?.takeIf { subtitle -> subtitle.streamIndex == streamIndex }
-        if (external != null) {
-            reprepareWithSubtitle(
-                currentPlan.copy(
-                    selectedSubtitleStreamIndex = streamIndex,
-                    subtitleActivationTarget = null,
-                    plannedSubtitle = external.copy(activationTarget = null),
+                    subtitleActivationTarget = sidecar.activationTarget,
+                    plannedSubtitle = sidecar,
                 ),
             )
             return
@@ -472,7 +458,7 @@ class TvOfflinePlaybackPresenter(
                     playWhenReady = currentPlaybackState.status != PlaybackStatus.Paused,
                 )
         val preparedPlan =
-            decorateOfflinePlan(updatedPlan, source.record)
+            decorateOfflinePlan(updatedPlan)
                 .copy(startPositionMs = desiredIntent.positionMs)
         reprepareJob?.cancel()
         val expectedGeneration = ++subtitleReprepareGeneration
@@ -510,10 +496,7 @@ class TvOfflinePlaybackPresenter(
             }
     }
 
-    private fun decorateOfflinePlan(
-        sourcePlan: PlaybackPlan,
-        record: DownloadRecord,
-    ): PlaybackPlan {
+    private fun decorateOfflinePlan(sourcePlan: PlaybackPlan): PlaybackPlan {
         val audioTarget =
             sourcePlan.selectedAudioStreamIndex
                 ?.takeIf { streamIndex ->
@@ -525,23 +508,16 @@ class TvOfflinePlaybackPresenter(
                         streamIndex = streamIndex,
                     )
                 }
-        val localAssetId =
-            (record.request.subtitleSelection as? DownloadSubtitleSelection.ExternalTextSidecar)?.localAssetId
-        val requestedSubtitle =
-            when (val subtitle = sourcePlan.plannedSubtitle) {
-                is PlannedSubtitle.Track ->
-                    if (subtitle.deliveryMethod == SubtitleDeliveryMethod.External && localAssetId != null) {
-                        PlannedSubtitle.LocalAsset(
-                            assetId = localAssetId,
-                            kind = SubtitleKind.Text,
-                        )
-                    } else {
-                        subtitle
-                    }
-                else -> subtitle
-            }
+        val requestedSubtitle = sourcePlan.plannedSubtitle
         val subtitleTarget =
             when (requestedSubtitle) {
+                is PlannedSubtitle.OfflineSidecar ->
+                    SubtitleActivationTarget(
+                        requestId = ++subtitleRequestId,
+                        itemId = sourcePlan.itemId,
+                        identity = requestedSubtitle.identity,
+                        kind = LocalSubtitleKind.ExternalText,
+                    )
                 is PlannedSubtitle.LocalAsset ->
                     SubtitleActivationTarget(
                         requestId = ++subtitleRequestId,
@@ -566,6 +542,10 @@ class TvOfflinePlaybackPresenter(
             }
         val plannedSubtitle =
             when (requestedSubtitle) {
+                is PlannedSubtitle.OfflineSidecar ->
+                    requestedSubtitle.copy(
+                        activationTarget = checkNotNull(subtitleTarget),
+                    )
                 is PlannedSubtitle.LocalAsset -> requestedSubtitle.copy(activationTarget = subtitleTarget)
                 is PlannedSubtitle.Track -> requestedSubtitle.copy(activationTarget = subtitleTarget)
                 is PlannedSubtitle.Off, is PlannedSubtitle.Unavailable -> requestedSubtitle
@@ -573,7 +553,10 @@ class TvOfflinePlaybackPresenter(
         return sourcePlan.copy(
             audioActivationTarget = audioTarget,
             selectedSubtitleStreamIndex =
-                sourcePlan.selectedSubtitleStreamIndex.takeUnless { requestedSubtitle is PlannedSubtitle.LocalAsset },
+                sourcePlan.selectedSubtitleStreamIndex.takeUnless {
+                    requestedSubtitle is PlannedSubtitle.LocalAsset ||
+                        requestedSubtitle is PlannedSubtitle.OfflineSidecar
+                },
             subtitleActivationTarget = subtitleTarget,
             plannedSubtitle = plannedSubtitle,
         )
@@ -604,7 +587,10 @@ class TvOfflinePlaybackPresenter(
                     controller.selectEmbeddedSubtitle(EmbeddedSubtitleSelection(target, descriptor))
                 }
             }
-            is PlannedSubtitle.LocalAsset, is PlannedSubtitle.Unavailable -> Unit
+            is PlannedSubtitle.LocalAsset,
+            is PlannedSubtitle.OfflineSidecar,
+            is PlannedSubtitle.Unavailable,
+            -> Unit
         }
     }
 
@@ -699,7 +685,7 @@ private data class TvOfflinePreparedSource(
     val baseState: TvOfflinePlaybackUiState,
     val audioTracksByStreamIndex: Map<Int?, List<TvTrackChoice>>,
     val subtitleTracksByChoiceKey: Map<Int?, List<TvTrackChoice>>,
-    val localSubtitleChoiceKey: Int?,
+    val offlineSidecarChoiceKey: Int?,
     val playbackSpeedChoicesBySpeed: Map<Float, List<TvPlaybackSpeedChoice>>,
 ) {
     fun project(
@@ -722,12 +708,12 @@ private data class TvOfflinePreparedSource(
         val selectedSubtitleChoiceKey =
             when (val identity = selectedSubtitleTarget?.identity) {
                 is SubtitleActivationIdentity.JellyfinTrack -> identity.streamIndex
-                is SubtitleActivationIdentity.LocalAsset ->
-                    localSubtitleChoiceKey.takeIf {
-                        identity.assetId ==
-                            (record.request.subtitleSelection as? DownloadSubtitleSelection.ExternalTextSidecar)
-                                ?.localAssetId
+                is SubtitleActivationIdentity.OfflineSidecar ->
+                    offlineSidecarChoiceKey.takeIf {
+                        identity.artifactRef == plan.offlineArtifactRef &&
+                            identity == (plan.plannedSubtitle as? PlannedSubtitle.OfflineSidecar)?.identity
                     }
+                is SubtitleActivationIdentity.LocalAsset -> null
                 null -> null
             }
         return baseState.copy(
@@ -762,6 +748,7 @@ private fun prepareOfflineSource(
     record: DownloadRecord,
     accountIdentity: AccountIdentity,
     restart: Boolean,
+    subtitleActivationRequestId: Long,
 ): TvOfflinePreparedSource {
     val snapshot = record.request.snapshot
     val plan =
@@ -775,17 +762,26 @@ private fun prepareOfflineSource(
             accountIdentity = accountIdentity,
             startPositionTicks = 0L,
             localResumePositionMs = if (restart) 0L else record.localResumePositionMs,
+            subtitleActivationRequestId = subtitleActivationRequestId,
         )
-    val localSubtitleChoiceKey =
-        OFFLINE_LOCAL_SUBTITLE_CHOICE_KEY.takeIf {
-            record.request.subtitleSelection is DownloadSubtitleSelection.ExternalTextSidecar
+    val offlineSidecarChoiceKey =
+        if (plan.plannedSubtitle is PlannedSubtitle.OfflineSidecar) {
+            when (val selection = record.request.subtitleSelection) {
+                is DownloadSubtitleSelection.ExternalTextSidecar -> OFFLINE_LOCAL_SUBTITLE_CHOICE_KEY
+                is DownloadSubtitleSelection.ExternalServerTextSidecar -> selection.streamIndex
+                is DownloadSubtitleSelection.Embedded,
+                DownloadSubtitleSelection.Off,
+                -> null
+            }
+        } else {
+            null
         }
     val audioStreamIndices = snapshot.offlineAudioChoices(null).map(TvTrackChoice::streamIndex)
     val subtitleChoiceKeys =
         snapshot
             .offlineSubtitleChoices(
                 selectedChoiceKey = null,
-                localSubtitleChoiceKey = localSubtitleChoiceKey,
+                localSubtitleChoiceKey = offlineSidecarChoiceKey,
             ).map(TvTrackChoice::streamIndex)
     val audioTracksByStreamIndex =
         (listOf<Int?>(null) + audioStreamIndices).associateWith { streamIndex ->
@@ -795,7 +791,7 @@ private fun prepareOfflineSource(
         (listOf<Int?>(null) + subtitleChoiceKeys).associateWith { choiceKey ->
             snapshot.offlineSubtitleChoices(
                 selectedChoiceKey = choiceKey,
-                localSubtitleChoiceKey = localSubtitleChoiceKey,
+                localSubtitleChoiceKey = offlineSidecarChoiceKey,
             )
         }
     val playbackSpeedChoicesBySpeed =
@@ -824,7 +820,7 @@ private fun prepareOfflineSource(
         baseState = baseState,
         audioTracksByStreamIndex = audioTracksByStreamIndex,
         subtitleTracksByChoiceKey = subtitleTracksByChoiceKey,
-        localSubtitleChoiceKey = localSubtitleChoiceKey,
+        offlineSidecarChoiceKey = offlineSidecarChoiceKey,
         playbackSpeedChoicesBySpeed = playbackSpeedChoicesBySpeed,
     )
 }
