@@ -292,6 +292,7 @@ class PlayerViewModel(
     private var audioActivationRequestId = 0L
     private var audioRecoveryTarget: AudioActivationTarget? = null
     private var desiredPlayWhenReady = true
+    private var playbackIntentRevision = 0L
     private var requestedSubtitleStreamIndex: Int? = null
     private var requestedSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified
     private var requestedLocalSubtitleAsset: LocalSubtitleAsset? = null
@@ -307,8 +308,8 @@ class PlayerViewModel(
     private var subtitleNotice: PlayerNotice? = null
     private var backendNoticeToken = 0L
     private var backendNotice: PlayerBackendNotice? = null
-    private var backendSwitchNoticeToken = 0L
-    private var backendSwitchNotice: PlayerBackendSwitchNotice? = null
+    private var playbackChangeNoticeToken = 0L
+    private var playbackChangeNotice: PlayerPlaybackChangeNotice? = null
     private var availableBackendsForSession: Set<PlayerBackend> = emptySet()
     private var backendSwitchGeneration = 0L
     private var backendSwitchInProgress = false
@@ -332,6 +333,7 @@ class PlayerViewModel(
     private var derivedEpisodeQueueJob: Job? = null
     private var queueSwitchJob: Job? = null
     private var replanJob: Job? = null
+    private var replanRequestGeneration = 0L
     private var localSubtitleAssetsJob: Job? = null
     private var lastStatus: PlaybackStatus = PlaybackStatus.Idle
     private var alternateBackendFallbackAttempted = false
@@ -452,6 +454,7 @@ class PlayerViewModel(
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         desiredPlayWhenReady = true
+        playbackIntentRevision += 1L
         if (offlineReprepareGeneration != null) return
         restartPlaybackHealthEvidence()
         playerController.play()
@@ -461,6 +464,7 @@ class PlayerViewModel(
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         desiredPlayWhenReady = false
+        playbackIntentRevision += 1L
         if (offlineReprepareGeneration != null) return
         restartPlaybackHealthEvidence()
         playerController.pause()
@@ -569,6 +573,7 @@ class PlayerViewModel(
         pendingRecoveredAutoQualityBps = null
         pendingPictureInPictureRecoveryTrigger = null
         playbackActionNotice = null
+        playbackChangeNotice = null
         autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
         playbackSessionRecoveryState =
             playbackSessionRecoveryPolicy.reset(playbackLaunchGeneration, currentItemId)
@@ -799,6 +804,8 @@ class PlayerViewModel(
                 itemId = currentItemId,
                 mediaSourceId = currentPlan.mediaSourceId,
                 activePlan = currentPlan,
+                activeController = playerController,
+                wasActiveAtRequest = playbackState.value.status in playbackChangeActiveStatuses,
                 explicitAudioStreamIndex = explicitAudioStreamIndex,
                 requestedAudioStreamIndex = requestedAudioStreamIndex,
                 requestedSubtitleSelection = requestedSubtitleSelection,
@@ -820,7 +827,7 @@ class PlayerViewModel(
                 planReportingAuthority = planReportingAuthority,
             )
         backendSwitchInProgress = true
-        backendSwitchNotice = null
+        playbackChangeNotice = null
         publishContent(pickerVisible = PlayerPicker.Backend)
         backendSwitchJob =
             viewModelScope.launch {
@@ -1197,19 +1204,7 @@ class PlayerViewModel(
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
-        playbackHealthCoordinator.dismissGuidance()
-        pendingRecoveredPlaybackGuidanceItemId = null
-        qualitySession = qualitySession.selectFixedOrOriginal(maxBitrateBps)
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
-        updatePlaybackHealthSessionContext()
-        // Show buffering while the replan fetches PlaybackInfo off Main.
-        val currentState = state.value
-        if (currentState is PlayerUiState.Content) {
-            publishContent(
-                playbackState = currentState.playbackState.copy(status = PlaybackStatus.Buffering),
-            )
-        }
-        replanAtCurrentPosition()
+        requestQualityChange(qualitySession.selectFixedOrOriginal(maxBitrateBps))
     }
 
     fun selectQuality(policy: PlaybackQualityPolicy) {
@@ -1217,31 +1212,20 @@ class PlayerViewModel(
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val normalized = policy.normalized()
-        playbackHealthCoordinator.dismissGuidance()
-        pendingRecoveredPlaybackGuidanceItemId = null
-        pendingRecoveredAutoQualityBps = null
-        playbackActionNotice = null
-        qualitySession =
+        val proposedQuality =
             when (normalized.mode) {
                 PlaybackQualityMode.Auto -> qualitySession.selectAuto()
                 PlaybackQualityMode.Fixed -> qualitySession.selectFixedOrOriginal(normalized.maxBitrateBps)
                 PlaybackQualityMode.Original -> qualitySession.selectFixedOrOriginal(maximumBitrateBps = null)
             }
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
-        updatePlaybackHealthSessionContext()
-        replanAtCurrentPosition()
+        requestQualityChange(proposedQuality)
     }
 
     fun acceptAutoPlayback() {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
-        playbackActionNotice = null
-        pendingRecoveredAutoQualityBps = null
-        qualitySession = qualitySession.selectAuto()
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
-        updatePlaybackHealthSessionContext()
-        replanAtCurrentPosition()
+        requestQualityChange(qualitySession.selectAuto())
     }
 
     fun clearQualityOverride() {
@@ -1249,12 +1233,7 @@ class PlayerViewModel(
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val inheritedPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend)
-        playbackActionNotice = null
-        pendingRecoveredAutoQualityBps = null
-        qualitySession = qualitySession.inheritLaunchOrDefault(inheritedPolicy)
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
-        updatePlaybackHealthSessionContext()
-        replanAtCurrentPosition()
+        requestQualityChange(qualitySession.inheritLaunchOrDefault(inheritedPolicy))
     }
 
     fun keepRecoveredQualityForSession() {
@@ -1262,28 +1241,40 @@ class PlayerViewModel(
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val bitrate = autoRecoveryState.runtimeQualityCapBps ?: qualitySession.maximumBitrateBps ?: return
-        qualitySession = qualitySession.retainRecoveredQuality(bitrate)
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
-        playbackActionNotice = null
-        updatePlaybackHealthSessionContext()
-        replanAtCurrentPosition()
+        requestQualityChange(qualitySession.retainRecoveredQuality(bitrate))
     }
 
     fun tryHigherQualityOrOriginal() {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
-        // Clear recovery state before an explicit uncapped retry.
-        pendingRecoveredAutoQualityBps = null
-        playbackActionNotice = null
-        qualitySession = qualitySession.retryUncappedAuto()
-        autoRecoveryState = autoRecoveryCoordinator.clearRuntimeQualityCap(autoRecoveryState)
-        updatePlaybackHealthSessionContext()
-        replanAtCurrentPosition()
+        requestQualityChange(
+            proposedQualitySessionState = qualitySession.retryUncappedAuto(),
+            preserveRecoveryBudgetOnCommit = true,
+        )
+    }
+
+    private fun requestQualityChange(
+        proposedQualitySessionState: PlayerQualitySessionState,
+        preserveRecoveryBudgetOnCommit: Boolean = false,
+    ) {
+        val clearedPreviousRejection = playbackChangeNotice != null
+        playbackChangeNotice = null
+        if (clearedPreviousRejection) {
+            publishContent()
+        }
+        replanAtCurrentPosition(
+            proposedQualitySessionState = proposedQualitySessionState,
+            preserveRecoveryBudgetOnQualityCommit = preserveRecoveryBudgetOnCommit,
+        )
     }
 
     fun dismissPlaybackActionNotice() {
-        playbackActionNotice = null
+        if (playbackChangeNotice != null) {
+            playbackChangeNotice = null
+        } else {
+            playbackActionNotice = null
+        }
         publishContent()
     }
 
@@ -1516,6 +1507,7 @@ class PlayerViewModel(
         pendingRecoveredPlaybackGuidanceItemId = null
         pendingRecoveredAutoQualityBps = null
         playbackActionNotice = null
+        playbackChangeNotice = null
         if (offlineDownloadId != null) {
             return startOfflinePlaybackForItem(
                 itemId = itemId,
@@ -2366,6 +2358,93 @@ class PlayerViewModel(
         itemId: String,
     ): Boolean = playbackLaunchGeneration == generation && currentItemId == itemId
 
+    private fun isCurrentReplan(
+        requestGeneration: Long,
+        launchGeneration: Long,
+        itemId: String,
+    ): Boolean =
+        !disposed &&
+            replanRequestGeneration == requestGeneration &&
+            isCurrentPlaybackLaunch(launchGeneration, itemId)
+
+    private fun ownsCurrentQualityProposal(
+        requestGeneration: Long,
+        launchGeneration: Long,
+        itemId: String,
+        controller: PlayerController,
+        installedPlan: PlaybackPlan?,
+    ): Boolean =
+        installedPlan != null &&
+            isCurrentReplan(requestGeneration, launchGeneration, itemId) &&
+            !controllerInstallInFlight &&
+            playerController === controller &&
+            this.installedPlan === installedPlan
+
+    private fun preservesPlaybackForQualityFailure(
+        requestGeneration: Long,
+        launchGeneration: Long,
+        itemId: String,
+        controller: PlayerController,
+        installedPlan: PlaybackPlan?,
+    ): Boolean =
+        ownsCurrentQualityProposal(
+            requestGeneration = requestGeneration,
+            launchGeneration = launchGeneration,
+            itemId = itemId,
+            controller = controller,
+            installedPlan = installedPlan,
+        ) &&
+            controller.playbackState.value.status in playbackChangeActiveStatuses
+
+    private fun commitQualityProposal(
+        proposedQualitySessionState: PlayerQualitySessionState,
+        preserveRecoveryBudget: Boolean,
+    ) {
+        autoplayGeneration += 1L
+        playbackHealthCoordinator.dismissGuidance()
+        pendingRecoveredPlaybackGuidanceItemId = null
+        pendingRecoveredAutoQualityBps = null
+        playbackActionNotice = null
+        qualitySession = proposedQualitySessionState
+        autoRecoveryState =
+            if (preserveRecoveryBudget) {
+                autoRecoveryCoordinator.clearRuntimeQualityCap(autoRecoveryState)
+            } else {
+                autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
+            }
+        updatePlaybackHealthSessionContext()
+        markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Replan)
+        invalidateSubtitleFallback()
+    }
+
+    private fun publishPlaybackChangeRejection(
+        operation: PlayerPlaybackChangeOperation,
+        error: PlaybackError,
+        context: PlayerDiagnosticContext = playerDiagnosticContext(),
+    ): Boolean {
+        val retainedPlaybackState = playerController.playbackState.value
+        if (retainedPlaybackState.status !in playbackChangeActiveStatuses) return false
+        playbackChangeNotice =
+            PlayerPlaybackChangeNotice(
+                token = ++playbackChangeNoticeToken,
+                operation = operation,
+                error = error,
+            )
+        playerDiagnosticsRecorder.recordPlaybackChangeRejected(
+            context = context,
+            facts =
+                PlayerPlaybackChangeDiagnosticFacts(
+                    operation = operation,
+                    error = error,
+                ),
+        )
+        publishContent(
+            playbackState = retainedPlaybackState,
+            pickerVisible = PlayerPicker.None,
+        )
+        return true
+    }
+
     private fun enrichPlaybackPlan(
         playbackPlan: PlaybackPlan,
         requestedMediaSourceId: String,
@@ -2951,6 +3030,7 @@ class PlayerViewModel(
         startPositionMs: Long,
     ): PlaybackPlan? {
         if (!isCurrentBackendSwitch(switch)) return null
+        switch.planningError = PlaybackError.Unknown
         val qualityPolicy =
             if (switch.qualityExplicit) {
                 switch.qualityPolicy
@@ -2995,6 +3075,7 @@ class PlayerViewModel(
                 throw exception
             } catch (exception: Throwable) {
                 if (isCurrentBackendSwitch(switch)) {
+                    switch.planningError = planningPlaybackError(exception)
                     playerDiagnosticsRecorder.recordPlannerAttemptFailure(
                         context = playerDiagnosticContext(),
                         facts =
@@ -3009,7 +3090,11 @@ class PlayerViewModel(
                 }
                 return null
             }
-        if (!isCurrentBackendSwitch(switch) || !preservesBackendSwitchIntent(playbackPlan, switch)) return null
+        if (!isCurrentBackendSwitch(switch)) return null
+        if (!preservesBackendSwitchIntent(playbackPlan, switch)) {
+            switch.planningError = PlaybackError.UnsupportedMedia
+            return null
+        }
         val enriched =
             enrichPlaybackPlan(
                 playbackPlan = playbackPlan,
@@ -3053,8 +3138,17 @@ class PlayerViewModel(
     private fun keepCurrentPlaybackAfterBackendSwitchFailure(switch: BackendSwitchSnapshot) {
         if (!isCurrentBackendSwitch(switch)) return
         finishBackendSwitch(switch)
-        backendSwitchNotice = PlayerBackendSwitchNotice(token = ++backendSwitchNoticeToken)
-        publishContent(pickerVisible = PlayerPicker.None)
+        if (
+            switch.wasActiveAtRequest &&
+            playerController === switch.activeController &&
+            installedPlan === switch.activePlan &&
+            playerController.playbackState.value.status in playbackChangeActiveStatuses
+        ) {
+            publishPlaybackChangeRejection(
+                operation = PlayerPlaybackChangeOperation.Backend,
+                error = switch.planningError,
+            )
+        }
     }
 
     /**
@@ -3998,8 +4092,15 @@ class PlayerViewModel(
         }
     }
 
-    private fun replanAtCurrentPosition() {
-        replanAtPosition(playerController.playbackState.value.positionMs)
+    private fun replanAtCurrentPosition(
+        proposedQualitySessionState: PlayerQualitySessionState? = null,
+        preserveRecoveryBudgetOnQualityCommit: Boolean = false,
+    ) {
+        replanAtPosition(
+            targetPositionMs = playerController.playbackState.value.positionMs,
+            proposedQualitySessionState = proposedQualitySessionState,
+            preserveRecoveryBudgetOnQualityCommit = preserveRecoveryBudgetOnQualityCommit,
+        )
     }
 
     // Fetch fresh PlaybackInfo and re-prepare at the target position.
@@ -4010,13 +4111,25 @@ class PlayerViewModel(
         nonFatalSubtitleFallback: SubtitleActivationTarget? = null,
         subtitleFallbackGeneration: Long? = null,
         audioRecovery: AudioActivationTarget? = null,
+        proposedQualitySessionState: PlayerQualitySessionState? = null,
+        preserveRecoveryBudgetOnQualityCommit: Boolean = false,
     ) {
         invalidateBackendSwitch()
         if (controllerInstallInFlight) return
         // Offline plans never enter the remote replan path.
         if (plan?.streamMode == StreamMode.Offline) return
         val mediaSource = selectedMediaSourceId ?: return
-        autoplayGeneration += 1
+        val qualitySessionForRequest = proposedQualitySessionState ?: qualitySession
+        val requestGeneration = ++replanRequestGeneration
+        val controllerAtRequest = playerController
+        val installedPlanAtRequest = installedPlan
+        val playbackWasPausedAtRequest =
+            controllerAtRequest.playbackState.value.status == PlaybackStatus.Paused
+        val playbackIntentRevisionAtRequest = playbackIntentRevision
+        val proposalWasActiveAtRequest =
+            proposedQualitySessionState != null &&
+                installedPlanAtRequest != null &&
+                controllerAtRequest.playbackState.value.status in playbackChangeActiveStatuses
         val target = targetPositionMs.coerceAtLeast(0L)
         val effectiveRequestPolicy =
             requestPolicy.copy(
@@ -4024,22 +4137,37 @@ class PlayerViewModel(
                 bitrateConstraint =
                     requestPolicy.bitrateConstraint.takeUnless { constraint ->
                         constraint == PlaybackBitrateConstraint.NoClientLimit
-                    } ?: activePlaybackBitrateConstraint(),
+                    } ?: proposedQualitySessionState
+                        ?.policy
+                        ?.toBitrateConstraint()
+                        ?: activePlaybackBitrateConstraint(),
             )
         val selectedSubtitle = selectedSubtitleMediaStream()
+        val selectedAudioStreamIndex = requestedAudioStreamIndex
+        val subtitleSelection = requestedSubtitleSelection
+        val localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset()
+        val detailMediaStreams = mediaStreams
+        val sourceContainer = selectedSourceContainer
         val replanItemId = currentItemId
         val replanGeneration = playbackLaunchGeneration
-        markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Replan)
-        if (nonFatalSubtitleFallback == null) {
-            invalidateSubtitleFallback()
+        val diagnosticContext = playerDiagnosticContext()
+        if (proposedQualitySessionState == null) {
+            autoplayGeneration += 1
+            markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Replan)
+            if (nonFatalSubtitleFallback == null) {
+                invalidateSubtitleFallback()
+            }
         }
-        val activationRequestId = nextSubtitleActivationRequestId()
+        val activationRequestId =
+            if (proposedQualitySessionState == null) {
+                nextSubtitleActivationRequestId()
+            } else {
+                null
+            }
         replanJob?.cancel()
         replanJob =
             viewModelScope.launch {
                 if (controllerInstallInFlight) return@launch
-                val playbackState = playerController.playbackState.value
-                val wasPaused = playbackState.status == PlaybackStatus.Paused
                 if (forcePlay) {
                     _state.value = PlayerUiState.Loading
                 }
@@ -4056,34 +4184,53 @@ class PlayerViewModel(
                                 itemId = replanItemId,
                                 mediaSourceId = mediaSource,
                                 startPositionTicks = millisecondsToTicks(target),
-                                audioStreamIndex = requestedAudioStreamIndex,
-                                detailMediaStreams = mediaStreams,
-                                subtitleSelection = requestedSubtitleSelection,
-                                localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset(),
-                                maxStreamingBitrate = qualitySession.maximumBitrateBps,
-                                qualityPolicy = qualitySession.policy,
-                                qualityCapOrigin = qualitySession.capOrigin,
+                                audioStreamIndex = selectedAudioStreamIndex,
+                                detailMediaStreams = detailMediaStreams,
+                                subtitleSelection = subtitleSelection,
+                                localSubtitleAsset = localSubtitleAsset,
+                                maxStreamingBitrate = qualitySessionForRequest.maximumBitrateBps,
+                                qualityPolicy = qualitySessionForRequest.policy,
+                                qualityCapOrigin = qualitySessionForRequest.capOrigin,
                                 requestPolicy = correlatedRequestPolicy,
                                 // Preserve the known container in fallback diagnostics.
-                                sourceContainer = selectedSourceContainer,
+                                sourceContainer = sourceContainer,
                             )
                         }
                     } catch (exception: CancellationException) {
                         throw exception
                     } catch (exception: Throwable) {
-                        if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
+                        currentCoroutineContext().ensureActive()
+                        if (!isCurrentReplan(requestGeneration, replanGeneration, replanItemId)) return@launch
                         playerDiagnosticsRecorder.recordPlannerAttemptFailure(
-                            context = playerDiagnosticContext(),
+                            context = diagnosticContext,
                             facts =
                                 PlayerPlannerFailureDiagnosticFacts(
                                     exception = exception,
                                     requestPolicy = correlatedRequestPolicy,
-                                    qualityPolicy = qualitySession.policy,
-                                    qualityCapOrigin = qualitySession.capOrigin,
-                                    requestCapBitrateBps = qualitySession.maximumBitrateBps,
+                                    qualityPolicy = qualitySessionForRequest.policy,
+                                    qualityCapOrigin = qualitySessionForRequest.capOrigin,
+                                    requestCapBitrateBps = qualitySessionForRequest.maximumBitrateBps,
                                 ),
                         )
-                        if (nonFatalSubtitleFallback != null) {
+                        val planningError = planningPlaybackError(exception)
+                        val canPreserveQualityFailure =
+                            proposedQualitySessionState != null &&
+                                proposalWasActiveAtRequest &&
+                                preservesPlaybackForQualityFailure(
+                                    requestGeneration = requestGeneration,
+                                    launchGeneration = replanGeneration,
+                                    itemId = replanItemId,
+                                    controller = controllerAtRequest,
+                                    installedPlan = installedPlanAtRequest,
+                                )
+                        val qualityFailurePreserved =
+                            canPreserveQualityFailure &&
+                                publishPlaybackChangeRejection(
+                                    operation = PlayerPlaybackChangeOperation.Quality,
+                                    error = planningError,
+                                    context = diagnosticContext,
+                                )
+                        if (!qualityFailurePreserved && nonFatalSubtitleFallback != null) {
                             if (
                                 isCurrentSubtitleFallback(
                                     target = nonFatalSubtitleFallback,
@@ -4093,32 +4240,34 @@ class PlayerViewModel(
                             ) {
                                 markSubtitleFallbackUnavailable(nonFatalSubtitleFallback)
                             }
-                        } else if (audioRecovery != null) {
+                        } else if (!qualityFailurePreserved && audioRecovery != null) {
                             if (audioRecoveryTarget == audioRecovery) {
                                 _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
                             }
-                        } else {
-                            _state.update { PlayerUiState.Error(error = PlaybackError.Network) }
+                        } else if (!qualityFailurePreserved) {
+                            _state.update { startupPlanningError(exception) }
                         }
-                        playerDiagnosticsRecorder.recordTerminalOutcome(
-                            context = playerDiagnosticContext(),
-                            facts =
-                                PlayerTerminalDiagnosticFacts(
-                                    outcome = PlaybackTerminalOutcome.Failed,
-                                    error =
-                                        if (audioRecovery != null) {
-                                            PlaybackError.UnsupportedMedia
-                                        } else {
-                                            PlaybackError.Network
-                                        },
-                                    autoRecoveryTrigger = null,
-                                    recoveryDecision = null,
-                                ),
-                        )
+                        if (!qualityFailurePreserved) {
+                            playerDiagnosticsRecorder.recordTerminalOutcome(
+                                context = playerDiagnosticContext(),
+                                facts =
+                                    PlayerTerminalDiagnosticFacts(
+                                        outcome = PlaybackTerminalOutcome.Failed,
+                                        error =
+                                            if (audioRecovery != null) {
+                                                PlaybackError.UnsupportedMedia
+                                            } else {
+                                                planningError
+                                            },
+                                        autoRecoveryTrigger = null,
+                                        recoveryDecision = null,
+                                    ),
+                            )
+                        }
                         return@launch
                     }
 
-                if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
+                if (!isCurrentReplan(requestGeneration, replanGeneration, replanItemId)) return@launch
 
                 if (controllerInstallInFlight) return@launch
 
@@ -4160,13 +4309,27 @@ class PlayerViewModel(
                     }
                 }
 
+                if (
+                    proposedQualitySessionState != null &&
+                    !ownsCurrentQualityProposal(
+                        requestGeneration = requestGeneration,
+                        launchGeneration = replanGeneration,
+                        itemId = replanItemId,
+                        controller = controllerAtRequest,
+                        installedPlan = installedPlanAtRequest,
+                    )
+                ) {
+                    return@launch
+                }
+                val committedActivationRequestId = activationRequestId ?: nextSubtitleActivationRequestId()
+
                 val playbackPlanWithMetadata =
                     enrichPlaybackPlan(
                         playbackPlan = playbackPlan,
                         requestedMediaSourceId = mediaSource,
                         generation = replanGeneration,
                         itemId = replanItemId,
-                        activationRequestId = activationRequestId,
+                        activationRequestId = committedActivationRequestId,
                         selectedSubtitle = selectedSubtitle,
                     ) ?: return@launch
                 if (
@@ -4179,10 +4342,9 @@ class PlayerViewModel(
                 ) {
                     return@launch
                 }
-                if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
-                playbackReportingCoordinator.stopNow(positionMs = target)
+                if (!isCurrentReplan(requestGeneration, replanGeneration, replanItemId)) return@launch
                 currentCoroutineContext().ensureActive()
-                if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
+                if (!isCurrentReplan(requestGeneration, replanGeneration, replanItemId)) return@launch
                 if (
                     nonFatalSubtitleFallback != null &&
                     !isCurrentSubtitleFallback(
@@ -4193,37 +4355,133 @@ class PlayerViewModel(
                 ) {
                     return@launch
                 }
+                if (
+                    proposedQualitySessionState != null &&
+                    !ownsCurrentQualityProposal(
+                        requestGeneration = requestGeneration,
+                        launchGeneration = replanGeneration,
+                        itemId = replanItemId,
+                        controller = controllerAtRequest,
+                        installedPlan = installedPlanAtRequest,
+                    )
+                ) {
+                    return@launch
+                }
                 // A same-item replan cannot stabilize a queue switch.
-                if (!isCurrentPlaybackLaunch(replanGeneration, replanItemId)) return@launch
-                installPlan(playbackPlanWithMetadata, resetReporting = true, stabilizesQueueSwitch = false)
-                _state.update { current ->
-                    if (current is PlayerUiState.Content) current.copy(isSeekable = false) else current
+                if (!isCurrentReplan(requestGeneration, replanGeneration, replanItemId)) return@launch
+                var prepareFailedSynchronously = false
+                val replacementInstalled =
+                    controllerInstallMutex.withLock {
+                        currentCoroutineContext().ensureActive()
+                        if (stopRequestedDuringControllerInstall) {
+                            drainStopRequestedDuringControllerInstall(stopController = true)
+                            return@withLock false
+                        }
+                        if (
+                            controllerInstallInFlight ||
+                            !isCurrentReplan(requestGeneration, replanGeneration, replanItemId) ||
+                            playerController !== controllerAtRequest ||
+                            installedPlan !== installedPlanAtRequest
+                        ) {
+                            return@withLock false
+                        }
+                        if (
+                            proposedQualitySessionState != null &&
+                            !ownsCurrentQualityProposal(
+                                requestGeneration = requestGeneration,
+                                launchGeneration = replanGeneration,
+                                itemId = replanItemId,
+                                controller = controllerAtRequest,
+                                installedPlan = installedPlanAtRequest,
+                            )
+                        ) {
+                            return@withLock false
+                        }
+
+                        controllerInstallInFlight = true
+                        try {
+                            playbackReportingCoordinator.stopNow(positionMs = target)
+                            currentCoroutineContext().ensureActive()
+                            if (stopRequestedDuringControllerInstall) {
+                                drainStopRequestedDuringControllerInstall(stopController = true)
+                                return@withLock false
+                            }
+                            if (
+                                !isCurrentReplan(requestGeneration, replanGeneration, replanItemId) ||
+                                playerController !== controllerAtRequest ||
+                                installedPlan !== installedPlanAtRequest
+                            ) {
+                                performStop(stopController = true)
+                                return@withLock false
+                            }
+                            if (proposedQualitySessionState != null) {
+                                commitQualityProposal(
+                                    proposedQualitySessionState = proposedQualitySessionState,
+                                    preserveRecoveryBudget = preserveRecoveryBudgetOnQualityCommit,
+                                )
+                            }
+                            installPlan(playbackPlanWithMetadata, resetReporting = true, stabilizesQueueSwitch = false)
+                            _state.update { current ->
+                                if (current is PlayerUiState.Content) current.copy(isSeekable = false) else current
+                            }
+                            if (nonFatalSubtitleFallback != null) {
+                                subtitleFallbackTarget = null
+                            }
+                            loadTimingOffsets()
+                            currentCoroutineContext().ensureActive()
+                            if (stopRequestedDuringControllerInstall) {
+                                drainStopRequestedDuringControllerInstall(stopController = true)
+                                return@withLock false
+                            }
+                            playbackLaunchMarker = null
+                            markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
+                            playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
+                            playerController.prepare(playbackPlanWithMetadata)
+                            if (playerController.playbackState.value.status == PlaybackStatus.Failed) {
+                                installedPlan = null
+                                prepareFailedSynchronously = !stopRequestedDuringControllerInstall
+                                drainStopRequestedDuringControllerInstall(stopController = true)
+                                return@withLock false
+                            }
+                            installedPlan = playbackPlanWithMetadata
+                            playerController.runtimeDiagnostics.value.prepareEpoch
+                                ?.let(playbackHealthCoordinator::expectVideoOutput)
+                            armFirstVideoOutputState()
+                            playerDiagnosticsRecorder.recordPrepareDispatched(playerDiagnosticContext())
+                            applyInitialEmbeddedSelections(playbackPlanWithMetadata)
+                            if (stopRequestedDuringControllerInstall) {
+                                drainStopRequestedDuringControllerInstall(stopController = true)
+                                return@withLock false
+                            }
+                            if (forcePlay) {
+                                playerController.play()
+                            } else if (
+                                !desiredPlayWhenReady ||
+                                (playbackIntentRevision == playbackIntentRevisionAtRequest && playbackWasPausedAtRequest)
+                            ) {
+                                playerController.pause()
+                            } else {
+                                playerController.play()
+                            }
+                            publishContent(pickerVisible = PlayerPicker.None)
+                            if (stopRequestedDuringControllerInstall) {
+                                drainStopRequestedDuringControllerInstall(stopController = true)
+                                false
+                            } else {
+                                true
+                            }
+                        } finally {
+                            controllerInstallInFlight = false
+                        }
+                    }
+                if (replacementInstalled) {
+                    maybeStartInstalledAudioUnavailableFallback(playbackPlanWithMetadata)
+                    maybeStartInstalledUnavailableFallback(playbackPlanWithMetadata)
+                } else if (prepareFailedSynchronously) {
+                    // The install guard intentionally suppresses controller
+                    // publications until the replacement boundary is released.
+                    handlePlaybackState(playerController.playbackState.value)
                 }
-                if (nonFatalSubtitleFallback != null) {
-                    subtitleFallbackTarget = null
-                }
-                loadTimingOffsets()
-                playbackLaunchMarker = null
-                markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
-                playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
-                playerController.prepare(playbackPlanWithMetadata)
-                if (rejectSynchronouslyFailedPrepare()) return@launch
-                installedPlan = playbackPlanWithMetadata
-                playerController.runtimeDiagnostics.value.prepareEpoch
-                    ?.let(playbackHealthCoordinator::expectVideoOutput)
-                armFirstVideoOutputState()
-                playerDiagnosticsRecorder.recordPrepareDispatched(playerDiagnosticContext())
-                applyInitialEmbeddedSelections(playbackPlanWithMetadata)
-                if (forcePlay) {
-                    playerController.play()
-                } else if (wasPaused || !desiredPlayWhenReady) {
-                    playerController.pause()
-                } else {
-                    playerController.play()
-                }
-                publishContent(pickerVisible = PlayerPicker.None)
-                maybeStartInstalledAudioUnavailableFallback(playbackPlanWithMetadata)
-                maybeStartInstalledUnavailableFallback(playbackPlanWithMetadata)
             }
     }
 
@@ -4414,7 +4672,7 @@ class PlayerViewModel(
                 subtitleStyleable = subtitleStyleable,
                 subtitleNotice = subtitleNotice,
                 backendNotice = backendNotice,
-                backendSwitchNotice = backendSwitchNotice,
+                playbackChangeNotice = playbackChangeNotice,
                 activeBackend = backend,
                 backendChoices = backendSwitchChoices(),
                 backendSwitchControlVisible = hasBackendSwitchTarget(),
@@ -4662,11 +4920,19 @@ class PlayerViewModel(
         )
 
     private fun startupPlanningError(exception: Throwable): PlayerUiState.Error {
+        val error = planningPlaybackError(exception)
+        return PlayerUiState.Error(
+            retryable = error != PlaybackError.UnsupportedMedia,
+            error = error,
+        )
+    }
+
+    private fun planningPlaybackError(exception: Throwable): PlaybackError {
         val copyFailure = exception as? PlaybackPlanningException.SourceVideoCopyUnsupported
         val isDeterministicCapabilityFailure =
             when (copyFailure?.cause) {
                 null -> copyFailure != null
-                PlaybackPlanningException.SourceVideoCopyRejected,
+                is PlaybackPlanningException.SourceVideoCopyRejected,
                 PlaybackPlanningException.NoSupportedStream,
                 -> true
 
@@ -4674,14 +4940,10 @@ class PlayerViewModel(
             }
         val rootFailure = copyFailure?.cause ?: exception
         return when {
-            isDeterministicCapabilityFailure ->
-                PlayerUiState.Error(
-                    retryable = false,
-                    error = PlaybackError.UnsupportedMedia,
-                )
+            isDeterministicCapabilityFailure -> PlaybackError.UnsupportedMedia
             rootFailure is PlaybackPlanningException.RemoteRequestFailed && rootFailure.isNetworkFailure ->
-                PlayerUiState.Error(error = PlaybackError.Network)
-            else -> PlayerUiState.Error(error = PlaybackError.Unknown)
+                PlaybackError.Network
+            else -> PlaybackError.Unknown
         }
     }
 
@@ -4984,6 +5246,8 @@ private data class BackendSwitchSnapshot(
     val itemId: String,
     val mediaSourceId: String,
     val activePlan: PlaybackPlan,
+    val activeController: PlayerController,
+    val wasActiveAtRequest: Boolean,
     val explicitAudioStreamIndex: Int?,
     val requestedAudioStreamIndex: Int?,
     val requestedSubtitleSelection: SubtitleSelectionIntent,
@@ -4998,6 +5262,7 @@ private data class BackendSwitchSnapshot(
     val targetBackend: PlayerBackend,
     val defaultBackend: PlayerBackend,
     var planReportingAuthority: Long,
+    var planningError: PlaybackError = PlaybackError.Unknown,
 )
 
 private val backendSwitchTerminalStatuses =
@@ -5005,6 +5270,13 @@ private val backendSwitchTerminalStatuses =
         PlaybackStatus.Idle,
         PlaybackStatus.Failed,
         PlaybackStatus.Completed,
+    )
+
+private val playbackChangeActiveStatuses =
+    setOf(
+        PlaybackStatus.Playing,
+        PlaybackStatus.Paused,
+        PlaybackStatus.Buffering,
     )
 
 private class BackendSwitchInstallationException : IllegalStateException("Backend switch installation failed.")

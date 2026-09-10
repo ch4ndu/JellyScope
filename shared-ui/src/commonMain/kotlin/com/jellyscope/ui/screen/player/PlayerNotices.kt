@@ -66,7 +66,11 @@ import com.jellyscope.ui.generated.resources.player_action_try_higher
 import com.jellyscope.ui.generated.resources.player_action_try_original
 import com.jellyscope.ui.generated.resources.player_audio_unavailable
 import com.jellyscope.ui.generated.resources.player_backend_fallback
-import com.jellyscope.ui.generated.resources.player_backend_switch_kept
+import com.jellyscope.ui.generated.resources.player_change_backend_rejected
+import com.jellyscope.ui.generated.resources.player_change_quality_rejected
+import com.jellyscope.ui.generated.resources.player_change_reason_network
+import com.jellyscope.ui.generated.resources.player_change_reason_unknown
+import com.jellyscope.ui.generated.resources.player_change_reason_unsupported
 import com.jellyscope.ui.generated.resources.player_debug_overlay
 import com.jellyscope.ui.generated.resources.player_dismiss
 import com.jellyscope.ui.generated.resources.player_error
@@ -236,33 +240,72 @@ internal fun BackendFallbackBanner(
 }
 
 @Composable
-internal fun BackendSwitchKeptBanner(modifier: Modifier = Modifier) {
+internal fun PlaybackChangeKeptBanner(
+    notice: PlayerPlaybackChangeNotice,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Surface(
-        modifier = modifier.widthIn(max = Dimensions.playerDialogMaxWidth),
+        modifier =
+            modifier
+                .widthIn(max = Dimensions.playerDialogMaxWidth)
+                .fillMaxWidth(),
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surface.copy(alpha = PLAYER_NOTICE_SURFACE_ALPHA),
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(Dimensions.contentSpacing),
-            horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
         ) {
-            Icon(
-                imageVector = Icons.Filled.Info,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(Dimensions.playerControlIconSize),
-            )
-            Text(
-                text = stringResource(Res.string.player_backend_switch_kept),
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(Dimensions.playerControlIconSize),
+                )
+                Text(
+                    text = playbackChangeMessage(notice),
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(Res.string.player_dismiss))
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun playbackChangeMessage(notice: PlayerPlaybackChangeNotice): String {
+    val reason =
+        stringResource(
+            when (notice.error) {
+                PlaybackError.Network -> Res.string.player_change_reason_network
+                PlaybackError.UnsupportedMedia -> Res.string.player_change_reason_unsupported
+                else -> Res.string.player_change_reason_unknown
+            },
+        )
+    return stringResource(
+        when (notice.operation) {
+            PlayerPlaybackChangeOperation.Quality -> Res.string.player_change_quality_rejected
+            PlayerPlaybackChangeOperation.Backend -> Res.string.player_change_backend_rejected
+        },
+        reason,
+    )
 }
 
 @Composable

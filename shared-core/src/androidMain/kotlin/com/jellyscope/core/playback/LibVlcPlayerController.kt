@@ -29,6 +29,7 @@ import com.jellyscope.core.domain.playback.PlaybackDiagnosticPlatform
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticStage
 import com.jellyscope.core.domain.playback.PlaybackError
 import com.jellyscope.core.domain.playback.PlaybackHealthMeasurementCapabilities
+import com.jellyscope.core.domain.playback.PlaybackNativePlayerMilestone
 import com.jellyscope.core.domain.playback.PlaybackPlan
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
@@ -62,7 +63,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -124,7 +127,7 @@ class LibVlcPlayerController(
     private var currentMedia: Media? = null
     private var nativeActiveMedia: Media? = null
     private var pendingNativePrepare: NativePrepareRequest? = null
-    private var pendingNativeStop = false
+    private var pendingNativeStop: NativeStopRequest? = null
     private val pendingNativeStopLeases = mutableListOf<OfflineArtifactLease>()
     private var nativePrepareLoopActive = false
 
@@ -158,12 +161,33 @@ class LibVlcPlayerController(
         val failure: Throwable?,
     )
 
+    private data class NativeStopRequest(
+        val generation: Long,
+        val diagnosticSessionSequence: Long,
+    )
+
+    private data class NativeRuntimeSnapshot(
+        val media: Media,
+        val generation: Long,
+        val positionMs: Long?,
+        val durationMs: Long?,
+        val isPlaying: Boolean,
+        val videoCodec: String?,
+        val videoWidth: Int?,
+        val videoHeight: Int?,
+        val videoFrameRate: Double?,
+        val lostPictures: Long?,
+        val displayedPictures: Long?,
+    )
+
     private sealed class NativeTransition {
         data class Prepare(
             val request: NativePrepareRequest,
         ) : NativeTransition()
 
         data class Stop(
+            val generation: Long,
+            val diagnosticSessionSequence: Long,
             val leases: List<OfflineArtifactLease>,
         ) : NativeTransition()
     }
@@ -341,9 +365,12 @@ class LibVlcPlayerController(
                 val transition =
                     withContext(Dispatchers.Main.immediate) {
                         when {
-                            pendingNativeStop -> {
-                                pendingNativeStop = false
+                            pendingNativeStop != null -> {
+                                val request = checkNotNull(pendingNativeStop)
+                                pendingNativeStop = null
                                 NativeTransition.Stop(
+                                    generation = request.generation,
+                                    diagnosticSessionSequence = request.diagnosticSessionSequence,
                                     leases = pendingNativeStopLeases.toList().also { pendingNativeStopLeases.clear() },
                                 )
                             }
@@ -355,19 +382,55 @@ class LibVlcPlayerController(
                         }
                     } ?: break
                 when (transition) {
-                    is NativeTransition.Stop ->
-                        nativeTransitionMutex.withLock {
-                            if (!nativeTeardownStarted) {
-                                runCatching { mediaPlayer.stop() }
-                                val activeMedia = nativeActiveMedia
-                                nativeActiveMedia = null
-                                runCatching { activeMedia?.release() }
+                    is NativeTransition.Stop -> {
+                        val transitionFailure =
+                            nativeTransitionMutex.withLock {
+                                var failure: Throwable? = null
+
+                                fun captureFailure(block: () -> Unit) {
+                                    val result = runCatching(block)
+                                    if (failure == null) failure = result.exceptionOrNull()
+                                }
+
+                                logNativeTransition(
+                                    operation = PlayerOperation.Stop,
+                                    milestone = PlaybackNativePlayerMilestone.TransitionBegun,
+                                    transitionGeneration = transition.generation,
+                                    diagnosticSessionSequence = transition.diagnosticSessionSequence,
+                                )
+                                if (!nativeTeardownStarted) {
+                                    captureFailure { mediaPlayer.stop() }
+                                    val activeMedia = nativeActiveMedia
+                                    nativeActiveMedia = null
+                                    captureFailure { activeMedia?.release() }
+                                }
+                                transition.leases.forEach(OfflineArtifactLease::release)
+                                failure
                             }
-                            transition.leases.forEach(OfflineArtifactLease::release)
-                        }
+                        logNativeTransition(
+                            operation = PlayerOperation.Stop,
+                            milestone =
+                                if (transitionFailure == null) {
+                                    PlaybackNativePlayerMilestone.TransitionCompleted
+                                } else {
+                                    PlaybackNativePlayerMilestone.TransitionFailed
+                                },
+                            transitionGeneration = transition.generation,
+                            diagnosticSessionSequence = transition.diagnosticSessionSequence,
+                            failure = transitionFailure,
+                        )
+                    }
                     is NativeTransition.Prepare -> {
                         val result =
                             nativeTransitionMutex.withLock {
+                                logNativeTransition(
+                                    operation = PlayerOperation.Prepare,
+                                    milestone = PlaybackNativePlayerMilestone.TransitionBegun,
+                                    transitionGeneration = transition.request.generation,
+                                    diagnosticSessionSequence =
+                                        transition.request.plan.diagnosticSessionSequence
+                                            ?: transition.request.generation,
+                                )
                                 if (nativeTeardownStarted) {
                                     NativePrepareResult(media = null, failure = null)
                                 } else {
@@ -382,7 +445,7 @@ class LibVlcPlayerController(
             }
             withContext(Dispatchers.Main.immediate) {
                 nativePrepareLoopActive = false
-                if (!released && (pendingNativePrepare != null || pendingNativeStop)) enqueueNativePrepare()
+                if (!released && (pendingNativePrepare != null || pendingNativeStop != null)) enqueueNativePrepare()
             }
         }
     }
@@ -406,7 +469,13 @@ class LibVlcPlayerController(
                     // serialized Stop transition and keep this exact generation
                     // leased until that transition completes.
                     pendingNativeStopLeases += lease
-                    pendingNativeStop = true
+                    pendingNativeStop =
+                        pendingNativeStop
+                            ?: NativeStopRequest(
+                                generation = request.generation,
+                                diagnosticSessionSequence =
+                                    request.plan.diagnosticSessionSequence ?: request.generation,
+                            )
                 }
             }
         }
@@ -444,12 +513,25 @@ class LibVlcPlayerController(
         result: NativePrepareResult,
     ) {
         if (!shouldApplyLibVlcNativePrepareResult(request.generation, generation, released)) {
+            logNativeTransition(
+                operation = PlayerOperation.Prepare,
+                milestone = PlaybackNativePlayerMilestone.TransitionStale,
+                transitionGeneration = request.generation,
+                diagnosticSessionSequence = request.plan.diagnosticSessionSequence ?: request.generation,
+                failure = result.failure,
+            )
             // A newer prepare will stop and replace this media. If the generation
             // changed without a replacement (for example stop() or a rejected
             // prepare), enqueue teardown so the stale native media cannot remain
             // assigned and retain decoder/surface resources indefinitely.
             if (!released && pendingNativePrepare == null) {
-                pendingNativeStop = true
+                pendingNativeStop =
+                    pendingNativeStop
+                        ?: NativeStopRequest(
+                            generation = request.generation,
+                            diagnosticSessionSequence =
+                                request.plan.diagnosticSessionSequence ?: request.generation,
+                        )
             }
             return
         }
@@ -457,6 +539,13 @@ class LibVlcPlayerController(
         val media = result.media
         val failure = result.failure
         if (media == null || failure != null) {
+            logNativeTransition(
+                operation = PlayerOperation.Prepare,
+                milestone = PlaybackNativePlayerMilestone.TransitionFailed,
+                transitionGeneration = request.generation,
+                diagnosticSessionSequence = request.plan.diagnosticSessionSequence ?: request.generation,
+                failure = failure,
+            )
             stopped = true
             failure?.let { exception -> logFailureDiagnostic(PlaybackDiagnosticStage.Prepare, exception) }
             // A failed prepare is not itself proof that LibVLC has finished
@@ -465,7 +554,13 @@ class LibVlcPlayerController(
             // stop()/replacement; releasing it on this callback would let the
             // transfer delete a file while the engine is still unwinding.
             offlineLeaseHolder.detach()?.let(pendingNativeStopLeases::add)
-            pendingNativeStop = true
+            pendingNativeStop =
+                pendingNativeStop
+                    ?: NativeStopRequest(
+                        generation = request.generation,
+                        diagnosticSessionSequence =
+                            request.plan.diagnosticSessionSequence ?: request.generation,
+                    )
             offlinePath = null
             offlineSidecarPath = null
             enqueueNativePrepare()
@@ -539,6 +634,12 @@ class LibVlcPlayerController(
             armPendingResumeOutputRelock()
             publishStatus(PlaybackStatus.Buffering)
         }
+        logNativeTransition(
+            operation = PlayerOperation.Prepare,
+            milestone = PlaybackNativePlayerMilestone.TransitionCompleted,
+            transitionGeneration = request.generation,
+            diagnosticSessionSequence = request.plan.diagnosticSessionSequence ?: request.generation,
+        )
         controllerLogger.i { "prepare media assigned generation=$generation" }
         controllerLogger.i { "prepare complete" }
     }
@@ -717,9 +818,9 @@ class LibVlcPlayerController(
                 playIntent = playIntent,
                 playbackEverProgressed = endOfStream.playbackEverProgressed,
                 endRejectedAwaitingStopped = endOfStream.endRejectedAwaitingStopped,
-                nativePositionMs = readPositionMs(),
+                nativePositionMs = current.positionMs,
                 lastPublishedPositionMs = current.positionMs,
-                durationMs = readDurationMs() ?: current.durationMs,
+                durationMs = current.durationMs,
             )
         if (decision.endRejected) {
             endOfStream.onEndRejected()
@@ -889,12 +990,19 @@ class LibVlcPlayerController(
                 subtitleAsset = subtitleAsset,
                 previousMedia = previousMedia,
             )
+        logNativeTransition(
+            operation = PlayerOperation.Prepare,
+            milestone = PlaybackNativePlayerMilestone.TransitionQueued,
+            transitionGeneration = generation,
+            diagnosticSessionSequence = plan.diagnosticSessionSequence ?: generation,
+        )
         val subtitleActivationTarget = plan.subtitleActivationTarget
+        val cachedDurationMs = _playbackState.value.durationMs
         _playbackState.value =
             _playbackState.value.copy(
                 status = PlaybackStatus.Loading,
                 positionMs = plan.clampedStartPositionMs(),
-                durationMs = null,
+                durationMs = cachedDurationMs,
                 bufferedPositionMs = 0L,
                 playbackSpeed = plan.playbackSpeed,
                 subtitleStyle = plan.subtitleStyle,
@@ -951,7 +1059,12 @@ class LibVlcPlayerController(
             offlineSidecarPath = null
             val failedLease = offlineLeaseHolder.detach()
             pendingNativeStopLeases += listOfNotNull(failedLease)
-            pendingNativeStop = true
+            pendingNativeStop =
+                pendingNativeStop
+                    ?: NativeStopRequest(
+                        generation = generation,
+                        diagnosticSessionSequence = plan.diagnosticSessionSequence ?: generation,
+                    )
             enqueueNativePrepare()
             OfflinePrepareResult.Unavailable(PlaybackError.OfflinePlayerUnavailable(PlayerBackend.LibVlc))
         }
@@ -1246,12 +1359,23 @@ class LibVlcPlayerController(
         currentMedia = null
         pendingNativePrepare = null
         offlineLeaseHolder.detach()?.let(pendingNativeStopLeases::add)
-        pendingNativeStop = true
+        val stopDiagnosticSessionSequence = lastPlan?.diagnosticSessionSequence ?: generation
+        pendingNativeStop =
+            NativeStopRequest(
+                generation = generation,
+                diagnosticSessionSequence = stopDiagnosticSessionSequence,
+            )
         nativePrepareGeneration = null
         pendingPrepareSeekTargetMs = null
         detachViewsBeforeNativeTransition()
         offlinePath = null
         offlineSidecarPath = null
+        logNativeTransition(
+            operation = PlayerOperation.Stop,
+            milestone = PlaybackNativePlayerMilestone.TransitionQueued,
+            transitionGeneration = generation,
+            diagnosticSessionSequence = stopDiagnosticSessionSequence,
+        )
         enqueueNativePrepare()
         publishStatus(PlaybackStatus.Idle)
     }
@@ -1331,34 +1455,69 @@ class LibVlcPlayerController(
         val media = currentMedia
         currentMedia = null
         pendingNativePrepare = null
-        pendingNativeStop = false
+        pendingNativeStop = null
         nativePrepareGeneration = null
         pendingPrepareSeekTargetMs = null
         val detachedOfflineLease = offlineLeaseHolder.detach()
         val pendingOfflineLeases = pendingNativeStopLeases.toList().also { pendingNativeStopLeases.clear() }
+        val releaseGeneration = generation
+        val releaseDiagnosticSessionSequence = lastPlan?.diagnosticSessionSequence ?: releaseGeneration
+        logNativeTransition(
+            operation = PlayerOperation.Release,
+            milestone = PlaybackNativePlayerMilestone.TransitionQueued,
+            transitionGeneration = releaseGeneration,
+            diagnosticSessionSequence = releaseDiagnosticSessionSequence,
+        )
         // Keep the release ordering used by the existing backend: detach the
         // views first, then serialize media/player teardown away from Main.
         nativeScope.launch {
-            nativeTransitionMutex.withLock {
-                nativeTeardownStarted = true
-                val activeMedia = nativeActiveMedia
-                nativeActiveMedia = null
-                // INVARIANT: no path sets pendingNativeStop while currentMedia is
-                // non-null, so `media` is never a Media that the Stop transition
-                // already released. stop() nulls currentMedia before queueing, and
-                // the stale-completion writer only fires when no newer prepare is
-                // pending — i.e. the generation moved via stop()/release(), both of
-                // which null it too. Keep that ordering: if a future teardown path
-                // queues a Stop while currentMedia still holds the active media,
-                // this line becomes a native double-free on release.
-                if (media !== activeMedia) runCatching { media?.release() }
-                runCatching { activeMedia?.release() }
-                runCatching { mediaPlayer.stop() }
-                runCatching { mediaPlayer.release() }
-                runCatching { libVlc.release() }
-                detachedOfflineLease?.release()
-                pendingOfflineLeases.forEach(OfflineArtifactLease::release)
-            }
+            val transitionFailure =
+                nativeTransitionMutex.withLock {
+                    var failure: Throwable? = null
+
+                    fun captureFailure(block: () -> Unit) {
+                        val result = runCatching(block)
+                        if (failure == null) failure = result.exceptionOrNull()
+                    }
+
+                    logNativeTransition(
+                        operation = PlayerOperation.Release,
+                        milestone = PlaybackNativePlayerMilestone.TransitionBegun,
+                        transitionGeneration = releaseGeneration,
+                        diagnosticSessionSequence = releaseDiagnosticSessionSequence,
+                    )
+                    nativeTeardownStarted = true
+                    val activeMedia = nativeActiveMedia
+                    nativeActiveMedia = null
+                    // INVARIANT: no path sets pendingNativeStop while currentMedia is
+                    // non-null, so `media` is never a Media that the Stop transition
+                    // already released. stop() nulls currentMedia before queueing, and
+                    // the stale-completion writer only fires when no newer prepare is
+                    // pending — i.e. the generation moved via stop()/release(), both of
+                    // which null it too. Keep that ordering: if a future teardown path
+                    // queues a Stop while currentMedia still holds the active media,
+                    // this line becomes a native double-free on release.
+                    if (media !== activeMedia) captureFailure { media?.release() }
+                    captureFailure { activeMedia?.release() }
+                    captureFailure { mediaPlayer.stop() }
+                    captureFailure { mediaPlayer.release() }
+                    captureFailure { libVlc.release() }
+                    detachedOfflineLease?.release()
+                    pendingOfflineLeases.forEach(OfflineArtifactLease::release)
+                    failure
+                }
+            logNativeTransition(
+                operation = PlayerOperation.Release,
+                milestone =
+                    if (transitionFailure == null) {
+                        PlaybackNativePlayerMilestone.TransitionCompleted
+                    } else {
+                        PlaybackNativePlayerMilestone.TransitionFailed
+                    },
+                transitionGeneration = releaseGeneration,
+                diagnosticSessionSequence = releaseDiagnosticSessionSequence,
+                failure = transitionFailure,
+            )
             nativeScope.cancel()
             scope.cancel()
         }
@@ -1383,7 +1542,6 @@ class LibVlcPlayerController(
                     val appliedPosition = readPositionMs()
                     if (abs(appliedPosition - target) <= 1_000L || appliedPosition > target) {
                         pendingStartPositionMs = null
-                        pendingStartSeekJob = null
                         beginSeekBuffering(targetMs = target, arrivalPositionMs = appliedPosition)
                         if (firstVideoOutputObservedGeneration != generation) {
                             pendingResumeOutputRelockTargetMs = target
@@ -1395,9 +1553,37 @@ class LibVlcPlayerController(
                             // Establish the fresh-media displayed-picture baseline now,
                             // so the bounded follow-up sample can recognize a healthy
                             // picture without waiting for two 1 s ticker intervals.
-                            updateRuntimeDiagnostics()
-                            armPendingResumeOutputRelock()
+                            val snapshotMedia = currentMedia
+                            val snapshot =
+                                snapshotMedia?.let { media ->
+                                    requestRuntimeSnapshot(
+                                        snapshotGeneration = seekGeneration,
+                                        media = media,
+                                    )
+                                }
+                            currentCoroutineContext().ensureActive()
+                            if (
+                                snapshot == null ||
+                                released ||
+                                seekGeneration != generation ||
+                                currentMedia !== snapshotMedia ||
+                                !playIntent ||
+                                pendingSeekTargetMs?.let { pendingTarget -> pendingTarget != target } == true
+                            ) {
+                                clearResumeOutputRelock()
+                                if (pendingStartSeekJob === currentCoroutineContext()[Job]) {
+                                    pendingStartSeekJob = null
+                                }
+                                return@launch
+                            }
+                            if (
+                                pendingResumeOutputRelockTargetMs == target &&
+                                shouldRelockLibVlcResumeOutput(resumeOutputRelockState, generation, playIntent)
+                            ) {
+                                armPendingResumeOutputRelock()
+                            }
                         }
+                        if (pendingStartSeekJob === currentCoroutineContext()[Job]) pendingStartSeekJob = null
                         controllerLogger.i { "start position applied startMs=$target" }
                         updateProgress(PlaybackStatus.Buffering)
                         return@launch
@@ -1422,16 +1608,45 @@ class LibVlcPlayerController(
             pendingResumeOutputRelockTargetMs?.let { target -> beginSeekBuffering(targetMs = target) }
         }
         val relockGeneration = generation
+        val relockMedia = currentMedia ?: return
+        val relockTarget = pendingResumeOutputRelockTargetMs ?: return
         resumeOutputRelockJob =
             scope.launch {
                 delay(STARTUP_RESYNC_MIN_LAG_MS)
-                if (released || relockGeneration != generation) return@launch
+                if (
+                    released ||
+                    relockGeneration != generation ||
+                    currentMedia !== relockMedia ||
+                    !playIntent ||
+                    pendingResumeOutputRelockTargetMs != relockTarget ||
+                    pendingSeekTargetMs?.let { pendingTarget -> pendingTarget != relockTarget } == true ||
+                    !shouldRelockLibVlcResumeOutput(resumeOutputRelockState, generation, playIntent)
+                ) {
+                    clearResumeOutputRelock()
+                    return@launch
+                }
                 // Pair with the baseline sample taken when the resume arrived. This
                 // keeps a healthy resume off the 1 Hz ticker's two-sample latency.
-                updateRuntimeDiagnostics()
-                if (!shouldRelockLibVlcResumeOutput(resumeOutputRelockState, generation, playIntent)) return@launch
+                val snapshot =
+                    requestRuntimeSnapshot(
+                        snapshotGeneration = relockGeneration,
+                        media = relockMedia,
+                    )
+                currentCoroutineContext().ensureActive()
+                if (
+                    snapshot == null ||
+                    released ||
+                    relockGeneration != generation ||
+                    currentMedia !== relockMedia ||
+                    !playIntent ||
+                    pendingResumeOutputRelockTargetMs != relockTarget ||
+                    pendingSeekTargetMs?.let { pendingTarget -> pendingTarget != relockTarget } == true ||
+                    !shouldRelockLibVlcResumeOutput(resumeOutputRelockState, generation, playIntent)
+                ) {
+                    clearResumeOutputRelock()
+                    return@launch
+                }
                 resumeOutputRelockState = resumeOutputRelockState.copy(relockConsumed = true)
-                val relockTarget = pendingResumeOutputRelockTargetMs ?: return@launch
                 val flushTarget = libVlcResumeOutputRelockSeekTarget(relockTarget)
                 pendingResumeOutputRelockTargetMs = null
                 resumeOutputRelockJob = null
@@ -1512,7 +1727,7 @@ class LibVlcPlayerController(
         positionMs: Long,
     ) {
         val position = positionMs.coerceAtLeast(0L)
-        val duration = readDurationMs() ?: _playbackState.value.durationMs
+        val duration = _playbackState.value.durationMs
         _playbackState.update { current ->
             current.copy(
                 status = status,
@@ -1533,7 +1748,12 @@ class LibVlcPlayerController(
             resetRuntimeDiagnosticsBaseline()
             _runtimeDiagnostics.update { current -> current.copy(droppedVideoFramesPerSecond = null) }
         }
-        if (status == PlaybackStatus.Playing || status == PlaybackStatus.Buffering) {
+        if (
+            (status == PlaybackStatus.Playing || status == PlaybackStatus.Buffering) &&
+            !isNativePreparePendingForCurrentGeneration() &&
+            pendingNativeStop == null &&
+            currentMedia != null
+        ) {
             startTicker()
         } else {
             tickerOwner.invalidateGeneration()
@@ -1556,10 +1776,23 @@ class LibVlcPlayerController(
         status: PlaybackStatus,
         observedPositionMs: Long? = null,
     ): LibVlcProgressSample {
-        val position = (outstandingSeekTargetMs() ?: observedPositionMs ?: readPositionMs()).coerceAtLeast(0L)
+        val current = _playbackState.value
+        val canReadNative =
+            !released &&
+                pendingNativeStop == null &&
+                !isNativePreparePendingForCurrentGeneration() &&
+                currentMedia != null
+        val position =
+            (
+                outstandingSeekTargetMs() ?: observedPositionMs ?: if (canReadNative) {
+                    readPositionMs()
+                } else {
+                    current.positionMs
+                }
+            ).coerceAtLeast(0L)
         return LibVlcProgressSample(
             positionMs = position,
-            durationMs = readDurationMs(),
+            durationMs = if (canReadNative) readDurationMs() ?: current.durationMs else current.durationMs,
             status = status,
         )
     }
@@ -1578,22 +1811,89 @@ class LibVlcPlayerController(
 
     private fun startTicker() {
         val tickerGeneration = generation
+        val tickerMedia = currentMedia ?: return
         tickerOwner.start {
-            scope.launch {
-                while (!released && tickerGeneration == generation) {
+            nativeScope.launch {
+                while (true) {
                     delay(RUNTIME_DIAGNOSTICS_POLL_MS)
-                    if (tickerGeneration != generation) return@launch
-                    // Runtime diagnostics only need a 1 s cadence; keep them off the
-                    // high-frequency TimeChanged/PositionChanged event path.
-                    updateRuntimeDiagnostics()
-                    val sample = readProgressSample(_playbackState.value.status)
-                    if (progressCadence.onTicker(nowMs = SystemClock.elapsedRealtime(), sample = sample)) {
-                        publishProgress(sample)
-                    }
+                    val snapshot = readRuntimeSnapshot(tickerGeneration, tickerMedia) ?: return@launch
+                    val keepPolling =
+                        withContext(Dispatchers.Main.immediate) {
+                            if (!isCurrentRuntimeSnapshot(snapshot)) {
+                                false
+                            } else {
+                                updateRuntimeDiagnostics(snapshot)
+                                val current = _playbackState.value
+                                val sample =
+                                    LibVlcProgressSample(
+                                        positionMs =
+                                            (outstandingSeekTargetMs() ?: snapshot.positionMs ?: current.positionMs)
+                                                .coerceAtLeast(0L),
+                                        durationMs = snapshot.durationMs ?: current.durationMs,
+                                        status = current.status,
+                                    )
+                                if (progressCadence.onTicker(nowMs = SystemClock.elapsedRealtime(), sample = sample)) {
+                                    publishProgress(sample)
+                                }
+                                true
+                            }
+                        }
+                    if (!keepPolling) return@launch
                 }
             }
         }
     }
+
+    private suspend fun readRuntimeSnapshot(
+        snapshotGeneration: Long,
+        media: Media,
+    ): NativeRuntimeSnapshot? =
+        nativeTransitionMutex.withLock {
+            if (nativeTeardownStarted || nativeActiveMedia !== media) return@withLock null
+            val videoTrack = runCatching { mediaPlayer.currentVideoTrack }.getOrNull()
+            val stats = runCatching { media.getStats() }.getOrNull()
+            NativeRuntimeSnapshot(
+                media = media,
+                generation = snapshotGeneration,
+                positionMs = runCatching { mediaPlayer.time }.getOrNull()?.takeIf { value -> value >= 0L },
+                durationMs = runCatching { mediaPlayer.length }.getOrNull()?.takeIf { value -> value > 0L },
+                isPlaying = runCatching { mediaPlayer.isPlaying }.getOrDefault(false),
+                videoCodec = videoTrack?.codec?.takeIf(String::isNotBlank),
+                videoWidth = videoTrack?.width?.takeIf { width -> width > 0 },
+                videoHeight = videoTrack?.height?.takeIf { height -> height > 0 },
+                videoFrameRate =
+                    videoTrack
+                        ?.takeIf { track -> track.frameRateNum > 0 && track.frameRateDen > 0 }
+                        ?.let { track -> track.frameRateNum.toDouble() / track.frameRateDen.toDouble() },
+                lostPictures = stats?.lostPictures?.toLong()?.takeIf { count -> count >= 0L },
+                displayedPictures = stats?.displayedPictures?.toLong()?.takeIf { count -> count >= 0L },
+            )
+        }
+
+    private suspend fun requestRuntimeSnapshot(
+        snapshotGeneration: Long,
+        media: Media,
+    ): NativeRuntimeSnapshot? {
+        val snapshot =
+            withContext(Dispatchers.IO) {
+                readRuntimeSnapshot(snapshotGeneration, media)
+            } ?: return null
+        return withContext(Dispatchers.Main.immediate) {
+            if (isCurrentRuntimeSnapshot(snapshot)) {
+                updateRuntimeDiagnostics(snapshot)
+                snapshot
+            } else {
+                null
+            }
+        }
+    }
+
+    private fun isCurrentRuntimeSnapshot(snapshot: NativeRuntimeSnapshot): Boolean =
+        !released &&
+            snapshot.generation == generation &&
+            currentMedia === snapshot.media &&
+            nativePrepareGeneration == null &&
+            pendingNativeStop == null
 
     private fun readPositionMs(): Long = runCatching { mediaPlayer.time }.getOrDefault(_playbackState.value.positionMs)
 
@@ -1929,12 +2229,11 @@ class LibVlcPlayerController(
         subtitleActivationRetryJob = null
     }
 
-    private fun updateRuntimeDiagnostics() {
-        val videoTrack = runCatching { mediaPlayer.currentVideoTrack }.getOrNull()
-        val stats = currentMedia?.let { media -> runCatching { media.getStats() }.getOrNull() }
-        val lostPictures = stats?.lostPictures?.toLong()?.takeIf { count -> count >= 0L }
+    private fun updateRuntimeDiagnostics(snapshot: NativeRuntimeSnapshot) {
+        val lostPictures = snapshot.lostPictures
         observeDisplayedPictureDelta(
-            displayedPictures = stats?.displayedPictures?.toLong()?.takeIf { count -> count >= 0L },
+            displayedPictures = snapshot.displayedPictures,
+            snapshot = snapshot,
         )
         val droppedVideoFramesPerSecond =
             if (_playbackState.value.status != PlaybackStatus.Playing) {
@@ -1972,16 +2271,12 @@ class LibVlcPlayerController(
                 }
                 measurement?.ratePerSecond
             }
-        val frameRate =
-            videoTrack
-                ?.takeIf { track -> track.frameRateNum > 0 && track.frameRateDen > 0 }
-                ?.let { track -> track.frameRateNum.toDouble() / track.frameRateDen.toDouble() }
         _runtimeDiagnostics.update { current ->
             current.copy(
-                videoDecoderName = videoTrack?.codec?.takeIf { codec -> codec.isNotBlank() }?.let { codec -> "libvlc:$codec" },
-                videoWidth = videoTrack?.width?.takeIf { width -> width > 0 },
-                videoHeight = videoTrack?.height?.takeIf { height -> height > 0 },
-                videoFrameRate = frameRate,
+                videoDecoderName = snapshot.videoCodec?.let { codec -> "libvlc:$codec" },
+                videoWidth = snapshot.videoWidth,
+                videoHeight = snapshot.videoHeight,
+                videoFrameRate = snapshot.videoFrameRate,
                 droppedVideoFrames = lostPictures,
                 droppedVideoFramesPerSecond = droppedVideoFramesPerSecond,
                 outputDroppedVideoFrames = lostPictures,
@@ -2003,7 +2298,10 @@ class LibVlcPlayerController(
     }
 
     /** Emits only a positive native displayed-picture delta for this prepare epoch. */
-    private fun observeDisplayedPictureDelta(displayedPictures: Long?) {
+    private fun observeDisplayedPictureDelta(
+        displayedPictures: Long?,
+        snapshot: NativeRuntimeSnapshot,
+    ) {
         if (released || firstVideoOutputObservedGeneration == generation) return
         val currentCount = displayedPictures ?: return
         val baseline = displayedPicturesBaseline
@@ -2025,8 +2323,8 @@ class LibVlcPlayerController(
             resumeOutputWasPending &&
             pendingSeekTargetMs == null &&
             playIntent &&
-            mediaPlayer.isPlaying &&
-            readPositionMs() > 0L
+            snapshot.isPlaying &&
+            (snapshot.positionMs ?: 0L) > 0L
         ) {
             publishStatus(PlaybackStatus.Playing)
         }
@@ -2068,6 +2366,30 @@ class LibVlcPlayerController(
                     platform = PlaybackDiagnosticPlatform.Android,
                     backend = activeBackend,
                     exceptionType = throwable.playbackExceptionType(),
+                ),
+            )
+        }
+    }
+
+    private fun logNativeTransition(
+        operation: PlayerOperation,
+        milestone: PlaybackNativePlayerMilestone,
+        transitionGeneration: Long,
+        diagnosticSessionSequence: Long,
+        failure: Throwable? = null,
+    ) {
+        controllerLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.NativeLifecycle,
+                    platform = PlaybackDiagnosticPlatform.Android,
+                    backend = activeBackend,
+                    nativePlayerMilestone = milestone,
+                    operation = operation,
+                    prepareSequence = transitionGeneration,
+                    sessionSequence = diagnosticSessionSequence,
+                    exceptionType = failure?.playbackExceptionType(),
                 ),
             )
         }

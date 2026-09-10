@@ -174,7 +174,6 @@ internal fun TvPlayerContent(
     var audioNoticeVisible by remember { mutableStateOf(false) }
     var subtitleNoticeVisible by remember { mutableStateOf(false) }
     var backendNoticeVisible by remember { mutableStateOf(false) }
-    var backendSwitchNoticeVisible by remember { mutableStateOf(false) }
     val playerRequester = remember { FocusRequester() }
     val playFocusRequester = remember { FocusRequester() }
     val autoHideScope = rememberCoroutineScope()
@@ -388,15 +387,6 @@ internal fun TvPlayerContent(
             backendNoticeVisible = false
         } else {
             backendNoticeVisible = false
-        }
-    }
-    LaunchedEffect(content?.backendSwitchNotice?.token) {
-        if (content?.backendSwitchNotice != null) {
-            backendSwitchNoticeVisible = true
-            delay(BACKEND_FALLBACK_NOTICE_MS)
-            backendSwitchNoticeVisible = false
-        } else {
-            backendSwitchNoticeVisible = false
         }
     }
     LaunchedEffect(content?.subtitleOptions?.size, content?.chapters?.size, content?.subtitleRenderInfo?.styleable, localMenuVisible) {
@@ -669,11 +659,17 @@ internal fun TvPlayerContent(
                         }
                     }
                     AnimatedVisibility(
-                        visible = backendSwitchNoticeVisible,
+                        visible = state.playbackChangeNotice != null,
                         enter = slideInVertically { height -> -height } + fadeIn(),
                         exit = slideOutVertically { height -> -height } + fadeOut(),
                     ) {
-                        TvBackendSwitchKeptBanner()
+                        state.playbackChangeNotice?.let { notice ->
+                            TvPlaybackChangeKeptBanner(
+                                notice = notice,
+                                onAction = onPlaybackAction,
+                                onFocusedDismiss = ::requestPlayFocusThen,
+                            )
+                        }
                     }
                 }
                 val noticePlacement =
@@ -690,22 +686,26 @@ internal fun TvPlayerContent(
                                     TvDimens.playerOverlayVerticalPadding
                                 },
                         )
-                state.playbackActionNotice?.let { notice ->
-                    TvPlaybackActionNotice(
-                        notice = notice,
-                        onAction = onPlaybackAction,
-                        onFocusedDismiss = ::requestPlayFocusThen,
-                        modifier = noticePlacement,
-                    )
-                } ?: state.playbackGuidance?.let { guidance ->
-                    TvPlaybackGuidanceNotice(
-                        guidance = guidance,
-                        onDismiss = onDismissPlaybackGuidance,
-                        onOpenPlaybackSettings = onOpenPlaybackSettings,
-                        onFocusedDismiss = ::requestPlayFocusThen,
-                        modifier = noticePlacement,
-                    )
-                }
+                state.playbackActionNotice
+                    ?.takeIf { state.playbackChangeNotice == null }
+                    ?.let { notice ->
+                        TvPlaybackActionNotice(
+                            notice = notice,
+                            onAction = onPlaybackAction,
+                            onFocusedDismiss = ::requestPlayFocusThen,
+                            modifier = noticePlacement,
+                        )
+                    } ?: state.playbackGuidance
+                    ?.takeIf { state.playbackChangeNotice == null }
+                    ?.let { guidance ->
+                        TvPlaybackGuidanceNotice(
+                            guidance = guidance,
+                            onDismiss = onDismissPlaybackGuidance,
+                            onOpenPlaybackSettings = onOpenPlaybackSettings,
+                            onFocusedDismiss = ::requestPlayFocusThen,
+                            modifier = noticePlacement,
+                        )
+                    }
                 if (state.audioUnavailable) {
                     TvAudioUnavailableGlyph(
                         modifier =

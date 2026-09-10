@@ -343,7 +343,11 @@
     <string name="player_backend_fallback">%1$s is unavailable; using %2$s for this playback.</string>
     <string name="player_backend">Player backend</string>
     <string name="player_backend_current">Current backend</string>
-    <string name="player_backend_switch_kept">Current playback was kept.</string>
+    <string name="player_change_quality_rejected">Couldn&apos;t change quality. %1$s Current playback was kept.</string>
+    <string name="player_change_backend_rejected">Couldn&apos;t change player. %1$s Current playback was kept.</string>
+    <string name="player_change_reason_network">The server couldn&apos;t be reached.</string>
+    <string name="player_change_reason_unsupported">The requested option isn&apos;t supported for this item.</string>
+    <string name="player_change_reason_unknown">The requested option couldn&apos;t be prepared.</string>
     <string name="player_guidance_slow_startup">Playback is taking longer than expected to start.</string>
     <string name="player_guidance_long_buffering">Playback has been buffering for longer than expected.</string>
     <string name="player_guidance_cumulative_buffering">Playback has spent a lot of time buffering.</string>

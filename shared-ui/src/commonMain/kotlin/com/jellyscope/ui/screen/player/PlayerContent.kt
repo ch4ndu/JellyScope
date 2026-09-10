@@ -145,7 +145,6 @@ fun PlayerContent(
     var audioNoticeVisible by rememberSaveable { mutableStateOf(false) }
     var subtitleNoticeVisible by rememberSaveable { mutableStateOf(false) }
     var backendNoticeVisible by rememberSaveable { mutableStateOf(false) }
-    var backendSwitchNoticeVisible by rememberSaveable { mutableStateOf(false) }
     val platformCapabilities = LocalPlatformCapabilities.current
     val fullscreenToggle = LocalFullscreenToggle.current
     val playerCursorState = LocalPlayerCursorState.current
@@ -368,15 +367,6 @@ fun PlayerContent(
             backendNoticeVisible = false
         } else {
             backendNoticeVisible = false
-        }
-    }
-    LaunchedEffect(content?.backendSwitchNotice?.token) {
-        if (content?.backendSwitchNotice != null) {
-            backendSwitchNoticeVisible = true
-            delay(BACKEND_FALLBACK_NOTICE_MS)
-            backendSwitchNoticeVisible = false
-        } else {
-            backendSwitchNoticeVisible = false
         }
     }
     PlayerKeyCommandRegistration(
@@ -644,7 +634,7 @@ fun PlayerContent(
                         }
                     }
                     AnimatedVisibility(
-                        visible = !isInPictureInPicture && backendSwitchNoticeVisible,
+                        visible = !isInPictureInPicture && playerContent.playbackChangeNotice != null,
                         enter = slideInVertically { height -> -height } + fadeIn(),
                         exit = slideOutVertically { height -> -height } + fadeOut(),
                         modifier =
@@ -652,20 +642,25 @@ fun PlayerContent(
                                 .align(Alignment.TopCenter)
                                 .zIndex(PlayerOverlayLayer.POPUP),
                     ) {
-                        BackendSwitchKeptBanner(
-                            modifier =
-                                Modifier
-                                    .windowInsetsPadding(WindowInsets.safeDrawing)
-                                    .padding(
-                                        start = Dimensions.screenPadding,
-                                        end = Dimensions.screenPadding,
-                                        top = Dimensions.formSpacing,
-                                    ),
-                        )
+                        playerContent.playbackChangeNotice?.let { notice ->
+                            PlaybackChangeKeptBanner(
+                                notice = notice,
+                                onDismiss = { onPlaybackAction(PlaybackAction.Dismiss) },
+                                modifier =
+                                    Modifier
+                                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                                        .padding(
+                                            start = Dimensions.screenPadding,
+                                            end = Dimensions.screenPadding,
+                                            top = Dimensions.formSpacing,
+                                        ),
+                            )
+                        }
                     }
                     AnimatedVisibility(
                         visible =
                             !isInPictureInPicture &&
+                                playerContent.playbackChangeNotice == null &&
                                 (playerContent.playbackActionNotice != null || playerContent.playbackGuidance != null),
                         enter = slideInVertically { height -> height } + fadeIn(),
                         exit = slideOutVertically { height -> height } + fadeOut(),

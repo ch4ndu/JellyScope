@@ -57,8 +57,9 @@ The following rules are non-negotiable:
   speed, subtitle style, resize mode, queue identity, and installed-plan/
   reporting authority; it never carries outgoing decoder, health, dropped-frame,
   recovery, or runtime bitrate facts into the target request. A preflight
-  planning or explicit-intent failure closes the picker and presents the timed
-  "current playback was kept" notice without a Stop or teardown. For the final
+  planning or explicit-intent failure closes the picker and presents a persistent,
+  dismissible notice with the rejection reason and confirmation that current
+  playback was kept, without a Stop or teardown. For the final
   commit, the serialized installer revalidates authority, pauses an originally
   playing outgoing controller, refreshes confirmed position, and builds a final
   target-qualified plan while the controller and reporting session remain
@@ -83,6 +84,18 @@ The following rules are non-negotiable:
 still cause Jellyfin to choose a compatible stream when authoritative facts
 require that. It means that JellyScope adds no finite quality/performance
 limiter and does not silently choose a different stream after runtime failure.
+
+In shared Compose playback, a user quality choice is a proposal until a current
+replacement plan succeeds. A rejected proposal preserves the installed stream,
+last applied quality and its explicit/inherited origin, current pause/play
+intent, reporting, tracks, and health/recovery state. It shows the same typed,
+dismissible playback-change notice used for rejected backend switches. A later
+backend switch inherits the last applied quality, never a rejected proposal.
+Planning remains cancellable; the existing installation guard owns outgoing
+reporting Stop through replacement installation.
+This preservation applies only while the same installed session remains active;
+startup, terminal recovery, and native prepare failures retain their normal
+failure semantics. A new relevant action or explicit dismissal clears the notice.
 
 `Original` recovery is a single prompt contract. Every trigger below returns
 `OriginalPlaybackFailed` with exactly `AcceptAuto`, `OpenPlaybackSettings`,
@@ -561,6 +574,10 @@ inspection, and coexistence gates are owned by the
   general server default. Quality remains session-scoped because per-item
   persistence and learned limits let stale experiments override current policy;
   inherited Auto also remains distinct from an explicit session Auto choice.
+  Committing a choice only after planning succeeds prevents a rejected experiment
+  from changing the surviving stream's policy or a subsequent backend request.
+  The guarded installation boundary also prevents cancellation from ending
+  reporting for a stream that remains installed.
   The no-client-limit sentinel is required because both a finite stand-in and an
   omitted field can impose a server cap.
 

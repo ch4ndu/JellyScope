@@ -83,7 +83,7 @@ sealed interface PlayerUiState {
         val subtitleStyleable: Boolean = subtitleRenderInfo.styleable,
         val subtitleNotice: PlayerNotice? = null,
         val backendNotice: PlayerBackendNotice? = null,
-        val backendSwitchNotice: PlayerBackendSwitchNotice? = null,
+        val playbackChangeNotice: PlayerPlaybackChangeNotice? = null,
         val activeBackend: PlayerBackend = PlayerBackend.Auto,
         val backendChoices: List<PlayerBackendSwitchChoice> = emptyList(),
         val backendSwitchControlVisible: Boolean = false,
@@ -134,9 +134,16 @@ data class PlayerBackendSwitchChoice(
     val available: Boolean,
 )
 
-/** A target plan could not replace healthy playback, so the current session stayed installed. */
-data class PlayerBackendSwitchNotice(
+enum class PlayerPlaybackChangeOperation {
+    Quality,
+    Backend,
+}
+
+/** A proposed plan could not replace healthy playback, so the current session stayed installed. */
+data class PlayerPlaybackChangeNotice(
     val token: Long,
+    val operation: PlayerPlaybackChangeOperation,
+    val error: PlaybackError,
 )
 
 // Static debug fields; live fields come from playbackState.

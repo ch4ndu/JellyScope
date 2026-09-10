@@ -1765,7 +1765,7 @@ class PlaybackInfoPlannerTest {
                         requestPolicy = PlaybackInfoRequestPolicy(backend = PlayerBackend.LibVlc),
                     )
                 }
-            assertNull(failure.cause)
+            assertIs<PlaybackPlanningException.SourceVideoCopyRejected>(failure.cause)
             assertEquals(1, originalRepository.requestPolicies.size)
         }
 
@@ -1825,7 +1825,7 @@ class PlaybackInfoPlannerTest {
                     )
                 }
 
-            assertNull(failure.cause)
+            assertIs<PlaybackPlanningException.SourceVideoCopyRejected>(failure.cause)
             assertEquals(1, repository.requestPolicies.size)
         }
 

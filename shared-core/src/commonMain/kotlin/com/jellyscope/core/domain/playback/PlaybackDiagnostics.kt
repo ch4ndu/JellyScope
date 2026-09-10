@@ -43,6 +43,44 @@ enum class PlaybackPreflightReason : DiagnosticReason {
     VideoRangeTypeNotSupported,
 }
 
+enum class SourceVideoCopyRejectionReason : DiagnosticReason {
+    MissingVideoMetadata,
+    MissingCodecMetadata,
+    MissingDimensions,
+    MissingFrameRate,
+    UnsupportedRange,
+    WidthExceeded,
+    HeightExceeded,
+    FrameAreaExceeded,
+    ThroughputExceeded,
+}
+
+enum class SourceVideoCopyBinding {
+    VideoMetadata,
+    Codec,
+    Dimensions,
+    FrameRate,
+    Range,
+    Width,
+    Height,
+    FrameArea,
+    Throughput,
+}
+
+data class SourceVideoCopyRejectionDetail(
+    val reason: SourceVideoCopyRejectionReason,
+    val binding: SourceVideoCopyBinding,
+    val codec: String?,
+    val sourceWidth: Int?,
+    val sourceHeight: Int?,
+    val sourceFrameRate: Double?,
+    val sourceFrameArea: Long?,
+    val sourceFrameAreaPerSecond: Long?,
+    val effectiveBound: VideoCodecResolution?,
+    val resolutionPolicy: PlaybackResolutionPolicy,
+    val finiteLimitSources: Set<CapabilityEvidenceSource>,
+)
+
 enum class PlaybackCompletionReadinessReason : DiagnosticReason {
     PlaylistEntryUnresolved,
 }
@@ -109,6 +147,9 @@ enum class PlayerOperation(
     SetPlaybackSpeed("setPlaybackSpeed"),
     SetSubtitleStyle("setSubtitleStyle"),
     Stop("stop"),
+    Release("release"),
+    QualityChange("qualityChange"),
+    BackendSwitch("backendSwitch"),
     EventDrain("eventDrain"),
     SubtitleActivation("subtitleActivation"),
     AudioActivation("audioActivation"),
@@ -211,6 +252,11 @@ enum class PlaybackNativePlayerMilestone {
     EndFile,
     Shutdown,
     StartupTimeout,
+    TransitionQueued,
+    TransitionBegun,
+    TransitionCompleted,
+    TransitionFailed,
+    TransitionStale,
 }
 
 enum class PlaybackNativeCommandShape {
@@ -273,6 +319,10 @@ enum class PlaybackTerminalOutcome {
     RetryScheduled,
     VideoOnlyDegradationScheduled,
     VideoOnlyPlayback,
+}
+
+enum class PlaybackChangeResult {
+    CurrentPlaybackKept,
 }
 
 /** Result of resolving the requested player engine to a concrete backend. */
@@ -418,6 +468,7 @@ data class PlaybackDiagnostic(
     val exceptionType: String? = null,
     val errorCategory: PlaybackError? = null,
     val terminalOutcome: PlaybackTerminalOutcome? = null,
+    val playbackChangeResult: PlaybackChangeResult? = null,
     val prepareSequence: Long? = null,
     val sessionSequence: Long? = null,
     val retryAttempted: Boolean? = null,
@@ -448,6 +499,14 @@ data class PlaybackDiagnostic(
     val sourceBitDepth: Int? = null,
     val sourceVideoRangeType: String? = null,
     val sourceBitrateBps: Long? = null,
+    val sourceFrameArea: Long? = null,
+    val sourceFrameAreaPerSecond: Long? = null,
+    val effectiveMaxWidth: Int? = null,
+    val effectiveMaxHeight: Int? = null,
+    val effectiveMaxFrameArea: Long? = null,
+    val effectiveMaxFrameAreaPerSecond: Long? = null,
+    val sourceCopyBinding: SourceVideoCopyBinding? = null,
+    val finiteLimitSources: Set<CapabilityEvidenceSource> = emptySet(),
     val cappedWidth: Int? = null,
     val cappedHeight: Int? = null,
     val maxStreamingBitrate: Long? = null,
@@ -621,6 +680,9 @@ fun formatPlaybackDiagnostic(diagnostic: PlaybackDiagnostic): String =
         diagnostic.terminalOutcome?.let {
             appendDiagnosticField(PlaybackDiagnosticField.TerminalOutcome, it.name)
         }
+        diagnostic.playbackChangeResult?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.PlaybackChangeResult, it.name)
+        }
         diagnostic.prepareSequence?.coerceIn(0L, MAX_DIAGNOSTIC_SEQUENCE)?.let {
             appendDiagnosticField(PlaybackDiagnosticField.PrepareSequence, it)
         }
@@ -724,6 +786,32 @@ fun formatPlaybackDiagnostic(diagnostic: PlaybackDiagnostic): String =
         diagnostic.sourceBitrateBps?.coerceIn(0L, MAX_DIAGNOSTIC_BITRATE_BPS)?.let {
             appendDiagnosticField(PlaybackDiagnosticField.SourceBitrateBps, it)
         }
+        diagnostic.sourceFrameArea?.coerceIn(0L, MAX_DIAGNOSTIC_FRAME_AREA)?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.SourceFrameArea, it)
+        }
+        diagnostic.sourceFrameAreaPerSecond?.coerceIn(0L, MAX_DIAGNOSTIC_FRAME_AREA_PER_SECOND)?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.SourceFrameAreaPerSecond, it)
+        }
+        diagnostic.effectiveMaxWidth?.coerceIn(0, MAX_DIAGNOSTIC_VIDEO_DIMENSION)?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.EffectiveMaxWidth, it)
+        }
+        diagnostic.effectiveMaxHeight?.coerceIn(0, MAX_DIAGNOSTIC_VIDEO_DIMENSION)?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.EffectiveMaxHeight, it)
+        }
+        diagnostic.effectiveMaxFrameArea?.coerceIn(0L, MAX_DIAGNOSTIC_FRAME_AREA)?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.EffectiveMaxFrameArea, it)
+        }
+        diagnostic.effectiveMaxFrameAreaPerSecond
+            ?.coerceIn(0L, MAX_DIAGNOSTIC_FRAME_AREA_PER_SECOND)
+            ?.let { appendDiagnosticField(PlaybackDiagnosticField.EffectiveMaxFrameAreaPerSecond, it) }
+        diagnostic.sourceCopyBinding?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.SourceCopyBinding, it.name)
+        }
+        diagnostic.finiteLimitSources
+            .sortedBy(CapabilityEvidenceSource::ordinal)
+            .joinToString(",") { source -> source.name }
+            .takeIf(String::isNotEmpty)
+            ?.let { appendDiagnosticField(PlaybackDiagnosticField.FiniteLimitSources, it) }
         diagnostic.cappedWidth?.let {
             appendDiagnosticField(PlaybackDiagnosticField.CappedWidth, it)
         }
@@ -1012,6 +1100,7 @@ internal enum class PlaybackDiagnosticField(
     ExceptionType("exceptionType"),
     ErrorCategory("errorCategory"),
     TerminalOutcome("terminalOutcome"),
+    PlaybackChangeResult("playbackChangeResult"),
     PrepareSequence("prepareSequence"),
     SessionSequence("sessionSequence"),
     RetryAttempted("retryAttempted"),
@@ -1049,6 +1138,14 @@ internal enum class PlaybackDiagnosticField(
     SourceBitDepth("sourceBitDepth"),
     SourceVideoRangeType("sourceVideoRangeType"),
     SourceBitrateBps("sourceBitrateBps"),
+    SourceFrameArea("sourceFrameArea"),
+    SourceFrameAreaPerSecond("sourceFrameAreaPerSecond"),
+    EffectiveMaxWidth("effectiveMaxWidth"),
+    EffectiveMaxHeight("effectiveMaxHeight"),
+    EffectiveMaxFrameArea("effectiveMaxFrameArea"),
+    EffectiveMaxFrameAreaPerSecond("effectiveMaxFrameAreaPerSecond"),
+    SourceCopyBinding("sourceCopyBinding"),
+    FiniteLimitSources("finiteLimitSources"),
     CappedWidth("cappedWidth"),
     CappedHeight("cappedHeight"),
     MaxStreamingBitrate("maxStreamingBitrate"),
@@ -1149,6 +1246,7 @@ private fun DiagnosticReason.diagnosticName(): String =
         is Media3AudioDecoderReason -> name
         is PlaybackCompletionReadinessReason -> name
         is PlaybackPreflightReason -> name
+        is SourceVideoCopyRejectionReason -> name
         is SubtitleActivationFailureReason -> diagnosticValue
         is UnusableVideoCodecReason -> name
     }
@@ -1339,6 +1437,8 @@ private const val MAX_HEALTH_COUNT = 60
 private const val MAX_DIAGNOSTIC_SEQUENCE = 1_000_000L
 private const val MAX_DIAGNOSTIC_POSITION_MS = 604_800_000L
 private const val MAX_DIAGNOSTIC_BITRATE_BPS = 1_000_000_000L
+private const val MAX_DIAGNOSTIC_FRAME_AREA = 1_073_741_824L
+private const val MAX_DIAGNOSTIC_FRAME_AREA_PER_SECOND = 1_073_741_824_000L
 private const val MAX_DROPPED_FRAME_COUNT = 1_000_000_000L
 private const val MAX_DROPPED_FRAME_RATE = 100_000.0
 private const val MAX_DIAGNOSTIC_VIDEO_DIMENSION = 32_768

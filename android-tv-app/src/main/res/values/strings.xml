@@ -357,7 +357,11 @@
     <string name="tv_player_backend_fallback">%1$s is unavailable; using %2$s for this playback.</string>
     <string name="tv_player_backend">Player backend</string>
     <string name="tv_player_backend_current">Current backend</string>
-    <string name="tv_player_backend_switch_kept">Current playback was kept.</string>
+    <string name="tv_player_change_quality_rejected">Couldn\'t change quality. %1$s Current playback was kept.</string>
+    <string name="tv_player_change_backend_rejected">Couldn\'t change player. %1$s Current playback was kept.</string>
+    <string name="tv_player_change_reason_network">The server couldn\'t be reached.</string>
+    <string name="tv_player_change_reason_unsupported">The requested option isn\'t supported for this item.</string>
+    <string name="tv_player_change_reason_unknown">The requested option couldn\'t be prepared.</string>
     <string name="tv_player_backend_auto">Auto</string>
     <string name="tv_player_backend_avplayer">AVPlayer</string>
     <string name="tv_player_backend_vlckit">VLCKit</string>

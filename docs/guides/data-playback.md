@@ -447,9 +447,10 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   declared tuple is all Unknown. Missing fields stay Unknown; no maxima are
   rebuilt or synthesized. The projection changes no LibVLC container, codec,
   subtitle, HDR, audio, passthrough, or software-decoder declaration. This is a
-  narrow hardware-delegation safety input, not proof that LibVLC can render the
-  source. In particular, unprobed AV1 remains eligible for the pinned LibVLC
-  software/dav1d path.
+  conservative platform-decoder safety input: hardware, software, unclassified,
+  and legacy-classified probe bounds all remain enforced. Their provenance
+  describes Android's selected decoder, not measured limits of LibVLC's own
+  software decoder. Unprobed AV1 retains the pinned engine's unknown bounds.
 - When a projected bound rejects a source, the shared planner owns the normal
   compatibility path before native prepare: it records the capability-driven
   retry and `SourceCopyRejected`/`VerifiedDeviceCap` rather than handing the
@@ -1891,8 +1892,14 @@ rather than porting code. When probing a live server:
   advance and teardown. Events are handled directly on LibVLC's documented
   main-thread callback; stale captured generations are dropped. A genuine error
   while paused becomes `Failed`, while post-stop/detached-generation errors
-  cannot overwrite `Idle` or a replacement session. Native events from old media
-  delivered to a newly installed listener remain a device-validation residual.
+  cannot overwrite `Idle` or a replacement session. Periodic runtime/progress
+  reads execute off Main under the native-transition mutex, checking the exact
+  native media before reading and the Main-owned generation before publication.
+  Pending transitions publish the requested or cached position and cached
+  duration; they cannot restart polling merely by publishing `Buffering`. Snapshot
+  cancellation does not imply that an in-flight JNI call was interrupted. Native
+  events from old media delivered to a newly installed listener remain a
+  device-validation residual.
 - Android LibVLC publishes native runtime diagnostics at a low rate: codec
   label, dimensions, frame rate, and lost-picture count. Before media assignment
   it also emits one Info-priority `backend-readiness` record with the closed
@@ -3101,8 +3108,13 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   remains low-volume, sanitized fixed-label numeric data and must never include
   URLs, headers, tokens, or other identity-bearing values.
 - The diagnostics snapshot renders each normalized codec's closed decode and
-  finite-limit evidence. Missing or empty provenance renders `Unknown`; raw
-  decoder names and any unrecognized codec value remain outside the report.
+  finite-limit evidence. A source-copy rejection also records the source codec,
+  dimensions/rate, effective bounds, finite-limit provenance, and first binding
+  reason at the planner boundary, before a generic failure can discard them.
+  Original rejection and compatibility recovery preserve that detail. Missing
+  facts remain unknown; raw decoder names and unrecognized codec values stay
+  outside the report. These records explain enforced policy, not measured native
+  decoder performance.
 - Media3 emits one allowlisted audio-decoder initialization lifecycle record
   only when the callback's media-item prepare epoch matches the active prepare.
   Its closed reason is `BundledFfmpeg`, `Platform`, or `Unknown`; the documented
@@ -3368,6 +3380,15 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   ownership survives backend replacement and loading/picker states without a
   process singleton, service, CPU wake lock, vendor branch, or screensaver
   mutation. Physical acceptance remains an explicit validation limit.
+- **Native observations share teardown ownership.** A diagnostic getter can
+  block inside libvlc just like stop. Serializing snapshots with native
+  transitions off Main and publishing cached state keeps observation from
+  freezing input; media/generation checks prevent stale observations from
+  changing a replacement session.
+- **Capability rejection retains its evidence.** A generic unsupported result
+  cannot explain which source comparison failed. Closed reasons, numeric bounds,
+  and provenance distinguish app-enforced platform evidence from independent
+  native decoder performance without exposing media identity.
 - **Completion is generation-qualified.** Desktop mpv's sticky EOF and Android
   LibVLC's trailing `Stopped` event can otherwise complete the wrong media or
   cancel a valid `Completed` state. Entry/generation readiness and

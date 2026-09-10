@@ -141,7 +141,7 @@ class PlayerViewModelBackendLifecycleTest {
             assertEquals(PlayerBackend.AVPlayer, content.activeBackend)
             assertEquals("item-1", content.playbackItemId)
             assertEquals(PlayerPicker.None, content.pickerVisible)
-            assertNotNull(content.backendSwitchNotice)
+            assertNotNull(content.playbackChangeNotice)
             assertEquals(0, fixture.controller.releaseCount)
             assertTrue(fixture.reporter.reports.none { report -> report is Report.Stopped })
 

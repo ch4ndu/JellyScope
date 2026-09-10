@@ -49,6 +49,8 @@ import com.jellyscope.ui.screen.player.PlayerBackendNotice
 import com.jellyscope.ui.screen.player.PlayerDebugInfo
 import com.jellyscope.ui.screen.player.PlayerDebugRowModel
 import com.jellyscope.ui.screen.player.PlayerDebugSection
+import com.jellyscope.ui.screen.player.PlayerPlaybackChangeNotice
+import com.jellyscope.ui.screen.player.PlayerPlaybackChangeOperation
 import com.jellyscope.ui.screen.player.playerDebugSections
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlinx.coroutines.flow.StateFlow
@@ -267,8 +269,20 @@ internal fun TvBackendFallbackBanner(
 }
 
 @Composable
-internal fun TvBackendSwitchKeptBanner(modifier: Modifier = Modifier) {
-    Row(
+internal fun TvPlaybackChangeKeptBanner(
+    notice: PlayerPlaybackChangeNotice,
+    onAction: (PlaybackAction) -> Unit,
+    onFocusedDismiss: (() -> Unit) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val focusRestorer = remember { TvPlaybackGuidanceFocusRestorer() }
+    val currentOnFocusedDismiss = rememberUpdatedState(onFocusedDismiss)
+    DisposableEffect(focusRestorer) {
+        onDispose {
+            focusRestorer.restoreFocusIfActionWasFocusedThen(currentOnFocusedDismiss.value)
+        }
+    }
+    Column(
         modifier =
             modifier
                 .clip(RoundedCornerShape(TvDimens.panelRadius))
@@ -277,21 +291,62 @@ internal fun TvBackendSwitchKeptBanner(modifier: Modifier = Modifier) {
                     horizontal = TvDimens.playerPickerPadding,
                     vertical = TvDimens.formGap,
                 ),
-        horizontalArrangement = Arrangement.spacedBy(TvDimens.playerOverlayGap),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(TvDimens.formGap),
+        horizontalAlignment = Alignment.End,
     ) {
-        Icon(
-            imageVector = TvIcons.InformationOutline,
-            contentDescription = null,
-            tint = LocalJellyfinPalette.current.cyan,
-            modifier = Modifier.size(TvDimens.playerIconSize),
-        )
-        TvText(
-            text = stringResource(R.string.tv_player_backend_switch_kept),
-            style = TvBodyStyle.copy(fontWeight = FontWeight.SemiBold),
-            maxLines = 2,
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(TvDimens.playerOverlayGap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = TvIcons.InformationOutline,
+                contentDescription = null,
+                tint = LocalJellyfinPalette.current.cyan,
+                modifier = Modifier.size(TvDimens.playerIconSize),
+            )
+            TvText(
+                text = tvPlaybackChangeMessage(notice),
+                style = TvBodyStyle.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 3,
+            )
+        }
+        TvButton(
+            text = stringResource(R.string.tv_dismiss),
+            onClick = {
+                val handedOff =
+                    focusRestorer.restoreFocusIfActionWasFocusedThen(
+                        onFocusedDismiss = currentOnFocusedDismiss.value,
+                        afterFocus = { onAction(PlaybackAction.Dismiss) },
+                    )
+                if (!handedOff) {
+                    onAction(PlaybackAction.Dismiss)
+                }
+            },
+            modifier =
+                Modifier.onFocusChanged { focusState ->
+                    focusRestorer.onActionFocusChanged(focusState.isFocused)
+                },
         )
     }
+}
+
+@Composable
+private fun tvPlaybackChangeMessage(notice: PlayerPlaybackChangeNotice): String {
+    val reason =
+        stringResource(
+            when (notice.error) {
+                PlaybackError.Network -> R.string.tv_player_change_reason_network
+                PlaybackError.UnsupportedMedia -> R.string.tv_player_change_reason_unsupported
+                else -> R.string.tv_player_change_reason_unknown
+            },
+        )
+    return stringResource(
+        when (notice.operation) {
+            PlayerPlaybackChangeOperation.Quality -> R.string.tv_player_change_quality_rejected
+            PlayerPlaybackChangeOperation.Backend -> R.string.tv_player_change_backend_rejected
+        },
+        reason,
+    )
 }
 
 @Composable

@@ -163,9 +163,15 @@ class PlaybackInfoPlanner(
                             detailMediaStreams = detailMediaStreams,
                             requestPolicy = attempt.requestPolicy,
                         )
-                    } catch (_: PlaybackPlanningException.SourceVideoCopyRejected) {
+                    } catch (exception: PlaybackPlanningException.SourceVideoCopyRejected) {
                         if (effectiveQualityPolicy.mode == PlaybackQualityMode.Original) {
-                            throw PlaybackPlanningException.SourceVideoCopyUnsupported()
+                            throw PlaybackPlanningException.SourceVideoCopyUnsupported(
+                                attemptedRequestPolicy = attempt.requestPolicy,
+                                attemptedMaxStreamingBitrate = attempt.maxStreamingBitrate,
+                                attemptedQualityCapOrigin = attempt.qualityCapOrigin,
+                                attemptedQualityPolicy = effectiveQualityPolicy,
+                                cause = exception,
+                            )
                         }
                         recoverWithForcedTranscode(
                             directPlan = attemptedDirectPlan,
@@ -234,7 +240,21 @@ class PlaybackInfoPlanner(
                                 ),
                             unsupportedRangeTypesByCodec =
                                 deviceCapabilities?.unsupportedVideoRangeTypesByCodec.orEmpty(),
+                            resolutionPolicy = directPlan.resolutionPolicy,
+                            finiteLimitSources =
+                                finiteLimitSourcesFor(
+                                    videoStream = detailMediaStreams.firstVideoStreamOrNull(),
+                                    deviceCapabilities = deviceCapabilities,
+                                    resolutionPolicy = directPlan.resolutionPolicy,
+                                ),
                         )
+                    fallbackPreflight.rejectionDetail?.let { detail ->
+                        logSourceVideoCopyRejection(
+                            detail = detail,
+                            directPlan = directPlan,
+                            requestPolicy = effectiveRequestPolicy,
+                        )
+                    }
                     if (fallbackPreflight.allowsSourceCopy) {
                         directPlan.copy(
                             diagnosticSessionSequence = effectiveRequestPolicy.diagnosticSessionSequence,
@@ -529,34 +549,60 @@ fun decidePlan(
             // and fails closed on what it lacks.
             ?.withMetadataBorrowedFrom(detailVideoStream)
             ?: detailVideoStream
-    val sourceCopyPreflight =
-        if (
-            (videoStream != null || directPlan.videoExpected) &&
+    val resolutionPolicy =
+        resolutionPolicyFor(
+            videoStream = videoStream,
+            deviceCapabilities = deviceCapabilities,
+            qualityRungCeiling = requestPolicy.qualityResolutionCap,
+            userResolutionCeiling = requestPolicy.userVideoResolutionCap,
+        )
+    val effectiveBound =
+        effectivePlaybackCeiling(
+            videoStream = videoStream,
+            deviceCapabilities = deviceCapabilities,
+            qualityRungCeiling = requestPolicy.qualityResolutionCap,
+            userResolutionCeiling = requestPolicy.userVideoResolutionCap,
+        )
+    val metadataInsufficient =
+        (videoStream != null || directPlan.videoExpected) &&
             sourceVideoMetadataIsInsufficientForActiveCopyPolicy(
                 videoStream = videoStream,
                 deviceCapabilities = deviceCapabilities,
                 requestPolicy = requestPolicy,
             )
+    val sourceCopyPreflight =
+        if (
+            videoStream == null &&
+            !directPlan.videoExpected
         ) {
             SourceVideoCopyPreflight(
-                allowsSourceCopy = false,
+                allowsSourceCopy = true,
                 allowsUnverifiedTranscode = true,
-                hasFiniteCapabilityCap = true,
+                hasFiniteCapabilityCap = false,
             )
         } else {
             sourceVideoCopyPreflight(
                 videoStream = videoStream,
-                effectiveBound =
-                    effectivePlaybackCeiling(
-                        videoStream = videoStream,
-                        deviceCapabilities = deviceCapabilities,
-                        qualityRungCeiling = requestPolicy.qualityResolutionCap,
-                        userResolutionCeiling = requestPolicy.userVideoResolutionCap,
-                    ),
+                effectiveBound = effectiveBound,
                 unsupportedRangeTypesByCodec =
                     deviceCapabilities?.unsupportedVideoRangeTypesByCodec.orEmpty(),
+                metadataInsufficient = metadataInsufficient,
+                resolutionPolicy = resolutionPolicy,
+                finiteLimitSources =
+                    finiteLimitSourcesFor(
+                        videoStream = videoStream,
+                        deviceCapabilities = deviceCapabilities,
+                        resolutionPolicy = resolutionPolicy,
+                    ),
             )
         }
+    sourceCopyPreflight.rejectionDetail?.let { detail ->
+        logSourceVideoCopyRejection(
+            detail = detail,
+            directPlan = directPlan,
+            requestPolicy = requestPolicy,
+        )
+    }
     val sourceBitrate = mediaSource.bitrate ?: videoStream?.bitRate
     val selectedAudioIndex = mediaSource.defaultAudioStreamIndex?.takeIf { it >= 0 } ?: directPlan.selectedAudioStreamIndex
     val requestedSubtitleIndex = subtitleSelection.selectedIndexOrNull()
@@ -608,13 +654,7 @@ fun decidePlan(
             selectedSubtitleStreamIndex = requestedSubtitleIndex,
             subtitleAsset = subtitleAsset,
             plannedSubtitle = plannedSubtitle,
-            resolutionPolicy =
-                resolutionPolicyFor(
-                    videoStream = videoStream,
-                    deviceCapabilities = deviceCapabilities,
-                    qualityRungCeiling = requestPolicy.qualityResolutionCap,
-                    userResolutionCeiling = requestPolicy.userVideoResolutionCap,
-                ),
+            resolutionPolicy = resolutionPolicy,
             sourceBitrateBps = sourceBitrate,
             videoStreamLabel = videoStream?.readableLabel(),
             videoPresentation =
@@ -769,7 +809,10 @@ fun decidePlan(
                     effectiveTranscodeMaxStreamingBitrate = commonPlan.maxStreamingBitrate,
                 )
             }
-            !sourceCopyPreflight.allowsSourceCopy -> throw PlaybackPlanningException.SourceVideoCopyRejected
+            !sourceCopyPreflight.allowsSourceCopy ->
+                throw PlaybackPlanningException.SourceVideoCopyRejected(
+                    detail = sourceCopyPreflight.rejectionDetail ?: error("Rejected source copy requires diagnostic detail."),
+                )
             else -> throw PlaybackPlanningException.NoSupportedStream
         }
     playbackInfoPlannerLogger.i {
@@ -886,7 +929,9 @@ sealed class PlaybackPlanningException(
     data object NoSupportedStream : PlaybackPlanningException("No supported playback stream is available.")
 
     /** The decoder cannot safely receive the source video without a transcode. */
-    data object SourceVideoCopyRejected : PlaybackPlanningException("Source video exceeds the decoder capability bound.")
+    class SourceVideoCopyRejected(
+        val detail: SourceVideoCopyRejectionDetail,
+    ) : PlaybackPlanningException("Source video exceeds the decoder capability bound.")
 
     /**
      * Repository-owned transport details are reduced to this project contract
@@ -911,6 +956,7 @@ private data class SourceVideoCopyPreflight(
     val allowsSourceCopy: Boolean,
     val allowsUnverifiedTranscode: Boolean,
     val hasFiniteCapabilityCap: Boolean,
+    val rejectionDetail: SourceVideoCopyRejectionDetail? = null,
 )
 
 private fun sourceVideoMetadataIsInsufficientForActiveCopyPolicy(
@@ -947,7 +993,46 @@ private fun sourceVideoCopyPreflight(
     videoStream: PlaybackMediaStream?,
     effectiveBound: VideoCodecResolution?,
     unsupportedRangeTypesByCodec: Map<String, Set<String>> = emptyMap(),
+    metadataInsufficient: Boolean = false,
+    resolutionPolicy: PlaybackResolutionPolicy = PlaybackResolutionPolicy.NoCap,
+    finiteLimitSources: Set<CapabilityEvidenceSource> = emptySet(),
 ): SourceVideoCopyPreflight {
+    val codec = canonicalVideoCodec(videoStream?.codec)
+
+    fun rejected(
+        reason: SourceVideoCopyRejectionReason,
+        binding: SourceVideoCopyBinding,
+        allowsUnverifiedTranscode: Boolean = true,
+        sourceFrameArea: Long? = null,
+        sourceFrameAreaPerSecond: Long? = null,
+    ): SourceVideoCopyPreflight =
+        SourceVideoCopyPreflight(
+            allowsSourceCopy = false,
+            allowsUnverifiedTranscode = allowsUnverifiedTranscode,
+            hasFiniteCapabilityCap = true,
+            rejectionDetail =
+                SourceVideoCopyRejectionDetail(
+                    reason = reason,
+                    binding = binding,
+                    codec = codec,
+                    sourceWidth = videoStream?.width,
+                    sourceHeight = videoStream?.height,
+                    sourceFrameRate = videoStream?.realFrameRate,
+                    sourceFrameArea = sourceFrameArea,
+                    sourceFrameAreaPerSecond = sourceFrameAreaPerSecond,
+                    effectiveBound = effectiveBound,
+                    resolutionPolicy = resolutionPolicy,
+                    finiteLimitSources = finiteLimitSources,
+                ),
+        )
+
+    if (metadataInsufficient) {
+        return if (videoStream == null) {
+            rejected(SourceVideoCopyRejectionReason.MissingVideoMetadata, SourceVideoCopyBinding.VideoMetadata)
+        } else {
+            rejected(SourceVideoCopyRejectionReason.MissingCodecMetadata, SourceVideoCopyBinding.Codec)
+        }
+    }
     if (
         videoStream != null &&
         VideoRangeTypePolicy.isExplicitlyUnsupported(
@@ -956,10 +1041,9 @@ private fun sourceVideoCopyPreflight(
             unsupportedRangeTypesByCodec = unsupportedRangeTypesByCodec,
         )
     ) {
-        return SourceVideoCopyPreflight(
-            allowsSourceCopy = false,
-            allowsUnverifiedTranscode = true,
-            hasFiniteCapabilityCap = true,
+        return rejected(
+            reason = SourceVideoCopyRejectionReason.UnsupportedRange,
+            binding = SourceVideoCopyBinding.Range,
         )
     }
     if (videoStream == null || effectiveBound == null) {
@@ -987,38 +1071,129 @@ private fun sourceVideoCopyPreflight(
         // expressible as profile conditions (the mechanism this plan adds). The
         // transcode-refusing fail-closed below is reserved for the frame-rate
         // case, which no profile condition can express.
-        return SourceVideoCopyPreflight(
-            allowsSourceCopy = false,
-            allowsUnverifiedTranscode = true,
-            hasFiniteCapabilityCap = true,
+        return rejected(
+            reason = SourceVideoCopyRejectionReason.MissingDimensions,
+            binding = SourceVideoCopyBinding.Dimensions,
         )
     }
     val frameArea = blockPaddedArea(width, height)
-    val exceedsFrameBound =
-        (effectiveBound.maxWidth != null && width > effectiveBound.maxWidth) ||
-            (effectiveBound.maxHeight != null && height > effectiveBound.maxHeight) ||
-            (effectiveBound.maxFrameArea != null && frameArea > effectiveBound.maxFrameArea)
     val frameRate = videoStream.realFrameRate
     val hasFiniteThroughput = effectiveBound.maxFrameAreaPerSecond != null
     if (hasFiniteThroughput && (frameRate == null || !frameRate.isFinite() || frameRate <= 0.0)) {
         // PlaybackInfo does not expose negotiated output rate. Until a pinned
         // MaxFramerate request is probe-verified, an unknown-rate recovery is
         // not provably safe and must fail closed after its one retry.
-        return SourceVideoCopyPreflight(
-            allowsSourceCopy = false,
+        return rejected(
+            reason = SourceVideoCopyRejectionReason.MissingFrameRate,
+            binding = SourceVideoCopyBinding.FrameRate,
             allowsUnverifiedTranscode = false,
-            hasFiniteCapabilityCap = true,
+            sourceFrameArea = frameArea,
         )
     }
-    val exceedsThroughput =
-        frameRate != null &&
-            effectiveBound.maxFrameAreaPerSecond != null &&
-            frameArea.toDouble() * frameRate > effectiveBound.maxFrameAreaPerSecond.toDouble()
+    if (effectiveBound.maxWidth != null && width > effectiveBound.maxWidth) {
+        return rejected(SourceVideoCopyRejectionReason.WidthExceeded, SourceVideoCopyBinding.Width, sourceFrameArea = frameArea)
+    }
+    if (effectiveBound.maxHeight != null && height > effectiveBound.maxHeight) {
+        return rejected(SourceVideoCopyRejectionReason.HeightExceeded, SourceVideoCopyBinding.Height, sourceFrameArea = frameArea)
+    }
+    if (effectiveBound.maxFrameArea != null && frameArea > effectiveBound.maxFrameArea) {
+        return rejected(
+            SourceVideoCopyRejectionReason.FrameAreaExceeded,
+            SourceVideoCopyBinding.FrameArea,
+            sourceFrameArea = frameArea,
+        )
+    }
+    val sourceFrameAreaPerSecondExact = frameRate?.let { rate -> frameArea.toDouble() * rate }
+    val sourceFrameAreaPerSecond = sourceFrameAreaPerSecondExact?.toLong()
+    if (
+        sourceFrameAreaPerSecondExact != null &&
+        effectiveBound.maxFrameAreaPerSecond != null &&
+        sourceFrameAreaPerSecondExact > effectiveBound.maxFrameAreaPerSecond.toDouble()
+    ) {
+        return rejected(
+            SourceVideoCopyRejectionReason.ThroughputExceeded,
+            SourceVideoCopyBinding.Throughput,
+            sourceFrameArea = frameArea,
+            sourceFrameAreaPerSecond = sourceFrameAreaPerSecond,
+        )
+    }
     return SourceVideoCopyPreflight(
-        allowsSourceCopy = !exceedsFrameBound && !exceedsThroughput,
+        allowsSourceCopy = true,
         allowsUnverifiedTranscode = true,
         hasFiniteCapabilityCap = true,
     )
+}
+
+private fun finiteLimitSourcesFor(
+    videoStream: PlaybackMediaStream?,
+    deviceCapabilities: DeviceDecodingCapabilities?,
+    resolutionPolicy: PlaybackResolutionPolicy,
+): Set<CapabilityEvidenceSource> {
+    val hasDeviceBound =
+        when (resolutionPolicy) {
+            PlaybackResolutionPolicy.VerifiedDeviceCap,
+            PlaybackResolutionPolicy.VerifiedDeviceAndQualityRung,
+            PlaybackResolutionPolicy.VerifiedDeviceAndUserSetting,
+            PlaybackResolutionPolicy.VerifiedDeviceQualityRungAndUserSetting,
+            -> true
+
+            PlaybackResolutionPolicy.NoCap,
+            PlaybackResolutionPolicy.QualityRung,
+            PlaybackResolutionPolicy.UserSetting,
+            PlaybackResolutionPolicy.QualityRungAndUserSetting,
+            -> false
+        }
+    if (!hasDeviceBound) return emptySet()
+    val evidence = deviceCapabilities?.videoCodecEvidence.orEmpty()
+    val codec = canonicalVideoCodec(videoStream?.codec)
+    val sources =
+        if (codec != null) {
+            evidence[codec]?.finiteLimitSources.orEmpty()
+        } else {
+            evidence.values.flatMapTo(mutableSetOf()) { value -> value.finiteLimitSources }
+        }
+    return sources.ifEmpty { setOf(CapabilityEvidenceSource.Unknown) }
+}
+
+private fun logSourceVideoCopyRejection(
+    detail: SourceVideoCopyRejectionDetail,
+    directPlan: PlaybackPlan,
+    requestPolicy: PlaybackInfoRequestPolicy,
+) {
+    val bound = detail.effectiveBound
+    playbackInfoPlannerLogger.i {
+        formatPlaybackDiagnostic(
+            PlaybackDiagnostic(
+                stage = PlaybackDiagnosticStage.Planner,
+                event = PlaybackDiagnosticEvent.Rejected,
+                platform = PlaybackDiagnosticPlatform.Shared,
+                backend = requestPolicy.backend,
+                sessionSequence = requestPolicy.diagnosticSessionSequence,
+                requestPolicy = requestPolicy.diagnosticClass(),
+                clientTrigger = requestPolicy.clientTrigger,
+                qualityCapOrigin = directPlan.qualityCapOrigin,
+                requestCapBitrateBps = directPlan.maxStreamingBitrate,
+                resolutionPolicy = detail.resolutionPolicy,
+                startPositionMs = directPlan.startPositionMs,
+                sourceWidth = detail.sourceWidth,
+                sourceHeight = detail.sourceHeight,
+                frameRate = detail.sourceFrameRate,
+                codec = detail.codec,
+                reason = detail.reason,
+                sourceFrameArea = detail.sourceFrameArea,
+                sourceFrameAreaPerSecond = detail.sourceFrameAreaPerSecond,
+                effectiveMaxWidth = bound?.maxWidth,
+                effectiveMaxHeight = bound?.maxHeight,
+                effectiveMaxFrameArea = bound?.maxFrameArea,
+                effectiveMaxFrameAreaPerSecond = bound?.maxFrameAreaPerSecond,
+                sourceCopyBinding = detail.binding,
+                finiteLimitSources = detail.finiteLimitSources,
+                qualityPolicyMode = directPlan.qualityPolicy.mode,
+                bitrateConstraint = directPlan.bitrateConstraint.diagnosticName(),
+                recoveryIntent = requestPolicy.recoveryIntent,
+            ),
+        )
+    }
 }
 
 private fun SourceVideoCopyPreflight.diagnosticResult(): PlaybackCapabilityResult =

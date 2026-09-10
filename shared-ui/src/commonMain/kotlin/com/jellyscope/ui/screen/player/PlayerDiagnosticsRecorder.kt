@@ -12,6 +12,7 @@ import com.jellyscope.core.domain.playback.PlaybackBackendAvailability
 import com.jellyscope.core.domain.playback.PlaybackBackendConstructionResult
 import com.jellyscope.core.domain.playback.PlaybackBackendConstructionStage
 import com.jellyscope.core.domain.playback.PlaybackBackendFallbackResult
+import com.jellyscope.core.domain.playback.PlaybackChangeResult
 import com.jellyscope.core.domain.playback.PlaybackDiagnostic
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticEvent
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticPlatform
@@ -36,6 +37,7 @@ import com.jellyscope.core.domain.playback.PlaybackRecoveryDecision
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackTerminalOutcome
 import com.jellyscope.core.domain.playback.PlayerBackend
+import com.jellyscope.core.domain.playback.PlayerOperation
 import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleRenderInfo
@@ -96,6 +98,11 @@ internal data class PlayerPlannerFailureDiagnosticFacts(
     val qualityPolicy: PlaybackQualityPolicy,
     val qualityCapOrigin: PlaybackQualityCapOrigin?,
     val requestCapBitrateBps: Long?,
+)
+
+internal data class PlayerPlaybackChangeDiagnosticFacts(
+    val operation: PlayerPlaybackChangeOperation,
+    val error: PlaybackError,
 )
 
 internal data class PlayerPersistenceDiagnosticFacts(
@@ -286,6 +293,35 @@ internal class PlayerDiagnosticsRecorder {
                     qualityPolicyOrigin = context.qualityPolicyOrigin,
                     requestCapBitrateBps = attemptedRequestCap,
                     recoveryIntent = attemptedRequestPolicy.recoveryIntent,
+                ),
+            )
+        }
+    }
+
+    fun recordPlaybackChangeRejected(
+        context: PlayerDiagnosticContext,
+        facts: PlayerPlaybackChangeDiagnosticFacts,
+    ) {
+        playerViewModelLogger.w {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.Planner,
+                    event = PlaybackDiagnosticEvent.Rejected,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = context.backend,
+                    sessionSequence = context.sessionSequence,
+                    streamMode = context.streamMode,
+                    errorCategory = facts.error,
+                    operation =
+                        when (facts.operation) {
+                            PlayerPlaybackChangeOperation.Quality -> PlayerOperation.QualityChange
+                            PlayerPlaybackChangeOperation.Backend -> PlayerOperation.BackendSwitch
+                        },
+                    playbackChangeResult = PlaybackChangeResult.CurrentPlaybackKept,
+                    qualityCapOrigin = context.qualityCapOrigin,
+                    qualityPolicyMode = context.qualityPolicyMode,
+                    qualityPolicyOrigin = context.qualityPolicyOrigin,
+                    requestCapBitrateBps = context.requestCapBitrateBps,
                 ),
             )
         }
