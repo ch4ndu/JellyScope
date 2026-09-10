@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.geometry.Rect
 import com.jellyscope.core.domain.playback.PlayerController
+import com.jellyscope.ui.LocalPlayerFullscreenChanged
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import platform.UIKit.UIApplication
@@ -28,6 +29,7 @@ actual fun PlayerPlatformEffects(
     val currentOnPictureInPictureModeChanged = rememberUpdatedState(onPictureInPictureModeChanged)
     val currentOnCloseFromPictureInPicture = rememberUpdatedState(onCloseFromPictureInPicture)
     val currentOnBackgrounded = rememberUpdatedState(onBackgrounded)
+    val currentOnPlayerFullscreenChanged = rememberUpdatedState(LocalPlayerFullscreenChanged.current)
     val hasContent = content != null
 
     DisposableEffect(controller, hasContent) {
@@ -63,6 +65,13 @@ actual fun PlayerPlatformEffects(
         UIApplication.sharedApplication.idleTimerDisabled = true
         onDispose {
             UIApplication.sharedApplication.idleTimerDisabled = false
+        }
+    }
+
+    DisposableEffect(Unit) {
+        currentOnPlayerFullscreenChanged.value(true)
+        onDispose {
+            currentOnPlayerFullscreenChanged.value(false)
         }
     }
 

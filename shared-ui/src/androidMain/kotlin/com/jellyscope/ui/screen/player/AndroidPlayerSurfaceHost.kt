@@ -2,6 +2,7 @@
 
 package com.jellyscope.ui.screen.player
 
+import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -31,6 +32,7 @@ fun AndroidPlayerSurfaceHost(
     resizeMode: PlayerResizeMode,
     subtitleStyle: SubtitleStyle,
     subtitleBottomInsetPx: Int,
+    mobileSubtitleBaseTextSizeSp: Float? = null,
 ) {
     val platformPlayer = controller.platformPlayer
     val bindingOwner = androidPlayerSurfaceBindingOwner
@@ -91,7 +93,7 @@ fun AndroidPlayerSurfaceHost(
                         }
                     val overlay =
                         SubtitleView(context).apply {
-                            applySubtitleStyleWhenReady(subtitleStyle)
+                            applySubtitleStyleWhenReady(subtitleStyle, mobileSubtitleBaseTextSizeSp)
                             applySubtitleBottomInset(subtitleBottomInsetPx)
                         }
                     FrameLayout(context).apply {
@@ -120,7 +122,7 @@ fun AndroidPlayerSurfaceHost(
                     val overlay = frame.getChildAt(1) as SubtitleView
                     playerView.resizeMode = media3ResizeMode
                     playerView.subtitleView?.visibility = View.GONE
-                    overlay.applySubtitleStyleWhenReady(subtitleStyle)
+                    overlay.applySubtitleStyleWhenReady(subtitleStyle, mobileSubtitleBaseTextSizeSp)
                     overlay.applySubtitleBottomInset(subtitleBottomInsetPx)
                 },
                 onRelease = { bindingOwner.release(bindingToken) },
@@ -135,7 +137,10 @@ private fun matchParentParams(): FrameLayout.LayoutParams =
 
 // The controller records the user's subtitle appearance in state; rendering is
 // owned by the timing-adjusted overlay and must be applied to that view.
-private fun SubtitleView.applySubtitleStyle(style: SubtitleStyle) {
+private fun SubtitleView.applySubtitleStyle(
+    style: SubtitleStyle,
+    mobileSubtitleBaseTextSizeSp: Float?,
+) {
     val foreground = style.foregroundColor.parseColorOr(AndroidColor.WHITE)
     val background = style.backgroundColor.parseColorOr(AndroidColor.TRANSPARENT)
     val edgeType =
@@ -155,12 +160,19 @@ private fun SubtitleView.applySubtitleStyle(style: SubtitleStyle) {
             null,
         ),
     )
-    setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * style.fontScale)
+    if (mobileSubtitleBaseTextSizeSp == null) {
+        setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * style.fontScale)
+    } else {
+        setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, mobileSubtitleBaseTextSizeSp * style.fontScale)
+    }
 }
 
-private fun SubtitleView.applySubtitleStyleWhenReady(style: SubtitleStyle) {
-    applySubtitleStyle(style)
-    post { applySubtitleStyle(style) }
+private fun SubtitleView.applySubtitleStyleWhenReady(
+    style: SubtitleStyle,
+    mobileSubtitleBaseTextSizeSp: Float?,
+) {
+    applySubtitleStyle(style, mobileSubtitleBaseTextSizeSp)
+    post { applySubtitleStyle(style, mobileSubtitleBaseTextSizeSp) }
 }
 
 private fun SubtitleView.applySubtitleBottomInset(bottomInsetPx: Int) {

@@ -19,6 +19,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.jellyscope.core.domain.playback.PlaybackState
@@ -47,10 +51,58 @@ actual fun PlayerPlatformEffects(
         if (activity == null) {
             onDispose {}
         } else {
+            val window = activity.window
+            val decorView = window.decorView
+            val insetsController = WindowCompat.getInsetsController(window, decorView)
+            val rootInsets = ViewCompat.getRootWindowInsets(decorView)
+            val statusBarsVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.statusBars()) ?: true
+            val navigationBarsVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.navigationBars()) ?: true
+            val systemBarsBehavior = insetsController.systemBarsBehavior
+
+            fun hideSystemBars() {
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+            }
+
+            hideSystemBars()
+            val observer =
+                LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        hideSystemBars()
+                    }
+                }
+            activity.lifecycle.addObserver(observer)
+            onDispose {
+                activity.lifecycle.removeObserver(observer)
+                insetsController.systemBarsBehavior = systemBarsBehavior
+                if (statusBarsVisible) {
+                    insetsController.show(WindowInsetsCompat.Type.statusBars())
+                } else {
+                    insetsController.hide(WindowInsetsCompat.Type.statusBars())
+                }
+                if (navigationBarsVisible) {
+                    insetsController.show(WindowInsetsCompat.Type.navigationBars())
+                } else {
+                    insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+                }
+            }
+        }
+    }
+
+    DisposableEffect(activity) {
+        if (activity == null) {
+            onDispose {}
+        } else {
             val listener =
                 Consumer<PictureInPictureModeChangedInfo> { info ->
                     AndroidActivePlayerRegistry.setPictureInPictureMode(info.isInPictureInPictureMode)
                     onPictureInPictureModeChanged(info.isInPictureInPictureMode)
+                    if (!info.isInPictureInPictureMode) {
+                        WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
+                            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                            hide(WindowInsetsCompat.Type.systemBars())
+                        }
+                    }
                 }
             activity.addOnPictureInPictureModeChangedListener(listener)
             onDispose {

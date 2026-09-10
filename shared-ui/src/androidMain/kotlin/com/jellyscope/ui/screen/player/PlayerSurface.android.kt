@@ -2,10 +2,14 @@
 
 package com.jellyscope.ui.screen.player
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.domain.playback.SubtitleStyle
+import com.jellyscope.ui.theme.Dimensions
 
 @Composable
 actual fun PlayerSurface(
@@ -16,15 +20,24 @@ actual fun PlayerSurface(
     subtitleClearanceActive: Boolean,
     pictureInPictureRequiresLinearPlayback: Boolean,
 ) {
-    // Android owns its subtitle inset calculation; this desktop-only signal is inert here.
+    val density = LocalDensity.current
+    val subtitleBottomInsetPx =
+        if (subtitleClearanceActive) {
+            with(density) { Dimensions.mobileSubtitleClearance.roundToPx() } + WindowInsets.safeDrawing.getBottom(density)
+        } else {
+            0
+        }
     AndroidPlayerSurfaceHost(
         controller = controller,
         modifier = modifier,
         resizeMode = resizeMode,
         subtitleStyle = subtitleStyle,
-        subtitleBottomInsetPx = 0,
+        subtitleBottomInsetPx = subtitleBottomInsetPx,
+        mobileSubtitleBaseTextSizeSp = MOBILE_SUBTITLE_BASE_TEXT_SIZE_SP,
     )
 }
+
+private const val MOBILE_SUBTITLE_BASE_TEXT_SIZE_SP = 16f
 
 @Composable
 internal actual fun PlayerPointerActivityRegistration(

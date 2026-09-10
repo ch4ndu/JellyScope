@@ -5,8 +5,12 @@ import SwiftUI
 import UIKit
 
 struct ComposeView: UIViewControllerRepresentable {
+    @Binding var playerFullscreen: Bool
+
     func makeUIViewController(context: Context) -> UIViewController {
-        MainViewControllerKt.MainViewController()
+        MainViewControllerKt.MainViewController(onPlayerFullscreenChanged: { fullscreen in
+            playerFullscreen = fullscreen.boolValue
+        })
     }
 
     func updateUIViewController(

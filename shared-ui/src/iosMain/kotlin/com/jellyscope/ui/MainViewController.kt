@@ -2,6 +2,8 @@
 
 package com.jellyscope.ui
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.window.ComposeUIViewController
 import com.jellyscope.core.data.local.LogCollectionPreferenceStore
 import com.jellyscope.core.data.local.PreviousRunFailurePlatform
@@ -29,6 +31,8 @@ import platform.UIKit.UIViewController
 private val DEFAULT_SERVER_URL = DevServerConfig.SERVER_URL.ifBlank { null }
 
 private var koinStarted = false
+
+internal val LocalPlayerFullscreenChanged = staticCompositionLocalOf<(Boolean) -> Unit> { {} }
 
 private fun ensureKoin() {
     if (!koinStarted) {
@@ -86,13 +90,15 @@ private fun bundleVersionName(): String =
         } ?: "dev"
 
 @Suppress("ktlint:standard:function-naming")
-fun MainViewController(): UIViewController {
+fun MainViewController(onPlayerFullscreenChanged: (Boolean) -> Unit): UIViewController {
     ensureKoin()
     return ComposeUIViewController {
-        JellyScopeApp(
-            initialServerUrl = DEFAULT_SERVER_URL,
-            prefillUsername = DevServerConfig.USERNAME,
-            prefillPassword = DevServerConfig.PASSWORD,
-        )
+        CompositionLocalProvider(LocalPlayerFullscreenChanged provides onPlayerFullscreenChanged) {
+            JellyScopeApp(
+                initialServerUrl = DEFAULT_SERVER_URL,
+                prefillUsername = DevServerConfig.USERNAME,
+                prefillPassword = DevServerConfig.PASSWORD,
+            )
+        }
     }
 }

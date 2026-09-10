@@ -29,6 +29,7 @@ object Dimensions {
     val playerBufferingIndicatorSizeCompact = 54.dp
     val playerBufferingIndicatorStroke = 3.dp
     val playerBufferingIndicatorStrokeCompact = 6.dp
+    val mobileSubtitleClearance = 160.dp
     val searchIconSize = 24.dp
     val searchIconStroke = 2.dp
     val personAvatarSize = 56.dp

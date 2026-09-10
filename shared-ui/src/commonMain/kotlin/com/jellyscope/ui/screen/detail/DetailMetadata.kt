@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -107,7 +111,10 @@ private fun RatingsRow(detail: DetailUi) {
 }
 
 @Composable
-internal fun ExternalLinksRow(detail: DetailUi) {
+internal fun ExternalLinksRow(
+    detail: DetailUi,
+    modifier: Modifier = Modifier,
+) {
     val imdbUrl = detail.imdbUrl
     val tmdbUrl = detail.tmdbUrl
     if (imdbUrl == null && tmdbUrl == null) {
@@ -117,6 +124,7 @@ internal fun ExternalLinksRow(detail: DetailUi) {
     val uriHandler = LocalUriHandler.current
 
     Row(
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -155,15 +163,26 @@ private fun ExternalLinkChip(
         shape = MaterialTheme.shapes.extraSmall,
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
-        Text(
-            text = label,
+        Row(
             modifier =
                 Modifier.padding(
                     horizontal = Dimensions.badgeHorizontalPadding,
                     vertical = Dimensions.badgeVerticalPadding,
                 ),
-            color = MaterialTheme.colorScheme.primary,
-            style = MaterialTheme.typography.labelMedium,
-        )
+            horizontalArrangement = Arrangement.spacedBy(Dimensions.labelGlyphSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.OpenInNew,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(Dimensions.controlButtonIconSize),
+            )
+        }
     }
 }

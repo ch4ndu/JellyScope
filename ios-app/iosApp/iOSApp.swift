@@ -6,8 +6,18 @@ import SwiftUI
 struct iOSApp: App {
     var body: some Scene {
         WindowGroup {
-            ComposeView()
-                .ignoresSafeArea()
+            PlayerFullscreenWindow()
         }
+    }
+}
+
+private struct PlayerFullscreenWindow: View {
+    @State private var playerFullscreen = false
+
+    var body: some View {
+        ComposeView(playerFullscreen: $playerFullscreen)
+            .statusBarHidden(playerFullscreen)
+            .persistentSystemOverlays(playerFullscreen ? .hidden : .automatic)
+            .ignoresSafeArea()
     }
 }

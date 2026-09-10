@@ -2532,6 +2532,7 @@ internal class AndroidMpvPlayerController(
                 presentation.subtitleBottomInsetPx <= 0 -> MPV_DEFAULT_SUBTITLE_BOTTOM_MARGIN_PX
                 else -> maxOf(180, (presentation.subtitleBottomInsetPx * 720f / surfaceHeight).roundToInt())
             }
+        native.setPropertyString("sub-font-size", ANDROID_MPV_SUBTITLE_BASE_FONT_SIZE.toString())
         _playbackState.value.subtitleStyle
             .toMpvSubtitleProperties(scaledPixelMargin = scaledMargin)
             .forEach { (name, value) -> native.setPropertyString(name, value) }
@@ -2700,6 +2701,8 @@ internal class AndroidMpvPlayerController(
         const val DIAGNOSTIC_LOG_SIZE_POLL_MS = 30_000L
     }
 }
+
+private const val ANDROID_MPV_SUBTITLE_BASE_FONT_SIZE = 41.25f
 
 private val androidMpvControllerLogger = diagnosticLogger(DiagnosticTag.AndroidMpvPlayerController)
 

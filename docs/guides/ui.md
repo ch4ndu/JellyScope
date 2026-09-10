@@ -91,6 +91,12 @@ brush and scrims without resetting Settings scroll or focus.
   elements. Native tvOS owns SwiftUI/AVKit layout; see
   [Platform Strategy](architecture.md#platform-strategy). Every platform keeps
   controls clear of system bars, cutouts, and home indicators.
+- Android mobile playback hides status/navigation bars for the whole player route,
+  including Loading, errors, controls, and PiP transitions. Resume/PiP exit
+  reapplies immersive mode; disposal restores prior bar visibility and behavior.
+  On iOS, the player route controls status-bar and home-indicator preferences
+  through the existing per-window SwiftUI host. Leaving playback restores normal
+  chrome; system gestures retain their native behavior.
 - Text must fit across phone, TV, and desktop. Mobile controls require content
   descriptions, screen-reader labels, scalable text, contrast, and suitable
   touch targets. Avoid tiny and hover-only controls.
@@ -139,6 +145,12 @@ brush and scrims without resetting Settings scroll or focus.
   common composables do not infer the platform through OS checks.
 - Desktop popups, menus, and dialogs use the merged Compose canvas. Do not
   restore platform-window layers or per-surface window workarounds.
+- Shared Settings switch rows omit redundant visible On/Off supporting values,
+  retaining explanatory descriptions, the spoken value, and one toggle target.
+  Non-switch rows retain their selected/effective values.
+- Shared Detail IMDb/TMDB chips center their label and decorative external-link
+  icon in the touch target. Non-Compact touch layouts center the link group;
+  Compact placement and D-pad exclusion remain unchanged.
 - Shared Settings retains Back and title but omits its self-navigation shortcut.
   Other shared screens retain Settings.
 - The adaptive rail reuses the bottom-bar destination model. On Medium+ it is
@@ -249,6 +261,13 @@ brush and scrims without resetting Settings scroll or focus.
 - Hide controls that cannot act: Queue without a playlist and Quality without
   rungs. A Library Shuffle All movie queue is a playlist. Disabled styling is
   reserved for a temporarily unavailable action.
+- Local-text subtitles use independent renderer bases, with the user size
+  preference applied separately: mobile Media3 uses 16 sp, Android mpv 41.25
+  native scaled pixels, and desktop mpv 28.5 native scaled pixels. Android TV
+  Media3 retains its fractional base. Mobile Android raises subtitles by 160 dp
+  plus the safe bottom inset while controls/pickers need clearance, returning
+  to zero extra inset when hidden or in PiP. The reserve includes a 16 dp gap
+  above the existing 144 dp controls estimate; TV retains its own geometry.
 - The player top bar shows title and year plus series/episode metadata; codec and
   media-version facts stay in debug UI.
 - The debug card uses 60% by 60% on desktop. Compact removes the 320 dp cap and
@@ -487,6 +506,14 @@ explains Apple TV's reclaimable storage and app-active transfer limit. The
 [download contract](data-playback.md#downloads-and-offline) owns those rules.
 
 ## Why
+
+- Subtitle bases belong to each renderer so native defaults and user preferences
+  can change independently. Mobile Media3 uses sp so control clearance does not
+  also shrink its text. Immersive chrome follows route lifetime rather than
+  loaded content, preventing bars from returning during loading or errors.
+- Switches already show state; their supporting text explains behavior instead.
+  External-link icons make the browser handoff visible without adding another
+  action or changing the destination.
 
 - Native tvOS keeps SwiftUI state adapters beside their feature views and owns
   native focus while shared Kotlin presenters own business state. Qualified routes

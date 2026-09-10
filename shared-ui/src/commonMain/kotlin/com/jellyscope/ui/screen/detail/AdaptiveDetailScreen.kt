@@ -36,6 +36,8 @@ import com.jellyscope.core.domain.model.OpenSubtitleSearchRequest
 import com.jellyscope.core.domain.model.RELATED_GROUP_DISPLAY_LIMIT
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.ui.adaptive.LocalWindowWidthTier
+import com.jellyscope.ui.adaptive.WindowWidthTier
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
 import com.jellyscope.ui.component.AdaptiveCenteredSpinner
 import com.jellyscope.ui.component.AmbientLayer
@@ -475,8 +477,21 @@ internal fun AdaptiveDetailContent(
                 }
                 if (!dpad && (detail.imdbUrl != null || detail.tmdbUrl != null)) {
                     item(key = "external-links") {
-                        Box(modifier = Modifier.padding(horizontal = detailHorizontalInset())) {
-                            ExternalLinksRow(detail)
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = detailHorizontalInset()),
+                        ) {
+                            ExternalLinksRow(
+                                detail = detail,
+                                modifier =
+                                    if (LocalWindowWidthTier.current != WindowWidthTier.Compact) {
+                                        Modifier.align(Alignment.Center)
+                                    } else {
+                                        Modifier
+                                    },
+                            )
                         }
                     }
                 }

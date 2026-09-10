@@ -64,6 +64,7 @@ internal fun SettingsRow(
     val palette = LocalJellyfinPalette.current
     // Device policy overrides the requested value.
     val displayedValue = effectiveValue ?: value
+    val visibleValue = displayedValue.takeUnless { trailing is SettingsRowTrailing.Switch }
     val destructive = iconRole == SettingsRowIconRole.Destructive
     val iconColor =
         when (iconRole) {
@@ -127,9 +128,9 @@ internal fun SettingsRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!displayedValue.isNullOrBlank()) {
+            if (!visibleValue.isNullOrBlank()) {
                 Text(
-                    text = displayedValue,
+                    text = visibleValue,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,

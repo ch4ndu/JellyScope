@@ -913,8 +913,9 @@ the current bottom picker, and picture-in-picture state: normal controls or any 
 picker adds the fixed `146` scaled-pixel controls offset, for a total of `180`;
 picture-in-picture keeps the native `34` because the shared chrome is not rendered
 there. The setter is live and changes only mpv's `sub-margin-y`; it does
-not reprepare media or alter subtitle selection/style preferences. Android and iOS
-accept this surface input inertly, and desktop LibVLC never receives it.
+not reprepare media or alter subtitle selection/style preferences. Android uses the
+[subtitle presentation policy](ui.md#tv-layout); iOS accepts this surface input
+inertly, and desktop LibVLC never receives it.
 
 VLC does **not** use this policy: VLC 3.0.23 declares `sub-margin` as a plain integer
 option with no proportional form, and the option is installed at instance creation
@@ -2541,8 +2542,8 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   compatible legible asset and unsupported sidecars remain non-fatal.
 - **[Android]** Media3 confirms the selected embedded group or request-specific
   external configuration id before reporting active.
-- **[desktop]** mpv pins its base subtitle font size to `38` scaled pixels,
-  then applies the shared style scale. It resolves non-external `track-list`
+- **[desktop]** mpv uses the independent base and user size preference defined in
+  the [subtitle presentation policy](ui.md#tv-layout). It resolves non-external `track-list`
   entries to actual selector ids, confirms embedded selection by `aid`/`sid`,
   and confirms external selection by request-specific track title.
 - **[desktop]** `loadfile replace` acceptance is not subtitle readiness.

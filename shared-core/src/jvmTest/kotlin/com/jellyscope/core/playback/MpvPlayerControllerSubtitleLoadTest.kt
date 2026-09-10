@@ -183,12 +183,12 @@ class MpvPlayerControllerSubtitleLoadTest {
         withController(lib) { controller ->
             controller.prepare(externalPlan(subtitleTarget(11L)), remoteSubtitle)
 
-            assertEquals(listOf("sub-font-size=38"), lib.propertyWritesFor("sub-font-size"))
+            assertEquals(listOf("sub-font-size=28.5"), lib.propertyWritesFor("sub-font-size"))
 
             lib.clearPropertyWrites()
             controller.setSubtitleStyle(SubtitleStyle(fontScale = 1.2f))
 
-            assertEquals(listOf("sub-font-size=38"), lib.propertyWritesFor("sub-font-size"))
+            assertEquals(listOf("sub-font-size=28.5"), lib.propertyWritesFor("sub-font-size"))
             assertEquals(listOf("sub-scale=1.2"), lib.propertyWritesFor("sub-scale"))
         }
     }
