@@ -71,6 +71,7 @@ actual fun PlayerSurface(
     // than this software-frame drawing surface.
     subtitleStyle: com.jellyscope.core.domain.playback.SubtitleStyle,
     subtitleClearanceActive: Boolean,
+    subtitleBottomClearance: androidx.compose.ui.unit.Dp?,
     pictureInPictureRequiresLinearPlayback: Boolean,
 ) {
     val platformPlayer = controller.platformPlayer

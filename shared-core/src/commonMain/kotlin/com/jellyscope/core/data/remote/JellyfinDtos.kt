@@ -42,6 +42,7 @@ data class UserDto(
 data class UserPolicyDto(
     @SerialName("EnableContentDownloading") val enableContentDownloading: Boolean = false,
     @SerialName("EnableSubtitleManagement") val enableSubtitleManagement: Boolean = false,
+    @SerialName("MaxParentalRating") val maxParentalRating: Int? = null,
 )
 
 @Serializable
@@ -360,6 +361,8 @@ data class MediaStreamDto(
 data class UserDataDto(
     @SerialName("Played")
     val played: Boolean? = null,
+    @SerialName("PlayCount")
+    val playCount: Int? = null,
     @SerialName("IsFavorite")
     val isFavorite: Boolean? = null,
     @SerialName("PlayedPercentage")

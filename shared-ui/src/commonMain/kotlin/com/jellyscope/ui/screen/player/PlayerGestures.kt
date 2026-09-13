@@ -36,6 +36,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
@@ -226,9 +228,14 @@ internal fun PlayerGestureLayer(
     onSeekTo: (Long) -> Unit,
     onSetPlaybackSpeed: (Float) -> Unit,
     onHud: (PlayerGestureHud?) -> Unit,
+    volumeAndBrightnessEnabled: Boolean = true,
+    playbackGesturesEnabled: Boolean = true,
+    fullscreenDragDirection: PlayerFullscreenDragDirection = PlayerFullscreenDragDirection.Down,
+    onFullscreenDrag: ((distancePx: Float, videoHeightPx: Int) -> Unit)? = null,
+    onFullscreenDragEnd: (cancelled: Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val gestureController = rememberPlayerGestureController()
+    val gestureController = if (volumeAndBrightnessEnabled) rememberPlayerGestureController() else null
     val currentContent by rememberUpdatedState(content)
     val currentPlaybackState by rememberUpdatedState(playbackState)
     val currentOnToggleControls by rememberUpdatedState(onToggleControls)
@@ -236,6 +243,11 @@ internal fun PlayerGestureLayer(
     val currentOnSeekTo by rememberUpdatedState(onSeekTo)
     val currentOnSetPlaybackSpeed by rememberUpdatedState(onSetPlaybackSpeed)
     val currentOnHud by rememberUpdatedState(onHud)
+    val currentVolumeAndBrightnessEnabled by rememberUpdatedState(volumeAndBrightnessEnabled)
+    val currentPlaybackGesturesEnabled by rememberUpdatedState(playbackGesturesEnabled)
+    val currentOnFullscreenDrag by rememberUpdatedState(onFullscreenDrag)
+    val currentOnFullscreenDragEnd by rememberUpdatedState(onFullscreenDragEnd)
+    var gestureCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val systemGestures = WindowInsets.systemGestures
@@ -246,208 +258,254 @@ internal fun PlayerGestureLayer(
 
     Box(
         modifier =
-            modifier.pointerInput(Unit) {
-                coroutineScope {
-                    var lastTapUptimeMs = 0L
-                    var lastTapZone: PlayerTapZone? = null
-                    var lastMouseClickUptimeMs = 0L
-                    var singleTapJob: Job? = null
-                    var singleMouseClickJob: Job? = null
+            modifier
+                .onGloballyPositioned {
+                    gestureCoordinates = it
+                }.pointerInput(volumeAndBrightnessEnabled, playbackGesturesEnabled, fullscreenDragDirection) {
+                    coroutineScope {
+                        var lastTapUptimeMs = 0L
+                        var lastTapZone: PlayerTapZone? = null
+                        var lastMouseClickUptimeMs = 0L
+                        var singleTapJob: Job? = null
+                        var singleMouseClickJob: Job? = null
 
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val ignored =
-                            down.position.isGestureExcluded(
-                                width = size.width,
-                                height = size.height,
-                                systemGestureLeft = currentSystemGestureLeft,
-                                systemGestureTop = currentSystemGestureTop,
-                                systemGestureRight = currentSystemGestureRight,
-                                systemGestureBottom = currentSystemGestureBottom,
-                            )
-                        // Delay mouse clicks so double-click can own fullscreen.
-                        if (down.type == PointerType.Mouse) {
-                            var mouseMoved = false
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { pointer -> pointer.id == down.id } ?: break
-                                if ((change.position - down.position).getDistance() > PLAYER_GESTURE_TAP_SLOP_PX) {
-                                    mouseMoved = true
-                                }
-                                if (!change.pressed) {
-                                    break
-                                }
-                            }
-                            if (!mouseMoved && !ignored) {
-                                val isDoubleClick = down.uptimeMillis - lastMouseClickUptimeMs <= DOUBLE_TAP_TIMEOUT_MS
-                                if (isDoubleClick) {
-                                    singleMouseClickJob?.cancel()
-                                    lastMouseClickUptimeMs = 0L
-                                    currentOnToggleFullscreen()
-                                } else {
-                                    lastMouseClickUptimeMs = down.uptimeMillis
-                                    singleMouseClickJob?.cancel()
-                                    singleMouseClickJob =
-                                        launch {
-                                            delay(DOUBLE_TAP_TIMEOUT_MS)
-                                            currentOnToggleControls()
-                                        }
-                                }
-                            }
-                            return@awaitEachGesture
-                        }
-                        var moved = false
-                        var verticalMode: PlayerVerticalGesture? = null
-                        var speedBoostActive = false
-                        val originalSpeed = currentContent.playbackSpeed
-                        val longPressJob =
-                            launch {
-                                delay(LONG_PRESS_SPEED_DELAY_MS)
-                                if (!moved && !ignored) {
-                                    speedBoostActive = true
-                                    currentOnSetPlaybackSpeed(TEMPORARY_LONG_PRESS_SPEED)
-                                    currentOnHud(PlayerGestureHud.Message(PlayerGestureHudType.SpeedBoost))
-                                }
-                            }
-
-                        try {
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { pointer -> pointer.id == down.id } ?: break
-                                val totalOffset = change.position - down.position
-                                if (change.pressed) {
-                                    if (!moved && totalOffset.getDistance() > PLAYER_GESTURE_TAP_SLOP_PX) {
-                                        moved = true
-                                        longPressJob.cancel()
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val initialVideoHeightPx = size.height
+                            val ignored =
+                                down.position.isGestureExcluded(
+                                    width = size.width,
+                                    height = size.height,
+                                    systemGestureLeft = currentSystemGestureLeft,
+                                    systemGestureTop = currentSystemGestureTop,
+                                    systemGestureRight = currentSystemGestureRight,
+                                    systemGestureBottom = currentSystemGestureBottom,
+                                )
+                            // Delay mouse clicks so double-click can own fullscreen.
+                            if (down.type == PointerType.Mouse) {
+                                var mouseMoved = false
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { pointer -> pointer.id == down.id } ?: break
+                                    if ((change.position - down.position).getDistance() > PLAYER_GESTURE_TAP_SLOP_PX) {
+                                        mouseMoved = true
                                     }
-                                    if (!ignored) {
-                                        if (
-                                            verticalMode == null &&
-                                            abs(totalOffset.y) >= PLAYER_GESTURE_MIN_DISTANCE_PX &&
-                                            abs(totalOffset.y) >= abs(totalOffset.x) * PLAYER_VERTICAL_DOMINANCE_RATIO
-                                        ) {
-                                            verticalMode =
-                                                if (down.position.x < size.width / 2f) {
-                                                    gestureController.beginBrightness()
-                                                    PlayerVerticalGesture.Brightness
-                                                } else {
-                                                    gestureController.beginVolume()
-                                                    PlayerVerticalGesture.Volume
-                                                }
+                                    if (!change.pressed) {
+                                        break
+                                    }
+                                }
+                                if (!mouseMoved && !ignored) {
+                                    if (!currentPlaybackGesturesEnabled) {
+                                        currentOnToggleControls()
+                                        return@awaitEachGesture
+                                    }
+                                    val isDoubleClick = down.uptimeMillis - lastMouseClickUptimeMs <= DOUBLE_TAP_TIMEOUT_MS
+                                    if (isDoubleClick) {
+                                        singleMouseClickJob?.cancel()
+                                        lastMouseClickUptimeMs = 0L
+                                        currentOnToggleFullscreen()
+                                    } else {
+                                        lastMouseClickUptimeMs = down.uptimeMillis
+                                        singleMouseClickJob?.cancel()
+                                        singleMouseClickJob =
+                                            launch {
+                                                delay(DOUBLE_TAP_TIMEOUT_MS)
+                                                currentOnToggleControls()
+                                            }
+                                    }
+                                }
+                                return@awaitEachGesture
+                            }
+                            val downInRoot = gestureCoordinates?.takeIf { it.isAttached }?.localToRoot(down.position) ?: down.position
+                            var fullscreenDragActive = false
+                            var released = false
+                            var moved = false
+                            var verticalMode: PlayerVerticalGesture? = null
+                            var speedBoostActive = false
+                            val originalSpeed = currentContent.playbackSpeed
+                            val longPressJob =
+                                launch {
+                                    delay(LONG_PRESS_SPEED_DELAY_MS)
+                                    if (currentPlaybackGesturesEnabled && !moved && !ignored) {
+                                        speedBoostActive = true
+                                        currentOnSetPlaybackSpeed(TEMPORARY_LONG_PRESS_SPEED)
+                                        currentOnHud(PlayerGestureHud.Message(PlayerGestureHudType.SpeedBoost))
+                                    }
+                                }
+
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { pointer -> pointer.id == down.id } ?: break
+                                    val totalOffset =
+                                        if (currentOnFullscreenDrag != null) {
+                                            val rootPosition = gestureCoordinates?.takeIf { it.isAttached }?.localToRoot(change.position)
+                                            (rootPosition ?: change.position) - downInRoot
+                                        } else {
+                                            change.position - down.position
+                                        }
+                                    if (currentOnFullscreenDrag != null && (change.isConsumed || event.changes.count { it.pressed } > 1)) {
+                                        moved = true
+                                        break
+                                    }
+                                    if (change.pressed) {
+                                        if (!moved && totalOffset.getDistance() > PLAYER_GESTURE_TAP_SLOP_PX) {
                                             moved = true
                                             longPressJob.cancel()
                                         }
-
-                                        val mode = verticalMode
-                                        if (mode != null) {
-                                            val distanceFull = (size.height * FULL_VERTICAL_SWIPE_HEIGHT_RATIO).coerceAtLeast(1f)
-                                            val deltaFraction = (down.position.y - change.position.y) / distanceFull
-                                            when (mode) {
-                                                PlayerVerticalGesture.Brightness ->
-                                                    gestureController.updateBrightness(deltaFraction)?.let { value ->
-                                                        currentOnHud(
-                                                            PlayerGestureHud.Meter(
-                                                                type = PlayerGestureHudType.Brightness,
-                                                                fraction = value,
-                                                            ),
-                                                        )
-                                                    }
-                                                PlayerVerticalGesture.Volume ->
-                                                    gestureController.updateVolume(deltaFraction)?.let { value ->
-                                                        currentOnHud(
-                                                            PlayerGestureHud.Meter(
-                                                                type = PlayerGestureHudType.Volume,
-                                                                fraction = value,
-                                                            ),
-                                                        )
-                                                    }
+                                        if (!ignored) {
+                                            if (
+                                                verticalMode == null &&
+                                                !fullscreenDragActive &&
+                                                abs(totalOffset.y) >= PLAYER_GESTURE_MIN_DISTANCE_PX &&
+                                                abs(totalOffset.y) >= abs(totalOffset.x) * PLAYER_VERTICAL_DOMINANCE_RATIO
+                                            ) {
+                                                if (currentOnFullscreenDrag != null && totalOffset.y * fullscreenDragDirection.sign > 0f) {
+                                                    fullscreenDragActive = true
+                                                } else if (currentVolumeAndBrightnessEnabled) {
+                                                    verticalMode =
+                                                        if (down.position.x < size.width / 2f) {
+                                                            gestureController?.beginBrightness()
+                                                            PlayerVerticalGesture.Brightness
+                                                        } else {
+                                                            gestureController?.beginVolume()
+                                                            PlayerVerticalGesture.Volume
+                                                        }
+                                                }
+                                                moved = true
+                                                longPressJob.cancel()
+                                                singleTapJob?.cancel()
                                             }
-                                            change.consume()
+
+                                            if (fullscreenDragActive) {
+                                                currentOnFullscreenDrag?.invoke(totalOffset.y, initialVideoHeightPx)
+                                                change.consume()
+                                            }
+                                            val mode = verticalMode
+                                            if (mode != null) {
+                                                val distanceFull = (size.height * FULL_VERTICAL_SWIPE_HEIGHT_RATIO).coerceAtLeast(1f)
+                                                val deltaFraction = (down.position.y - change.position.y) / distanceFull
+                                                when (mode) {
+                                                    PlayerVerticalGesture.Brightness ->
+                                                        gestureController?.updateBrightness(deltaFraction)?.let { value ->
+                                                            currentOnHud(
+                                                                PlayerGestureHud.Meter(
+                                                                    type = PlayerGestureHudType.Brightness,
+                                                                    fraction = value,
+                                                                ),
+                                                            )
+                                                        }
+                                                    PlayerVerticalGesture.Volume ->
+                                                        gestureController?.updateVolume(deltaFraction)?.let { value ->
+                                                            currentOnHud(
+                                                                PlayerGestureHud.Meter(
+                                                                    type = PlayerGestureHudType.Volume,
+                                                                    fraction = value,
+                                                                ),
+                                                            )
+                                                        }
+                                                }
+                                                change.consume()
+                                            }
                                         }
                                     }
+                                    if (!change.pressed) {
+                                        if (fullscreenDragActive) currentOnFullscreenDrag?.invoke(totalOffset.y, initialVideoHeightPx)
+                                        released = true
+                                        break
+                                    }
                                 }
-                                if (!change.pressed) {
-                                    break
+                            } finally {
+                                if (fullscreenDragActive) currentOnFullscreenDragEnd(!released)
+                                longPressJob.cancel()
+                                if (verticalMode != null) {
+                                    gestureController?.endGesture()
+                                }
+                                if (speedBoostActive) {
+                                    currentOnSetPlaybackSpeed(originalSpeed)
                                 }
                             }
-                        } finally {
-                            longPressJob.cancel()
-                            if (verticalMode != null) {
-                                gestureController.endGesture()
-                            }
-                            if (speedBoostActive) {
-                                currentOnSetPlaybackSpeed(originalSpeed)
-                            }
-                        }
 
-                        if (!moved && !ignored && !speedBoostActive) {
-                            val zone = down.position.tapZone(width = size.width)
-                            val action =
-                                playerTapAction(
-                                    zone = zone,
-                                    lastZone = lastTapZone,
-                                    msSinceLastTap =
-                                        if (lastTapZone == null) {
-                                            null
-                                        } else {
-                                            down.uptimeMillis - lastTapUptimeMs
-                                        },
-                                )
-                            singleTapJob?.cancel()
-                            when (action) {
-                                PlayerTapAction.ToggleControlsNow -> {
-                                    lastTapUptimeMs = down.uptimeMillis
-                                    lastTapZone = zone
+                            if (!moved && !ignored && !speedBoostActive) {
+                                if (!currentPlaybackGesturesEnabled) {
                                     currentOnToggleControls()
+                                    return@awaitEachGesture
                                 }
-                                PlayerTapAction.ScheduleToggleControls -> {
-                                    lastTapUptimeMs = down.uptimeMillis
-                                    lastTapZone = zone
-                                    singleTapJob =
-                                        launch {
-                                            delay(DOUBLE_TAP_TIMEOUT_MS)
-                                            currentOnToggleControls()
-                                        }
-                                }
-                                PlayerTapAction.SeekBackward,
-                                PlayerTapAction.SeekForward,
-                                -> {
-                                    lastTapUptimeMs = 0L
-                                    lastTapZone = null
-                                    val deltaMs =
-                                        if (action == PlayerTapAction.SeekForward) {
-                                            DOUBLE_TAP_SEEK_MS
-                                        } else {
-                                            -DOUBLE_TAP_SEEK_MS
-                                        }
-                                    val playbackState = currentPlaybackState()
-                                    val target =
-                                        (playbackState.positionMs + deltaMs)
-                                            .coerceAtLeast(0L)
-                                            .let { position ->
-                                                playbackState.durationMs?.let { duration -> position.coerceAtMost(duration) } ?: position
-                                            }
-                                    currentOnSeekTo(target)
-                                    currentOnHud(
-                                        PlayerGestureHud.Message(
-                                            if (deltaMs > 0L) {
-                                                PlayerGestureHudType.SeekForward
+                                val zone = down.position.tapZone(width = size.width)
+                                val action =
+                                    playerTapAction(
+                                        zone = zone,
+                                        lastZone = lastTapZone,
+                                        msSinceLastTap =
+                                            if (lastTapZone == null) {
+                                                null
                                             } else {
-                                                PlayerGestureHudType.SeekBackward
+                                                down.uptimeMillis - lastTapUptimeMs
                                             },
-                                        ),
                                     )
-                                }
-                                PlayerTapAction.Ignore -> {
-                                    lastTapUptimeMs = 0L
-                                    lastTapZone = null
+                                singleTapJob?.cancel()
+                                when (action) {
+                                    PlayerTapAction.ToggleControlsNow -> {
+                                        lastTapUptimeMs = down.uptimeMillis
+                                        lastTapZone = zone
+                                        currentOnToggleControls()
+                                    }
+                                    PlayerTapAction.ScheduleToggleControls -> {
+                                        lastTapUptimeMs = down.uptimeMillis
+                                        lastTapZone = zone
+                                        singleTapJob =
+                                            launch {
+                                                delay(DOUBLE_TAP_TIMEOUT_MS)
+                                                currentOnToggleControls()
+                                            }
+                                    }
+                                    PlayerTapAction.SeekBackward,
+                                    PlayerTapAction.SeekForward,
+                                    -> {
+                                        lastTapUptimeMs = 0L
+                                        lastTapZone = null
+                                        val deltaMs =
+                                            if (action == PlayerTapAction.SeekForward) {
+                                                DOUBLE_TAP_SEEK_MS
+                                            } else {
+                                                -DOUBLE_TAP_SEEK_MS
+                                            }
+                                        val playbackState = currentPlaybackState()
+                                        val target =
+                                            (playbackState.positionMs + deltaMs)
+                                                .coerceAtLeast(0L)
+                                                .let { position ->
+                                                    playbackState.durationMs?.let { duration -> position.coerceAtMost(duration) }
+                                                        ?: position
+                                                }
+                                        currentOnSeekTo(target)
+                                        currentOnHud(
+                                            PlayerGestureHud.Message(
+                                                if (deltaMs > 0L) {
+                                                    PlayerGestureHudType.SeekForward
+                                                } else {
+                                                    PlayerGestureHudType.SeekBackward
+                                                },
+                                            ),
+                                        )
+                                    }
+                                    PlayerTapAction.Ignore -> {
+                                        lastTapUptimeMs = 0L
+                                        lastTapZone = null
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            },
+                },
     )
+}
+
+internal enum class PlayerFullscreenDragDirection(
+    val sign: Float,
+) {
+    Up(-1f),
+    Down(1f),
 }
 
 internal sealed interface PlayerGestureHud {

@@ -91,12 +91,13 @@ brush and scrims without resetting Settings scroll or focus.
   elements. Native tvOS owns SwiftUI/AVKit layout; see
   [Platform Strategy](architecture.md#platform-strategy). Every platform keeps
   controls clear of system bars, cutouts, and home indicators.
-- Android mobile playback hides status/navigation bars for the whole player route,
-  including Loading, errors, controls, and PiP transitions. Resume/PiP exit
-  reapplies immersive mode; disposal restores prior bar visibility and behavior.
-  On iOS, the player route controls status-bar and home-indicator preferences
-  through the existing per-window SwiftUI host. Leaving playback restores normal
-  chrome; system gestures retain their native behavior.
+- Normal Android mobile playback hides system bars for the whole player route,
+  including loading and errors. Kids playback uses its actual fullscreen flag;
+  toggles, resume, and PiP exit apply that current flag, and disposal restores
+  captured window state. iOS sends the same actual flag through its per-window
+  SwiftUI status-bar/home-indicator bridge and clears it on disposal. Loading,
+  errors, and visible controls never decide fullscreen; system gestures retain
+  native behavior.
 - Text must fit across phone, TV, and desktop. Mobile controls require content
   descriptions, screen-reader labels, scalable text, contrast, and suitable
   touch targets. Avoid tiny and hover-only controls.
@@ -140,9 +141,15 @@ brush and scrims without resetting Settings scroll or focus.
   available pane. Detail, Series, and Season use shared adaptive TV-style bodies.
   Person stays stacked on Compact and uses a portrait-or-initial beside bounded
   name/overview from Medium upward, aligned to adaptive horizontal padding.
-- Shared UI reads explicit platform capability locals for desktop-only input,
-  fullscreen, resize, and transport behavior. Common/mobile defaults are off;
-  common composables do not infer the platform through OS checks.
+- Shared UI reads explicit platform capability locals for input, fullscreen,
+  resize, and transport behavior; common composables do not infer the platform
+  through OS checks. Android mobile and iOS enable video viewport animation for
+  normal playback orientation changes: the same native view smoothly resizes and
+  stays centered over 500 ms while controls adopt the new safe layout. PiP and
+  TV/desktop geometry remain direct, and the selected resize mode is preserved.
+  Kids playback is explicitly enabled on Android mobile and
+  iOS, with a watch-page-only fullscreen control. Other iOS defaults and normal
+  mobile/desktop controls retain their existing policy.
 - Desktop popups, menus, and dialogs use the merged Compose canvas. Do not
   restore platform-window layers or per-surface window workarounds.
 - Shared Settings switch rows omit redundant visible On/Off supporting values,
@@ -159,6 +166,84 @@ brush and scrims without resetting Settings scroll or focus.
   exit, or Back. Rail width consumes start-side safe drawing before content
   padding is calculated, preventing duplicate landscape-cutout insets.
 
+### Kids watch page
+
+- Eligibility and account freshness follow [Kids account playback](data-playback.md#kids-account-playback).
+  The presentation is captured once per player route on Android/iOS phones and
+  tablets; TV and desktop keep normal playback. There is no app toggle, Kids
+  home redesign, parent approval, or viewing timer.
+- The [selected touch mockups](../design/kids-mode/player-mockups/README.md)
+  define video placement and control hierarchy. Recommendations use the vertical
+  grid described below, superseding the mockup carousels and featured first card.
+  Portrait uses the full available video width with no horizontal outer padding,
+  above the recommendation grid.
+  Landscape uses a left-aligned player and a fixed, normally scrolling right
+  recommendation region; this follows window orientation, not the 840 dp tier.
+  The 16:9 viewport uses Fit to preserve source aspect, never stretching into
+  a column. Fullscreen/PiP fit and
+  center that viewport in the available canvas without replacing its native owner.
+  Portrait and landscape fullscreen entry/exit animate the same 16:9 viewport
+  over 250 ms; recommendations slide and fade out, then return on exit. Rotation
+  uses 500 ms to resize the video around the destination pane center while
+  recommendations move to their new region beneath the video layer. Old screen
+  coordinates never drive the rotating video's center. Center and size have
+  separate animation state, so a fullscreen toggle during rotation continues
+  from the visible center. The native player stays
+  installed. Safe spacing follows system-bar changes; animation and drag values are
+  read during layout/placement. Rapid toggles retarget the current animation.
+  PiP uses direct geometry. Geometry changes never replan or restart playback.
+- Inline layout consumes the top safe-drawing inset once above the video.
+  Cutout/navigation insets protect overlaid controls and recommendation content,
+  without becoming horizontal video margins. Landscape sizing leaves the bottom
+  system area clear. Fullscreen retains native bar hiding and safe control insets.
+- The current title is compact and single-line below the portrait video, and
+  below the landscape video when vertical space permits. One More to watch
+  heading covers online or offline recommendations. A single shuffled pool
+  is projected off Main into one vertically scrolling adaptive grid on all phone
+  and tablet orientations. Columns adapt to the available recommendation width
+  and tile-size preference; every asset occupies one equal-width cell. There are
+  no horizontal ribbons or special first-card spans. Every card uses 16:9 artwork,
+  a one-line ellipsized title, and an optional
+  duration badge when metadata exists. No subtitle/metadata row adds tile height.
+  The current asset is excluded; there is no history shelf, inferred recommendation
+  category, or autoplay queue. Scroll positions survive orientation/fullscreen.
+- Initial preparation and buffering show a centered compact loading indicator,
+  including when controls are hidden. Play/Pause/Replay replaces the indicator
+  only after preparation or buffering ends; terminal failures use the shared typed
+  error/recovery presentation without a Play action. PiP omits the custom center
+  control. Media-button toggles use the shared play-intent and Replay policy.
+  Centered play/pause or Replay and top Back/options overlay the video. Elapsed
+  time, seek, duration, and fullscreen share one compact bottom row. The primary
+  button uses the active theme accent; timestamps retain contrast on bright video.
+  All buttons retain 48 dp or larger targets. Audio, Subtitles, Quality, and
+  recovery use the existing UI; open options suspend auto-hide. Inline gestures
+  do not intercept list scrolling. Existing loading/error/retry and permitted
+  Downloads actions remain available. No social or duplicate below-video controls
+  are added. Audio-unavailable, subtitle, and backend notices use existing shared
+  banners and timeout constants; the audio warning can be dismissed and returns
+  on control interaction, with a glyph while controls are hidden. Gesture HUDs
+  expire using the shared timeout.
+- Dragging the inline video upward enters fullscreen; dragging the fullscreen
+  video downward exits it. Either direction follows the finger up to 50% of the
+  watch screen height, allowing the video to move off-screen. The release
+  threshold in both directions is 20% of the measured video viewport height at
+  pointer-down, fixed for that gesture even if its size changes. Releasing at or
+  beyond that distance in the active direction commits the animated transition;
+  a shorter or cancelled drag animates back. Reversing before release uses the final
+  displacement. The gesture starts on the video, not the recommendation grid;
+  inline taps still toggle controls without double-tap seek or hold speed.
+  Rotation/PiP or an external fullscreen change cancel the drag;
+  system gesture edges and overlaid controls keep their input ownership. Kids
+  disables brightness/volume swipes on both sides without acquiring the native
+  brightness controller. Fullscreen tap, double-tap seek, and hold speed remain.
+- Back returns within or closes a picker, then exits fullscreen, then stops and
+  pops the watch route. It has no extra hide-controls step. Background/PiP close
+  uses the explicit route stop path. Permitted Downloads navigation also stops
+  and pops the player before opening the existing destination.
+- Offline cards use snapshot metadata and neutral artwork placeholders; cached
+  remote thumbnails do not imply offline availability. Download permission and
+  artifact qualification remain governed by the [download contract](data-playback.md#downloads-and-offline).
+
 ### Downloads navigation and presentation
 
 - Downloads is the fifth shared destination after Home, Library, Discover, and
@@ -171,8 +256,8 @@ brush and scrims without resetting Settings scroll or focus.
   Review validates the selection and shows the server estimate; Start queues it.
   Preview/enqueue errors replace the dialog content with a reason-specific
   failure. Allocation stays in Settings and Downloads. Normal Play remains
-  remote; completed Detail Download and Play on a Completed row are the only
-  entrances to offline playback while the feature is enabled.
+  remote; completed Detail Download, Play on a Completed row, and artifact-qualified
+  Kids download cards are explicit entrances to offline playback.
 - The account-scoped list keys rows/actions by `DownloadId`, preserving
   Completed, Downloading/Finalizing, Queued, Paused/Blocked, and Failed states.
   Queued rows offer Cancel and advance through one transfer slot; other states
@@ -268,6 +353,10 @@ brush and scrims without resetting Settings scroll or focus.
   plus the safe bottom inset while controls/pickers need clearance, returning
   to zero extra inset when hidden or in PiP. The reserve includes a 16 dp gap
   above the existing 144 dp controls estimate; TV retains its own geometry.
+  Kids instead supplies the measured bottom control overlay within its video
+  bounds, clamped to the surface without adding safe insets twice. Hidden
+  controls and PiP supply zero extra clearance. iOS/JVM accept this surface
+  input without changing their native subtitle placement.
 - The player top bar shows title and year plus series/episode metadata; codec and
   media-version facts stay in debug UI.
 - The debug card uses 60% by 60% on desktop. Compact removes the 320 dp cap and
@@ -509,8 +598,20 @@ explains Apple TV's reclaimable storage and app-active transfer limit. The
 
 - Subtitle bases belong to each renderer so native defaults and user preferences
   can change independently. Mobile Media3 uses sp so control clearance does not
-  also shrink its text. Immersive chrome follows route lifetime rather than
-  loaded content, preventing bars from returning during loading or errors.
+  also shrink its text. Fullscreen chrome follows presentation state rather
+  than loaded content: normal mobile routes stay fullscreen, while the inline
+  Kids watch page can toggle it without replacing playback. Measuring Kids
+  controls keeps subtitle clearance appropriate for a smaller video surface.
+- Kids recommendations are discovery views, not queues. One retained
+  player and explicit selection avoid autoplay while preserving responsive
+  layout and fullscreen continuity. Bounds animation retains the live native
+  surface through rotation and fullscreen changes. Rotation takes longer because
+  it moves a larger portion of the screen; its size animation uses the new
+  screen/pane center so coordinates from the old orientation cannot shift the
+  scaling anchor. Fullscreen toggles keep their shorter timing. A release threshold makes
+  fullscreen entry and dismissal reversible before lifting the finger. The
+  threshold follows video height so portrait inline playback remains reachable
+  without dragging across the much taller recommendation area.
 - Switches already show state; their supporting text explains behavior instead.
   External-link icons make the browser handoff visible without adding another
   action or changing the destination.

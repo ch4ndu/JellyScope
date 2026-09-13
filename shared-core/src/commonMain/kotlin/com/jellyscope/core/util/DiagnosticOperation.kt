@@ -11,6 +11,7 @@ enum class DiagnosticOperation(
 ) {
     UploadClientLogs("uploadClientLogs"),
     GetLibraries("getLibraries"),
+    GetKidsCatalogue("getKidsCatalogue"),
     GetContinueWatching("getContinueWatching"),
     GetNextUp("getNextUp"),
     GetItemDetail("getItemDetail"),
@@ -75,6 +76,7 @@ enum class DiagnosticOperation(
     AuthQuickConnect("authQuickConnect"),
     AuthSignOut("authSignOut"),
     AuthLogout("authLogout"),
+    RefreshParentalRating("refreshParentalRating"),
     OpenSubtitleSearch("openSubtitleSearch"),
     OpenSubtitleDownload("openSubtitleDownload"),
     GetSubtitleSelections("getSubtitleSelections"),

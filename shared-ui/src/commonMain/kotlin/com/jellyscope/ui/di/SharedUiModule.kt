@@ -3,6 +3,7 @@
 package com.jellyscope.ui.di
 
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
+import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.LibraryCollectionType
 import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.model.Session
@@ -27,6 +28,7 @@ import com.jellyscope.ui.screen.library.LibraryTabViewModel
 import com.jellyscope.ui.screen.login.LoginViewModel
 import com.jellyscope.ui.screen.login.QuickConnectViewModel
 import com.jellyscope.ui.screen.person.PersonViewModel
+import com.jellyscope.ui.screen.player.KidsWatchViewModel
 import com.jellyscope.ui.screen.player.PendingPlayerController
 import com.jellyscope.ui.screen.player.PlaybackSelectionMemory
 import com.jellyscope.ui.screen.player.PlayerLaunchOptions
@@ -279,6 +281,17 @@ val sharedUiModule =
                 getPlaybackSelectionsUseCase = get(),
             )
         }
+        viewModel { (session: Session, boundaryEpoch: Long, itemId: String, offlineDownloadId: DownloadId?) ->
+            KidsWatchViewModel(
+                session = session,
+                boundaryEpoch = boundaryEpoch,
+                initialItemId = itemId,
+                initialOfflineDownloadId = offlineDownloadId,
+                getKidsCatalogueUseCase = get(),
+                observeDownloadsUseCase = get(),
+                getOfflinePlaybackPlanUseCase = get(),
+            )
+        }
         viewModel { (session: Session, itemId: String, launchOptions: PlayerLaunchOptions) ->
             val backend = get<com.jellyscope.core.domain.playback.DeviceProfileProvider>().backendPolicy.defaultBackend
             PlayerViewModel(
@@ -290,6 +303,7 @@ val sharedUiModule =
                 initialSubtitleSelection = launchOptions.initialSubtitleSelection,
                 queue = launchOptions.queue,
                 offlineDownloadId = launchOptions.offlineDownloadId,
+                launchPolicy = launchOptions.launchPolicy,
                 backend = backend,
                 playerController = PendingPlayerController,
                 playerControllerFactoryWithOptions = { resolvedBackend, allowInsecureDesktopTls ->

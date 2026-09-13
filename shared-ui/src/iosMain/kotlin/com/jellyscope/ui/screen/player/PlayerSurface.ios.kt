@@ -53,6 +53,7 @@ actual fun PlayerSurface(
     // by the iOS PlayerController rather than this AVPlayerLayer surface.
     subtitleStyle: com.jellyscope.core.domain.playback.SubtitleStyle,
     subtitleClearanceActive: Boolean,
+    subtitleBottomClearance: androidx.compose.ui.unit.Dp?,
     pictureInPictureRequiresLinearPlayback: Boolean,
 ) {
     // iOS owns subtitle rendering in its player/controller; this desktop-only signal is inert.

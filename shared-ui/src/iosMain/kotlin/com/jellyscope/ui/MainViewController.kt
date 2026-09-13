@@ -22,6 +22,8 @@ import com.jellyscope.core.util.configureApplicationLogWriters
 import com.jellyscope.core.util.consumePreviousRunFailure
 import com.jellyscope.core.util.installPreviousRunFailureHandler
 import com.jellyscope.ui.di.sharedUiModule
+import com.jellyscope.ui.platform.LocalPlatformCapabilities
+import com.jellyscope.ui.platform.PlatformCapabilities
 import kotlinx.coroutines.CoroutineScope
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
@@ -93,7 +95,11 @@ private fun bundleVersionName(): String =
 fun MainViewController(onPlayerFullscreenChanged: (Boolean) -> Unit): UIViewController {
     ensureKoin()
     return ComposeUIViewController {
-        CompositionLocalProvider(LocalPlayerFullscreenChanged provides onPlayerFullscreenChanged) {
+        CompositionLocalProvider(
+            LocalPlatformCapabilities provides
+                PlatformCapabilities.Default.copy(supportsKidsPlayback = true, playerOrientationAnimation = true),
+            LocalPlayerFullscreenChanged provides onPlayerFullscreenChanged,
+        ) {
             JellyScopeApp(
                 initialServerUrl = DEFAULT_SERVER_URL,
                 prefillUsername = DevServerConfig.USERNAME,

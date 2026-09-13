@@ -72,6 +72,35 @@ The following rules are non-negotiable:
   sessions, queue changes, stop, disposal, unavailable/current choices, later
   plan/reporting installation, and stale switch generations cannot commit.
 
+### Single-asset Kids playback
+
+`PlayerLaunchPolicy` defaults to normal queue playback. A qualifying mobile
+route selects `KidsSingleAsset`: incoming queues, episode derivation, playlist
+metadata, Next/Previous/Shuffle, Up Next, automatic advance, and still-watching
+countdowns are suppressed. Recommendation cards never become queue entries.
+Completion settles reporting and keeps the selected asset displayed for Replay.
+
+Direct selection retains one PlayerViewModel/controller owner and the existing
+release-first installation path. The accepted target owns item ID, optional
+DownloadId, and launch identity. Initial loading, selection, and retry share the
+cancellable launch owner; selection invalidates outgoing seek/plan/source/track
+state and settles reporting before installing the new target. Refused controller
+installation conflicts leave selection unchanged, and stale completions cannot
+replace the latest accepted target. Retry uses that current target; constructor
+source fallback is limited to the initial target before manual selection.
+Retry reuses a controller position only after the current selected target has
+actually played; earlier failures preserve that target's launch position.
+
+Remote recommendation cards begin at zero; ordinary local cards use saved local
+resume. Replay explicitly starts from the beginning, including
+a zero effective local-resume input when building an offline plan. Replay does not
+erase durable progress to construct that plan. A pending from-beginning launch
+keeps that intent through Retry until the matching asset actually starts playing;
+a different target or disposal clears it. Meaningful current source/track
+choices are preserved for replay. Account/catalogue ownership belongs to
+[Kids account playback](data-playback.md#kids-account-playback), and layout/input
+to [Kids watch page](ui.md#kids-watch-page).
+
 ### Quality semantics
 
 | Policy | Initial wire request | Automatic stream-changing recovery | Persistence |
@@ -562,6 +591,11 @@ inspection, and coexistence gates are owned by the
 [Android native dependency runbook](../operations/android-native-dependencies.md).
 
 ## Why
+
+- **Single-asset choice needs explicit target ownership.** A one-item queue alone
+  would still allow episode derivation, stale retry inputs, and route-closing
+  completion. Kids uses a distinct launch policy while retaining the existing
+  planner, reporting, artifact leases, and native installation owner.
 
 - **Backend switching is a guarded controller replacement.** Planning and
   intent validation happen while current playback and reporting remain

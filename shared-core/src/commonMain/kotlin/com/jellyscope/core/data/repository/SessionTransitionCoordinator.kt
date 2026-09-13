@@ -11,11 +11,13 @@ import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.local.SessionStore
 import com.jellyscope.core.data.local.StoreCleanupException
 import com.jellyscope.core.data.local.StoredAccountRemoval
+import com.jellyscope.core.data.local.accountId
 import com.jellyscope.core.data.local.appendCleanupFailures
 import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -152,6 +154,48 @@ class SessionTransitionCoordinator(
                 }
             callerContext.ensureActive()
             result
+        }
+
+    internal suspend fun commitSameBoundaryParentalRatingUpdate(
+        expectedSession: Session,
+        expectedBoundaryEpoch: Long,
+        maxParentalRating: Int?,
+        currentSessionState: () -> SessionState,
+        readSnapshot: suspend () -> CommittedSessionSnapshot,
+        persist: suspend (Session) -> CommittedSessionSnapshot,
+        publish: suspend (CommittedSessionSnapshot) -> Unit,
+    ): ParentalRatingUpdateResult =
+        serverScopedStoreRegistry.withBoundaryMutation {
+            val current = currentSessionState()
+            if (current !is SessionState.LoggedIn ||
+                current.boundaryEpoch != expectedBoundaryEpoch ||
+                current.session != expectedSession
+            ) {
+                return@withBoundaryMutation ParentalRatingUpdateResult.Rejected
+            }
+
+            val expectedStored = expectedSession.toStored()
+            val persistedSnapshot = withContext(ioDispatcher) { readSnapshot() }
+            if (persistedSnapshot.logoutPending ||
+                persistedSnapshot.activeAccountId != expectedStored.accountId() ||
+                persistedSnapshot.activeSession != expectedStored
+            ) {
+                return@withBoundaryMutation ParentalRatingUpdateResult.Rejected
+            }
+
+            val updatedSession = expectedSession.copy(maxParentalRating = maxParentalRating)
+            if (updatedSession == expectedSession) {
+                return@withBoundaryMutation ParentalRatingUpdateResult.Unchanged
+            }
+
+            val callerContext = currentCoroutineContext()
+            callerContext.ensureActive()
+            withContext(NonCancellable) {
+                val committedSnapshot = withContext(ioDispatcher) { persist(updatedSession) }
+                publish(committedSnapshot)
+            }
+            callerContext.ensureActive()
+            ParentalRatingUpdateResult.Updated
         }
 
     internal suspend fun <T> commitAccountRemoval(

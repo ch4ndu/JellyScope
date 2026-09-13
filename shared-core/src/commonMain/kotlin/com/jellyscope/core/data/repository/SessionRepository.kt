@@ -54,12 +54,24 @@ interface SessionRepository {
         accountId: String,
         authorization: SessionRemovalAuthorization = SessionRemovalAuthorization.None,
     ): Result<AccountRemoval> = Result.failure(AuthError.AccountNotFound)
+
+    suspend fun updateParentalRating(
+        expectedSession: Session,
+        expectedBoundaryEpoch: Long,
+        maxParentalRating: Int?,
+    ): ParentalRatingUpdateResult = ParentalRatingUpdateResult.Rejected
 }
 
 data class AccountRemoval(
     val removedAccount: AccountSession,
     val activeSession: Session?,
 )
+
+enum class ParentalRatingUpdateResult {
+    Updated,
+    Unchanged,
+    Rejected,
+}
 
 class DefaultSessionRepository(
     private val sessionStore: SessionStore,
@@ -247,6 +259,21 @@ class DefaultSessionRepository(
             )
         }
 
+    override suspend fun updateParentalRating(
+        expectedSession: Session,
+        expectedBoundaryEpoch: Long,
+        maxParentalRating: Int?,
+    ): ParentalRatingUpdateResult =
+        sessionTransitionCoordinator.commitSameBoundaryParentalRatingUpdate(
+            expectedSession = expectedSession,
+            expectedBoundaryEpoch = expectedBoundaryEpoch,
+            maxParentalRating = maxParentalRating,
+            currentSessionState = { _sessionState.value },
+            readSnapshot = { sessionStore.readSnapshot() },
+            persist = { updatedSession -> sessionStore.writeSession(updatedSession.toStored()) },
+            publish = { snapshot -> publishCommittedSnapshot(snapshot, expectedBoundaryEpoch) },
+        )
+
     private suspend fun setLoggedInInternal(
         session: Session,
         authenticationAttempt: AuthenticationAttemptToken?,
@@ -284,6 +311,7 @@ internal fun StoredSession.toDomain(): Session =
         accessToken = accessToken,
         deviceId = deviceId,
         enableContentDownloading = enableContentDownloading,
+        maxParentalRating = maxParentalRating,
     )
 
 internal fun Session.toStored(): StoredSession =
@@ -296,6 +324,7 @@ internal fun Session.toStored(): StoredSession =
         accessToken = accessToken,
         deviceId = deviceId,
         enableContentDownloading = enableContentDownloading,
+        maxParentalRating = maxParentalRating,
     )
 
 private fun List<StoredSession>.toAccounts(activeAccountId: String?): List<AccountSession> =

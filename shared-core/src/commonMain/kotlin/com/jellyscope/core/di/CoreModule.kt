@@ -62,6 +62,7 @@ import com.jellyscope.core.domain.action.InstallLocalSubtitleAction
 import com.jellyscope.core.domain.action.LoginAction
 import com.jellyscope.core.domain.action.LogoutAction
 import com.jellyscope.core.domain.action.QuickConnectLoginAction
+import com.jellyscope.core.domain.action.RefreshParentalRatingAction
 import com.jellyscope.core.domain.action.RetryLocalSubtitleSyncAction
 import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SavePlaybackSelectionAction
@@ -108,6 +109,7 @@ import com.jellyscope.core.domain.usecase.GetGenresUseCase
 import com.jellyscope.core.domain.usecase.GetGridSortUseCase
 import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
 import com.jellyscope.core.domain.usecase.GetItemsByIdsUseCase
+import com.jellyscope.core.domain.usecase.GetKidsCatalogueUseCase
 import com.jellyscope.core.domain.usecase.GetLastLibraryIdUseCase
 import com.jellyscope.core.domain.usecase.GetLibraryFiltersUseCase
 import com.jellyscope.core.domain.usecase.GetLibraryItemsUseCase
@@ -360,6 +362,7 @@ val coreModule =
         single { ObserveSessionStateUseCase(sessionRepository = get()) }
         single { ObservePlaybackStopSettlementUseCase(registry = get()) }
         single { GetUserLibrariesUseCase(mediaRepository = get()) }
+        single { GetKidsCatalogueUseCase(mediaRepository = get()) }
         single { GetContinueWatchingUseCase(mediaRepository = get()) }
         single { GetNextUpUseCase(mediaRepository = get()) }
         single { GetItemDetailUseCase(mediaRepository = get()) }
@@ -441,6 +444,7 @@ val coreModule =
         single { GetRecentSearchesUseCase(recentSearchStore = get()) }
         single { ValidateServerAction(authRepository = get()) }
         single { LoginAction(authRepository = get()) }
+        single { RefreshParentalRatingAction(authRepository = get()) }
         single { QuickConnectLoginAction(authRepository = get()) }
         single { AddAccountAction(authRepository = get()) }
         single { SwitchAccountAction(sessionRepository = get()) }

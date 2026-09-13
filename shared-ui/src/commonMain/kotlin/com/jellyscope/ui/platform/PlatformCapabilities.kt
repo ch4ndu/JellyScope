@@ -7,6 +7,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 
 @Immutable
 data class PlatformCapabilities(
+    val supportsKidsPlayback: Boolean = false,
+    val playerOrientationAnimation: Boolean = false,
     val playerKeyboardShortcuts: Boolean = false,
     val desktopScrollInput: Boolean = false,
     val desktopResizeModes: Boolean = false,
@@ -18,6 +20,8 @@ data class PlatformCapabilities(
 
         val Mobile =
             PlatformCapabilities(
+                supportsKidsPlayback = true,
+                playerOrientationAnimation = true,
                 playerKeyboardShortcuts = true,
             )
 

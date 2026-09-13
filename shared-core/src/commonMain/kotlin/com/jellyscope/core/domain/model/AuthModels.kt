@@ -19,7 +19,11 @@ data class Session(
     val accessToken: String,
     val deviceId: String,
     val enableContentDownloading: Boolean = false,
+    val maxParentalRating: Int? = null,
 )
+
+val Session.isKidsPlaybackEligible: Boolean
+    get() = maxParentalRating?.let { rating -> rating in 0..7 } == true
 
 data class AccountSession(
     val accountId: String,

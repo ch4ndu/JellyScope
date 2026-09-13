@@ -162,6 +162,39 @@ internal val discoveryItemsQuery =
         limit = DEFAULT_DISCOVERY_PAGE_SIZE,
     )
 
+internal fun kidsCatalogueItemsQuery(
+    parentId: String,
+    startIndex: Int,
+): ItemsQuery =
+    ItemsQuery(
+        recursive = true,
+        includeItemTypes = kidsItemTypes,
+        limit = DEFAULT_DISCOVERY_PAGE_SIZE,
+        parentId = parentId,
+        startIndex = startIndex.coerceAtLeast(0),
+        sortBy = "SortName",
+        sortOrder = "Ascending",
+        fields = kidsCatalogueItemFields,
+        enableImageTypes = listOf("Primary", "Backdrop"),
+        enableTotalRecordCount = false,
+        enableUserData = true,
+    )
+
+internal val kidsItemTypes = listOf("Movie", "Episode")
+
+private val kidsCatalogueItemFields =
+    listOf(
+        "RunTimeTicks",
+        "SeriesName",
+        "SeriesId",
+        "SeasonId",
+        "IndexNumber",
+        "ParentIndexNumber",
+        "ImageTags",
+        "BackdropImageTags",
+        "UserData",
+    )
+
 internal val personFilmographyQuery =
     ItemsQuery(
         recursive = true,

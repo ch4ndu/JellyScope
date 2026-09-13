@@ -324,6 +324,14 @@
     <string name="grid_sort_runtime">Runtime</string>
     <string name="player_play">Play</string>
     <string name="player_pause">Pause</string>
+    <string name="kids_recommendations">More to watch</string>
+    <string name="kids_empty">Nothing else is available yet.</string>
+    <string name="kids_retry_catalogue">Couldn&apos;t load more to watch.</string>
+    <string name="kids_downloads">Downloads</string>
+    <string name="kids_downloads_error">Downloads could not be checked.</string>
+    <string name="kids_retry_offline">Check downloads again</string>
+    <string name="kids_more_playback_options">More playback options</string>
+    <string name="kids_replay">Replay from the beginning</string>
     <string name="player_play_cd">Play video</string>
     <string name="player_pause_cd">Pause video</string>
     <string name="player_seek_cd">Seek playback position</string>
@@ -431,7 +439,7 @@
     <string name="player_volume">Volume</string>
     <string name="player_volume_mute">Mute</string>
     <string name="player_volume_unmute">Unmute</string>
-    <string name="player_percent_value">%1$s %2$d%%</string>
+    <string name="player_percent_value">%1$s %2$d%</string>
     <string name="player_seek_forward_hud">Forward 10 seconds</string>
     <string name="player_seek_backward_hud">Back 10 seconds</string>
     <string name="player_speed_boost">2x speed</string>

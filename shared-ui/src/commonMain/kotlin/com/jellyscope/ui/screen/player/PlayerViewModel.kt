@@ -99,6 +99,7 @@ import com.jellyscope.core.domain.playback.PlayerStillWatchingState
 import com.jellyscope.core.domain.playback.PlayerVolumeController
 import com.jellyscope.core.domain.playback.PlayerVolumeState
 import com.jellyscope.core.domain.playback.StreamMode
+import com.jellyscope.core.domain.playback.SubtitleActivationIdentity
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
 import com.jellyscope.core.domain.playback.SubtitleAsset
 import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
@@ -204,8 +205,9 @@ class PlayerViewModel(
     getPlaybackInfoAtStartStateUseCase: GetPlaybackInfoAtStartStateUseCase? = null,
     private val monotonicTimeMs: () -> Long = ::playerMonotonicTimeMs,
     private val playbackHealthGuidancePolicy: PlaybackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Actionable,
-    private val offlineDownloadId: DownloadId? = null,
+    offlineDownloadId: DownloadId? = null,
     private val getOfflinePlaybackPlanUseCase: GetOfflinePlaybackPlanUseCase? = null,
+    private val launchPolicy: PlayerLaunchPolicy = PlayerLaunchPolicy.Normal,
 ) : ViewModel() {
     /** Diagnostics preference captured once per playback start. */
     val startWithPlaybackInfoOverlay: Boolean =
@@ -233,7 +235,18 @@ class PlayerViewModel(
     private val playbackEndedEvents = Channel<Unit>(Channel.BUFFERED)
     val playbackEnded: Flow<Unit> = playbackEndedEvents.receiveAsFlow()
 
-    private var queueIds = normalizedQueue(initialItemId = itemId, queue = queue)
+    private val isKidsSingleAsset: Boolean = launchPolicy == PlayerLaunchPolicy.KidsSingleAsset
+    private var currentOfflineDownloadId: DownloadId? = offlineDownloadId
+    private var forceStartFromBeginning = false
+    private var pendingRestartFromBeginningTarget: PlayerPlaybackTarget? = null
+    private var pendingRestartFromBeginningLaunchGeneration: Long? = null
+    private var playingPositionOwner: PlayerPlaybackTarget? = null
+    private var hasManuallySelectedAsset = false
+    private val initialPlaybackTarget = PlayerPlaybackTarget(itemId, offlineDownloadId)
+    private val _selectedPlaybackTarget = MutableStateFlow(PlayerPlaybackTarget(itemId, offlineDownloadId))
+    val selectedPlaybackTarget: StateFlow<PlayerPlaybackTarget> = _selectedPlaybackTarget.asStateFlow()
+    private var selectedPlaybackGeneration = 0L
+    private var queueIds = normalizedQueue(initialItemId = itemId, queue = if (isKidsSingleAsset) emptyList() else queue)
     private val queueIdentity: String
         get() = queueIds.joinToString(separator = "\u001f")
     private var currentItemId = itemId
@@ -476,16 +489,18 @@ class PlayerViewModel(
             PlaybackStatus.Loading,
             PlaybackStatus.Buffering,
             -> if (desiredPlayWhenReady) pause() else play()
+            PlaybackStatus.Completed -> {
+                if (isKidsSingleAsset) replayCurrentPlayback() else play()
+            }
             PlaybackStatus.Idle,
             PlaybackStatus.Paused,
             PlaybackStatus.Failed,
-            PlaybackStatus.Completed,
             -> play()
         }
     }
 
     fun playPrevious() {
-        if (controllerInstallInFlight) return
+        if (isKidsSingleAsset || controllerInstallInFlight) return
         val playback = playbackState.value
         if (playback.positionMs >= PREVIOUS_ITEM_RESTART_THRESHOLD_MS) {
             seekTo(0L)
@@ -548,6 +563,10 @@ class PlayerViewModel(
 
     fun retry() {
         if (controllerInstallInFlight) return
+        if (isKidsSingleAsset) {
+            retryCurrentPlayback()
+            return
+        }
         invalidateBackendSwitch()
         autoplayGeneration += 1
         _state.update { PlayerUiState.Loading }
@@ -577,8 +596,8 @@ class PlayerViewModel(
         autoRecoveryState = autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
         playbackSessionRecoveryState =
             playbackSessionRecoveryPolicy.reset(playbackLaunchGeneration, currentItemId)
-        if (offlineDownloadId != null || plan?.streamMode == StreamMode.Offline) {
-            if (offlineDownloadId == null) {
+        if (currentOfflineDownloadId != null || plan?.streamMode == StreamMode.Offline) {
+            if (currentOfflineDownloadId == null) {
                 failOfflineLaunch(retryGeneration, PlaybackError.OfflineArtifactUnavailable)
                 return
             }
@@ -620,7 +639,9 @@ class PlayerViewModel(
                     itemId = currentItemId,
                     requestedMediaSourceId =
                         selectedMediaSourceId
-                            ?: mediaSourceId.takeIf { currentItemId == this@PlayerViewModel.itemId },
+                            ?: mediaSourceId.takeIf {
+                                !hasManuallySelectedAsset && currentItemId == this@PlayerViewModel.itemId
+                            },
                     requestedAudioStreamIndex = requestedAudioStreamIndex,
                     requestedSubtitleSelection = requestedSubtitleSelection,
                     startPositionTicks = currentStartPositionTicks,
@@ -628,13 +649,207 @@ class PlayerViewModel(
                 )
             ) {
                 observePlaybackState()
-                fetchPlaylistMetadata()
+                if (!isKidsSingleAsset) {
+                    fetchPlaylistMetadata()
+                }
             }
         }
     }
 
+    /**
+     * Replaces the single Kids asset without creating another player route or controller owner.
+     * The accepted target is published before planning so recommendation selection cannot drift
+     * when a newer request cancels an older one.
+     */
+    fun selectPlaybackAsset(
+        itemId: String,
+        offlineDownloadId: DownloadId? = null,
+        restartFromBeginning: Boolean = false,
+        allowCurrentTargetRetry: Boolean = false,
+    ): Boolean {
+        if (!isKidsSingleAsset || disposed || controllerInstallInFlight || controllerInstallMutex.isLocked) {
+            return false
+        }
+        val normalizedItemId = itemId.trim()
+        if (normalizedItemId.isEmpty()) return false
+
+        val target = PlayerPlaybackTarget(normalizedItemId, offlineDownloadId)
+        val retainsCurrentSelection = target == _selectedPlaybackTarget.value
+        if (retainsCurrentSelection && !restartFromBeginning && !allowCurrentTargetRetry) return false
+
+        val retainsOriginalLaunchIntent =
+            retainsCurrentSelection &&
+                !hasManuallySelectedAsset &&
+                target == initialPlaybackTarget
+        val retainedSourceId =
+            selectedMediaSourceId.takeIf { retainsCurrentSelection && offlineDownloadId == null }
+                ?: mediaSourceId.takeIf { retainsOriginalLaunchIntent && offlineDownloadId == null }
+        val retainedAudioStreamIndex =
+            requestedAudioStreamIndex.takeIf { retainsCurrentSelection }
+                ?: initialAudioStreamIndex.takeIf { retainsOriginalLaunchIntent }
+        val retainedSubtitleSelection =
+            requestedSubtitleSelection.takeIf {
+                retainsCurrentSelection && it != SubtitleSelectionIntent.Unspecified
+            }
+                ?: initialSubtitleSelection.takeIf { retainsOriginalLaunchIntent }
+                ?: SubtitleSelectionIntent.Unspecified
+        val retainedOfflineSidecarIdentity =
+            (plan?.plannedSubtitle as? PlannedSubtitle.OfflineSidecar)
+                ?.takeIf { retainsCurrentSelection && offlineDownloadId != null }
+                ?.identity
+        val retainsPendingRestartFromBeginning =
+            retainsCurrentSelection &&
+                forceStartFromBeginning &&
+                target == pendingRestartFromBeginningTarget
+        val startsFromBeginning = restartFromBeginning || retainsPendingRestartFromBeginning
+        val hasCurrentTargetPositionProof = retainsCurrentSelection && target == playingPositionOwner
+        val retainedStartPositionTicks =
+            if (retainsCurrentSelection && !startsFromBeginning) {
+                if (hasCurrentTargetPositionProof) {
+                    millisecondsToTicks(playerController.playbackState.value.positionMs)
+                        .takeIf { positionTicks -> positionTicks > 0L }
+                        ?: currentStartPositionTicks
+                } else {
+                    currentStartPositionTicks
+                }
+            } else {
+                0L
+            }
+        val outgoingPositionMs = playerController.playbackState.value.positionMs
+        val selectionGeneration = ++selectedPlaybackGeneration
+
+        if (!retainsCurrentSelection) {
+            hasManuallySelectedAsset = true
+            clearPlayingPositionProof()
+        }
+        forceStartFromBeginning = startsFromBeginning
+        pendingRestartFromBeginningTarget = target.takeIf { startsFromBeginning }
+        pendingRestartFromBeginningLaunchGeneration = null
+        _selectedPlaybackTarget.value = target
+        currentItemId = target.itemId
+        currentStartPositionTicks = retainedStartPositionTicks
+        currentOfflineDownloadId = offlineDownloadId
+        invalidateBackendSwitch()
+        autoplayGeneration += 1L
+        queueSwitchInFlight = true
+        reportingJob?.cancel()
+        reportingJob = null
+        queueSwitchJob?.cancel()
+        queueSwitchJob = null
+        replanJob?.cancel()
+        replanJob = null
+        derivedEpisodeQueueJob?.cancel()
+        derivedEpisodeQueueJob = null
+        playlistMetadataJob?.cancel()
+        playlistMetadataJob = null
+        cancelAndInvalidateSubtitleFallback()
+        timingCoordinator.cancelLoad()
+        endPlaybackHealthSession()
+        playbackLaunchMarker = null
+        activePlaybackTimelineFacts = null
+        launchToFirstFrameMs = null
+        plan = null
+        installedPlan = null
+        selectedMediaSourceId = null
+        selectedSourceContainer = null
+        mediaStreams = emptyList()
+        requestedAudioStreamIndex = null
+        installedAudioStreamIndex = null
+        requestedSubtitleStreamIndex = null
+        requestedSubtitleSelection = SubtitleSelectionIntent.Unspecified
+        requestedLocalSubtitleAsset = null
+        localSubtitleAssets = emptyList()
+        offlineSidecarOption = null
+        explicitAudioStreamIndex = null
+        chapters = emptyList()
+        mediaSegments = emptyList()
+        trickplay = null
+        trickplayByMediaSourceId = emptyMap()
+        playlist = null
+        queueIds = listOf(normalizedItemId)
+        currentQueueIndex = 0
+        _state.value = PlayerUiState.Loading
+
+        queueSwitchJob =
+            viewModelScope.launch {
+                playerController.stop()
+                playbackReportingCoordinator.stopNow(positionMs = outgoingPositionMs)
+                if (!isSelectedPlaybackTarget(target, selectionGeneration)) return@launch
+                if (
+                    startPlaybackForItem(
+                        itemId = target.itemId,
+                        requestedMediaSourceId = retainedSourceId,
+                        requestedAudioStreamIndex = retainedAudioStreamIndex,
+                        requestedSubtitleSelection = retainedSubtitleSelection,
+                        startPositionTicks = retainedStartPositionTicks,
+                        resetReporting = true,
+                        retainedOfflineSidecarIdentity = retainedOfflineSidecarIdentity,
+                    )
+                ) {
+                    if (isSelectedPlaybackTarget(target, selectionGeneration)) {
+                        observePlaybackState()
+                    }
+                }
+            }
+        return true
+    }
+
+    fun retryCurrentPlayback(): Boolean =
+        selectPlaybackAsset(
+            itemId = currentItemId,
+            offlineDownloadId = currentOfflineDownloadId,
+            restartFromBeginning = false,
+            allowCurrentTargetRetry = true,
+        )
+
+    fun replayCurrentPlayback(): Boolean =
+        selectPlaybackAsset(
+            itemId = currentItemId,
+            offlineDownloadId = currentOfflineDownloadId,
+            restartFromBeginning = true,
+            allowCurrentTargetRetry = true,
+        )
+
+    private fun isSelectedPlaybackTarget(
+        target: PlayerPlaybackTarget,
+        generation: Long,
+    ): Boolean =
+        !disposed &&
+            selectedPlaybackGeneration == generation &&
+            _selectedPlaybackTarget.value == target
+
+    private fun clearPendingRestartFromBeginning() {
+        forceStartFromBeginning = false
+        pendingRestartFromBeginningTarget = null
+        pendingRestartFromBeginningLaunchGeneration = null
+    }
+
+    private fun clearPlayingPositionProof() {
+        playingPositionOwner = null
+    }
+
+    private fun capturePlayingPositionForCurrentTarget(positionMs: Long) {
+        if (!isKidsSingleAsset) return
+        val target = PlayerPlaybackTarget(currentItemId, currentOfflineDownloadId)
+        if (_selectedPlaybackTarget.value != target) return
+        playingPositionOwner = target
+        currentStartPositionTicks = millisecondsToTicks(positionMs)
+    }
+
+    private fun consumeRestartFromBeginningIntentForPlayingTarget() {
+        if (
+            !isKidsSingleAsset ||
+            !forceStartFromBeginning ||
+            pendingRestartFromBeginningTarget != PlayerPlaybackTarget(currentItemId, currentOfflineDownloadId) ||
+            pendingRestartFromBeginningLaunchGeneration != playbackLaunchGeneration
+        ) {
+            return
+        }
+        clearPendingRestartFromBeginning()
+    }
+
     fun playQueueItem(index: Int) {
-        if (controllerInstallInFlight) return
+        if (isKidsSingleAsset || controllerInstallInFlight) return
         if (queueIds.size <= 1 || index !in queueIds.indices) {
             return
         }
@@ -652,7 +867,7 @@ class PlayerViewModel(
         auto: Boolean = false,
         expectedGeneration: Long? = null,
     ): Boolean {
-        if (controllerInstallInFlight) return false
+        if (isKidsSingleAsset || controllerInstallInFlight) return false
         return playNext(
             auto = auto,
             stopPositionMs = playerController.playbackState.value.positionMs,
@@ -722,6 +937,7 @@ class PlayerViewModel(
     }
 
     fun shuffleQueue() {
+        if (isKidsSingleAsset) return
         if (queueIds.size <= 1) {
             return
         }
@@ -743,6 +959,7 @@ class PlayerViewModel(
     }
 
     fun stop() {
+        clearPlayingPositionProof()
         invalidateBackendSwitch()
         if (controllerInstallInFlight || controllerInstallMutex.isLocked) {
             stopRequestedDuringControllerInstall = true
@@ -752,6 +969,11 @@ class PlayerViewModel(
     }
 
     private fun performStop(stopController: Boolean) {
+        selectedPlaybackGeneration += 1L
+        clearPendingRestartFromBeginning()
+        clearPlayingPositionProof()
+        queueSwitchJob?.cancel()
+        queueSwitchJob = null
         cancelAndInvalidateSubtitleFallback()
         activePlaybackTimelineFacts = null
         emitPlaybackHealthSummary()
@@ -1415,6 +1637,9 @@ class PlayerViewModel(
         if (disposed) return
         invalidateBackendSwitch()
         disposed = true
+        selectedPlaybackGeneration += 1L
+        clearPendingRestartFromBeginning()
+        clearPlayingPositionProof()
         cancelAndInvalidateSubtitleFallback()
         emitPlaybackHealthSummary()
         endPlaybackHealthSession()
@@ -1435,6 +1660,8 @@ class PlayerViewModel(
         savePlaybackSelectionAction?.drainLatest()
         replanJob?.cancel()
         replanJob = null
+        queueSwitchJob?.cancel()
+        queueSwitchJob = null
         activePlaybackTimelineFacts = null
         playlistMetadataJob?.cancel()
         derivedEpisodeQueueJob?.cancel()
@@ -1448,23 +1675,24 @@ class PlayerViewModel(
     }
 
     private fun load() {
-        viewModelScope.launch {
-            if (
-                startPlaybackForItem(
-                    itemId = itemId,
-                    requestedMediaSourceId = mediaSourceId,
-                    requestedAudioStreamIndex = initialAudioStreamIndex,
-                    requestedSubtitleSelection = initialSubtitleSelection,
-                    startPositionTicks = startPositionTicks,
-                    resetReporting = false,
-                )
-            ) {
-                observePlaybackState()
-                if (offlineDownloadId == null) {
-                    fetchPlaylistMetadata()
+        queueSwitchJob =
+            viewModelScope.launch {
+                if (
+                    startPlaybackForItem(
+                        itemId = itemId,
+                        requestedMediaSourceId = mediaSourceId,
+                        requestedAudioStreamIndex = initialAudioStreamIndex,
+                        requestedSubtitleSelection = initialSubtitleSelection,
+                        startPositionTicks = startPositionTicks,
+                        resetReporting = false,
+                    )
+                ) {
+                    observePlaybackState()
+                    if (currentOfflineDownloadId == null && !isKidsSingleAsset) {
+                        fetchPlaylistMetadata()
+                    }
                 }
             }
-        }
     }
 
     private suspend fun startPlaybackForItem(
@@ -1474,12 +1702,19 @@ class PlayerViewModel(
         requestedSubtitleSelection: SubtitleSelectionIntent,
         startPositionTicks: Long,
         resetReporting: Boolean,
+        retainedOfflineSidecarIdentity: SubtitleActivationIdentity.OfflineSidecar? = null,
     ): Boolean {
         invalidateBackendSwitch()
         emitPlaybackHealthSummary()
         activePlaybackTimelineFacts = null
         playbackLaunchGeneration += 1L
         val launchGeneration = playbackLaunchGeneration
+        if (
+            forceStartFromBeginning &&
+            pendingRestartFromBeginningTarget == PlayerPlaybackTarget(itemId, currentOfflineDownloadId)
+        ) {
+            pendingRestartFromBeginningLaunchGeneration = launchGeneration
+        }
         playbackLaunchMarker =
             PlaybackLaunchMarker(
                 generation = launchGeneration,
@@ -1508,12 +1743,15 @@ class PlayerViewModel(
         pendingRecoveredAutoQualityBps = null
         playbackActionNotice = null
         playbackChangeNotice = null
-        if (offlineDownloadId != null) {
+        if (currentOfflineDownloadId != null) {
             return startOfflinePlaybackForItem(
                 itemId = itemId,
+                requestedAudioStreamIndex = requestedAudioStreamIndex,
+                requestedSubtitleSelection = requestedSubtitleSelection,
                 startPositionTicks = startPositionTicks,
                 launchGeneration = launchGeneration,
                 resetReporting = resetReporting,
+                retainedOfflineSidecarIdentity = retainedOfflineSidecarIdentity,
             )
         }
         val effectiveStartPositionTicks = startPositionTicks
@@ -1790,18 +2028,23 @@ class PlayerViewModel(
         publishContent()
         maybeStartInstalledAudioUnavailableFallback(playbackPlanWithMetadata)
         maybeStartInstalledUnavailableFallback(playbackPlanWithMetadata)
-        deriveEpisodeQueueIfNeeded(detail.item)
+        if (!isKidsSingleAsset) {
+            deriveEpisodeQueueIfNeeded(detail.item)
+        }
         return true
     }
 
     /** Local-only launch that fails without remote planning or fallback. */
     private suspend fun startOfflinePlaybackForItem(
         itemId: String,
+        requestedAudioStreamIndex: Int?,
+        requestedSubtitleSelection: SubtitleSelectionIntent,
         startPositionTicks: Long,
         launchGeneration: Long,
         resetReporting: Boolean,
+        retainedOfflineSidecarIdentity: SubtitleActivationIdentity.OfflineSidecar?,
     ): Boolean {
-        val downloadId = offlineDownloadId ?: return false
+        val downloadId = currentOfflineDownloadId ?: return false
         val useCase =
             getOfflinePlaybackPlanUseCase
                 ?: return failOfflineLaunch(launchGeneration, PlaybackError.OfflineArtifactUnavailable)
@@ -1823,6 +2066,11 @@ class PlayerViewModel(
         val snapshot = record.request.snapshot
         val sourceId = record.businessKey.mediaSourceId
         val activationRequestId = nextSubtitleActivationRequestId()
+        val startsFromBeginning =
+            isKidsSingleAsset &&
+                forceStartFromBeginning &&
+                pendingRestartFromBeginningTarget == PlayerPlaybackTarget(itemId, downloadId) &&
+                pendingRestartFromBeginningLaunchGeneration == launchGeneration
         val offlineProjection =
             projectOfflinePlayback(
                 OfflinePlaybackProjectionInput(
@@ -1834,11 +2082,61 @@ class PlayerViewModel(
                     artifactKind = record.request.artifactKind,
                     accountIdentity = accountIdentity,
                     startPositionTicks = startPositionTicks,
-                    localResumePositionMs = record.localResumePositionMs,
+                    localResumePositionMs = if (startsFromBeginning) 0L else record.localResumePositionMs,
                     launchGeneration = launchGeneration,
                     subtitleActivationRequestId = activationRequestId,
                 ),
             )
+        val retainedOfflineAudioStreamIndex =
+            requestedAudioStreamIndex?.takeIf { requestedIndex ->
+                offlineProjection.offlinePlan.embeddedAudioTracks.any { track ->
+                    track.jellyfinStreamIndex == requestedIndex && track.directPlayAdmissible
+                }
+            }
+        val retainedOfflineSubtitleDescriptor =
+            (requestedSubtitleSelection as? SubtitleSelectionIntent.Track)?.let { selection ->
+                offlineProjection.offlinePlan.embeddedSubtitleTracks.firstOrNull { track ->
+                    track.jellyfinStreamIndex == selection.streamIndex
+                }
+            }
+        val projectedOfflineSidecar = offlineProjection.offlinePlan.plannedSubtitle as? PlannedSubtitle.OfflineSidecar
+        val retainsOfflineSidecar =
+            projectedOfflineSidecar?.takeIf { sidecar ->
+                sidecar.identity == retainedOfflineSidecarIdentity
+            }
+        val explicitOfflineSubtitleOff =
+            requestedSubtitleSelection == SubtitleSelectionIntent.Off && retainsOfflineSidecar == null
+        val offlinePlanWithRetainedTracks =
+            if (
+                retainedOfflineAudioStreamIndex != null ||
+                retainedOfflineSubtitleDescriptor != null ||
+                explicitOfflineSubtitleOff
+            ) {
+                offlineProjection.offlinePlan.copy(
+                    selectedAudioStreamIndex =
+                        retainedOfflineAudioStreamIndex ?: offlineProjection.offlinePlan.selectedAudioStreamIndex,
+                    selectedSubtitleStreamIndex =
+                        retainedOfflineSubtitleDescriptor?.jellyfinStreamIndex
+                            ?: if (explicitOfflineSubtitleOff) null else offlineProjection.offlinePlan.selectedSubtitleStreamIndex,
+                    plannedSubtitle =
+                        retainedOfflineSubtitleDescriptor?.let { track ->
+                            PlannedSubtitle.Track(
+                                streamIndex = track.jellyfinStreamIndex,
+                                embeddedTrack = track,
+                                deliveryMethod = SubtitleDeliveryMethod.Embed,
+                                kind = subtitleKind(track.codec),
+                                normalizedFormat = track.codec,
+                            )
+                        } ?: if (explicitOfflineSubtitleOff) PlannedSubtitle.Off else offlineProjection.offlinePlan.plannedSubtitle,
+                )
+            } else {
+                offlineProjection.offlinePlan
+            }
+        val selectedOfflineSubtitleSelection =
+            when (val plannedSubtitle = offlinePlanWithRetainedTracks.plannedSubtitle) {
+                is PlannedSubtitle.Track -> SubtitleSelectionIntent.Track(plannedSubtitle.streamIndex)
+                else -> SubtitleSelectionIntent.Off
+            }
         metadata = offlineProjection.metadata
         val launchContext =
             withContext(workDispatcher) {
@@ -1857,15 +2155,15 @@ class PlayerViewModel(
         selectedMediaSourceId = sourceId
         selectedSourceContainer = offlineProjection.sourceContainer
         mediaStreams = offlineProjection.mediaStreams
-        requestedAudioStreamIndex = offlineProjection.selectedAudioStreamIndex
-        installedAudioStreamIndex = requestedAudioStreamIndex
-        requestedSubtitleStreamIndex = offlineProjection.selectedSubtitleStreamIndex
-        requestedSubtitleSelection = offlineProjection.selectedSubtitleSelection
+        this.requestedAudioStreamIndex = offlinePlanWithRetainedTracks.selectedAudioStreamIndex
+        installedAudioStreamIndex = offlinePlanWithRetainedTracks.selectedAudioStreamIndex
+        this.requestedSubtitleStreamIndex = offlinePlanWithRetainedTracks.selectedSubtitleStreamIndex
+        this.requestedSubtitleSelection = selectedOfflineSubtitleSelection
         requestedLocalSubtitleAsset = null
         offlineSidecarOption = offlineProjection.offlineSidecarOption
         qualitySession =
             qualitySession.forOfflineSession(activePlaybackPreferences.effectiveDefaultQualityPolicy(backend))
-        explicitAudioStreamIndex = offlineProjection.selectedAudioStreamIndex
+        explicitAudioStreamIndex = offlinePlanWithRetainedTracks.selectedAudioStreamIndex
         backendResolvedForSession = false
 
         val resolvedBackend =
@@ -1887,9 +2185,9 @@ class PlayerViewModel(
             }
         backend = resolvedBackend
         val offlinePlan =
-            offlineProjection.offlinePlan
+            offlinePlanWithRetainedTracks
                 .withAudioActivationTarget(
-                    offlineProjection.selectedAudioStreamIndex?.let(::newAudioActivationTarget),
+                    offlinePlanWithRetainedTracks.selectedAudioStreamIndex?.let(::newAudioActivationTarget),
                 ).withSubtitleActivationTarget(
                     requestId = activationRequestId,
                     itemId = itemId,
@@ -3526,7 +3824,7 @@ class PlayerViewModel(
         val currentPlaybackState = currentContent?.playbackState
         val currentAudioUnavailable = currentContent?.audioUnavailable
         val currentUpNext = currentContent?.upNext
-        val upNext = upNextFor(enrichedPlaybackState)
+        val upNext = if (isKidsSingleAsset) null else upNextFor(enrichedPlaybackState)
         val shouldPublishPlaybackState =
             currentPlaybackState == null ||
                 currentPlaybackState.status != enrichedPlaybackState.status ||
@@ -3553,6 +3851,8 @@ class PlayerViewModel(
             return
         }
         if (enrichedPlaybackState.status == PlaybackStatus.Playing) {
+            capturePlayingPositionForCurrentTarget(enrichedPlaybackState.positionMs)
+            consumeRestartFromBeginningIntentForPlayingTarget()
             maybeCompleteRecoveredPlaybackGuidance()
         }
 
@@ -3568,7 +3868,7 @@ class PlayerViewModel(
 
         if (completed) {
             playbackReportingCoordinator.stop(enrichedPlaybackState.positionMs, completed = true)
-            if (lastStatus != PlaybackStatus.Completed) {
+            if (!isKidsSingleAsset && lastStatus != PlaybackStatus.Completed) {
                 playbackEndedEvents.send(Unit)
             }
         }
@@ -4622,7 +4922,7 @@ class PlayerViewModel(
         val enrichedPlaybackState = playbackState.withPlaybackMetadata()
         val subtitleRenderInfo = currentSubtitleRenderInfo(enrichedPlaybackState)
         val subtitleStyleable = subtitleRenderInfo.styleable && playerController.appliesSubtitleStyle
-        val upNext = upNextFor(enrichedPlaybackState)
+        val upNext = if (isKidsSingleAsset) null else upNextFor(enrichedPlaybackState)
         _playbackState.value = enrichedPlaybackState
         recordTrackDiagnostics(enrichedPlaybackState, subtitleRenderInfo)
         _state.update {
@@ -4656,7 +4956,7 @@ class PlayerViewModel(
                 inheritedQualityPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend),
                 inheritedQualityUsesVlcSetting = activePlaybackPreferences.usesVlcDefaultQuality(backend),
                 pickerVisible = pickerVisible,
-                playlist = playlist,
+                playlist = if (isKidsSingleAsset) null else playlist,
                 chapters = chapters,
                 mediaSegments = mediaSegments,
                 currentSegment = enrichedPlaybackState.currentSegment,
@@ -4682,8 +4982,8 @@ class PlayerViewModel(
                 playbackActionNotice = playbackActionNotice,
                 resizeMode = resizeMode,
                 upNext = upNext,
-                autoplayPolicy = autoplayPolicyFor(upNext),
-                stillWatchingPrompt = stillWatchingState.isPromptVisible,
+                autoplayPolicy = if (isKidsSingleAsset) AutoplayPolicySnapshot(enabled = false) else autoplayPolicyFor(upNext),
+                stillWatchingPrompt = !isKidsSingleAsset && stillWatchingState.isPromptVisible,
                 timingState = timingCoordinator.timingState,
                 debugInfo = buildDebugInfo(subtitleRenderInfo, subtitleStyleable),
                 videoPresentation = plan?.videoPresentation,
@@ -5130,6 +5430,7 @@ class PlayerViewModel(
     }
 
     private fun deriveEpisodeQueueIfNeeded(item: MediaItem) {
+        if (isKidsSingleAsset) return
         val getChronologicalEpisodeQueue = getChronologicalEpisodeQueueUseCase ?: return
         if (item.kind != MediaKind.Episode) {
             return
@@ -5179,6 +5480,7 @@ class PlayerViewModel(
     }
 
     private fun fetchPlaylistMetadata() {
+        if (isKidsSingleAsset) return
         if (queueIds.size <= 1) {
             return
         }

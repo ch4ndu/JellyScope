@@ -189,6 +189,10 @@ fun MediaCard(
     onLongClick: (() -> Unit)? = null,
     useWideCard: Boolean = false,
     fillWidth: Boolean = false,
+    imageAspectRatio: Float? = null,
+    titleMaxLines: Int = 2,
+    showSubtitle: Boolean = true,
+    durationLabel: String? = null,
 ) {
     val cardWidth =
         if (useWideCard) {
@@ -252,7 +256,7 @@ fun MediaCard(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(
-                        if (useWideCard) {
+                        imageAspectRatio ?: if (useWideCard) {
                             Dimensions.libraryCardAspectRatio
                         } else {
                             Dimensions.posterCardAspectRatio
@@ -307,6 +311,16 @@ fun MediaCard(
                         modifier = Modifier.align(Alignment.TopEnd),
                     )
                 }
+                durationLabel?.let { label ->
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(Dimensions.badgePadding),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(Dimensions.badgePadding))
+                    }
+                }
                 item.progressFraction?.let { progress ->
                     LinearProgressIndicator(
                         progress = { progress },
@@ -327,21 +341,21 @@ fun MediaCard(
         Text(
             text = item.title,
             style = MaterialTheme.typography.bodyMedium,
-            // Always reserve two lines so 1-line vs 2-line titles don't change
-            // tile height and push/jump the ribbon below.
-            minLines = 2,
-            maxLines = 2,
+            minLines = titleMaxLines,
+            maxLines = titleMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
-        item.subtitle?.let { subtitle ->
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } ?: Spacer(modifier = Modifier.height(Dimensions.contentSpacing))
+        if (showSubtitle) {
+            item.subtitle?.let { subtitle ->
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } ?: Spacer(modifier = Modifier.height(Dimensions.contentSpacing))
+        }
     }
 }
 

@@ -12,6 +12,8 @@ import com.jellyscope.core.data.remote.JellyfinApiException
 import com.jellyscope.core.data.remote.buildDeviceProfile
 import com.jellyscope.core.data.remote.defaultItemFields
 import com.jellyscope.core.data.remote.resolvedTranscodeReasons
+import com.jellyscope.core.domain.model.AccountIdentity
+import com.jellyscope.core.domain.model.DEFAULT_DISCOVERY_PAGE_SIZE
 import com.jellyscope.core.domain.model.FindProjection
 import com.jellyscope.core.domain.model.FindQuery
 import com.jellyscope.core.domain.model.FindResults
@@ -41,6 +43,7 @@ import com.jellyscope.core.domain.model.SendClientLogsResult
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.model.isUserLibrary
 import com.jellyscope.core.domain.model.toDomainLibrary
 import com.jellyscope.core.domain.model.toDomainLibraryFacet
 import com.jellyscope.core.domain.model.toDomainMediaItem
@@ -106,6 +109,30 @@ class DefaultMediaRepository(
                 .getUserViews(context)
                 .items
                 .mapNotNull { it.toDomainLibrary() }
+        }
+
+    override suspend fun getKidsCatalogue(
+        expectedAccountIdentity: AccountIdentity,
+        expectedBoundaryEpoch: Long,
+    ): Result<List<MediaItem>> =
+        withExpectedSession(
+            expectedAccountIdentity = expectedAccountIdentity,
+            expectedBoundaryEpoch = expectedBoundaryEpoch,
+            operation = RepositoryOperation.GetKidsCatalogue,
+        ) { session, context ->
+            discoveryCache
+                .getOrLoad(
+                    accountIdentity = expectedAccountIdentity,
+                    boundaryEpoch = expectedBoundaryEpoch,
+                    key = KIDS_CATALOGUE_CACHE_KEY,
+                ) {
+                    loadKidsCatalogue(
+                        session = session,
+                        context = context,
+                        expectedAccountIdentity = expectedAccountIdentity,
+                        expectedBoundaryEpoch = expectedBoundaryEpoch,
+                    )
+                }.getOrThrow()
         }
 
     override suspend fun getContinueWatching(): Result<List<MediaItem>> =
@@ -918,6 +945,102 @@ class DefaultMediaRepository(
             }
         }
 
+    private suspend fun loadKidsCatalogue(
+        session: Session,
+        context: AuthenticatedRequestContext,
+        expectedAccountIdentity: AccountIdentity,
+        expectedBoundaryEpoch: Long,
+    ): Result<List<MediaItem>> =
+        runCatchingCancellable {
+            requireExpectedSession(
+                session = session,
+                expectedAccountIdentity = expectedAccountIdentity,
+                expectedBoundaryEpoch = expectedBoundaryEpoch,
+            )
+            val libraries =
+                jellyfinApi
+                    .getUserViews(context)
+                    .items
+                    .mapNotNull { view -> view.toDomainLibrary() }
+                    .filter { library ->
+                        library.collectionType.isUserLibrary &&
+                            library.collectionType != LibraryCollectionType.Music
+                    }
+            val itemsById = LinkedHashMap<String, MediaItem>()
+            libraries.forEach { library ->
+                var startIndex = 0
+                while (true) {
+                    requireExpectedSession(
+                        session = session,
+                        expectedAccountIdentity = expectedAccountIdentity,
+                        expectedBoundaryEpoch = expectedBoundaryEpoch,
+                    )
+                    val page = jellyfinApi.getItems(context, kidsCatalogueItemsQuery(library.id, startIndex))
+                    page.items
+                        .mapNotNull { item -> item.toDomainMediaItem() }
+                        .filter { item -> item.kind == MediaKind.Movie || item.kind == MediaKind.Episode }
+                        .forEach { item ->
+                            if (item.id !in itemsById) {
+                                itemsById[item.id] = item
+                            }
+                        }
+                    if (page.items.size < DEFAULT_DISCOVERY_PAGE_SIZE) {
+                        break
+                    }
+                    startIndex += DEFAULT_DISCOVERY_PAGE_SIZE
+                }
+            }
+            requireExpectedSession(
+                session = session,
+                expectedAccountIdentity = expectedAccountIdentity,
+                expectedBoundaryEpoch = expectedBoundaryEpoch,
+            )
+            itemsById.values.toList()
+        }
+
+    private fun requireExpectedSession(
+        session: Session,
+        expectedAccountIdentity: AccountIdentity,
+        expectedBoundaryEpoch: Long,
+    ) {
+        val current = currentSessionSnapshot()
+        if (current.boundaryEpoch != expectedBoundaryEpoch ||
+            current.session != session ||
+            current.session.accountIdentity() != expectedAccountIdentity
+        ) {
+            throw JellyfinApiException.Unauthorized
+        }
+    }
+
+    private suspend fun <T> withExpectedSession(
+        expectedAccountIdentity: AccountIdentity,
+        expectedBoundaryEpoch: Long,
+        operation: RepositoryOperation,
+        block: suspend (Session, AuthenticatedRequestContext) -> T,
+    ): Result<T> =
+        runCatchingCancellable {
+            val session = currentSessionSnapshot().session
+            requireExpectedSession(session, expectedAccountIdentity, expectedBoundaryEpoch)
+            withContext(dispatcher) {
+                requireExpectedSession(session, expectedAccountIdentity, expectedBoundaryEpoch)
+                val result = block(session, session.toRequestContext())
+                requireExpectedSession(session, expectedAccountIdentity, expectedBoundaryEpoch)
+                result
+            }
+        }.onFailure { throwable ->
+            MEDIA_LOGGER.w {
+                formatPlaybackDiagnostic(
+                    PlaybackDiagnostic(
+                        stage = PlaybackDiagnosticStage.Repository,
+                        event = PlaybackDiagnosticEvent.Failed,
+                        platform = PlaybackDiagnosticPlatform.Shared,
+                        exceptionType = throwable.playbackExceptionType(),
+                        operation = operation,
+                    ),
+                )
+            }
+        }
+
     private suspend fun <T> withSession(
         operation: RepositoryOperation,
         block: suspend (AuthenticatedRequestContext) -> T,
@@ -981,6 +1104,8 @@ private data class AccountSessionSnapshot(
     val session: Session,
     val boundaryEpoch: Long,
 )
+
+private const val KIDS_CATALOGUE_CACHE_KEY = "kids-catalogue"
 
 private fun String?.toDomainRecommendationReason(): LibraryRecommendationReason =
     when (this) {

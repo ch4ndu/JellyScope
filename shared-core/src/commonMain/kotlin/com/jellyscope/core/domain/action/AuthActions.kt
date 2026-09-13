@@ -5,6 +5,7 @@ package com.jellyscope.core.domain.action
 import com.jellyscope.core.data.repository.AuthRepository
 import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.model.ServerInfo
+import com.jellyscope.core.domain.model.Session
 
 class ValidateServerAction(
     private val authRepository: AuthRepository,
@@ -66,4 +67,13 @@ class LogoutAction(
 ) {
     suspend operator fun invoke(authorization: SessionRemovalAuthorization = SessionRemovalAuthorization.None) =
         authRepository.logout(authorization)
+}
+
+class RefreshParentalRatingAction(
+    private val authRepository: AuthRepository,
+) {
+    suspend operator fun invoke(
+        expectedSession: Session,
+        expectedBoundaryEpoch: Long,
+    ): Result<Unit> = authRepository.refreshParentalRating(expectedSession, expectedBoundaryEpoch)
 }

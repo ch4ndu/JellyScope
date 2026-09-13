@@ -47,6 +47,7 @@ import com.jellyscope.core.domain.model.SendClientLogsResult
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.WatchedFilter
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.DeviceDecodingCapabilities
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.EffectivePlayerDevicePolicy
@@ -207,6 +208,12 @@ class MediaRepositoryTest {
                         },
                         RepositoryFailureCase(RepositoryOperation.GetLibraries) { repository ->
                             repository.getLibraries()
+                        },
+                        RepositoryFailureCase(RepositoryOperation.GetKidsCatalogue) { repository ->
+                            repository.getKidsCatalogue(
+                                expectedAccountIdentity = session.accountIdentity(),
+                                expectedBoundaryEpoch = 0L,
+                            )
                         },
                         RepositoryFailureCase(RepositoryOperation.GetContinueWatching) { repository ->
                             repository.getContinueWatching()

@@ -39,6 +39,7 @@ actual fun PlayerPlatformEffects(
     content: PlayerUiState.Content?,
     sourceBounds: Rect?,
     commandCallbacks: PlayerPlatformCommandCallbacks,
+    isFullscreen: Boolean,
     onPictureInPictureModeChanged: (Boolean) -> Unit,
     onCloseFromPictureInPicture: () -> Unit,
     onBackgrounded: () -> Unit,
@@ -47,49 +48,36 @@ actual fun PlayerPlatformEffects(
     val activity = remember(context) { context.findActivity() as? ComponentActivity }
     val activePlayerRegistration = remember { AndroidActivePlayerRegistry.newRegistration() }
 
-    DisposableEffect(activity) {
-        if (activity == null) {
+    val currentIsFullscreen by rememberUpdatedState(isFullscreen)
+    val originalSystemBars = remember(activity) { activity?.let(AndroidSystemBarsSnapshot::capture) }
+
+    fun applySystemBars(fullscreen: Boolean) {
+        originalSystemBars?.apply(fullscreen)
+    }
+
+    SideEffect {
+        applySystemBars(isFullscreen)
+    }
+
+    DisposableEffect(activity, originalSystemBars) {
+        if (activity == null || originalSystemBars == null) {
             onDispose {}
         } else {
-            val window = activity.window
-            val decorView = window.decorView
-            val insetsController = WindowCompat.getInsetsController(window, decorView)
-            val rootInsets = ViewCompat.getRootWindowInsets(decorView)
-            val statusBarsVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.statusBars()) ?: true
-            val navigationBarsVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.navigationBars()) ?: true
-            val systemBarsBehavior = insetsController.systemBarsBehavior
-
-            fun hideSystemBars() {
-                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                insetsController.hide(WindowInsetsCompat.Type.systemBars())
-            }
-
-            hideSystemBars()
             val observer =
                 LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_RESUME) {
-                        hideSystemBars()
+                        applySystemBars(currentIsFullscreen)
                     }
                 }
             activity.lifecycle.addObserver(observer)
             onDispose {
                 activity.lifecycle.removeObserver(observer)
-                insetsController.systemBarsBehavior = systemBarsBehavior
-                if (statusBarsVisible) {
-                    insetsController.show(WindowInsetsCompat.Type.statusBars())
-                } else {
-                    insetsController.hide(WindowInsetsCompat.Type.statusBars())
-                }
-                if (navigationBarsVisible) {
-                    insetsController.show(WindowInsetsCompat.Type.navigationBars())
-                } else {
-                    insetsController.hide(WindowInsetsCompat.Type.navigationBars())
-                }
+                originalSystemBars.restore()
             }
         }
     }
 
-    DisposableEffect(activity) {
+    DisposableEffect(activity, originalSystemBars) {
         if (activity == null) {
             onDispose {}
         } else {
@@ -98,10 +86,7 @@ actual fun PlayerPlatformEffects(
                     AndroidActivePlayerRegistry.setPictureInPictureMode(info.isInPictureInPictureMode)
                     onPictureInPictureModeChanged(info.isInPictureInPictureMode)
                     if (!info.isInPictureInPictureMode) {
-                        WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
-                            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                            hide(WindowInsetsCompat.Type.systemBars())
-                        }
+                        applySystemBars(currentIsFullscreen)
                     }
                 }
             activity.addOnPictureInPictureModeChangedListener(listener)
@@ -170,6 +155,52 @@ actual fun PlayerPlatformEffects(
     DisposableEffect(activePlayerRegistration) {
         onDispose {
             AndroidActivePlayerRegistry.release(activePlayerRegistration)
+        }
+    }
+}
+
+private class AndroidSystemBarsSnapshot private constructor(
+    private val activity: ComponentActivity,
+    private val statusBarsVisible: Boolean,
+    private val navigationBarsVisible: Boolean,
+    private val systemBarsBehavior: Int,
+) {
+    fun apply(fullscreen: Boolean) {
+        val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        if (fullscreen) {
+            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            restore()
+        }
+    }
+
+    fun restore() {
+        val insetsController = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        insetsController.systemBarsBehavior = systemBarsBehavior
+        if (statusBarsVisible) {
+            insetsController.show(WindowInsetsCompat.Type.statusBars())
+        } else {
+            insetsController.hide(WindowInsetsCompat.Type.statusBars())
+        }
+        if (navigationBarsVisible) {
+            insetsController.show(WindowInsetsCompat.Type.navigationBars())
+        } else {
+            insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+        }
+    }
+
+    companion object {
+        fun capture(activity: ComponentActivity): AndroidSystemBarsSnapshot {
+            val decorView = activity.window.decorView
+            val insetsController = WindowCompat.getInsetsController(activity.window, decorView)
+            val rootInsets = ViewCompat.getRootWindowInsets(decorView)
+            return AndroidSystemBarsSnapshot(
+                activity = activity,
+                statusBarsVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.statusBars()) ?: true,
+                navigationBarsVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.navigationBars()) ?: true,
+                systemBarsBehavior = insetsController.systemBarsBehavior,
+            )
         }
     }
 }

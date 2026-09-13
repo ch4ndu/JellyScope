@@ -48,6 +48,40 @@ import kotlin.test.assertTrue
 
 class SessionRepositoryTest {
     @Test
+    fun staleParentalRatingUpdateAfterAccountRoundTripDoesNotMutateRestoredAccount() =
+        runTest {
+            val first = storedSession(serverId = "server-1", userId = "user-1")
+            val second = storedSession(serverId = "server-2", userId = "user-2")
+            val fixture =
+                sessionRepositoryFixture(
+                    first = first,
+                    second = second,
+                    activeAccountId = first.accountId(),
+                    serverStore = RecordingServerScopedStore(),
+                )
+            val staleState = assertIs<SessionState.LoggedIn>(fixture.repository.sessionState.value)
+
+            fixture.repository.switchTo(second.accountId()).getOrThrow()
+            fixture.repository.switchTo(first.accountId()).getOrThrow()
+
+            assertEquals(
+                ParentalRatingUpdateResult.Rejected,
+                fixture.repository.updateParentalRating(
+                    expectedSession = staleState.session,
+                    expectedBoundaryEpoch = staleState.boundaryEpoch,
+                    maxParentalRating = 7,
+                ),
+            )
+
+            val restoredState = assertIs<SessionState.LoggedIn>(fixture.repository.sessionState.value)
+            val persistedSnapshot = fixture.sessionStore.readSnapshot()
+            assertEquals(first.toDomain(), restoredState.session)
+            assertEquals(first.accountId(), persistedSnapshot.activeAccountId)
+            assertEquals(first, persistedSnapshot.activeSession)
+            assertEquals(listOf(first, second), persistedSnapshot.sessions)
+        }
+
+    @Test
     fun switchToRethrowsCancellationFromCacheCleanup() =
         runTest {
             val first = storedSession(serverId = "server-1", userId = "user-1")

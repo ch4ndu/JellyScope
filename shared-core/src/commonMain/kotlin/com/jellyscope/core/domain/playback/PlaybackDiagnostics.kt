@@ -96,6 +96,7 @@ enum class RepositoryOperation(
 ) : PlaybackDiagnosticOperation {
     UploadClientLogs(DiagnosticOperation.UploadClientLogs),
     GetLibraries(DiagnosticOperation.GetLibraries),
+    GetKidsCatalogue(DiagnosticOperation.GetKidsCatalogue),
     GetContinueWatching(DiagnosticOperation.GetContinueWatching),
     GetNextUp(DiagnosticOperation.GetNextUp),
     GetItemDetail(DiagnosticOperation.GetItemDetail),

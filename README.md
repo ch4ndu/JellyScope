@@ -29,6 +29,9 @@ alpha release is **0.1.0-alpha94**.
   the current source and track choices can be preserved
 - Text and image subtitles, local OpenSubtitles downloads, supported timing
   adjustments, audio output controls, autoplay next, and a playback queue
+- [Kids viewing](docs/guides/ui.md#kids-watch-page) on Android/iOS phones and
+  tablets, selected by the account's parental rating, with single-video
+  playback, shuffled library choices, compact video controls, and permitted downloads
 - Offline downloads for individual movies and episodes on Android, iOS, macOS,
   and the Apple TV preview when content downloading is enabled for the account
 - HDR handling, Android TV refresh-rate matching, Picture-in-Picture, Fire TV

@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -55,6 +57,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -215,7 +218,7 @@ internal fun PlayerControls(
 
 /** Controls that recompose with live playback position. */
 @Composable
-private fun ColumnScope.PlayerSeekSection(
+internal fun ColumnScope.PlayerSeekSection(
     content: PlayerUiState.Content,
     playbackStateFlow: StateFlow<PlaybackState>,
     session: Session,
@@ -223,6 +226,9 @@ private fun ColumnScope.PlayerSeekSection(
     onSeekTo: (Long) -> Unit,
     onKeepControlsAlive: () -> Unit,
     onPointerScrubActiveChange: (Boolean) -> Unit,
+    contentColor: Color? = null,
+    compact: Boolean = false,
+    trailingTimeControl: @Composable () -> Unit = {},
 ) {
     val playbackState by playbackStateFlow.collectAsStateWithLifecycle()
     val durationMs = playbackState.durationMs?.takeIf { duration -> duration > 0L }
@@ -243,33 +249,69 @@ private fun ColumnScope.PlayerSeekSection(
         session = session,
         modifier = Modifier.align(Alignment.CenterHorizontally),
     )
-    SeekSlider(
-        positionMs = seekPositionMs,
-        durationMs = durationMs,
-        bufferedPositionMs = playbackState.bufferedPositionMs,
-        chapters = content.chapters,
-        onPositionChange = { positionMs ->
-            onKeepControlsAlive()
-            seekPositionMs = positionMs
-        },
-        onSeekTo = { positionMs ->
-            onKeepControlsAlive()
-            onSeekTo(positionMs)
-        },
-        onScrubPreviewPositionChange = { positionMs -> scrubPreviewPositionMs = positionMs },
-        onScrubFinished = { scrubPreviewPositionMs = null },
-        onScrubActiveChange = onPointerScrubActiveChange,
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = "${formatDuration(seekPositionMs)} / ${formatDuration(durationMs)}",
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.bodyMedium,
-        )
+    val seekControl: @Composable () -> Unit = {
+        if (content.isSeekable) {
+            SeekSlider(
+                positionMs = seekPositionMs,
+                durationMs = durationMs,
+                bufferedPositionMs = playbackState.bufferedPositionMs,
+                chapters = content.chapters,
+                onPositionChange = { positionMs ->
+                    onKeepControlsAlive()
+                    seekPositionMs = positionMs
+                },
+                onSeekTo = { positionMs ->
+                    onKeepControlsAlive()
+                    onSeekTo(positionMs)
+                },
+                onScrubPreviewPositionChange = { positionMs -> scrubPreviewPositionMs = positionMs },
+                onScrubFinished = { scrubPreviewPositionMs = null },
+                onScrubActiveChange = onPointerScrubActiveChange,
+            )
+        }
+    }
+    if (compact) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Dimensions.labelGlyphSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = formatDuration(seekPositionMs),
+                color = contentColor ?: MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier =
+                    Modifier
+                        .widthIn(max = Dimensions.playerTimeLabelMaxWidth)
+                        .background(Color.Black.copy(alpha = 0.6f), MaterialTheme.shapes.small)
+                        .padding(Dimensions.labelGlyphSpacing),
+            )
+            Box(modifier = Modifier.weight(1f)) { seekControl() }
+            Text(
+                text = formatDuration(durationMs),
+                color = contentColor ?: MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier =
+                    Modifier
+                        .widthIn(max = Dimensions.playerTimeLabelMaxWidth)
+                        .background(Color.Black.copy(alpha = 0.6f), MaterialTheme.shapes.small)
+                        .padding(Dimensions.labelGlyphSpacing),
+            )
+            trailingTimeControl()
+        }
+    } else {
+        seekControl()
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Text(
+                text = "${formatDuration(seekPositionMs)} / ${formatDuration(durationMs)}",
+                color = contentColor ?: MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
 

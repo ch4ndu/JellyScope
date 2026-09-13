@@ -238,6 +238,7 @@ private fun LoggedInNavHostContent(
             LoggedInNavGraph(
                 navController = navController,
                 session = session,
+                boundaryEpoch = boundaryEpoch,
                 onLogoutComplete = onLogoutComplete,
                 onSettingsClick = onSettingsClick,
                 loggedInContentInsets = loggedInContentInsets,

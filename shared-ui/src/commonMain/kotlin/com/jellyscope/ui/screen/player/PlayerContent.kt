@@ -10,6 +10,9 @@ package com.jellyscope.ui.screen.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.animateIntSizeAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -36,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -54,7 +59,10 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.zIndex
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.PlaybackAction
@@ -258,6 +266,7 @@ fun PlayerContent(
         content = content,
         sourceBounds = playerSourceBounds,
         commandCallbacks = commandCallbacks,
+        isFullscreen = true,
         onPictureInPictureModeChanged = onPictureInPictureModeChanged,
         onCloseFromPictureInPicture = onBack,
         onBackgrounded = onBack,
@@ -390,6 +399,7 @@ fun PlayerContent(
             modifier
                 .fillMaxSize()
                 .background(Color.Black)
+                .clipToBounds()
                 // Pointer moves bubble here from all overlay leaves.
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
@@ -420,11 +430,30 @@ fun PlayerContent(
                 ),
     ) {
         val compactPlayerLayout = WindowWidthTier.fromAvailableWidth(maxWidth) == WindowWidthTier.Compact
+        val animateViewport = platformCapabilities.playerOrientationAnimation && !isInPictureInPicture
+        val viewportSize =
+            key(isInPictureInPicture) {
+                animateIntSizeAsState(
+                    targetValue = IntSize(constraints.maxWidth, constraints.maxHeight),
+                    animationSpec = if (animateViewport) tween(PLAYER_ROTATION_ANIMATION_MS) else snap(),
+                    label = "Player orientation viewport",
+                )
+            }
         PlayerSurface(
             controller = controller,
             modifier =
                 Modifier
-                    .fillMaxSize()
+                    .layout { measurable, surfaceConstraints ->
+                        val size =
+                            if (animateViewport) viewportSize.value else IntSize(surfaceConstraints.maxWidth, surfaceConstraints.maxHeight)
+                        val placeable = measurable.measure(Constraints.fixed(size.width, size.height))
+                        layout(surfaceConstraints.maxWidth, surfaceConstraints.maxHeight) {
+                            placeable.place(
+                                (surfaceConstraints.maxWidth - size.width) / 2,
+                                (surfaceConstraints.maxHeight - size.height) / 2,
+                            )
+                        }
+                    }.fillMaxSize()
                     .zIndex(PlayerOverlayLayer.VIDEO)
                     .onGloballyPositioned { coordinates ->
                         // Publish only changed bounds to avoid a layout feedback loop.
@@ -971,3 +1000,6 @@ private fun PlayerControlsOverlay(
 private class PlayerSourceBoundsHolder {
     var value: Rect? = null
 }
+
+internal const val PLAYER_LAYOUT_ANIMATION_MS = 250
+internal const val PLAYER_ROTATION_ANIMATION_MS = 500

@@ -3,6 +3,7 @@
 package com.jellyscope.core.domain.usecase
 
 import com.jellyscope.core.data.repository.MediaRepository
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DEFAULT_DISCOVERY_PAGE_SIZE
 import com.jellyscope.core.domain.model.FindQuery
 import com.jellyscope.core.domain.model.Library
@@ -30,6 +31,15 @@ class GetUserLibrariesUseCase(
         mediaRepository.getLibraries().map { libraries ->
             libraries.filter { library -> library.collectionType.isUserLibrary }
         }
+}
+
+class GetKidsCatalogueUseCase(
+    private val mediaRepository: MediaRepository,
+) {
+    suspend operator fun invoke(
+        expectedAccountIdentity: AccountIdentity,
+        expectedBoundaryEpoch: Long,
+    ): Result<List<MediaItem>> = mediaRepository.getKidsCatalogue(expectedAccountIdentity, expectedBoundaryEpoch)
 }
 
 class GetContinueWatchingUseCase(

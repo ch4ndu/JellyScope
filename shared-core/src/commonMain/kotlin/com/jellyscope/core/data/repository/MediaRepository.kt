@@ -2,6 +2,7 @@
 
 package com.jellyscope.core.data.repository
 
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DEFAULT_DISCOVERY_PAGE_SIZE
 import com.jellyscope.core.domain.model.FindQuery
 import com.jellyscope.core.domain.model.FindResults
@@ -34,6 +35,11 @@ interface MediaRepository {
     suspend fun uploadClientLogs(content: String): SendClientLogsResult = SendClientLogsResult.Failure
 
     suspend fun getLibraries(): Result<List<Library>>
+
+    suspend fun getKidsCatalogue(
+        expectedAccountIdentity: AccountIdentity,
+        expectedBoundaryEpoch: Long,
+    ): Result<List<MediaItem>> = Result.failure(UnsupportedOperationException("Kids catalogue is not implemented."))
 
     suspend fun getContinueWatching(): Result<List<MediaItem>>
 

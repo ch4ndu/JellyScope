@@ -3,6 +3,7 @@
 package com.jellyscope.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -11,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
+import com.jellyscope.core.domain.action.RefreshParentalRatingAction
 import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
@@ -21,6 +23,7 @@ import com.jellyscope.ui.component.launch.AmbientLaunchScaffold
 import com.jellyscope.ui.image.InstallJellyfinImageLoader
 import com.jellyscope.ui.navigation.InitialDetailNavigationEvent
 import com.jellyscope.ui.navigation.LoggedInNavHost
+import com.jellyscope.ui.platform.LocalPlatformCapabilities
 import com.jellyscope.ui.screen.home.SessionRestoringContent
 import com.jellyscope.ui.screen.login.LoginScreen
 import com.jellyscope.ui.screen.serverentry.ServerEntryScreen
@@ -103,8 +106,22 @@ fun JellyScopeApp(
                 }
             }
             is SessionState.LoggedIn -> {
+                val platformCapabilities = LocalPlatformCapabilities.current
+                val refreshParentalRatingAction = koinInject<RefreshParentalRatingAction>()
                 SideEffect {
                     onDetailNavigationBoundaryChanged(state.session.accountIdentity(), state.boundaryEpoch)
+                }
+                LaunchedEffect(
+                    state.session.accountIdentity(),
+                    state.boundaryEpoch,
+                    platformCapabilities.supportsKidsPlayback,
+                ) {
+                    if (platformCapabilities.supportsKidsPlayback) {
+                        refreshParentalRatingAction(
+                            expectedSession = state.session,
+                            expectedBoundaryEpoch = state.boundaryEpoch,
+                        )
+                    }
                 }
                 key(state.session.accountIdentity(), state.boundaryEpoch) {
                     InstallJellyfinImageLoader(

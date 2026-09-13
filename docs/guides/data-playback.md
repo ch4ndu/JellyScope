@@ -1424,6 +1424,48 @@ rather than porting code. When probing a live server:
   direct play for the whole item, producing false direct-play denials that do
   not reproduce the app's actual behavior.
 
+## Kids Account Playback
+
+- `Session.maxParentalRating` and its stored projection retain Jellyfin's nullable
+  `MaxParentalRating` from the shared password/Quick Connect mapper. Values 0..7
+  enable the mobile Kids presentation; null, negative, and higher values use
+  normal playback. The US TV-Y7 and TV-Y7-FV limits both use score 7. This selects
+  presentation only: library assignment and content restrictions remain server
+  responsibilities, and `EnableContentDownloading` remains independent.
+- On mobile account-subtree entry, one best-effort current-user read captures
+  the session and boundary epoch and validates response identity. Failure keeps
+  the saved rating; successful null clears it. The guarded same-boundary commit
+  is owned by [account lifecycle](architecture.md#account-boundary-and-lifecycle).
+  There is no polling. Eligibility is captured at the next Player route entry,
+  so a refresh never changes an active video's layout. Old envelopes default to
+  null offline until a successful refresh or login.
+- The catalogue uses one captured account/session/epoch across accessible real
+  video libraries, excluding Music and system views. Bounded recursive pages
+  request only Movie/Episode card metadata, use supported SortName ascending
+  order, terminate from raw page size, and deduplicate IDs. Concurrent changes
+  or equal sort names remain best effort under server pagination. Any failure
+  discards the partial load. The existing `DiscoveryCache` stores only completed
+  successful catalogues in RAM under a distinct key and retains account cleanup;
+  callers also reject stale returns after loading. No Jellyfin recommendation,
+  Similar, Suggestions, Next Up, or random endpoint feeds this page.
+- The watch state owner shuffles locally off Main, keeps current items in the
+  pool while excluding them from displayed rows, and preserves order through
+  playback and layout changes. The watch page has one shuffled list, without a
+  separate watch-history shelf or additional history requests. Only
+  artifact-unavailable errors remove a local card; decoder or backend failures
+  do not invalidate its files.
+- Explicit offline watch entries make no catalogue/history requests. Their pool
+  contains current-account Completed Movie/Episode records whose artifacts pass
+  `GetOfflinePlaybackPlanUseCase`; missing or changed generations invalidate
+  qualification, and explicit retry rechecks. Playback always revalidates a tap.
+  The newest valid download per media item supplies metadata, and surviving cards
+  retain their order across progress updates. Snapshots contain no artwork. A failed remote
+  catalogue can expose the same qualified local fallback, gated by the existing
+  download permission; no connectivity monitor or remote fallback is added.
+
+Presentation belongs to [Kids watch page](ui.md#kids-watch-page); direct selection,
+completion, and from-beginning replay belong to [single-asset playback](playback-architecture.md#single-asset-kids-playback).
+
 ## Discovery Data
 
 - Discovery browse data remains behind `MediaRepository` and shared use-cases:
@@ -2040,7 +2082,8 @@ than restating it.
   and `StoredSession` projection. Password and Quick Connect authentication
   project the current Jellyfin `EnableContentDownloading` user policy into that
   session value. Missing policy and missing stored fields default to `false`,
-  and no policy refresh or synchronization flow is introduced.
+  with no download-permission synchronization flow. The separate parental-rating
+  [parental-rating refresh](#kids-account-playback) preserves this permission value.
 
 ### Admission, quality, and artifacts
 
@@ -2297,15 +2340,17 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   seek stalls as Buffering; desktop does so immediately after `seekTo` and while
   mpv reports `seeking`.
 - **[touch]** Double-tap left/right seeks and long-press temporarily boosts
-  speed, each with a transient HUD. Vertical swipes adjust brightness/volume on
-  **[android]** only — iOS and desktop install a no-op gesture controller whose
+  speed, each with a transient HUD. Normal-player vertical swipes adjust
+  brightness/volume on **[android]** only — iOS and desktop install a no-op gesture controller whose
   brightness/volume updates return no value, and the shared gesture code
   silently skips the HUD when there is no value to show, so the swipe is inert
   rather than broken. Android captures the exact window brightness value when
   the player takes ownership. Each swipe begins from the current window
   override, or from the clamped system brightness setting when no override is
   active. Player disposal restores the exact ownership-time value rather than
-  forcing the no-override sentinel.
+  forcing the no-override sentinel. Meter labels render one percent sign with
+  the shared resource formatter. Kids disables both adjustments and uses its
+  [fullscreen drag interaction](ui.md#kids-watch-page) instead.
 - **[desktop]** Window-level capability bridges deliver Space, Left/Right, Esc,
   fullscreen double-click, and cursor hide/restore even when inner controls own
   focus. While the player is fullscreen, pointer inactivity hides the cursor
@@ -2568,11 +2613,13 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
 
 ### End of playback
 
-- **[all]** True end-of-queue emits `playbackEnded` and closes exactly once;
-  mid-queue completion advances instead.
-- **[all]** Episode playback without a usable explicit queue derives a
-  chronological season/episode queue for Up Next. Explicit launch queues remain
-  authoritative.
+- Normal queue playback emits `playbackEnded` and closes exactly once at its
+  true end; mid-queue completion advances instead. Episode playback without a
+  usable explicit queue derives a chronological season/episode queue for Up
+  Next, while explicit queues remain authoritative.
+- Mobile [Kids single-asset playback](playback-architecture.md#single-asset-kids-playback)
+  suppresses queue derivation and automatic advance, keeps the completed asset
+  displayed, and waits for explicit Replay or another card selection.
 - **[all]** Failed/aborted playback that never started must not clear Continue
   Watching progress.
 
@@ -3257,6 +3304,15 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
 
 Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
 [playback-architecture.md](playback-architecture.md#why).
+
+### Kids catalogue and history
+
+- Curated library membership is a catalogue, not a queue or recommendation
+  service. Account/epoch checks keep asynchronous results within their owner;
+  separate fresh UserData reads prevent the RAM catalogue from freezing history.
+- Offline availability means a qualified completed artifact, not cached remote
+  metadata. Small generation-keyed qualification memos avoid repeated file work
+  on progress ticks while explicit retry and playback taps revalidate availability.
 
 ### Server contract and capability modeling
 

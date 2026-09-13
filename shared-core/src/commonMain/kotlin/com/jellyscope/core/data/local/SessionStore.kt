@@ -31,6 +31,7 @@ data class StoredSession(
     val accessToken: String,
     val deviceId: String,
     val enableContentDownloading: Boolean = false,
+    val maxParentalRating: Int? = null,
 )
 
 internal data class CommittedSessionSnapshot(

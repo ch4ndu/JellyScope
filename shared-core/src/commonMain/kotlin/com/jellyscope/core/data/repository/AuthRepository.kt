@@ -5,6 +5,7 @@ package com.jellyscope.core.data.repository
 import com.jellyscope.core.coroutines.platformIoDispatcher
 import com.jellyscope.core.data.local.SessionStore
 import com.jellyscope.core.data.local.StoreCleanupException
+import com.jellyscope.core.data.remote.AuthenticatedRequestContext
 import com.jellyscope.core.data.remote.JellyfinApi
 import com.jellyscope.core.data.remote.JellyfinApiException
 import com.jellyscope.core.data.remote.PublicSystemInfoDto
@@ -64,6 +65,11 @@ interface AuthRepository {
     ): Result<Unit> = Result.failure(AuthError.AccountNotFound)
 
     suspend fun logout(authorization: SessionRemovalAuthorization = SessionRemovalAuthorization.None): Result<Unit>
+
+    suspend fun refreshParentalRating(
+        expectedSession: Session,
+        expectedBoundaryEpoch: Long,
+    ): Result<Unit> = Result.failure(UnsupportedOperationException("Parental rating refresh is not implemented."))
 }
 
 class DefaultAuthRepository(
@@ -200,6 +206,25 @@ class DefaultAuthRepository(
 
             sessionRepository.setLoggedOut(previousServerUrl, authorization).getOrThrow()
         }.mapError(DiagnosticOperation.AuthLogout)
+
+    override suspend fun refreshParentalRating(
+        expectedSession: Session,
+        expectedBoundaryEpoch: Long,
+    ): Result<Unit> =
+        runCatchingCancellable {
+            withContext(workDispatcher) {
+                val user = jellyfinApi.getCurrentUser(expectedSession.toRequestContext())
+                if (user.id != expectedSession.userId) {
+                    throw JellyfinApiException.Unauthorized
+                }
+                sessionRepository.updateParentalRating(
+                    expectedSession = expectedSession,
+                    expectedBoundaryEpoch = expectedBoundaryEpoch,
+                    maxParentalRating = user.policy?.maxParentalRating,
+                )
+            }
+            Unit
+        }.mapError(DiagnosticOperation.RefreshParentalRating)
 }
 
 private fun PublicSystemInfoDto.toDomain(serverUrl: String): ServerInfo =
@@ -231,6 +256,7 @@ private fun com.jellyscope.core.data.remote.AuthenticationResultDto.toSession(
             accessToken = accessToken,
             deviceId = deviceId,
             enableContentDownloading = user.policy?.enableContentDownloading == true,
+            maxParentalRating = user.policy?.maxParentalRating,
         )
     }
 
@@ -243,6 +269,13 @@ private fun normalizedServerAuthority(serverUrl: String): String? =
         .substringBefore('/')
         .trim()
         .takeIf(String::isNotEmpty)
+
+private fun Session.toRequestContext(): AuthenticatedRequestContext =
+    AuthenticatedRequestContext(
+        serverUrl = serverUrl,
+        userId = userId,
+        accessToken = accessToken,
+    )
 
 private fun <T> Result<T>.mapError(operation: DiagnosticOperation): Result<T> =
     fold(

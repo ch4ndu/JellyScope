@@ -16,6 +16,7 @@ actual fun PlayerPlatformEffects(
     content: PlayerUiState.Content?,
     sourceBounds: Rect?,
     commandCallbacks: PlayerPlatformCommandCallbacks,
+    isFullscreen: Boolean,
     onPictureInPictureModeChanged: (Boolean) -> Unit,
     onCloseFromPictureInPicture: () -> Unit,
     onBackgrounded: () -> Unit,

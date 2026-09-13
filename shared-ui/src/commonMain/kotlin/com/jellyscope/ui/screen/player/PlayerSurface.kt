@@ -4,6 +4,7 @@ package com.jellyscope.ui.screen.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.domain.playback.SubtitleStyle
 
@@ -14,6 +15,7 @@ expect fun PlayerSurface(
     resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
     subtitleStyle: SubtitleStyle = SubtitleStyle(),
     subtitleClearanceActive: Boolean,
+    subtitleBottomClearance: Dp? = null,
     pictureInPictureRequiresLinearPlayback: Boolean,
 )
 

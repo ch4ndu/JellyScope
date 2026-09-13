@@ -295,4 +295,15 @@ data class PlayerLaunchOptions(
     val initialSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified,
     val queue: List<String> = emptyList(),
     val offlineDownloadId: DownloadId? = null,
+    val launchPolicy: PlayerLaunchPolicy = PlayerLaunchPolicy.Normal,
+)
+
+enum class PlayerLaunchPolicy {
+    Normal,
+    KidsSingleAsset,
+}
+
+data class PlayerPlaybackTarget(
+    val itemId: String,
+    val offlineDownloadId: DownloadId? = null,
 )

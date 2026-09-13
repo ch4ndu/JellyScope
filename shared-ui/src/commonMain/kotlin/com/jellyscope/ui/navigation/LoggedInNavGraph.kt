@@ -20,7 +20,9 @@ import androidx.savedstate.read
 import com.jellyscope.core.domain.model.LibraryCollectionType
 import com.jellyscope.core.domain.model.LibraryFilterSelection
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.isKidsPlaybackEligible
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.ui.platform.LocalPlatformCapabilities
 import com.jellyscope.ui.screen.collection.CollectionScreen
 import com.jellyscope.ui.screen.detail.AdaptiveSeasonScreen
 import com.jellyscope.ui.screen.detail.DetailScreen
@@ -35,6 +37,7 @@ import com.jellyscope.ui.screen.home.HomeScreen
 import com.jellyscope.ui.screen.library.LibraryScreen
 import com.jellyscope.ui.screen.library.LibraryTabScreen
 import com.jellyscope.ui.screen.person.PersonScreen
+import com.jellyscope.ui.screen.player.PlayerLaunchPolicy
 import com.jellyscope.ui.screen.player.PlayerScreen
 import com.jellyscope.ui.screen.settings.SettingsScreen
 import org.koin.compose.viewmodel.koinViewModel
@@ -44,6 +47,7 @@ import org.koin.core.parameter.parametersOf
 internal fun LoggedInNavGraph(
     navController: NavHostController,
     session: Session,
+    boundaryEpoch: Long,
     onLogoutComplete: () -> Unit,
     onSettingsClick: () -> Unit,
     loggedInContentInsets: WindowInsets,
@@ -597,6 +601,15 @@ internal fun LoggedInNavGraph(
             popEnterTransition = { EnterTransition.None },
             popExitTransition = drillDownPopExit,
         ) { entry ->
+            val supportsKidsPlayback = LocalPlatformCapabilities.current.supportsKidsPlayback
+            val launchPolicy =
+                remember(entry) {
+                    if (session.isKidsPlaybackEligible && supportsKidsPlayback) {
+                        PlayerLaunchPolicy.KidsSingleAsset
+                    } else {
+                        PlayerLaunchPolicy.Normal
+                    }
+                }
             val itemId =
                 entry.arguments
                     ?.read { getStringOrNull(Routes.ItemIdArgument) }
@@ -640,15 +653,23 @@ internal fun LoggedInNavGraph(
                 entry.arguments
                     ?.read { getStringOrNull(Routes.OfflineDownloadIdArgument) }
                     ?.let(Routes::offlineDownloadId)
-            val handoffQueue = remember(entry, queueKey) { playbackQueueHandoffStore.take(queueKey) }
+            val handoffQueue =
+                if (launchPolicy == PlayerLaunchPolicy.KidsSingleAsset) {
+                    emptyList()
+                } else {
+                    remember(entry, queueKey) { playbackQueueHandoffStore.take(queueKey) }
+                }
             val playbackQueue =
-                if (queueKey != null) {
+                if (launchPolicy == PlayerLaunchPolicy.KidsSingleAsset) {
+                    emptyList()
+                } else if (queueKey != null) {
                     handoffQueue.ifEmpty { listOf(itemId) }
                 } else {
                     queue
                 }
             PlayerScreen(
                 session = session,
+                boundaryEpoch = boundaryEpoch,
                 itemId = itemId,
                 startPositionTicks = startTicks,
                 mediaSourceId = mediaSourceId,
@@ -656,10 +677,19 @@ internal fun LoggedInNavGraph(
                 initialSubtitleSelection = initialSubtitleSelection,
                 queue = playbackQueue,
                 offlineDownloadId = offlineDownloadId,
+                launchPolicy = launchPolicy,
                 onBack = { navController.popBackStack() },
                 onOpenPlaybackSettings = {
                     navController.popBackStack()
                     navController.navigate(Routes.Settings)
+                },
+                onOpenDownloads = {
+                    if (!navController.popBackStack(Routes.Downloads, inclusive = false)) {
+                        navController.popBackStack()
+                        navController.navigate(Routes.Downloads) {
+                            launchSingleTop = true
+                        }
+                    }
                 },
             )
         }

@@ -89,6 +89,15 @@ leases from [Downloads](data-playback.md#downloads-and-offline).
   transition, and exact snapshot publication. Cancellation is surfaced only
   after durable and observable state agree. Removal carries its committed
   snapshot; no transition rereads secure storage after commit.
+- Parental-rating refresh uses a narrow same-boundary update under the existing
+  mutation gate. Both the full live Session/epoch and the persisted active
+  account/row must match the captured request, with no pending logout. Changed
+  ratings persist then publish in one non-cancellable tail; unchanged ratings
+  skip publication. This neither changes the epoch nor invalidates login
+  attempts or runs account/cache cleanup. The existing idempotent subtitle-sync
+  `collectLatest` consumer may restart when the changed Session is published.
+  Refresh triggers and offline behavior belong to
+  [Kids account playback](data-playback.md#kids-account-playback).
 - Removal computes values needed after mutation before the first write, runs
   cleanup outside caller cancellation, and aggregates phase failures so one
   failing store does not abandon the rest.
@@ -470,6 +479,9 @@ gates live in
 
 - Server-plus-user identity and one immutable session snapshot prevent requests,
   caches, and publication from crossing account generations.
+- Presentation-policy refresh must not reauthenticate or remount an active
+  account. Comparing the durable active row as well as live state prevents a
+  stale refresh from reactivating an account or clearing a pending logout.
 - Direct persistent-store cleanup avoids correctness depending on lazy DI order.
 - Removal and committed transition tails are atomic/non-cancellable because
   partial durable mutation cannot be represented safely as an unchanged session.

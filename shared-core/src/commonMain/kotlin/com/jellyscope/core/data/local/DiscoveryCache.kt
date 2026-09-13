@@ -5,9 +5,9 @@ package com.jellyscope.core.data.local
 import com.jellyscope.core.domain.model.AccountIdentity
 
 /**
- * In-memory cache for the Discover tab's top-level lists. Only successful
- * results are cached; the account-qualified kernel rejects stale leases and
- * is cleared by the existing server-scoped store lifecycle.
+ * In-memory cache for successful Discover top-level lists and the Kids
+ * catalogue. The account-qualified kernel rejects stale leases and is cleared
+ * by the existing server-scoped store lifecycle.
  */
 class DiscoveryCache(
     serverScopedStoreRegistry: ServerScopedStoreRegistry? = null,
