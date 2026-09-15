@@ -2,7 +2,6 @@
 
 package com.jellyscope.core.playback
 
-import co.touchlab.kermit.Logger
 import com.jellyscope.core.data.local.DesktopPlayerVolumeStore
 import com.jellyscope.core.data.local.LocalSubtitleFileStore
 import com.jellyscope.core.domain.model.Session
@@ -38,9 +37,12 @@ import com.jellyscope.core.domain.playback.VideoOutputMeasurementCapabilities
 import com.jellyscope.core.domain.playback.VideoOutputObservation
 import com.jellyscope.core.domain.playback.diagnosticName
 import com.jellyscope.core.domain.playback.droppedFramePoll
+import com.jellyscope.core.domain.playback.playbackExceptionType
 import com.jellyscope.core.domain.playback.resolveEmbeddedTrack
 import com.jellyscope.core.domain.playback.vlcSlaveSubtitleUrl
 import com.jellyscope.core.security.CredentialOriginGuard
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.core.util.nextPositiveGeneration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -131,7 +133,7 @@ class DesktopLibVlcPlayerController private constructor(
 
     private val nativeScope = CoroutineScope(SupervisorJob() + nativeDispatcher)
     private val credentialOriginGuard = CredentialOriginGuard(session.serverUrl)
-    private val logger = Logger.withTag("DesktopLibVlc")
+    private val logger = diagnosticLogger(DiagnosticTag.LibVlcPlayerController)
     private val released = AtomicBoolean(false)
     private val offlineLeaseHolder = OfflineArtifactLeaseHolder()
     private var offlinePath: String? = null
@@ -1501,10 +1503,23 @@ class DesktopLibVlcPlayerController private constructor(
         )
     }
 
-    private fun failInitialization() {
+    private fun logFailure(
+        stage: DesktopVlcFailureStage,
+        error: PlaybackError,
+        throwable: Throwable? = null,
+    ) {
+        logger.w {
+            "stage=${stage.name} event=terminal-error platform=Desktop backend=LibVlc " +
+                "prepareSequence=$generation sessionSequence=${lastPlan?.diagnosticSessionSequence ?: generation} " +
+                "errorCategory=${error.diagnosticName()}" +
+                (throwable?.let { " exceptionType=${it.playbackExceptionType()}" } ?: "")
+        }
+    }
+
+    private fun failInitialization(throwable: Throwable) {
         if (released.get()) return
         initializationError = PlaybackError.UnsupportedMedia
-        logger.w { "failure stage=${DesktopVlcFailureStage.Initialization.name}" }
+        logFailure(DesktopVlcFailureStage.Initialization, PlaybackError.UnsupportedMedia, throwable)
         emitDesktopVlcProbe(
             DesktopVlcProbeRecord(
                 action = DesktopVlcProbeAction.FAILURE,
@@ -1521,10 +1536,10 @@ class DesktopLibVlcPlayerController private constructor(
         nativeScope.launch {
             try {
                 initializeEngine()
-            } catch (_: DesktopVlcInitializationException) {
-                failInitialization()
-            } catch (_: Throwable) {
-                failInitialization()
+            } catch (failure: DesktopVlcInitializationException) {
+                failInitialization(failure)
+            } catch (failure: Throwable) {
+                failInitialization(failure)
             } finally {
                 initializationInFlight.set(false)
             }
@@ -1559,7 +1574,7 @@ class DesktopLibVlcPlayerController private constructor(
         if (!isCurrent(expectedGeneration)) return
         if (_playbackState.value.status in TERMINAL_STATUSES) return
         resetDroppedFrameBaseline()
-        logger.w { "failure stage=${stage.name}" }
+        logFailure(stage, error)
         emitDesktopVlcProbe(
             DesktopVlcProbeRecord(
                 action = DesktopVlcProbeAction.FAILURE,

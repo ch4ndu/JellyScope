@@ -98,6 +98,9 @@ import com.jellyscope.core.domain.playback.PlayerStillWatchingAutomaticAdvance
 import com.jellyscope.core.domain.playback.PlayerStillWatchingState
 import com.jellyscope.core.domain.playback.PlayerVolumeController
 import com.jellyscope.core.domain.playback.PlayerVolumeState
+import com.jellyscope.core.domain.playback.SoftwarePlaybackProgress
+import com.jellyscope.core.domain.playback.SoftwarePlaybackProgressOutcome
+import com.jellyscope.core.domain.playback.SoftwarePlaybackRecoveryDecision
 import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.core.domain.playback.SubtitleActivationIdentity
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
@@ -349,6 +352,13 @@ class PlayerViewModel(
     private var replanRequestGeneration = 0L
     private var localSubtitleAssetsJob: Job? = null
     private var lastStatus: PlaybackStatus = PlaybackStatus.Idle
+    private var softwareProgress = SoftwarePlaybackProgress()
+    private var softwarePrepareEpoch: Long? = null
+    private var softwareProgressExcludedUntilMs = 0L
+    private var softwareProgressReported = false
+    private var softwareRecoveryToken = 0L
+    private val _softwarePlaybackRecovery = MutableStateFlow<PlayerSoftwarePlaybackRecovery?>(null)
+    val softwarePlaybackRecovery: StateFlow<PlayerSoftwarePlaybackRecovery?> = _softwarePlaybackRecovery.asStateFlow()
     private var alternateBackendFallbackAttempted = false
     private var controllerInstallInFlight = false
     private val controllerInstallMutex = Mutex()
@@ -464,21 +474,25 @@ class PlayerViewModel(
     }
 
     fun play() {
+        if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         desiredPlayWhenReady = true
         playbackIntentRevision += 1L
         if (offlineReprepareGeneration != null) return
+        excludeSoftwarePlaybackProgress()
         restartPlaybackHealthEvidence()
         playerController.play()
     }
 
     fun pause() {
+        if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         desiredPlayWhenReady = false
         playbackIntentRevision += 1L
         if (offlineReprepareGeneration != null) return
+        excludeSoftwarePlaybackProgress()
         restartPlaybackHealthEvidence()
         playerController.pause()
     }
@@ -530,9 +544,11 @@ class PlayerViewModel(
     }
 
     fun seekTo(positionMs: Long) {
+        if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         val target = positionMs.coerceAtLeast(0L)
+        excludeSoftwarePlaybackProgress()
         restartPlaybackHealthEvidence(PlaybackHealthExclusionReason.Seek)
         val currentPlan = plan
         if (
@@ -562,6 +578,7 @@ class PlayerViewModel(
     }
 
     fun retry() {
+        if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
         if (isKidsSingleAsset) {
             retryCurrentPlayback()
@@ -629,6 +646,7 @@ class PlayerViewModel(
             playerController.retry()
             playerController.runtimeDiagnostics.value.prepareEpoch
                 ?.let(playbackHealthCoordinator::expectVideoOutput)
+            armSoftwarePlaybackRecovery()
             armFirstVideoOutputState()
             return
         }
@@ -909,7 +927,7 @@ class PlayerViewModel(
     }
 
     fun setResizeMode(mode: PlayerResizeMode) {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || !playerController.supportsVideoSizing) return
         invalidateBackendSwitch()
         resizeMode = mode
         if (state.value is PlayerUiState.Content) {
@@ -969,6 +987,7 @@ class PlayerViewModel(
     }
 
     private fun performStop(stopController: Boolean) {
+        clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Stopped)
         selectedPlaybackGeneration += 1L
         clearPendingRestartFromBeginning()
         clearPlayingPositionProof()
@@ -987,6 +1006,7 @@ class PlayerViewModel(
     }
 
     fun showPicker(picker: PlayerPicker) {
+        if (_softwarePlaybackRecovery.value != null) return
         if (picker == PlayerPicker.Backend && !canOpenBackendPicker()) {
             return
         }
@@ -999,8 +1019,16 @@ class PlayerViewModel(
 
     /** Starts a session-only remote backend replacement without touching preferences. */
     fun selectBackend(targetBackend: PlayerBackend) {
-        val policy = deviceProfileProvider?.backendPolicy ?: return
-        val currentPlan = installedPlan ?: return
+        if (_softwarePlaybackRecovery.value != null) return
+        startBackendSwitch(targetBackend)
+    }
+
+    private fun startBackendSwitch(
+        targetBackend: PlayerBackend,
+        recoveryToken: Long? = null,
+    ): Boolean {
+        val policy = deviceProfileProvider?.backendPolicy ?: return false
+        val currentPlan = installedPlan ?: return false
         if (
             disposed ||
             backendSwitchInProgress ||
@@ -1013,7 +1041,7 @@ class PlayerViewModel(
             targetBackend !in policy.concreteBackends ||
             targetBackend !in availableBackendsForSession
         ) {
-            return
+            return false
         }
 
         replanJob?.cancel()
@@ -1033,7 +1061,7 @@ class PlayerViewModel(
                 requestedSubtitleSelection = requestedSubtitleSelection,
                 requestedLocalSubtitleAsset = requestedLocalSubtitleAsset,
                 qualityPolicy =
-                    if (qualitySession.isExplicitSessionChoice) {
+                    if (recoveryToken != null || qualitySession.isExplicitSessionChoice) {
                         qualitySession.policy
                     } else {
                         activePlaybackPreferences.effectiveDefaultQualityPolicy(targetBackend)
@@ -1047,14 +1075,49 @@ class PlayerViewModel(
                 targetBackend = targetBackend,
                 defaultBackend = policy.concreteDefaultBackend,
                 planReportingAuthority = planReportingAuthority,
+                softwareRecoveryToken = recoveryToken,
+                recoveryQuality = qualitySession.takeIf { recoveryToken != null },
+                recoveryBudget = autoRecoveryState.takeIf { recoveryToken != null },
             )
         backendSwitchInProgress = true
         playbackChangeNotice = null
-        publishContent(pickerVisible = PlayerPicker.Backend)
+        publishContent(pickerVisible = if (recoveryToken == null) PlayerPicker.Backend else PlayerPicker.None)
         backendSwitchJob =
             viewModelScope.launch {
-                switchBackend(switch)
+                var prepared = false
+                try {
+                    prepared = switchBackend(switch)
+                } finally {
+                    if (recoveryToken != null && _softwarePlaybackRecovery.value?.token == recoveryToken) {
+                        if (prepared && backend == PlayerBackend.ExoPlayer && isCurrentBackendSwitch(switch)) {
+                            clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.SwitchPrepared)
+                        } else {
+                            val currentMpvAvailable =
+                                backend == PlayerBackend.Mpv &&
+                                    installedPlan != null &&
+                                    playerControllerFieldOwned &&
+                                    state.value !is PlayerUiState.Error &&
+                                    playbackState.value.status !in backendSwitchTerminalStatuses
+                            if (currentMpvAvailable) {
+                                desiredPlayWhenReady = false
+                                playerController.pause()
+                            }
+                            _softwarePlaybackRecovery.value =
+                                _softwarePlaybackRecovery.value?.copy(
+                                    switching = false,
+                                    switchFailed = true,
+                                    canSwitch = currentMpvAvailable && PlayerBackend.ExoPlayer in availableBackendsForSession,
+                                    canContinue = currentMpvAvailable,
+                                )
+                            playerDiagnosticsRecorder.recordSoftwarePlaybackRecovery(
+                                playerDiagnosticContext(),
+                                SoftwarePlaybackRecoveryDecision.SwitchFailed,
+                            )
+                        }
+                    }
+                }
             }
+        return true
     }
 
     fun selectAudio(streamIndex: Int) {
@@ -1509,6 +1572,7 @@ class PlayerViewModel(
         playerController.retry()
         playerController.runtimeDiagnostics.value.prepareEpoch
             ?.let(playbackHealthCoordinator::expectVideoOutput)
+        armSoftwarePlaybackRecovery()
         armFirstVideoOutputState()
     }
 
@@ -1540,6 +1604,7 @@ class PlayerViewModel(
 
     /** Defers actionable recovery until the full player UI can present it. */
     fun setPictureInPictureMode(inPictureInPicture: Boolean) {
+        excludeSoftwarePlaybackProgress()
         pictureInPictureMode = inPictureInPicture
         if (!inPictureInPicture) {
             val pendingTrigger = pendingPictureInPictureRecoveryTrigger ?: return
@@ -1554,6 +1619,7 @@ class PlayerViewModel(
         if (!speed.isFinite()) {
             return
         }
+        excludeSoftwarePlaybackProgress()
         playbackSpeed = speed.coerceIn(MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED)
         plan = plan?.copy(playbackSpeed = playbackSpeed)
         if (offlineReprepareGeneration == null) {
@@ -1634,6 +1700,7 @@ class PlayerViewModel(
     }
 
     fun dispose() {
+        clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Superseded)
         if (disposed) return
         invalidateBackendSwitch()
         disposed = true
@@ -1704,6 +1771,7 @@ class PlayerViewModel(
         resetReporting: Boolean,
         retainedOfflineSidecarIdentity: SubtitleActivationIdentity.OfflineSidecar? = null,
     ): Boolean {
+        clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Superseded)
         invalidateBackendSwitch()
         emitPlaybackHealthSummary()
         activePlaybackTimelineFacts = null
@@ -2012,6 +2080,7 @@ class PlayerViewModel(
         )
         // Load timing offsets before native prepare.
         loadTimingOffsets()
+        excludeSoftwarePlaybackProgress()
         markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
         playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
         playerController.prepare(playbackPlanWithMetadata)
@@ -2019,6 +2088,7 @@ class PlayerViewModel(
         installedPlan = playbackPlanWithMetadata
         playerController.runtimeDiagnostics.value.prepareEpoch
             ?.let(playbackHealthCoordinator::expectVideoOutput)
+        armSoftwarePlaybackRecovery()
         armFirstVideoOutputState()
         playerDiagnosticsRecorder.recordPrepareDispatched(playerDiagnosticContext())
         bindPlaybackLaunchToPrepare(launchGeneration, playerController)
@@ -2357,6 +2427,7 @@ class PlayerViewModel(
                     )
                 launchToFirstFrameMs = null
             }
+            excludeSoftwarePlaybackProgress()
             markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
             playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
             val result = controller.prepareOffline(preparePlan)
@@ -2389,6 +2460,7 @@ class PlayerViewModel(
             installedPlan = currentPlan
             controller.runtimeDiagnostics.value.prepareEpoch
                 ?.let(playbackHealthCoordinator::expectVideoOutput)
+            armSoftwarePlaybackRecovery()
             armFirstVideoOutputState()
             playerDiagnosticsRecorder.recordPrepareDispatched(playerDiagnosticContext())
             bindPlaybackLaunchToPrepare(launchGeneration, controller)
@@ -2711,6 +2783,7 @@ class PlayerViewModel(
                 autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, backend)
             }
         updatePlaybackHealthSessionContext()
+        excludeSoftwarePlaybackProgress()
         markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Replan)
         invalidateSubtitleFallback()
     }
@@ -2860,6 +2933,16 @@ class PlayerViewModel(
                     playbackHealthCoordinator.observePlaybackTransition(observation)
                 }
             }
+    }
+
+    private fun armSoftwarePlaybackRecovery() {
+        softwareProgress = SoftwarePlaybackProgress()
+        softwarePrepareEpoch = playerController.runtimeDiagnostics.value.prepareEpoch
+        softwareProgressReported = false
+        softwareProgressExcludedUntilMs = monotonicTimeMs() + SOFTWARE_PLAYBACK_PREPARE_GRACE_MS
+        if (_softwarePlaybackRecovery.value?.switching != true) {
+            clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Superseded)
+        }
     }
 
     private fun armFirstVideoOutputState() {
@@ -3111,6 +3194,7 @@ class PlayerViewModel(
             volumeStateJob = null
             val candidateOwner = ControllerCandidateOwner()
             try {
+                excludeSoftwarePlaybackProgress()
                 markPlaybackHealthExclusion(PlaybackHealthExclusionReason.BackendReplacement)
                 _state.value = PlayerUiState.Loading
                 _playbackState.update { current -> current.copy(status = PlaybackStatus.Loading, error = null) }
@@ -3308,17 +3392,17 @@ class PlayerViewModel(
         finishBackendSwitch(switch)
     }
 
-    private suspend fun switchBackend(switch: BackendSwitchSnapshot) {
+    private suspend fun switchBackend(switch: BackendSwitchSnapshot): Boolean {
         planBackendSwitch(
             switch = switch,
             requestedBackend = switch.targetBackend,
             startPositionMs = switch.activePlan.startPositionMs,
         ) ?: run {
             keepCurrentPlaybackAfterBackendSwitchFailure(switch)
-            return
+            return false
         }
-        if (!isCurrentBackendSwitch(switch)) return
-        installBackendSwitchController(switch)
+        if (!isCurrentBackendSwitch(switch)) return false
+        return installBackendSwitchController(switch)
     }
 
     /** Plans against fresh backend facts while the current controller remains healthy and installed. */
@@ -3330,13 +3414,15 @@ class PlayerViewModel(
         if (!isCurrentBackendSwitch(switch)) return null
         switch.planningError = PlaybackError.Unknown
         val qualityPolicy =
-            if (switch.qualityExplicit) {
+            if (switch.recoveryQuality != null || switch.qualityExplicit) {
                 switch.qualityPolicy
             } else {
                 activePlaybackPreferences.effectiveDefaultQualityPolicy(requestedBackend)
             }
         val qualityCapOrigin =
-            if (switch.qualityExplicit) {
+            if (switch.recoveryQuality != null) {
+                switch.recoveryQuality.capOrigin
+            } else if (switch.qualityExplicit) {
                 PlaybackQualityCapOrigin.ExplicitSessionChoice.takeIf {
                     qualityPolicy.mode == PlaybackQualityMode.Fixed
                 }
@@ -3349,6 +3435,14 @@ class PlayerViewModel(
             PlaybackInfoRequestPolicy(
                 backend = requestedBackend,
                 diagnosticSessionSequence = switch.launchGeneration,
+                bitrateConstraint =
+                    if (switch.recoveryQuality != null) {
+                        switch.recoveryBudget
+                            ?.runtimeQualityCapBps
+                            ?.let { PlaybackBitrateConstraint.AutoSessionLimit(it) } ?: qualityPolicy.toBitrateConstraint()
+                    } else {
+                        PlaybackBitrateConstraint.NoClientLimit
+                    },
             )
         val playbackPlan =
             try {
@@ -3516,6 +3610,7 @@ class PlayerViewModel(
                 playbackTransitionObservationsJob = null
                 volumeStateJob?.cancel()
                 volumeStateJob = null
+                excludeSoftwarePlaybackProgress()
                 markPlaybackHealthExclusion(PlaybackHealthExclusionReason.BackendReplacement)
                 _state.value = PlayerUiState.Loading
                 _playbackState.update { current -> current.copy(status = PlaybackStatus.Loading, error = null) }
@@ -3591,7 +3686,9 @@ class PlayerViewModel(
                                         )
                                 }
                                 qualitySession =
-                                    if (switch.qualityExplicit) {
+                                    if (switch.recoveryQuality != null) {
+                                        switch.recoveryQuality
+                                    } else if (switch.qualityExplicit) {
                                         qualitySession.preserveExplicitBackendSwitch(
                                             policy = replacementPlan.qualityPolicy,
                                             capOrigin = replacementPlan.qualityCapOrigin,
@@ -3604,7 +3701,8 @@ class PlayerViewModel(
                                     }
                                 resizeMode = switch.resizeMode
                                 autoRecoveryState =
-                                    autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, actualBackend)
+                                    switch.recoveryBudget?.copy(backend = actualBackend)
+                                        ?: autoRecoveryCoordinator.reset(playbackLaunchGeneration, currentItemId, actualBackend)
                             }
                             actualBackend
                         }
@@ -3665,6 +3763,7 @@ class PlayerViewModel(
                     return@withLock false
                 }
                 playbackLaunchMarker = null
+                excludeSoftwarePlaybackProgress()
                 markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
                 playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
                 if (!isCurrentBackendSwitch(switch) || stopRequestedDuringControllerInstall) {
@@ -3686,6 +3785,7 @@ class PlayerViewModel(
                 installedPlan = replacementPlan
                 playerController.runtimeDiagnostics.value.prepareEpoch
                     ?.let(playbackHealthCoordinator::expectVideoOutput)
+                armSoftwarePlaybackRecovery()
                 armFirstVideoOutputState()
                 playerDiagnosticsRecorder.recordPrepareDispatched(playerDiagnosticContext())
                 applyInitialEmbeddedSelections(replacementPlan)
@@ -3698,7 +3798,7 @@ class PlayerViewModel(
                     transactionSettled = true
                     return@withLock false
                 }
-                if (switch.wasPaused) {
+                if (switch.wasPaused && switch.softwareRecoveryToken == null) {
                     desiredPlayWhenReady = false
                     playerController.pause()
                 } else {
@@ -3802,6 +3902,12 @@ class PlayerViewModel(
         _playbackState.value = enrichedPlaybackState
         val installedAudioChanged = updateInstalledAudio(enrichedPlaybackState)
         recordTrackDiagnostics(enrichedPlaybackState)
+        if (observeSoftwarePlaybackRecovery(enrichedPlaybackState)) {
+            publishContent(playbackState = enrichedPlaybackState)
+            playbackReportingCoordinator.onPlaybackState(enrichedPlaybackState, lastStatus)
+            lastStatus = enrichedPlaybackState.status
+            return
+        }
         playbackHealthCoordinator.observePlaybackState(enrichedPlaybackState)
         if (enrichedPlaybackState.status == PlaybackStatus.Failed) {
             captureControllerFailure()
@@ -3937,6 +4043,91 @@ class PlayerViewModel(
         publishContent()
     }
 
+    private fun excludeSoftwarePlaybackProgress() {
+        softwareProgress.reset()
+        softwareProgressExcludedUntilMs =
+            maxOf(softwareProgressExcludedUntilMs, monotonicTimeMs() + SOFTWARE_PLAYBACK_TRANSITION_EXCLUSION_MS)
+    }
+
+    private fun clearSoftwarePlaybackRecovery(decision: SoftwarePlaybackRecoveryDecision) {
+        if (_softwarePlaybackRecovery.value != null) {
+            playerDiagnosticsRecorder.recordSoftwarePlaybackRecovery(playerDiagnosticContext(), decision)
+            _softwarePlaybackRecovery.value = null
+        }
+    }
+
+    private suspend fun observeSoftwarePlaybackRecovery(playbackState: PlaybackState): Boolean {
+        val prompt = _softwarePlaybackRecovery.value
+        if (prompt != null) {
+            if (!prompt.switching && playbackState.status == PlaybackStatus.Playing) playerController.pause()
+            if (playbackState.status == PlaybackStatus.Failed || playbackState.status == PlaybackStatus.Completed) {
+                _softwarePlaybackRecovery.value = prompt.copy(canSwitch = false, canContinue = false)
+                if (playbackState.status == PlaybackStatus.Failed) captureControllerFailure()
+            }
+            return true
+        }
+        if (backend != PlayerBackend.Mpv || deviceProfileProvider?.backendPolicy?.platform != PlayerBackendPlatform.Android) return false
+        if (softwareProgressReported) return false
+        val diagnostics = playerController.runtimeDiagnostics.value
+        val now = monotonicTimeMs()
+        val evidence =
+            softwareProgress.observe(
+                state = playbackState,
+                decodingMode = diagnostics.videoDecodingMode,
+                admitted =
+                    desiredPlayWhenReady &&
+                        !pictureInPictureMode &&
+                        plan?.videoExpected == true &&
+                        plan?.streamMode != StreamMode.Offline &&
+                        softwarePrepareEpoch != null &&
+                        diagnostics.prepareEpoch == softwarePrepareEpoch &&
+                        !backendSwitchInProgress &&
+                        !queueSwitchInFlight &&
+                        replanJob?.isActive != true,
+                excluded = now < softwareProgressExcludedUntilMs,
+                nowMs = now,
+            ) ?: return false
+        playerDiagnosticsRecorder.recordSoftwarePlaybackProgress(playerDiagnosticContext(), evidence)
+        if (evidence.outcome != SoftwarePlaybackProgressOutcome.TooSlow) return false
+        softwareProgressReported = true
+        desiredPlayWhenReady = false
+        playbackIntentRevision += 1L
+        playerController.pause()
+        _softwarePlaybackRecovery.value =
+            PlayerSoftwarePlaybackRecovery(
+                token = ++softwareRecoveryToken,
+                canSwitch = PlayerBackend.ExoPlayer in availableBackendsForSession,
+            )
+        publishContent(pickerVisible = PlayerPicker.None)
+        playerDiagnosticsRecorder.recordSoftwarePlaybackRecovery(playerDiagnosticContext(), SoftwarePlaybackRecoveryDecision.Prompted)
+        return true
+    }
+
+    fun continueSoftwarePlaybackRecovery(token: Long) {
+        val prompt = _softwarePlaybackRecovery.value ?: return
+        if (prompt.token != token || prompt.switching || !prompt.canContinue || disposed) return
+        clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.ContinueRequested)
+        // Keep the once-per-prepare latch: choosing to continue must not reopen the dialog.
+        play()
+    }
+
+    fun switchSoftwarePlaybackRecovery(token: Long) {
+        val prompt = _softwarePlaybackRecovery.value ?: return
+        if (prompt.token != token || prompt.switching || !prompt.canSwitch || disposed) return
+        _softwarePlaybackRecovery.value = prompt.copy(switching = true, switchFailed = false)
+        playerDiagnosticsRecorder.recordSoftwarePlaybackRecovery(
+            playerDiagnosticContext(),
+            SoftwarePlaybackRecoveryDecision.SwitchRequested,
+        )
+        if (!startBackendSwitch(PlayerBackend.ExoPlayer, recoveryToken = token)) {
+            _softwarePlaybackRecovery.value = prompt.copy(switchFailed = true)
+            playerDiagnosticsRecorder.recordSoftwarePlaybackRecovery(
+                playerDiagnosticContext(),
+                SoftwarePlaybackRecoveryDecision.SwitchFailed,
+            )
+        }
+    }
+
     private fun resetPlaybackHealthSession(
         generation: Long = playbackLaunchGeneration,
         launchAtMs: Long = monotonicTimeMs(),
@@ -3998,6 +4189,7 @@ class PlayerViewModel(
     }
 
     private fun handleAutomaticRecoveryTrigger(trigger: AutoPlaybackRecoveryTrigger): AutomaticRecoveryDiagnostic? {
+        if (_softwarePlaybackRecovery.value != null) return null
         if (plan?.streamMode == StreamMode.Offline) return null
         if (pictureInPictureMode) {
             pendingPictureInPictureRecoveryTrigger =
@@ -4453,6 +4645,7 @@ class PlayerViewModel(
         val diagnosticContext = playerDiagnosticContext()
         if (proposedQualitySessionState == null) {
             autoplayGeneration += 1
+            excludeSoftwarePlaybackProgress()
             markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Replan)
             if (nonFatalSubtitleFallback == null) {
                 invalidateSubtitleFallback()
@@ -4734,6 +4927,7 @@ class PlayerViewModel(
                                 return@withLock false
                             }
                             playbackLaunchMarker = null
+                            excludeSoftwarePlaybackProgress()
                             markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
                             playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
                             playerController.prepare(playbackPlanWithMetadata)
@@ -4746,6 +4940,7 @@ class PlayerViewModel(
                             installedPlan = playbackPlanWithMetadata
                             playerController.runtimeDiagnostics.value.prepareEpoch
                                 ?.let(playbackHealthCoordinator::expectVideoOutput)
+                            armSoftwarePlaybackRecovery()
                             armFirstVideoOutputState()
                             playerDiagnosticsRecorder.recordPrepareDispatched(playerDiagnosticContext())
                             applyInitialEmbeddedSelections(playbackPlanWithMetadata)
@@ -4981,6 +5176,7 @@ class PlayerViewModel(
                 playbackGuidance = playbackGuidance,
                 playbackActionNotice = playbackActionNotice,
                 resizeMode = resizeMode,
+                supportsVideoSizing = playerController.supportsVideoSizing,
                 upNext = upNext,
                 autoplayPolicy = if (isKidsSingleAsset) AutoplayPolicySnapshot(enabled = false) else autoplayPolicyFor(upNext),
                 stillWatchingPrompt = !isKidsSingleAsset && stillWatchingState.isPromptVisible,
@@ -5565,6 +5761,9 @@ private data class BackendSwitchSnapshot(
     val defaultBackend: PlayerBackend,
     var planReportingAuthority: Long,
     var planningError: PlaybackError = PlaybackError.Unknown,
+    val softwareRecoveryToken: Long? = null,
+    val recoveryQuality: PlayerQualitySessionState? = null,
+    val recoveryBudget: AutoPlaybackRecoveryState? = null,
 )
 
 private val backendSwitchTerminalStatuses =
@@ -5618,3 +5817,6 @@ private class ControllerCandidateOwner {
         candidate?.release()
     }
 }
+
+private const val SOFTWARE_PLAYBACK_PREPARE_GRACE_MS = 10_000L
+private const val SOFTWARE_PLAYBACK_TRANSITION_EXCLUSION_MS = 2_000L

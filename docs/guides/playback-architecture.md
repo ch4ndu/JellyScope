@@ -317,6 +317,21 @@ request launched. Measurement capability is checked both when the timer is
 armed and when it fires, so a controller that reports the evidence unavailable
 cannot inherit a stale no-video deadline and force a false fallback.
 
+Android mpv sustained slow-software recovery is separate from optional playback
+health signals and warnings. Its dedicated ViewModel state pauses playback and
+requires an explicit choice: Switch to ExoPlayer, Keep playing with mpv, or Stop
+playback. Back/outside taps cannot dismiss it, and neither warning preferences
+nor diagnostic collection can suppress it. Continue consumes the prompt for the
+current prepare; a fresh prepare can collect fresh evidence. A confirmed switch
+uses the existing explicit backend-switch planner/installer, preserving current
+quality policy, origin and runtime cap; Original is not silently relaxed.
+Selecting Switch immediately hides the dialog and presents the player loading
+spinner while planning/preparing. Planning failure keeps playback paused and
+restores the dialog with a failure explanation and explicit retry/continue/stop
+choices. Stop/disposal/new playback invalidate
+old dialog actions. Thresholds and capture fields live in
+[data-playback.md](data-playback.md).
+
 `AutoPlaybackRecoveryCoordinator` is pure common-domain logic: it has no
 coroutines, controller references, persistence calls, navigation, or strings.
 It owns the two one-shot budgets and produces `CompatibilityReplan`, `LowerTo`,
@@ -461,13 +476,15 @@ display-derived ceiling. It uses Android/OpenGL ES with a 10-second cache
 target and 64 MiB forward and 16 MiB backward byte caps. Mobile uses `gpu-next`
 with `mediacodec-copy`, emulators use `gpu-next` with software decode, and the
 TV baseline uses classic `gpu` with zero-copy `mediacodec` and the
-fast profile. TV pins `gpu` because the supported TV set includes drivers that
+fast profile. TV defaults to `gpu` because the supported TV set includes drivers that
 reject the external-sampler path used by `gpu-next`; the copy and software
 classes do not import external samplers and keep `gpu-next`. The TV copy path is
 rejected because it cannot guarantee real-time presentation when audio advances
-ahead of video. Direct `mediacodec_embed` presentation is not an eligible fallback:
-it bypasses the failing GPU-import path only by giving up mpv subtitle rendering,
-which is a required backend behavior.
+ahead of video. Direct `mediacodec_embed` presentation is an explicit TV output preference,
+not an automatic renderer fallback. It bypasses GPU import but requires hardware
+video frames and gives up mpv subtitle rendering and video sizing controls.
+The [Android mpv output policy](data-playback.md#android-mpv-backend) owns setting
+lifetime and capability handling.
 
 Android mpv presentation uses a fresh project-owned SurfaceView host for each
 Compose view instance. Surface callbacks and release are owner-qualified so an
@@ -652,8 +669,9 @@ inspection, and coexistence gates are owned by the
 
 - **Android TV mpv uses the selected supported rendering baseline.** Zero-copy
   `mediacodec` avoids the copy path's audio/video drift, and classic `gpu`
-  avoids the supported-TV external-sampler failure. TV-wide configuration avoids
-  an unsupported per-SoC matrix; surface teardown synchronizes with mpv's native
+  avoids the supported-TV external-sampler failure. GPU remains the default;
+  direct output is a user choice with explicit subtitle and sizing limitations,
+  rather than a silent compatibility switch. Surface teardown synchronizes with mpv's native
   queue because asynchronous detach can race framework surface destruction.
 
 - **Desktop and iOS product envelopes are scoped policy.** The macOS LibVLC

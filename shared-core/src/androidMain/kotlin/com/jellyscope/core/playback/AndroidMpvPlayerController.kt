@@ -27,8 +27,13 @@ import com.jellyscope.core.domain.playback.PlaybackDiagnosticStage
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticTrackKind
 import com.jellyscope.core.domain.playback.PlaybackError
 import com.jellyscope.core.domain.playback.PlaybackHealthMeasurementCapabilities
+import com.jellyscope.core.domain.playback.PlaybackNativeAudioOutput
 import com.jellyscope.core.domain.playback.PlaybackNativeCommandShape
+import com.jellyscope.core.domain.playback.PlaybackNativeFailureReason
 import com.jellyscope.core.domain.playback.PlaybackNativePlayerMilestone
+import com.jellyscope.core.domain.playback.PlaybackNativeSampleCause
+import com.jellyscope.core.domain.playback.PlaybackNativeVideoFormat
+import com.jellyscope.core.domain.playback.PlaybackNativeVideoOutput
 import com.jellyscope.core.domain.playback.PlaybackPlan
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
@@ -41,9 +46,12 @@ import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
 import com.jellyscope.core.domain.playback.SubtitleAsset
 import com.jellyscope.core.domain.playback.SubtitleStyle
+import com.jellyscope.core.domain.playback.VideoOutputEvidence
 import com.jellyscope.core.domain.playback.VideoOutputMeasurementCapabilities
 import com.jellyscope.core.domain.playback.formatPlaybackDiagnostic
 import com.jellyscope.core.domain.playback.mpvDroppedFramePoll
+import com.jellyscope.core.domain.playback.mpvVideoDecodingMode
+import com.jellyscope.core.domain.playback.playbackExceptionType
 import com.jellyscope.core.playback.AndroidMpvLifecycleDecision.Completed
 import com.jellyscope.core.playback.AndroidMpvLifecycleDecision.Failed
 import com.jellyscope.core.playback.AndroidMpvLifecycleDecision.Ready
@@ -262,8 +270,15 @@ internal class AndroidMpvPlayerController(
     private var latestOutputDropCount: Long? = null
     private var latestDecoderDropCount: Long? = null
     private var dropBaselineNanos: Long? = null
+    private val diagnosticControllerSequence = nextDiagnosticControllerSequence.incrementAndGet()
+    private val diagnosticStartedNanos = System.nanoTime()
+    private var dropDiagnosticJob: Job? = null
+    private var lastDiagnosticDropCounts: Pair<Long?, Long?>? = null
+    private val reportedNativeFailures = mutableSetOf<Pair<AndroidMpvLogCategory, PlaybackNativeFailureReason>>()
     private var lastNativeError: PlaybackError? = null
+    private var pendingVideoFailure: PlaybackNativeFailureReason? = null
     private var nativeStartObserved = false
+    private val reportedVideoFormats = mutableSetOf<PlaybackNativeVideoFormat>()
     private val lifecycle = AndroidMpvLifecycleKernel()
     private val timing = AndroidMpvTimingController(::enqueueTimingOffset)
     private val trackResolutionDiagnostics = TrackResolutionDiagnosticGate()
@@ -336,7 +351,9 @@ internal class AndroidMpvPlayerController(
     override val platformPlayer: Any? = this
     override val activeBackend: PlayerBackend = PlayerBackend.Mpv
     override val timingController: AndroidMpvTimingController = timing
-    override val appliesSubtitleStyle: Boolean = true
+    private val directVideoOutput = enginePolicy.videoOutput == "mediacodec_embed"
+    override val appliesSubtitleStyle: Boolean = !directVideoOutput
+    override val supportsVideoSizing: Boolean = !directVideoOutput
     override val playbackHealthMeasurementCapabilities = PlaybackHealthMeasurementCapabilities.BufferingAndDroppedFrames
 
     init {
@@ -594,7 +611,9 @@ internal class AndroidMpvPlayerController(
         externalSubtitleCommandAccepted = false
         externalSubtitleTrackTitle = null
         lastNativeError = null
+        pendingVideoFailure = null
         nativeStartObserved = false
+        reportedVideoFormats.clear()
         playbackFacts = playbackFacts.copy(durationMs = null, paused = true, seeking = false)
         resumeConfirmationFromPositionMs = null
         audioActivationConfirmation.applyInitial(initialAudioActivationFor(plan))
@@ -709,7 +728,12 @@ internal class AndroidMpvPlayerController(
         latestOutputDropCount = null
         latestDecoderDropCount = null
         dropBaselineNanos = null
+        dropDiagnosticJob?.cancel()
+        dropDiagnosticJob = null
+        lastDiagnosticDropCounts = null
+        reportedNativeFailures.clear()
         lastNativeError = null
+        pendingVideoFailure = null
         nativeStartObserved = false
         timing.clearForDiscontinuity()
         audioFocusCoordinator?.abandon()
@@ -847,6 +871,7 @@ internal class AndroidMpvPlayerController(
         resumeAfterTransientFocusLoss = false
         seekCoalescer.flush()
         playbackFacts = playbackFacts.copy(paused = true)
+        recordNativeSnapshot(PlaybackNativeSampleCause.PauseRequested)
         enqueueNative { native -> native.setPropertyBoolean("pause", true) }
         publishDerivedState()
     }
@@ -1187,6 +1212,12 @@ internal class AndroidMpvPlayerController(
         val store = logCollectionPreferences ?: return
         scope.launch {
             store.enabled.drop(1).collect { enabled ->
+                enqueueNative { native ->
+                    val result = runCatching { requestDiagnosticLogMessages(native, enabled) }.getOrDefault(-1)
+                    if (result < 0) {
+                        postMain { logNativeMilestone(PlaybackNativePlayerMilestone.VideoFormatCaptureFailed, warning = true) }
+                    }
+                }
                 if (enabled) {
                     val path =
                         withContext(Dispatchers.IO) { prepareMpvDiagnosticLog() }
@@ -1201,6 +1232,33 @@ internal class AndroidMpvPlayerController(
                 }
             }
         }
+    }
+
+    /** Optional format capture must not prevent playback or replace ordinary error reporting. */
+    private fun requestDiagnosticLogMessages(
+        native: AndroidMpvEngine,
+        enabled: Boolean,
+    ): Int {
+        if (enabled) {
+            val result =
+                runCatching { native.requestLogMessages(AndroidMpvLogRequestLevel.VideoFormat) }.getOrDefault(-1)
+            postMain {
+                logNativeMilestone(
+                    if (result >= 0) {
+                        PlaybackNativePlayerMilestone.VideoFormatCaptureEnabled
+                    } else {
+                        PlaybackNativePlayerMilestone.VideoFormatCaptureFailed
+                    },
+                    warning = result < 0,
+                )
+            }
+            if (result >= 0) return result
+        }
+        val result = native.requestLogMessages(AndroidMpvLogRequestLevel.Error)
+        if (!enabled && result >= 0) {
+            postMain { logNativeMilestone(PlaybackNativePlayerMilestone.VideoFormatCaptureDisabled) }
+        }
+        return result
     }
 
     private fun initializeEngine(caBundlePath: String) {
@@ -1254,7 +1312,7 @@ internal class AndroidMpvPlayerController(
             }
             val logRequestResult =
                 try {
-                    native.requestLogMessages(AndroidMpvLogRequestLevel.Error)
+                    requestDiagnosticLogMessages(native, logCollectionPreferences?.enabled?.value == true)
                 } catch (throwable: Throwable) {
                     throw AndroidMpvInitializationException(
                         constructionStage = PlaybackBackendConstructionStage.ApplyNativeOption,
@@ -1360,7 +1418,6 @@ internal class AndroidMpvPlayerController(
                                 )
                             ) {
                                 signalHotClock(eventGeneration, mayCompleteTransition = true)
-                                signalBufferedAheadDiagnostic(eventGeneration)
                             }
                         }
                         true
@@ -1374,7 +1431,6 @@ internal class AndroidMpvPlayerController(
                                 )
                             ) {
                                 signalHotClock(eventGeneration, mayCompleteTransition = false)
-                                signalBufferedAheadDiagnostic(eventGeneration)
                             }
                         }
                         true
@@ -1625,6 +1681,9 @@ internal class AndroidMpvPlayerController(
         sample.bufferedPositionMs?.let { bufferedPositionMs ->
             playbackFacts = playbackFacts.copy(bufferedPositionMs = bufferedPositionMs)
         }
+        // The diagnostic drain reads playbackFacts, so signal it after applying
+        // this sample; paused playback may supply no later clock update.
+        signalBufferedAheadDiagnostic(sample.generation)
         publishDerivedState()
         return true
     }
@@ -1738,15 +1797,76 @@ internal class AndroidMpvPlayerController(
             return
         }
         when (event) {
+            is AndroidMpvEvent.VideoFormat -> {
+                if (
+                    logCollectionPreferences?.enabled?.value != true ||
+                    reportedVideoFormats.size >= 16 ||
+                    !reportedVideoFormats.add(event.format)
+                ) {
+                    return
+                }
+                androidMpvControllerLogger.i {
+                    formatPlaybackDiagnostic(
+                        PlaybackDiagnostic(
+                            stage = PlaybackDiagnosticStage.NativePlayer,
+                            event = PlaybackDiagnosticEvent.NativeVideoFormat,
+                            platform = PlaybackDiagnosticPlatform.Android,
+                            backend = PlayerBackend.Mpv,
+                            prepareSequence = eventGeneration,
+                            nativeVideoFormat = event.format,
+                            nativeSurfaceWidthPx = surfaceWidth.takeIf { it > 0 },
+                            nativeSurfaceHeightPx = surfaceHeight.takeIf { it > 0 },
+                        ),
+                    )
+                }
+                return
+            }
             is AndroidMpvEvent.PropertyBoolean -> handleBooleanProperty(event.name, event.value)
             is AndroidMpvEvent.PropertyLong -> handleLongProperty(event.name, event.value)
             is AndroidMpvEvent.PropertyDouble -> handleDoubleProperty(event.name, event.value)
-            is AndroidMpvEvent.PropertyString -> handleStringProperty(event.name, event.value)
-            is AndroidMpvEvent.PropertyCleared -> return
+            is AndroidMpvEvent.PropertyString -> {
+                handleStringProperty(event.name, event.value)
+                if (event.name == "track-list") confirmVideoFailure()
+                if (event.name in setOf("video-codec", "hwdec-current", "video-format")) {
+                    recordNativeSnapshot(PlaybackNativeSampleCause.VideoStateChanged)
+                }
+            }
+            is AndroidMpvEvent.PropertyCleared -> {
+                when (event.name) {
+                    "hwdec-current" -> updateDiagnostics { it.copy(videoDecodingMode = null, presentationPath = null) }
+                    "video-codec" -> updateDiagnostics { it.copy(videoDecoderName = null) }
+                    "width" -> updateDiagnostics { it.copy(videoWidth = null) }
+                    "height" -> updateDiagnostics { it.copy(videoHeight = null) }
+                    else -> return
+                }
+                recordNativeSnapshot(PlaybackNativeSampleCause.VideoStateChanged)
+            }
             is AndroidMpvEvent.NativeEvent -> handleNativeEventId(eventGeneration, event.id)
             is AndroidMpvEvent.SanitizedLog ->
                 if (event.severity == AndroidMpvLogSeverity.Error) {
                     lastNativeError = event.category.toPlaybackError()
+                    if (event.reason != PlaybackNativeFailureReason.Other) {
+                        pendingVideoFailure = event.reason
+                        confirmVideoFailure()
+                    }
+                    if (reportedNativeFailures.add(event.category to event.reason)) {
+                        androidMpvControllerLogger.w {
+                            formatPlaybackDiagnostic(
+                                PlaybackDiagnostic(
+                                    stage = PlaybackDiagnosticStage.NativePlayer,
+                                    event = PlaybackDiagnosticEvent.ErrorLog,
+                                    platform = PlaybackDiagnosticPlatform.Android,
+                                    backend = PlayerBackend.Mpv,
+                                    prepareSequence = eventGeneration,
+                                    nativeControllerSequence = diagnosticControllerSequence,
+                                    nativeSampleElapsedMs = (System.nanoTime() - diagnosticStartedNanos) / 1_000_000L,
+                                    errorCategory = lastNativeError,
+                                    nativeFailureReason = event.reason,
+                                ),
+                            )
+                        }
+                        recordNativeSnapshot(PlaybackNativeSampleCause.NativeError)
+                    }
                     return
                 }
         }
@@ -1768,6 +1888,8 @@ internal class AndroidMpvPlayerController(
                 lastNativeError = null
                 applyLifecycle(FileLoaded(eventGeneration))
                 logNativeMilestone(PlaybackNativePlayerMilestone.FileLoaded)
+                recordNativeSnapshot(PlaybackNativeSampleCause.FileLoaded)
+                confirmVideoFailure()
                 startupWatchdog?.cancel()
                 startupWatchdog = null
                 applyPendingAudioSelection()
@@ -1808,7 +1930,12 @@ internal class AndroidMpvPlayerController(
         value: Boolean,
     ) {
         when (name) {
-            "pause" -> playbackFacts = playbackFacts.copy(paused = value)
+            "pause" -> {
+                playbackFacts = playbackFacts.copy(paused = value)
+                recordNativeSnapshot(
+                    if (value) PlaybackNativeSampleCause.PauseObserved else PlaybackNativeSampleCause.ResumeObserved,
+                )
+            }
             "paused-for-cache" -> playbackFacts = playbackFacts.copy(pausedForCache = value)
             "seeking" ->
                 playbackFacts =
@@ -1898,7 +2025,13 @@ internal class AndroidMpvPlayerController(
                 confirmExternalSubtitleIfSelected()
             }
             "video-codec" -> updateDiagnostics { current -> current.copy(videoDecoderName = value.takeIf(String::isNotBlank)) }
-            "hwdec-current" -> updateDiagnostics { current -> current.copy(presentationPath = value.takeIf(String::isNotBlank)) }
+            "hwdec-current" ->
+                updateDiagnostics { current ->
+                    current.copy(
+                        videoDecodingMode = mpvVideoDecodingMode(value),
+                        presentationPath = value.takeIf(String::isNotBlank),
+                    )
+                }
         }
     }
 
@@ -1972,6 +2105,7 @@ internal class AndroidMpvPlayerController(
     private fun applyPendingSubtitleSelection() {
         if (!lifecycle.state.loaded) return
         val selection = pendingSubtitleSelection ?: return
+        if (rejectDirectOutputSubtitle(selection.target)) return
         val candidateCount =
             trackDescriptors.count { descriptor ->
                 !descriptor.external &&
@@ -2071,6 +2205,13 @@ internal class AndroidMpvPlayerController(
         targetPositionMs: Long,
         observedPositionMs: Long? = null,
     ) {
+        recordNativeSnapshot(
+            if (event == PlaybackDiagnosticEvent.SeekStarted) {
+                PlaybackNativeSampleCause.SeekRequested
+            } else {
+                PlaybackNativeSampleCause.SeekCompleted
+            },
+        )
         androidMpvControllerLogger.i {
             formatPlaybackDiagnostic(
                 PlaybackDiagnostic(
@@ -2157,11 +2298,23 @@ internal class AndroidMpvPlayerController(
             }
     }
 
+    private fun rejectDirectOutputSubtitle(target: SubtitleActivationTarget): Boolean {
+        if (!directVideoOutput) return false
+        if (_playbackState.value.subtitleActivation != SubtitleActivationState.Unavailable(target)) {
+            subtitleActivationConfirmation.fail(
+                target = target,
+                reason = SubtitleActivationFailureReason.MpvDirectOutputUnavailable,
+            )
+        }
+        return true
+    }
+
     private fun attachExternalSubtitleIfNeeded() {
         if (subtitleDisabledExplicitly) return
         val plan = lastPlan ?: return
         val target = plan.subtitleActivationTarget ?: return
         if (target.kind != LocalSubtitleKind.ExternalText) return
+        if (rejectDirectOutputSubtitle(target)) return
         val resource =
             if (plan.streamMode == com.jellyscope.core.domain.playback.StreamMode.Offline) {
                 offlineSidecarPath?.let { path -> File(path).toURI().toString() } ?: return
@@ -2209,6 +2362,7 @@ internal class AndroidMpvPlayerController(
         if (resumeConfirmationFromPositionMs != null) return
         resumeConfirmationFromPositionMs = playbackFacts.positionMs
         refreshImmediateClockGeneration()
+        recordNativeSnapshot(PlaybackNativeSampleCause.ResumeRequested)
         enqueueNative { native -> native.setPropertyBoolean("pause", false) }
         logNativeMilestone(PlaybackNativePlayerMilestone.PlayUnpauseDispatched)
     }
@@ -2264,11 +2418,87 @@ internal class AndroidMpvPlayerController(
         }
     }
 
+    private fun confirmVideoFailure() {
+        val reason = pendingVideoFailure ?: return
+        if (lastPlan?.videoExpected != true ||
+            !lifecycle.state.loaded ||
+            lifecycle.state.outcome != AndroidMpvLifecycleOutcome.Active ||
+            releasedFlag.get()
+        ) {
+            return
+        }
+        val failureGeneration = generation
+        enqueueNative { native ->
+            if (nativeEventGeneration.get() != failureGeneration) return@enqueueNative
+            // An init error alone can precede a successful decoder fallback. Only
+            // mpv explicitly disabling video in a live file makes this terminal.
+            if (native.getPropertyString("vid") != "no" ||
+                native.getPropertyBoolean("eof-reached") != false ||
+                native.getPropertyBoolean("idle-active") != false
+            ) {
+                return@enqueueNative
+            }
+            native.setPropertyBoolean("pause", true)
+            postMain {
+                if (failureGeneration != generation ||
+                    lifecycle.state.outcome != AndroidMpvLifecycleOutcome.Active ||
+                    releasedFlag.get()
+                ) {
+                    return@postMain
+                }
+                androidMpvControllerLogger.w {
+                    formatPlaybackDiagnostic(
+                        PlaybackDiagnostic(
+                            stage = PlaybackDiagnosticStage.NativePlayer,
+                            event = PlaybackDiagnosticEvent.Failed,
+                            platform = PlaybackDiagnosticPlatform.Android,
+                            backend = PlayerBackend.Mpv,
+                            prepareSequence = failureGeneration,
+                            nativeControllerSequence = diagnosticControllerSequence,
+                            nativeSampleElapsedMs = (System.nanoTime() - diagnosticStartedNanos) / 1_000_000L,
+                            nativeFailureReason = reason,
+                            nativeVideoTrackSelected = false,
+                            errorCategory = PlaybackError.UnsupportedMedia,
+                        ),
+                    )
+                }
+                playIntent = false
+                resumeConfirmationFromPositionMs = null
+                resumeAfterTransientFocusLoss = false
+                playbackFocusAdmitted = false
+                audioFocusCoordinator?.abandon(failureGeneration)
+                seekCoalescer.cancel()
+                clearPendingSeekState()
+                enqueueNative { currentNative ->
+                    if (nativeEventGeneration.get() == failureGeneration) {
+                        currentNative.command(arrayOf("stop"))
+                    }
+                }
+                applyLifecycle(NativeFailure(failureGeneration, PlaybackError.UnsupportedMedia))
+            }
+        }
+    }
+
     private fun applyLifecycle(event: com.jellyscope.core.playback.AndroidMpvLifecycleEvent) {
         val transition = lifecycle.transition(event)
         when (val decision = transition.decision) {
             Completed -> publishState(PlaybackStatus.Completed, positionMs = playbackFacts.durationMs ?: playbackFacts.positionMs)
             is Failed -> {
+                androidMpvControllerLogger.w {
+                    formatPlaybackDiagnostic(
+                        PlaybackDiagnostic(
+                            stage = PlaybackDiagnosticStage.NativePlayer,
+                            event = PlaybackDiagnosticEvent.TerminalError,
+                            platform = PlaybackDiagnosticPlatform.Android,
+                            backend = activeBackend,
+                            prepareSequence = generation,
+                            sessionSequence = lastPlan?.diagnosticSessionSequence,
+                            nativeControllerSequence = diagnosticControllerSequence,
+                            nativeFailureReason = pendingVideoFailure,
+                            errorCategory = decision.error,
+                        ),
+                    )
+                }
                 startupWatchdog?.cancel()
                 startupWatchdog = null
                 if (lastPlan?.streamMode == com.jellyscope.core.domain.playback.StreamMode.Offline) {
@@ -2368,6 +2598,89 @@ internal class AndroidMpvPlayerController(
             androidMpvControllerLogger.w { diagnostic }
         } else {
             androidMpvControllerLogger.i { diagnostic }
+        }
+    }
+
+    private fun recordNativeSnapshot(cause: PlaybackNativeSampleCause) {
+        if (releasedFlag.get() || lifecycle.state.stopped || logCollectionPreferences?.enabled?.value != true) return
+        val sampleGeneration = generation
+        if (sampleGeneration == NO_NATIVE_EVENT_GENERATION) return
+        val context =
+            PlaybackDiagnostic(
+                stage = PlaybackDiagnosticStage.NativePlayer,
+                event = PlaybackDiagnosticEvent.NativeSnapshot,
+                platform = PlaybackDiagnosticPlatform.Android,
+                backend = PlayerBackend.Mpv,
+                prepareSequence = sampleGeneration,
+                nativeControllerSequence = diagnosticControllerSequence,
+                nativeSampleCause = cause,
+                nativeRequestedVideoOutput = diagnosticVideoOutput(enginePolicy.videoOutput),
+                nativePlayIntent = playIntent,
+                nativeFileLoaded = lifecycle.state.loaded,
+                streamMode = lastPlan?.streamMode,
+                firstVideoOutputAvailable = false,
+                firstVideoOutputEvidence = VideoOutputEvidence.Unsupported,
+            )
+        enqueueNative { native ->
+            if (nativeEventGeneration.get() != sampleGeneration) return@enqueueNative
+            val sampled =
+                runCatching {
+                    val width = native.getPropertyLong("width")?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()
+                    val height = native.getPropertyLong("height")?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()
+                    val decoder = native.getPropertyString("video-codec")?.takeIf(String::isNotBlank)
+                    val position = native.getPropertyDouble("time-pos")?.takeIf { it.isFinite() && it >= 0.0 }
+                    val cachedUntil = native.getPropertyDouble("demuxer-cache-time")?.takeIf { it.isFinite() && it >= 0.0 }
+                    context.copy(
+                        nativeSampleElapsedMs = (System.nanoTime() - diagnosticStartedNanos) / 1_000_000L,
+                        nativeActiveVideoOutput = diagnosticVideoOutput(native.getPropertyString("current-vo")),
+                        nativeActiveAudioOutput =
+                            when (native.getPropertyString("current-ao")) {
+                                "audiotrack" -> PlaybackNativeAudioOutput.AudioTrack
+                                "aaudio" -> PlaybackNativeAudioOutput.AAudio
+                                "opensles" -> PlaybackNativeAudioOutput.OpenSles
+                                null, "" -> PlaybackNativeAudioOutput.Unavailable
+                                else -> PlaybackNativeAudioOutput.Other
+                            },
+                        nativeAvSyncMs =
+                            native.getPropertyDouble("avsync")?.takeIf(Double::isFinite)?.let { (it * 1_000.0).roundToLong() },
+                        nativeTotalAvSyncChangeMs =
+                            native
+                                .getPropertyDouble("total-avsync-change")
+                                ?.takeIf(Double::isFinite)
+                                ?.let { (it * 1_000.0).roundToLong() },
+                        nativePaused = native.getPropertyBoolean("pause"),
+                        nativePositionMs = position?.let { (it * 1_000.0).roundToLong() },
+                        nativeVideoTrackSelected =
+                            when (val track = native.getPropertyString("vid")) {
+                                "no" -> false
+                                else -> track?.toLongOrNull()?.let { it > 0L }
+                            },
+                        nativeDecoderAvailable = decoder != null,
+                        nativeVideoFormatAvailable = width != null && height != null,
+                        videoDecoderName = decoder,
+                        videoDecodingMode = mpvVideoDecodingMode(native.getPropertyString("hwdec-current")),
+                        codec = native.getPropertyString("video-format"),
+                        runtimeVideoWidth = width,
+                        runtimeVideoHeight = height,
+                        outputDroppedVideoFrames = native.getPropertyLong("frame-drop-count"),
+                        decoderDroppedVideoFrames = native.getPropertyLong("decoder-frame-drop-count"),
+                        bufferedAheadMs =
+                            if (position != null && cachedUntil != null) {
+                                ((cachedUntil - position).coerceAtLeast(0.0) * 1_000.0).roundToLong()
+                            } else {
+                                null
+                            },
+                    )
+                }.getOrElse { context.copy(exceptionType = it.playbackExceptionType()) }
+            postMain {
+                if (!releasedFlag.get() &&
+                    sampleGeneration == generation &&
+                    !lifecycle.state.stopped &&
+                    logCollectionPreferences?.enabled?.value == true
+                ) {
+                    androidMpvControllerLogger.i { formatPlaybackDiagnostic(sampled) }
+                }
+            }
         }
     }
 
@@ -2526,6 +2839,7 @@ internal class AndroidMpvPlayerController(
     }
 
     private fun applySubtitleStyle(native: AndroidMpvEngine) {
+        if (directVideoOutput) return
         val scaledMargin =
             when {
                 surfaceHeight <= 0 -> 180
@@ -2542,6 +2856,7 @@ internal class AndroidMpvPlayerController(
         if (surfaceWidth > 0 && surfaceHeight > 0) {
             native.setPropertyString("android-surface-size", "${surfaceWidth}x$surfaceHeight")
         }
+        if (directVideoOutput) return
         when (presentation.resizeMode) {
             AndroidSurfaceResizeMode.Fit -> {
                 native.setPropertyDouble("video-aspect-override", -1.0)
@@ -2629,6 +2944,18 @@ internal class AndroidMpvPlayerController(
         outputDropBaseline = result.outputBaselineCount
         decoderDropBaseline = result.decoderBaselineCount
         result.measurement?.let(droppedFrameChannel::trySend)
+        val diagnosticCounts = currentOutputCount to currentDecoderCount
+        if (diagnosticCounts != lastDiagnosticDropCounts && logCollectionPreferences?.enabled?.value == true) {
+            lastDiagnosticDropCounts = diagnosticCounts
+            if (dropDiagnosticJob?.isActive != true) {
+                val sampleGeneration = generation
+                dropDiagnosticJob =
+                    scope.launch {
+                        delay(HOT_DIAGNOSTIC_PUBLICATION_INTERVAL_MS)
+                        if (sampleGeneration == generation) recordNativeSnapshot(PlaybackNativeSampleCause.CountersChanged)
+                    }
+            }
+        }
         return AndroidMpvDroppedFrameDiagnostics(
             total = listOfNotNull(outputDropBaseline, decoderDropBaseline).maxOrNull(),
             output = outputDropBaseline,
@@ -2689,6 +3016,7 @@ internal class AndroidMpvPlayerController(
     )
 
     private companion object {
+        val nextDiagnosticControllerSequence = AtomicLong()
         const val NO_NATIVE_EVENT_GENERATION = 0L
         const val SEEK_CONFIRMATION_TOLERANCE_MS = 250L
         const val HOT_CLOCK_PUBLICATION_INTERVAL_MS = 250L
@@ -2712,4 +3040,13 @@ private fun AndroidMpvLogCategory.toPlaybackError(): PlaybackError =
         AndroidMpvLogCategory.Network -> PlaybackError.Network
         AndroidMpvLogCategory.Unsupported -> PlaybackError.UnsupportedMedia
         AndroidMpvLogCategory.Unknown -> PlaybackError.Unknown
+    }
+
+private fun diagnosticVideoOutput(value: String?): PlaybackNativeVideoOutput =
+    when (value) {
+        "gpu" -> PlaybackNativeVideoOutput.Gpu
+        "gpu-next" -> PlaybackNativeVideoOutput.GpuNext
+        "mediacodec_embed" -> PlaybackNativeVideoOutput.MediaCodecEmbed
+        null, "" -> PlaybackNativeVideoOutput.Unavailable
+        else -> PlaybackNativeVideoOutput.Other
     }

@@ -16,10 +16,22 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PlayerDebugProjectionTest {
+    private val mpvLabels =
+        PlayerDebugMpvLabels(
+            codecDescription = "Codec description",
+            decoding = "Video decoding",
+            decodedSize = "Decoded size",
+            hardware = "Hardware",
+            hardwareCopyBack = "Hardware (copy-back)",
+            software = "Software",
+            unknown = "Unknown",
+        )
+
     @Test
     fun absentStaticInfoReturnsCompactPlaybackFallbackWithLiveStatus() {
         val sections =
             playerDebugSections(
+                mpvLabels = mpvLabels,
                 debugInfo = null,
                 playbackState = playbackState(),
                 runtimeDiagnostics = PlaybackRuntimeDiagnostics.EMPTY,
@@ -44,6 +56,7 @@ class PlayerDebugProjectionTest {
     fun genericProjectionOwnsExactCompactRowOrderAndExcludesNoisyDiagnostics() {
         val sections =
             playerDebugSections(
+                mpvLabels = mpvLabels,
                 debugInfo =
                     PlayerDebugInfo(
                         playMethod = "Transcode",
@@ -101,8 +114,9 @@ class PlayerDebugProjectionTest {
         )
         assertEquals(
             listOf(
-                "Decoder",
-                "Runtime format",
+                "Codec description",
+                "Video decoding",
+                "Decoded size",
                 "Dropped frames",
                 "Buffer policy",
                 "Target / allocated",
@@ -172,6 +186,7 @@ class PlayerDebugProjectionTest {
 
         val sectionsWithoutContainer =
             playerDebugSections(
+                mpvLabels = mpvLabels,
                 debugInfo = PlayerDebugInfo(playMethod = "Direct Play", container = "   "),
                 playbackState = playbackState(),
                 runtimeDiagnostics = PlaybackRuntimeDiagnostics.EMPTY,
@@ -188,6 +203,7 @@ class PlayerDebugProjectionTest {
         val secret = "PRIVATE-PLAY-SESSION"
         val rows =
             playerDebugSections(
+                mpvLabels = mpvLabels,
                 debugInfo = PlayerDebugInfo(playMethod = "Direct Play", playSessionId = secret),
                 playbackState = playbackState(),
                 runtimeDiagnostics = PlaybackRuntimeDiagnostics.EMPTY,
@@ -206,6 +222,7 @@ class PlayerDebugProjectionTest {
     fun zeroMeasurementsRemainDistinctFromUnavailableMeasurements() {
         val zeroSections =
             playerDebugSections(
+                mpvLabels = mpvLabels,
                 debugInfo = PlayerDebugInfo(playMethod = "Direct Play"),
                 playbackState = playbackState(),
                 runtimeDiagnostics =
@@ -215,6 +232,7 @@ class PlayerDebugProjectionTest {
             )
         val unavailableSections =
             playerDebugSections(
+                mpvLabels = mpvLabels,
                 debugInfo = PlayerDebugInfo(playMethod = "Direct Play"),
                 playbackState = playbackState(),
                 runtimeDiagnostics = PlaybackRuntimeDiagnostics.EMPTY,

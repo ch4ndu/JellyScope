@@ -8,7 +8,13 @@ data class PlayerDeviceSettings(
     val matchDisplayRefreshRate: Boolean = false,
     val maxVideoResolution: PlayerVideoResolutionLimit = PlayerVideoResolutionLimit.Unlimited,
     val iosPlaybackCompatibilityMode: IosPlaybackCompatibilityMode = IosPlaybackCompatibilityMode.Standard,
+    val androidTvMpvVideoOutput: AndroidTvMpvVideoOutput = AndroidTvMpvVideoOutput.Gpu,
 )
+
+enum class AndroidTvMpvVideoOutput {
+    Gpu,
+    DirectMediaCodec,
+}
 
 enum class IosPlaybackCompatibilityMode {
     Standard,

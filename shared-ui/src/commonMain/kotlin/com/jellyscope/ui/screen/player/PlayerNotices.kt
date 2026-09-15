@@ -36,12 +36,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.playback.PlaybackAction
 import com.jellyscope.core.domain.playback.PlaybackActionNotice
@@ -95,6 +97,13 @@ import com.jellyscope.ui.generated.resources.player_guidance_slow_startup
 import com.jellyscope.ui.generated.resources.player_guidance_streaming_pressure_hint
 import com.jellyscope.ui.generated.resources.player_guidance_unknown_hint
 import com.jellyscope.ui.generated.resources.player_picker_close
+import com.jellyscope.ui.generated.resources.player_software_recovery_continue
+import com.jellyscope.ui.generated.resources.player_software_recovery_failed
+import com.jellyscope.ui.generated.resources.player_software_recovery_message
+import com.jellyscope.ui.generated.resources.player_software_recovery_stop
+import com.jellyscope.ui.generated.resources.player_software_recovery_switch
+import com.jellyscope.ui.generated.resources.player_software_recovery_title
+import com.jellyscope.ui.generated.resources.player_software_recovery_unavailable
 import com.jellyscope.ui.generated.resources.player_subtitle_unavailable
 import com.jellyscope.ui.theme.Dimensions
 import kotlinx.coroutines.flow.StateFlow
@@ -640,6 +649,7 @@ internal fun PlayerDebugOverlay(
                 debugInfo = debugInfo,
                 playbackState = playbackState,
                 runtimeDiagnostics = runtimeDiagnostics,
+                mpvLabels = playerDebugMpvLabels(),
             ).flatMap(PlayerDebugSection::rows)
                 .forEach { row ->
                     DebugRow(
@@ -682,4 +692,45 @@ private fun DebugRow(
                     .weight(PLAYER_DEBUG_VALUE_WEIGHT),
         )
     }
+}
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+internal fun SoftwarePlaybackRecoveryDialog(
+    prompt: PlayerSoftwarePlaybackRecovery,
+    onSwitch: () -> Unit,
+    onContinue: () -> Unit,
+    onStop: () -> Unit,
+) {
+    BackHandler { }
+    AlertDialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        title = { Text(stringResource(Res.string.player_software_recovery_title)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Dimensions.formSpacing),
+            ) {
+                Text(stringResource(Res.string.player_software_recovery_message))
+                when {
+                    prompt.switchFailed -> Text(stringResource(Res.string.player_software_recovery_failed))
+                    !prompt.canSwitch -> Text(stringResource(Res.string.player_software_recovery_unavailable))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSwitch, enabled = prompt.canSwitch && !prompt.switching) {
+                Text(stringResource(Res.string.player_software_recovery_switch))
+            }
+        },
+        dismissButton = {
+            FlowRow {
+                TextButton(onClick = onContinue, enabled = prompt.canContinue && !prompt.switching) {
+                    Text(stringResource(Res.string.player_software_recovery_continue))
+                }
+                TextButton(onClick = onStop) { Text(stringResource(Res.string.player_software_recovery_stop)) }
+            }
+        },
+    )
 }

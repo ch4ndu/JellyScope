@@ -39,6 +39,10 @@ interface PlayerController {
     val appliesSubtitleStyle: Boolean
         get() = true
 
+    /** Whether the output path can apply Fit/Fill/Zoom presentation changes. */
+    val supportsVideoSizing: Boolean
+        get() = true
+
     /** Facts this native controller can measure reliably; never UI policy. */
     val playbackHealthMeasurementCapabilities: PlaybackHealthMeasurementCapabilities
         get() = PlaybackHealthMeasurementCapabilities.None

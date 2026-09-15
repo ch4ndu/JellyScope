@@ -65,6 +65,8 @@ fun PlayerScreen(
         ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val softwareRecovery by viewModel.softwarePlaybackRecovery.collectAsStateWithLifecycle()
+    val presentationState = if (softwareRecovery?.switching == true) PlayerUiState.Loading else state
     val kidsWatchViewModel: KidsWatchViewModel? =
         if (launchPolicy == PlayerLaunchPolicy.KidsSingleAsset) {
             koinViewModel(
@@ -198,7 +200,7 @@ fun PlayerScreen(
                 ),
         ) {
             KidsWatchContent(
-                state = state,
+                state = presentationState,
                 kidsState = kidsState,
                 session = session,
                 controller = viewModel.currentPlayerController,
@@ -253,7 +255,7 @@ fun PlayerScreen(
         }
     } else {
         PlayerContent(
-            state = state,
+            state = presentationState,
             session = session,
             controller = viewModel.currentPlayerController,
             playbackStateFlow = viewModel.playbackState,
@@ -300,6 +302,16 @@ fun PlayerScreen(
             onPlayerSourceBoundsChanged = onPlayerSourceBoundsChangedCallback,
             onPictureInPictureModeChanged = onPictureInPictureModeChangedCallback,
             modifier = modifier,
+        )
+    }
+    softwareRecovery?.takeUnless { it.switching || isInPictureInPicture }?.let { prompt ->
+        SoftwarePlaybackRecoveryDialog(
+            prompt = prompt,
+            onSwitch = { viewModel.switchSoftwarePlaybackRecovery(prompt.token) },
+            onContinue = { viewModel.continueSoftwarePlaybackRecovery(prompt.token) },
+            onStop = {
+                if (viewModel.softwarePlaybackRecovery.value?.token == prompt.token) stopAndBack()
+            },
         )
     }
 }

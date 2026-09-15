@@ -26,6 +26,7 @@ import com.jellyscope.core.domain.playback.PlaybackDiagnosticOperation
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticPlatform
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticStage
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticTrackKind
+import com.jellyscope.core.domain.playback.PlaybackError
 import com.jellyscope.core.domain.playback.PlaybackHealthMeasurementCapabilities
 import com.jellyscope.core.domain.playback.PlaybackPlan
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
@@ -45,6 +46,7 @@ import com.jellyscope.core.domain.playback.VideoOutputMeasurementCapabilities
 import com.jellyscope.core.domain.playback.VideoOutputObservation
 import com.jellyscope.core.domain.playback.formatPlaybackDiagnostic
 import com.jellyscope.core.domain.playback.mpvDroppedFramePoll
+import com.jellyscope.core.domain.playback.mpvVideoDecodingMode
 import com.jellyscope.core.domain.playback.playbackExceptionType
 import com.jellyscope.core.util.nextPositiveGeneration
 import com.sun.jna.Memory
@@ -3139,12 +3141,13 @@ class MpvPlayerController private constructor(
         synchronized(lifecycleLock) {
             completionReadiness.invalidate()
         }
-        logMpvDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed, throwable, nativeCode)
+        val error = classifyMpvPlaybackError(message = message, detail = detail, nativeCode = nativeCode)
+        logMpvDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed, throwable, nativeCode, error = error)
         _playbackState.update { current ->
             current.copy(
                 status = PlaybackStatus.Failed,
                 bufferedPositionMs = 0L,
-                error = classifyMpvPlaybackError(message = message, detail = detail, nativeCode = nativeCode),
+                error = error,
             )
         }
     }
@@ -3157,6 +3160,7 @@ class MpvPlayerController private constructor(
         operation: PlaybackDiagnosticOperation? = null,
         reason: DiagnosticReason? = null,
         candidateCount: Int? = null,
+        error: PlaybackError? = null,
     ) {
         controllerLogger.i {
             formatPlaybackDiagnostic(
@@ -3164,6 +3168,10 @@ class MpvPlayerController private constructor(
                     stage = stage,
                     event = event,
                     platform = PlaybackDiagnosticPlatform.Desktop,
+                    backend = activeBackend,
+                    prepareSequence = prepareGeneration.load(),
+                    sessionSequence = lastPlan?.diagnosticSessionSequence,
+                    errorCategory = error,
                     exceptionType = throwable?.playbackExceptionType(),
                     nativeCode = nativeCode,
                     operation = operation,
@@ -3197,6 +3205,9 @@ class MpvPlayerController private constructor(
                     stage = PlaybackDiagnosticStage.Mapping,
                     event = PlaybackDiagnosticEvent.Resolved,
                     platform = PlaybackDiagnosticPlatform.Desktop,
+                    backend = activeBackend,
+                    prepareSequence = prepareGeneration.load(),
+                    sessionSequence = lastPlan?.diagnosticSessionSequence,
                     trackKind = kind,
                     candidateCount = candidateCount,
                     mappingResult = resolution.result,
@@ -3220,10 +3231,8 @@ internal fun mpvRuntimeDiagnostics(
     presentationPath: String? = null,
 ): PlaybackRuntimeDiagnostics =
     PlaybackRuntimeDiagnostics(
-        videoDecoderName =
-            listOfNotNull(videoCodec?.takeIf(String::isNotBlank), hardwareDecoder?.takeIf(String::isNotBlank))
-                .joinToString(" · ")
-                .takeIf(String::isNotBlank),
+        videoDecodingMode = mpvVideoDecodingMode(hardwareDecoder),
+        videoDecoderName = videoCodec?.takeIf(String::isNotBlank),
         videoWidth = width?.takeIf { value -> value > 0 },
         videoHeight = height?.takeIf { value -> value > 0 },
         videoFrameRate = frameRate?.takeIf { value -> value.isFinite() && value > 0.0 },

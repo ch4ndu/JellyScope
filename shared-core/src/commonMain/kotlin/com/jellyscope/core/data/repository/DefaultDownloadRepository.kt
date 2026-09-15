@@ -28,11 +28,14 @@ import com.jellyscope.core.domain.model.DownloadUsage
 import com.jellyscope.core.domain.model.DownloadUsageEntry
 import com.jellyscope.core.domain.model.calculateDownloadUsage
 import com.jellyscope.core.domain.model.saturatingAddNonNegative
+import com.jellyscope.core.domain.playback.playbackExceptionType
 import com.jellyscope.core.download.DownloadAttemptIdentity
 import com.jellyscope.core.download.isCanonicalLocalHlsArtifact
 import com.jellyscope.core.playback.OfflineArtifactDeletionGuardResult
 import com.jellyscope.core.playback.OfflineArtifactLeaseIdentity
 import com.jellyscope.core.playback.OfflineArtifactLeaseRegistry
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlin.time.Clock
@@ -47,6 +50,8 @@ internal class DefaultDownloadRepository(
     private val nowEpochMilliseconds: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) : DownloadRepository,
     DownloadQueueRepository {
+    private val logger = diagnosticLogger(DiagnosticTag.DownloadExecution)
+
     override fun observeDownloads(accountIdentity: AccountIdentity): Flow<List<DownloadRecord>> =
         recordStore.observeAccount(accountIdentity)
 
@@ -280,12 +285,19 @@ internal class DefaultDownloadRepository(
         platformWorkIdentity: DownloadPlatformWorkIdentity?,
     ): DownloadRecord? =
         removalMutex.withLock {
-            recordStore.claimOldest(
-                accountIdentity = activeAccount,
-                platformWorkIdentity = platformWorkIdentity,
-                deviceAvailableBytes = artifactStore.capacity().availableBytes,
-                updatedAtEpochMs = now(),
-            )
+            recordStore
+                .claimOldest(
+                    accountIdentity = activeAccount,
+                    platformWorkIdentity = platformWorkIdentity,
+                    deviceAvailableBytes = artifactStore.capacity().availableBytes,
+                    updatedAtEpochMs = now(),
+                ).also { claimed ->
+                    if (claimed != null) {
+                        logger.i {
+                            "stage=download-claim event=started generation=${claimed.attemptGeneration} state=${claimed.state.name}"
+                        }
+                    }
+                }
         }
 
     override suspend fun updateAttemptProgress(
@@ -338,19 +350,50 @@ internal class DefaultDownloadRepository(
         platformWorkIdentity: DownloadPlatformWorkIdentity?,
         failure: DownloadFailure?,
     ): Boolean =
-        recordStore.transition(
-            downloadId = downloadId,
-            expectedAttemptGeneration = expectedAttemptGeneration,
-            nextState = nextState,
-            platformWorkIdentity = platformWorkIdentity,
-            failure = failure,
-            updatedAtEpochMs = now(),
-        )
+        try {
+            recordStore
+                .transition(
+                    downloadId = downloadId,
+                    expectedAttemptGeneration = expectedAttemptGeneration,
+                    nextState = nextState,
+                    platformWorkIdentity = platformWorkIdentity,
+                    failure = failure,
+                    updatedAtEpochMs = now(),
+                ).also { applied ->
+                    logger.i {
+                        "stage=download-state event=transition generation=$expectedAttemptGeneration " +
+                            "state=${nextState.name} failure=${failure?.name ?: "None"} result=$applied"
+                    }
+                }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            logger.w {
+                "stage=download-state event=failed generation=$expectedAttemptGeneration " +
+                    "state=${nextState.name} failure=${failure?.name ?: "None"} exceptionType=${throwable.playbackExceptionType()}"
+            }
+            throw throwable
+        }
 
     override suspend fun completeFinalizing(
         downloadId: DownloadId,
         expectedAttemptGeneration: Long,
-    ): Boolean = recordStore.completeFinalizing(downloadId, expectedAttemptGeneration, now())
+    ): Boolean =
+        try {
+            recordStore.completeFinalizing(downloadId, expectedAttemptGeneration, now()).also { applied ->
+                logger.i {
+                    "stage=download-finalize event=completed generation=$expectedAttemptGeneration result=$applied"
+                }
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            logger.w {
+                "stage=download-finalize event=failed generation=$expectedAttemptGeneration " +
+                    "exceptionType=${throwable.playbackExceptionType()}"
+            }
+            throw throwable
+        }
 
     override suspend fun checkpointAndRequeueForBoundary(
         accountIdentity: AccountIdentity,

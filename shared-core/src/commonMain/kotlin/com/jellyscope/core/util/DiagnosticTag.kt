@@ -56,11 +56,13 @@ enum class DiagnosticTag(
     WatchNextSyncWorker("WatchNextSyncWorker"),
     SettingsViewModel("SettingsViewModel"),
     DownloadsViewModel("DownloadsViewModel"),
+    DownloadExecution("DownloadExecution"),
     FixedDownload("FixedDownload"),
     OriginalDownload("OriginalDownload"),
     DownloadNotificationPermission("DownloadNotificationPermission"),
     TvPlaybackSessionPresenter("TvPlaybackSessionPresenter"),
     TvDisplayMode("TvDisplayMode"),
+    TvPlaybackLink("TvPlaybackLink"),
     JellyScopePlaybackProbe("JellyScopePlaybackProbe", DiagnosticTagCapturePolicy.DesktopPlaybackProbe),
 }
 

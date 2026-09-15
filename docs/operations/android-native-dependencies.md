@@ -9,14 +9,36 @@ remains the default on API-25 devices.
 
 ## Pinned inputs
 
-The project-owned `:android-libmpv` module uses the pinned
-`dev.jdtech.mpv:libmpv:1.0.0` AAR as its only external mpv input. It is extracted
-into the module build directory. All native libraries except the original
-`libplayer.so` and x86 are retained; the committed project bridge compiles
-against the extracted `libmpv.so`, `libavcodec.so`, and NDK-29 C++ runtime.
-The reviewed native source is `libmpv-android` tag `v1.0.0`, commit
-`fcf6745703dc1265bca88f12fee8fc355ddf251e`. Exact native component pins are listed in
+The project-owned `:android-libmpv` module uses
+`io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.1` as its only external mpv input.
+Gradle resolves the AAR from the public
+[JellyScope native release](https://github.com/ch4ndu/jellyscope-mpv-android/releases/tag/v0.41.0-jellyscope.1) through an
+artifact-only Ivy repository restricted to that module. No GitHub credentials,
+local AAR override or native source build is needed for a normal clone/build.
+
+The existing bundle includes both GPU and Direct MediaCodec video-output drivers.
+The [TV output setting](../guides/data-playback.md#android-mpv-backend) selects
+between them without a native rebuild or an additional release.
+
+The bundle replaces only `jni/armeabi-v7a/libmpv.so` from the original
+`dev.jdtech.mpv:libmpv:1.0.0` payload. It applies the two-image ImageReader limit
+and bounded crop diagnostics; FFmpeg and other ABIs remain unchanged. ARM64 and
+x86_64 do not receive the patch. The retained ARM32 bytes were manually exercised
+on a Cube with a 1080p display; this does not establish 8K or general device
+support. The consolidated native builder completed a clean ARM32 source build
+and AAR packaging verification without native-source or build-script changes.
+The rebuilt verification artifact is separate from the published, device-tested
+bytes; no app dependency replacement or additional native release was made.
+
+The AAR is extracted into the module build directory. All native libraries
+except the original `libplayer.so` and x86 are retained. The committed project
+bridge compiles against the extracted `libmpv.so`, `libavcodec.so`, and NDK-29 C++
+runtime. Its upstream wrapper remains provider commit
+`fcf6745703dc1265bca88f12fee8fc355ddf251e`; the native bundle is tagged at commit
+`8a2e7e75c53c7fb818d86299d4653cbde650a434`. Both provenance layers and the published
+source/notice archives are recorded in
 [`scripts/android-mpv-bundle/manifest-1.0.0.txt`](../../scripts/android-mpv-bundle/manifest-1.0.0.txt).
+The stable manifest filename remains unchanged for packaged consumers.
 
 Both Android applications consume the dependency through `androidMain` and
 ship only these native ABIs:
@@ -130,5 +152,5 @@ disable TLS verification or use a tokenized URL.
 - **A project-built bridge preserves the native logging boundary:** the upstream
   bridge forwarded credential-bearing verbose messages outside the scrubber.
   Compiling the small patched bridge preserves the extracted native graph;
-  silencing app loggers would leave the native writer active. A full native
-  rebuild or separately published fork would add unnecessary maintenance.
+  silencing app loggers would leave the native writer active. The separate
+  ARM32 native patch bundle does not replace this project-owned bridge.

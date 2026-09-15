@@ -1037,7 +1037,9 @@ class Media3PlayerController(
         performanceTracker.onPlaybackStatus(prepareGeneration, status)
         publishPerformanceDiagnostics()
 
-        if (status == PlaybackStatus.Playing || status == PlaybackStatus.Buffering) {
+        // Loading can continue while paused, so buffer/allocator diagnostics
+        // still need the existing ticker even though the playhead is stationary.
+        if (status == PlaybackStatus.Playing || status == PlaybackStatus.Buffering || status == PlaybackStatus.Paused) {
             startPositionTicker()
         } else {
             stopPositionTicker()

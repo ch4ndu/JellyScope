@@ -1,11 +1,25 @@
 # Android Native Corresponding-Source Manifest
 
 The Android APKs contain the project-owned `android-libmpv` wrapper and the
-unchanged native payload extracted from the pinned libmpv-android `v1.0.0`
-source/AAR input (`fcf6745703dc1265bca88f12fee8fc355ddf251e`). The original
-AAR `libplayer.so` is excluded; the bridge is rebuilt from the committed JNI
-sources. The pinned source, patch, toolchain, ABI, library, license, and
-corresponding-source records are in `manifest-1.0.0.txt`.
+native payload from `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.1`.
+The bundle replaces only ARM32 `libmpv.so`; other native libraries remain from
+`dev.jdtech.mpv:libmpv:1.0.0`. The original AAR `libplayer.so` and x86 payload
+are excluded; the bridge is rebuilt from committed JellyScope JNI sources.
+The pinned source, patch, toolchain, ABI, library and license records are in
+`manifest-1.0.0.txt` (the filename is retained for existing packaged consumers).
+
+The native bundle's exact source repository is
+https://github.com/ch4ndu/jellyscope-mpv-android/tree/8a2e7e75c53c7fb818d86299d4653cbde650a434.
+Its [matching source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.1/libmpv-native-0.41.0-jellyscope.1-sources.tar.gz)
+contains modified and upstream mpv, 13 pinned native components, eight submodules,
+provider source, patches and build records. Its
+[notices archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.1/libmpv-native-0.41.0-jellyscope.1-notices.zip)
+contains component notices. NDK prerequisites and LLVM source/patch routes are
+recorded in the source archive; the NDK distribution is obtained separately.
+The ARM32 changes reduce ImageReader capacity to two and add optional bounded
+crop diagnostics. The inactive FFmpeg VP9 adaptive-max experiment is not applied.
+The consolidated native build procedure has not yet had a clean rebuild; these
+are retained Cube-tested bytes, not a claim of independent reproducibility.
 
 For every published JellyScope Android build, publish these source routes with
 the release metadata. In an Android APK, `assets/license-metadata/SOURCE_URL.txt`
@@ -18,7 +32,7 @@ source tree, not relative to this packaged notice:
    committed Kotlin/JNI bridge, CMake file, ABI declaration shims, and MIT
    `LICENSE`, plus the exact libmpv-android source at
    https://github.com/jarnedemeulemeester/libmpv-android/tree/fcf6745703dc1265bca88f12fee8fc355ddf251e.
-2. The pinned Maven AAR as a **build input only**. The
+2. The pinned GitHub Release AAR as a **build input only**. The
    extraction task copies all `jni/` libraries except `libplayer.so` and x86;
    CMake imports the extracted `libmpv.so`, `libavcodec.so`, and NDK-29
    `libc++_shared.so` while compiling only the project bridge. The native source
@@ -34,7 +48,9 @@ source tree, not relative to this packaged notice:
    https://code.videolan.org/videolan/libvlcjni/-/tree/libvlcjni-3.x and
    https://code.videolan.org/videolan/vlc/-/tree/ac1101d2c5.
 
-JellyScope does not mirror these upstream projects or maintain their build
-scripts. If a recorded source route disappears or a pinned artifact changes,
+The native bundle repository maintains its mpv patches and build entry point;
+its release archives preserve the dependency source inputs. Other upstream
+projects retain their own build instructions. If a recorded source route
+disappears or a pinned artifact changes,
 refresh the source record before publishing. A Maven POM alone is not a native
 corresponding-source notice.

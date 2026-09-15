@@ -28,7 +28,7 @@ class MpvRuntimeDiagnosticsTest {
                 presentationPath = MPV_PRESENTATION_SOFTWARE,
             )
 
-        assertEquals("hevc · vaapi", diagnostics.videoDecoderName)
+        assertEquals("hevc", diagnostics.videoDecoderName)
         assertEquals(3840, diagnostics.videoWidth)
         assertEquals(2160, diagnostics.videoHeight)
         assertEquals(23.976, diagnostics.videoFrameRate)

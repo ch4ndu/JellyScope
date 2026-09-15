@@ -356,7 +356,8 @@ Do not relabel an unresolved entry merely to make a task green.
 ## Android release checklist
 
 An Android release is one coordinated mobile and TV release from the same
-commit. Both applications use the `com.jellyscope` application ID and share
+commit. Both applications use the `com.udnahc.jellyscope` application ID for
+one Google Play listing and share
 `jellyscope.versionName`. `jellyscope.versionCode` is the mobile code; TV uses
 the next code. Advance the property by two for the next coordinated release.
 

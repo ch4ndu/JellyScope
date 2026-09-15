@@ -420,13 +420,22 @@ Transfer and storage semantics belong to
 
 ## Settings And Authentication
 
+- Advanced playback includes **mpv video output** with **GPU (default)** and
+  **Direct MediaCodec** choices when mpv is available. The dialog describes
+  capabilities and next-session application without device-test anecdotes.
+  Selection persists through the device settings store and restores focus to the
+  opening tile; Back dismisses without changing the preference. The Resize menu
+  for direct output explains its limitation and offers Close instead of ineffective
+  Fit/Fill/Zoom choices. See the [output policy](data-playback.md#android-mpv-backend).
+
 - Quick Connect shows a large code and polls without rendering/logging its
   Secret. Settings supports switch/add account, Logout, and playback preferences;
   TV has no per-account Sign out.
 - `TvSettingsTileId` defines seven rows: Account; Appearance; Playback; Skip
   segments; **Advanced playback**; Services & About; Diagnostics. Rows are fully
   composed horizontal lists inside one vertical scroller. Playback may extend
-  for backend/autoplay; Account is Server, Signed in user, Switch Users, Add
+  for backend/autoplay; Advanced playback has a sixth tile for mpv video output.
+  Account is Server, Signed in user, Switch Users, Add
   account, and Logout. Standard rows have five tiles. Diagnostics contains
   Collect diagnostic logs, Send
   diagnostics to server, Verbose system logging, and Show playback info at start.
@@ -471,6 +480,25 @@ Transfer and storage semantics belong to
   receive their constructed timestamp, so periodic sync does not reorder unchanged
   programs as fresh activity.
 
+## Playback Links
+
+- Android TV accepts `ACTION_VIEW` links shaped as
+  `jellyscope://play/ITEM_ID?serverId=SERVER_ID&userId=USER_ID` on cold launch
+  and through `onNewIntent`. Each identifier must contain 1–128 ASCII letters,
+  digits, hyphens, or underscores. Extra or duplicate parameters are rejected.
+- Links wait for session restoration, then require the signed-in server and
+  user to match. Logged-out and mismatched-account links are discarded; they
+  never select a server, sign in, or carry credentials or media URLs.
+- From a browsing screen, an accepted link opens the ordinary player at zero
+  with the current backend, quality, and track preferences. Normal authenticated
+  planning and error handling apply. Back returns to the originating screen.
+- Exit playback before invoking the next link. Links received while the player
+  is open are discarded rather than creating overlapping native player owners.
+  Consumed links are removed from the Activity intent to prevent recreation
+  from replaying them. Watch Next continues to open item details.
+- `TvPlaybackLink` records received, rejected, and handed-off outcomes without
+  logging the URI or identifiers. A handoff is not proof of successful playback.
+
 ## Tiles And Cross-Cutting Rules
 
 - Focus uses a cyan border and optional 1.1x scale; disabling zoom retains the
@@ -486,7 +514,24 @@ Transfer and storage semantics belong to
 - Diagnostics follow the shared
   [privacy policy](data-playback.md#diagnostics-logging-and-privacy).
 
+### Mandatory mpv playback recovery
+
+Sustained slow software playback pauses and opens a window-backed modal with
+Switch to ExoPlayer, Keep playing with mpv and Stop playback. Initial focus goes
+to the first enabled action in that order. Back/outside taps and transport keys
+cannot dismiss the dialog or resume playback beneath it; Continue is explicit
+and suppresses the prompt for the current prepare. Selecting Switch immediately
+closes the dialog and shows the player loading spinner during planning/preparation;
+normal player Back navigation is available. A rejected switch restores the dialog
+and available retry/continue/stop choices. This recovery is independent of optional health warnings and log
+collection; its policy is owned by [playback architecture](playback-architecture.md).
+
 ## Why
+
+- **Playback links reuse normal playback ownership.** Account-qualified item
+  identifiers make manual playback entry repeatable while preserving session
+  boundaries, backend settings, and the normal planner. Requiring the previous
+  player to close avoids introducing a second native replacement flow.
 
 - Paging errors preserve pending restore and require explicit Retry because a
   failed page does not prove that the saved target is absent. Search completion

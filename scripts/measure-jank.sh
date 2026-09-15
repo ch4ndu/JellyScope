@@ -20,9 +20,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PERF_DIR="$REPO_ROOT/.local/perf"
 CONFIG="$PERF_DIR/config.env"
 
-MOBILE_PKG="com.jellyscope"
-MOBILE_ACTIVITY="com.jellyscope/.android.MainActivity"
-TV_PKG="com.jellyscope"
+MOBILE_PKG="com.udnahc.jellyscope"
+MOBILE_ACTIVITY="com.udnahc.jellyscope/com.jellyscope.android.MainActivity"
+TV_PKG="com.udnahc.jellyscope"
 
 RUNS=5
 PHASE="${PHASE:-baseline}"

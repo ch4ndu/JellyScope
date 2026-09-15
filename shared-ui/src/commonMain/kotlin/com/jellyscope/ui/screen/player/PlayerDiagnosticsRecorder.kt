@@ -38,6 +38,8 @@ import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackTerminalOutcome
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerOperation
+import com.jellyscope.core.domain.playback.SoftwarePlaybackProgressEvidence
+import com.jellyscope.core.domain.playback.SoftwarePlaybackRecoveryDecision
 import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleRenderInfo
@@ -226,12 +228,11 @@ internal class PlayerDiagnosticsRecorder {
                     streamMode = context.streamMode,
                     errorCategory = facts.error,
                     terminalOutcome = facts.outcome,
-                    autoRecoveryTrigger = facts.autoRecoveryTrigger,
-                    recoveryDecision = facts.recoveryDecision,
                     allocatedBufferBytes = diagnostics.allocatedBufferBytes,
                     bufferedAheadMs = diagnostics.bufferedAheadMs,
                     libVlcCachePercent = diagnostics.libVlcCachePercent,
                     videoDecoderName = diagnostics.videoDecoderName,
+                    videoDecodingMode = diagnostics.videoDecodingMode,
                     runtimeVideoWidth = diagnostics.videoWidth,
                     runtimeVideoHeight = diagnostics.videoHeight,
                     runtimeVideoFrameRate = diagnostics.videoFrameRate,
@@ -497,6 +498,7 @@ internal class PlayerDiagnosticsRecorder {
                     qualityPolicyOrigin = context.qualityPolicyOrigin,
                     sourceBitrateBps = context.sourceBitrateBps,
                     videoDecoderName = diagnostics.videoDecoderName,
+                    videoDecodingMode = diagnostics.videoDecodingMode,
                     runtimeVideoWidth = diagnostics.videoWidth,
                     runtimeVideoHeight = diagnostics.videoHeight,
                     runtimeVideoFrameRate = diagnostics.videoFrameRate,
@@ -507,6 +509,53 @@ internal class PlayerDiagnosticsRecorder {
                     firstVideoOutputAvailable = facts.state != PlaybackFirstVideoOutputState.Unsupported,
                     firstVideoOutputObserved = facts.observed,
                     firstVideoOutputEvidence = facts.evidence,
+                ),
+            )
+        }
+    }
+
+    fun recordSoftwarePlaybackRecovery(
+        context: PlayerDiagnosticContext,
+        decision: SoftwarePlaybackRecoveryDecision,
+    ) {
+        playerViewModelLogger.w {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.SoftwareRecovery,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = context.backend,
+                    sessionSequence = context.sessionSequence,
+                    prepareSequence = context.runtimeDiagnostics.prepareEpoch,
+                    streamMode = context.streamMode,
+                    qualityPolicyMode = context.qualityPolicyMode,
+                    softwareRecoveryDecision = decision,
+                ),
+            )
+        }
+    }
+
+    fun recordSoftwarePlaybackProgress(
+        context: PlayerDiagnosticContext,
+        evidence: SoftwarePlaybackProgressEvidence,
+    ) {
+        val diagnostics = context.runtimeDiagnostics
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.SoftwareProgress,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = context.backend,
+                    sessionSequence = context.sessionSequence,
+                    prepareSequence = diagnostics.prepareEpoch,
+                    streamMode = context.streamMode,
+                    qualityPolicyMode = context.qualityPolicyMode,
+                    videoDecodingMode = diagnostics.videoDecodingMode,
+                    runtimeVideoWidth = diagnostics.videoWidth,
+                    runtimeVideoHeight = diagnostics.videoHeight,
+                    bufferedAheadMs = diagnostics.bufferedAheadMs,
+                    softwareProgress = evidence,
                 ),
             )
         }
@@ -568,6 +617,7 @@ internal class PlayerDiagnosticsRecorder {
                     bufferedAheadMs = diagnostics.bufferedAheadMs,
                     libVlcCachePercent = diagnostics.libVlcCachePercent,
                     videoDecoderName = diagnostics.videoDecoderName,
+                    videoDecodingMode = diagnostics.videoDecodingMode,
                     runtimeVideoWidth = diagnostics.videoWidth,
                     runtimeVideoHeight = diagnostics.videoHeight,
                     runtimeVideoFrameRate = diagnostics.videoFrameRate,

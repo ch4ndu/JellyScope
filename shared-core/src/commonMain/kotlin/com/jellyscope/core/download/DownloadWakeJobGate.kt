@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.download
 
+import com.jellyscope.core.domain.playback.playbackExceptionType
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +27,7 @@ internal class DownloadWakeJobGate(
     private val scope: CoroutineScope,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
+    private val logger = diagnosticLogger(DiagnosticTag.DownloadExecution)
     private val mutex = Mutex()
     private var wakeJob: Deferred<Result<Unit>>? = null
 
@@ -35,6 +39,7 @@ internal class DownloadWakeJobGate(
      */
     suspend fun launch(block: suspend () -> Result<Unit>): Result<Unit> {
         if (!scope.isActive) {
+            logger.w { "stage=download-wake event=rejected result=InactiveScope" }
             return Result.failure(IllegalStateException("The download wake scope is no longer active."))
         }
         return try {
@@ -44,11 +49,21 @@ internal class DownloadWakeJobGate(
                 }
                 val created =
                     scope.async(dispatcher, start = CoroutineStart.LAZY) {
+                        logger.i { "stage=download-wake event=started" }
                         try {
-                            block()
+                            block().also { result ->
+                                result.fold(
+                                    onSuccess = { logger.i { "stage=download-wake event=completed" } },
+                                    onFailure = { failure ->
+                                        logger.w { "stage=download-wake event=failed exceptionType=${failure.playbackExceptionType()}" }
+                                    },
+                                )
+                            }
                         } catch (cancellation: CancellationException) {
+                            logger.i { "stage=download-wake event=cancelled" }
                             throw cancellation
                         } catch (throwable: Throwable) {
+                            logger.w { "stage=download-wake event=failed exceptionType=${throwable.playbackExceptionType()}" }
                             Result.failure(throwable)
                         }
                     }
@@ -59,6 +74,7 @@ internal class DownloadWakeJobGate(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
+            logger.w { "stage=download-wake event=failed exceptionType=${throwable.playbackExceptionType()}" }
             Result.failure(throwable)
         }
     }

@@ -5,6 +5,9 @@ package com.jellyscope.core.download
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -18,6 +21,7 @@ class AndroidDownloadWorker(
     appContext: Context,
     workerParameters: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParameters) {
+    private val logger = diagnosticLogger(DiagnosticTag.DownloadExecution)
     private var progressJob: Job? = null
 
     override suspend fun getForegroundInfo() =
@@ -26,35 +30,44 @@ class AndroidDownloadWorker(
 
     override suspend fun doWork(): Result {
         val scheduler = schedulerOrNull() ?: return Result.failure()
-        return coroutineScope {
-            // Foreground promotion is an execution precondition on API 33
-            // and lower. Await the initial notification before the transfer
-            // runner can claim/open a writer; the periodic updater below only
-            // refreshes progress after that admission boundary.
-            setForeground(scheduler.foregroundInfo(id))
-            progressJob?.cancel()
-            progressJob =
-                launch {
-                    while (isActive) {
-                        setForeground(scheduler.foregroundInfo(id))
-                        delay(PROGRESS_REFRESH_MILLIS)
-                    }
-                }
-            try {
-                scheduler.executeWorkManager(id).fold(
-                    onSuccess = { Result.success() },
-                    onFailure = { Result.failure() },
-                )
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } finally {
+        return try {
+            coroutineScope {
+                // Foreground promotion is an execution precondition on API 33
+                // and lower. Await the initial notification before the transfer
+                // runner can claim/open a writer; the periodic updater below only
+                // refreshes progress after that admission boundary.
+                setForeground(scheduler.foregroundInfo(id))
                 progressJob?.cancel()
+                progressJob =
+                    launch {
+                        while (isActive) {
+                            setForeground(scheduler.foregroundInfo(id))
+                            delay(PROGRESS_REFRESH_MILLIS)
+                        }
+                    }
+                try {
+                    scheduler.executeWorkManager(id).fold(
+                        onSuccess = { Result.success() },
+                        onFailure = { Result.failure() },
+                    )
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } finally {
+                    progressJob?.cancel()
+                }
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Throwable) {
+            logger.w { formatSafeFailureDiagnostic("download-worker", "execution-failed", failure) }
+            throw failure
         }
     }
 
     private fun schedulerOrNull(): AndroidDownloadScheduler? =
-        runCatching { GlobalContext.get().get<AndroidDownloadScheduler>() }.getOrNull()
+        runCatching { GlobalContext.get().get<AndroidDownloadScheduler>() }
+            .onFailure { failure -> logger.w { formatSafeFailureDiagnostic("download-worker", "scheduler-unavailable", failure) } }
+            .getOrNull()
 
     private companion object {
         const val PROGRESS_REFRESH_MILLIS = 1_000L

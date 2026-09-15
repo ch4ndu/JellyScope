@@ -4,6 +4,7 @@ package com.jellyscope.core.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.jellyscope.core.domain.playback.AndroidTvMpvVideoOutput
 import com.jellyscope.core.domain.playback.IosPlaybackCompatibilityMode
 import com.jellyscope.core.domain.playback.PlayerAudioMode
 import com.jellyscope.core.domain.playback.PlayerDeviceSettings
@@ -25,6 +26,7 @@ internal class SharedPreferencesPlayerDeviceSettingsStore(
     override suspend fun setSettings(settings: PlayerDeviceSettings) {
         preferences
             .edit()
+            .putString(PLAYER_DEVICE_MPV_VIDEO_OUTPUT_KEY, settings.androidTvMpvVideoOutput.name)
             .putString(PLAYER_DEVICE_AUDIO_MODE_KEY, settings.audioMode.name)
             .putString(PLAYER_DEVICE_HDR_MODE_KEY, settings.hdrMode.name)
             .putString(PLAYER_DEVICE_MATCH_DISPLAY_REFRESH_RATE_KEY, settings.matchDisplayRefreshRate.toString())
@@ -37,6 +39,9 @@ internal class SharedPreferencesPlayerDeviceSettingsStore(
 
 private fun SharedPreferences.readSettings(): PlayerDeviceSettings =
     PlayerDeviceSettings(
+        androidTvMpvVideoOutput =
+            getString(PLAYER_DEVICE_MPV_VIDEO_OUTPUT_KEY, null).toTolerantEnumOrNull<AndroidTvMpvVideoOutput>()
+                ?: AndroidTvMpvVideoOutput.Gpu,
         audioMode = getString(PLAYER_DEVICE_AUDIO_MODE_KEY, null).toPlayerAudioMode(),
         hdrMode = getString(PLAYER_DEVICE_HDR_MODE_KEY, null).toPlayerHdrMode(),
         matchDisplayRefreshRate = getString(PLAYER_DEVICE_MATCH_DISPLAY_REFRESH_RATE_KEY, null).toMatchDisplayRefreshRate(),
@@ -63,3 +68,5 @@ private const val PLAYER_DEVICE_HDR_MODE_KEY = "hdr_mode"
 private const val PLAYER_DEVICE_MATCH_DISPLAY_REFRESH_RATE_KEY = "match_display_refresh_rate"
 private const val PLAYER_DEVICE_MAX_VIDEO_RESOLUTION_KEY = "max_video_resolution"
 private const val PLAYER_DEVICE_IOS_PLAYBACK_COMPATIBILITY_MODE_KEY = "ios_playback_compatibility_mode"
+
+private const val PLAYER_DEVICE_MPV_VIDEO_OUTPUT_KEY = "android_tv_mpv_video_output"

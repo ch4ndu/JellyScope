@@ -14,7 +14,10 @@ package com.jellyscope.core.domain.playback
  * The quality detector consumes one-shot measurements from the controller's
  * measurement flow instead. Decoder/output drops and presentation timing are
  * debug-only observations; they never feed stream planning, backend selection,
- * quality policy, or transcode decisions. Bandwidth is always bits per second.
+ * quality policy, or transcode decisions. Active software-decoding mode and
+ * prepare identity additionally qualify the mandatory Android mpv software-playback
+ * recovery dialog; they are never a failure or capability limit by themselves.
+ * Bandwidth is always bits per second.
  */
 data class PlaybackRuntimeDiagnostics(
     val videoDecoderName: String?,
@@ -47,6 +50,8 @@ data class PlaybackRuntimeDiagnostics(
     val libVlcCachePercent: Float? = null,
     /** Bounded readiness facts for the active native resume/seek transition. */
     val playbackTransition: PlaybackTransitionRuntimeDiagnostics? = null,
+    /** Active native decoding, never inferred from a configured preference or renderer. */
+    val videoDecodingMode: PlaybackVideoDecodingMode? = null,
 ) {
     companion object {
         val EMPTY =
@@ -61,6 +66,57 @@ data class PlaybackRuntimeDiagnostics(
             )
     }
 }
+
+enum class PlaybackVideoDecodingMode {
+    Software,
+    Hardware,
+    HardwareCopyBack,
+}
+
+enum class PlaybackNativeVideoFormatStage {
+    DecoderCrop,
+    ImportedTexture,
+    ImageReader,
+}
+
+enum class PlaybackNativeVideoQueryResult {
+    Success,
+    Failed,
+    Unavailable,
+}
+
+/**
+ * Numerical native evidence. ImageReader width/height describe the buffer allocation;
+ * image dimensions and mapper dimensions remain separate. DecoderCrop endpoints are
+ * inclusive, while ImageReader crop right/bottom are exclusive.
+ */
+data class PlaybackNativeVideoFormat(
+    val stage: PlaybackNativeVideoFormatStage,
+    val width: Int,
+    val height: Int,
+    val cropTop: Int? = null,
+    val cropBottom: Int? = null,
+    val cropLeft: Int? = null,
+    val cropRight: Int? = null,
+    val imageWidth: Int? = null,
+    val imageHeight: Int? = null,
+    val mapperSourceWidth: Int? = null,
+    val mapperSourceHeight: Int? = null,
+    val mapperDestinationWidth: Int? = null,
+    val mapperDestinationHeight: Int? = null,
+    val imageWidthQuery: PlaybackNativeVideoQueryResult? = null,
+    val imageHeightQuery: PlaybackNativeVideoQueryResult? = null,
+    val imageCropQuery: PlaybackNativeVideoQueryResult? = null,
+)
+
+/** mpv's hwdec-current reports the active driver, "no" for software, or unavailable. */
+internal fun mpvVideoDecodingMode(hardwareDecoder: String?): PlaybackVideoDecodingMode? =
+    when {
+        hardwareDecoder.isNullOrBlank() -> null
+        hardwareDecoder == "no" -> PlaybackVideoDecodingMode.Software
+        hardwareDecoder.endsWith("-copy") -> PlaybackVideoDecodingMode.HardwareCopyBack
+        else -> PlaybackVideoDecodingMode.Hardware
+    }
 
 data class PlaybackTransitionRuntimeDiagnostics(
     val kind: PlaybackTransitionRuntimeKind,

@@ -2,7 +2,7 @@
 
 This module is a project-owned build of the small Kotlin/JNI wrapper from
 `libmpv-android` `v1.0.0` at commit
-`fcf6745703dc1265bca88f12fee8fc355ddf251e`. The pinned Maven AAR remains a
+`fcf6745703dc1265bca88f12fee8fc355ddf251e`. The pinned JellyScope native AAR is a
 build input: `extractPinnedMpvNative` copies its `jni/` payload into
 the module build directory, excludes the upstream `libplayer.so` and `x86`,
 and CMake links the remaining native libraries without rebuilding them.
@@ -21,8 +21,13 @@ wrapper:
    idempotence correction: a missing native instance is already destroyed and
    a second call is a no-op.
 
-No mpv, FFmpeg, dav1d, libplacebo, libass, mbedTLS, NDK, or other native
-dependency is rebuilt or upgraded by this module.
+The native input is `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.1`,
+[published separately](https://github.com/ch4ndu/jellyscope-mpv-android/releases/tag/v0.41.0-jellyscope.1). It replaces only ARM32
+`libmpv.so` with the two-image ImageReader patch and crop diagnostics. Other
+provider libraries/ABIs remain unchanged. This module rebuilds only the JNI
+bridge; it does not build mpv or its native dependencies. Native patch sources,
+notices and the clean-native-rebuild limitation are recorded in
+[`SOURCE_MANIFEST.md`](../scripts/android-mpv-bundle/SOURCE_MANIFEST.md).
 
 The small headers under `src/main/cpp/include/` are the ABI declarations used
 by the pinned bridge for mpv 0.41.0 and FFmpeg 8.1. They do not add native
@@ -32,8 +37,10 @@ code; the corresponding implementations are the extracted AAR libraries.
 
 Do not float this module to upstream main. To refresh it deliberately:
 
-1. Pin a new stable wrapper tag and commit, and compare its native component
-   manifest with the current audit.
+1. Pin the native bundle version in the version catalog and review its release
+   source/notice assets and ABI scope. Keep the provider and bundle commits
+   distinct in the manifest. If the wrapper changes, pin its tag/commit and
+   compare its source with the current bridge.
 2. Rebase the three wrapper patches onto the exact upstream Kotlin/JNI source.
    Confirm that default log requests remain disabled, only the requested Error
    level is selected by JellyScope, raw message/event logcat writes remain

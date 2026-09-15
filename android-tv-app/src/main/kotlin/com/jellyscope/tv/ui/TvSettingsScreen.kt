@@ -49,6 +49,7 @@ import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.model.SendClientLogsResult
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.TileSizeId
+import com.jellyscope.core.domain.playback.AndroidTvMpvVideoOutput
 import com.jellyscope.core.domain.playback.MediaSegmentType
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
 import com.jellyscope.core.domain.playback.PlayerAudioMode
@@ -139,6 +140,7 @@ fun TvSettingsScreen(
         onDefaultQualityPolicySelected = viewModel::setDefaultQualityPolicy,
         onVlcTranscodeMaxBitrateSelected = viewModel::setVlcTranscodeMaxBitrateBps,
         onDefaultPlayerBackendSelected = viewModel::setDefaultPlayerBackend,
+        onMpvVideoOutputSelected = viewModel::setAndroidTvMpvVideoOutput,
         onRetryPlaybackPreferences = viewModel::reloadPlaybackPreferences,
         onPreferredAudioLanguageChange = viewModel::setPreferredAudioLanguage,
         onPreferredSubtitleLanguageChange = viewModel::setPreferredSubtitleLanguage,
@@ -191,6 +193,7 @@ internal fun TvSettingsContent(
     onDefaultQualityPolicySelected: (PlaybackQualityPolicy) -> Unit,
     onVlcTranscodeMaxBitrateSelected: (Long?) -> Unit = {},
     onDefaultPlayerBackendSelected: (PlayerBackend) -> Unit = {},
+    onMpvVideoOutputSelected: (AndroidTvMpvVideoOutput) -> Unit = {},
     onRetryPlaybackPreferences: () -> Unit = {},
     onPreferredAudioLanguageChange: (String?) -> Unit,
     onPreferredSubtitleLanguageChange: (String?) -> Unit,
@@ -402,6 +405,7 @@ internal fun TvSettingsContent(
                 onDefaultQualityPolicySelected = onDefaultQualityPolicySelected,
                 onVlcTranscodeMaxBitrateSelected = onVlcTranscodeMaxBitrateSelected,
                 onDefaultPlayerBackendSelected = onDefaultPlayerBackendSelected,
+                onMpvVideoOutputSelected = onMpvVideoOutputSelected,
                 onRetryPlaybackPreferences = onRetryPlaybackPreferences,
                 onPreferredAudioLanguageChange = onPreferredAudioLanguageChange,
                 onPreferredSubtitleLanguageChange = onPreferredSubtitleLanguageChange,
@@ -590,6 +594,15 @@ private fun tvSettingsTilePresentation(
                     stringResource(R.string.tv_settings_player_backend),
                     tvPlayerBackendLabel(state.selectedPlayerBackend),
                 )
+            TvSettingsTileId.MpvVideoOutput ->
+                TvSettingsTilePresentation(
+                    stringResource(R.string.tv_settings_mpv_video_output),
+                    if (state.playerBackendChoices.any { it.backend == PlayerBackend.Mpv && it.available }) {
+                        tvMpvVideoOutputLabel(state.playerDeviceSettings.androidTvMpvVideoOutput)
+                    } else {
+                        stringResource(R.string.tv_settings_player_backend_unavailable)
+                    },
+                )
             TvSettingsTileId.AutoPlayNext ->
                 TvSettingsTilePresentation(
                     stringResource(R.string.tv_settings_autoplay_next),
@@ -729,6 +742,15 @@ private fun tvSegmentPresentation(
     )
 
 @Composable
+private fun tvMpvVideoOutputLabel(output: AndroidTvMpvVideoOutput): String =
+    stringResource(
+        when (output) {
+            AndroidTvMpvVideoOutput.Gpu -> R.string.tv_settings_mpv_output_gpu
+            AndroidTvMpvVideoOutput.DirectMediaCodec -> R.string.tv_settings_mpv_output_direct
+        },
+    )
+
+@Composable
 private fun tvPlayerBackendLabel(backend: PlayerBackend): String =
     when (backend) {
         PlayerBackend.Auto,
@@ -809,6 +831,7 @@ private fun TvSettingsTileDialog(
     onDefaultQualityPolicySelected: (PlaybackQualityPolicy) -> Unit,
     onVlcTranscodeMaxBitrateSelected: (Long?) -> Unit,
     onDefaultPlayerBackendSelected: (PlayerBackend) -> Unit,
+    onMpvVideoOutputSelected: (AndroidTvMpvVideoOutput) -> Unit,
     onRetryPlaybackPreferences: () -> Unit,
     onPreferredAudioLanguageChange: (String?) -> Unit,
     onPreferredSubtitleLanguageChange: (String?) -> Unit,
@@ -1013,6 +1036,40 @@ private fun TvSettingsTileDialog(
                 },
                 onDismiss = onDismiss,
             )
+        TvSettingsTileAction.MpvVideoOutput -> {
+            if (state.playerBackendChoices.none { it.backend == PlayerBackend.Mpv && it.available }) {
+                TvSettingsDetailDialog(
+                    title = stringResource(R.string.tv_settings_mpv_video_output),
+                    detail = stringResource(R.string.tv_settings_player_backend_unavailable),
+                    onDismiss = onDismiss,
+                )
+            } else {
+                TvSettingsChoiceDialog(
+                    title = stringResource(R.string.tv_settings_mpv_video_output),
+                    description = stringResource(R.string.tv_settings_mpv_output_description),
+                    selected = state.playerDeviceSettings.androidTvMpvVideoOutput,
+                    options =
+                        AndroidTvMpvVideoOutput.entries.map { output ->
+                            TvSettingsDialogOption(
+                                value = output,
+                                label = tvMpvVideoOutputLabel(output),
+                                description =
+                                    stringResource(
+                                        when (output) {
+                                            AndroidTvMpvVideoOutput.Gpu -> R.string.tv_settings_mpv_output_gpu_description
+                                            AndroidTvMpvVideoOutput.DirectMediaCodec -> R.string.tv_settings_mpv_output_direct_description
+                                        },
+                                    ),
+                            )
+                        },
+                    onSelected = { output ->
+                        onMpvVideoOutputSelected(output)
+                        onDismiss()
+                    },
+                    onDismiss = onDismiss,
+                )
+            }
+        }
         TvSettingsTileAction.AutoPlayNext ->
             TvBooleanDialog(
                 title = stringResource(R.string.tv_settings_autoplay_next),

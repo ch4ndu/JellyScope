@@ -500,22 +500,40 @@ internal fun TvPlayerLocalMenuOverlay(
                         }
                     }
                     TvPlayerLocalMenu.Resize -> {
-                        itemsIndexed(
-                            items = PlayerResizeMode.entries,
-                            key = { _, mode -> "resize-$mode" },
-                            contentType = { _, _ -> "resize-row" },
-                        ) { index, mode ->
-                            TvPickerRow(
-                                title = mode.label(),
-                                selected = content.resizeMode == mode,
-                                focusRequester =
-                                    when {
-                                        index == initialFocusIndex -> firstRowRequester
-                                        index == 0 -> fallbackRowRequester
-                                        else -> null
-                                    },
-                                onClick = { onSelectResizeMode(mode) },
-                            )
+                        if (!content.supportsVideoSizing) {
+                            item {
+                                TvText(
+                                    text = stringResource(R.string.tv_mpv_direct_sizing_unavailable),
+                                    style = TvBodyStyle,
+                                    maxLines = 5,
+                                )
+                            }
+                            item {
+                                TvPickerRow(
+                                    title = stringResource(R.string.tv_close),
+                                    selected = false,
+                                    focusRequester = firstRowRequester,
+                                    onClick = onHideMenu,
+                                )
+                            }
+                        } else {
+                            itemsIndexed(
+                                items = PlayerResizeMode.entries,
+                                key = { _, mode -> "resize-$mode" },
+                                contentType = { _, _ -> "resize-row" },
+                            ) { index, mode ->
+                                TvPickerRow(
+                                    title = mode.label(),
+                                    selected = content.resizeMode == mode,
+                                    focusRequester =
+                                        when {
+                                            index == initialFocusIndex -> firstRowRequester
+                                            index == 0 -> fallbackRowRequester
+                                            else -> null
+                                        },
+                                    onClick = { onSelectResizeMode(mode) },
+                                )
+                            }
                         }
                     }
                     TvPlayerLocalMenu.None -> Unit

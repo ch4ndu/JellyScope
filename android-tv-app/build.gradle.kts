@@ -137,7 +137,7 @@ android {
             .toInt()
 
     defaultConfig {
-        applicationId = "com.jellyscope"
+        applicationId = "com.udnahc.jellyscope"
         minSdk =
             libs.versions.minSdk
                 .get()

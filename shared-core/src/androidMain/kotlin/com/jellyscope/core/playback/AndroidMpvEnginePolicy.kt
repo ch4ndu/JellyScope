@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
+import com.jellyscope.core.domain.playback.AndroidTvMpvVideoOutput
 
 internal enum class AndroidMpvDeviceClass {
     Mobile,
@@ -83,7 +84,10 @@ internal fun androidMpvDeviceFacts(context: Context): AndroidMpvDeviceFacts {
     )
 }
 
-internal fun androidMpvEnginePolicy(facts: AndroidMpvDeviceFacts): AndroidMpvEnginePolicy {
+internal fun androidMpvEnginePolicy(
+    facts: AndroidMpvDeviceFacts,
+    tvVideoOutput: AndroidTvMpvVideoOutput = AndroidTvMpvVideoOutput.Gpu,
+): AndroidMpvEnginePolicy {
     val deviceClass =
         when {
             facts.isTelevision -> AndroidMpvDeviceClass.Television
@@ -92,7 +96,7 @@ internal fun androidMpvEnginePolicy(facts: AndroidMpvDeviceFacts): AndroidMpvEng
         }
     return AndroidMpvEnginePolicy(
         deviceClass = deviceClass,
-        // TV uses vo=gpu, not gpu-next: with zero-copy mediacodec the Tegra GL
+        // TV defaults to vo=gpu, not gpu-next: with zero-copy mediacodec the Tegra GL
         // driver (Shield) rejects libplacebo's program link when
         // samplerExternalOES appears in both shader stages, so gpu-next never
         // renders a frame there. mpv's classic renderer is the long-standing
@@ -101,7 +105,11 @@ internal fun androidMpvEnginePolicy(facts: AndroidMpvDeviceFacts): AndroidMpvEng
         // gpu-next baseline.
         videoOutput =
             when (deviceClass) {
-                AndroidMpvDeviceClass.Television -> "gpu"
+                AndroidMpvDeviceClass.Television ->
+                    when (tvVideoOutput) {
+                        AndroidTvMpvVideoOutput.Gpu -> "gpu"
+                        AndroidTvMpvVideoOutput.DirectMediaCodec -> "mediacodec_embed"
+                    }
                 AndroidMpvDeviceClass.Emulator -> "gpu-next"
                 AndroidMpvDeviceClass.Mobile -> "gpu-next"
             },

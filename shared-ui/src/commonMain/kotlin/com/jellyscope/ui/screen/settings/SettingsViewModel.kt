@@ -34,6 +34,7 @@ import com.jellyscope.core.domain.model.SendClientLogsResult
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.TileSizeId
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.playback.AndroidTvMpvVideoOutput
 import com.jellyscope.core.domain.playback.EffectivePlayerDevicePolicy
 import com.jellyscope.core.domain.playback.IosPlaybackCompatibilityMode
 import com.jellyscope.core.domain.playback.MediaSegmentType
@@ -640,6 +641,10 @@ class SettingsViewModel(
                 MediaSegmentType.Unknown -> current
             }
         }
+    }
+
+    fun setAndroidTvMpvVideoOutput(output: AndroidTvMpvVideoOutput) {
+        savePlayerDeviceSettings { current -> current.copy(androidTvMpvVideoOutput = output) }
     }
 
     fun setPlayerAudioMode(audioMode: PlayerAudioMode) {

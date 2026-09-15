@@ -4,6 +4,8 @@ package com.jellyscope.ui.screen.player
 
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
+import com.jellyscope.core.domain.playback.PlaybackVideoDecodingMode
+import com.jellyscope.core.domain.playback.PlayerBackend
 
 data class PlayerDebugSection(
     val title: String,
@@ -20,6 +22,7 @@ fun playerDebugSections(
     debugInfo: PlayerDebugInfo?,
     playbackState: PlaybackState,
     runtimeDiagnostics: PlaybackRuntimeDiagnostics,
+    mpvLabels: PlayerDebugMpvLabels,
 ): List<PlayerDebugSection> {
     if (debugInfo == null) {
         return listOf(
@@ -72,27 +75,56 @@ fun playerDebugSections(
         PlayerDebugSection(
             title = "Runtime",
             rows =
-                listOf(
-                    PlayerDebugRowModel("Decoder", runtimeDiagnostics.videoDecoderName.nonBlankOrUnavailable()),
-                    PlayerDebugRowModel("Runtime format", runtimeDiagnostics.runtimeFormatSummary()),
-                    PlayerDebugRowModel(
-                        "Dropped frames",
-                        runtimeDiagnostics.droppedVideoFrames?.toString() ?: PLAYER_DEBUG_UNAVAILABLE,
-                    ),
-                    PlayerDebugRowModel(
-                        "Buffer policy",
-                        runtimeDiagnostics.bufferPolicy?.name ?: PLAYER_DEBUG_UNAVAILABLE,
-                    ),
-                    PlayerDebugRowModel("Target / allocated", runtimeDiagnostics.bufferAllocationSummary()),
-                    PlayerDebugRowModel(
-                        "Buffered ahead",
-                        runtimeDiagnostics.bufferedAheadMs?.debugSecondsLabel() ?: PLAYER_DEBUG_UNAVAILABLE,
-                    ),
-                    PlayerDebugRowModel(
-                        "Bandwidth estimate",
-                        runtimeDiagnostics.bandwidthEstimateBps?.debugMbpsLabel() ?: PLAYER_DEBUG_UNAVAILABLE,
-                    ),
-                ),
+                buildList {
+                    if (debugInfo.backend == PlayerBackend.Mpv) {
+                        add(PlayerDebugRowModel(mpvLabels.codecDescription, runtimeDiagnostics.videoDecoderName.nonBlankOrUnavailable()))
+                        val mode =
+                            when (runtimeDiagnostics.videoDecodingMode) {
+                                PlaybackVideoDecodingMode.Software -> mpvLabels.software
+                                PlaybackVideoDecodingMode.Hardware -> mpvLabels.hardware
+                                PlaybackVideoDecodingMode.HardwareCopyBack -> mpvLabels.hardwareCopyBack
+                                null -> mpvLabels.unknown
+                            }
+                        val implementation =
+                            "MediaCodec".takeIf {
+                                runtimeDiagnostics.videoDecodingMode in
+                                    setOf(PlaybackVideoDecodingMode.Hardware, PlaybackVideoDecodingMode.HardwareCopyBack) &&
+                                    runtimeDiagnostics.presentationPath in setOf("mediacodec", "mediacodec-copy")
+                            }
+                        add(PlayerDebugRowModel(mpvLabels.decoding, listOfNotNull(mode, implementation).joinToString(" · ")))
+                        val size =
+                            if (runtimeDiagnostics.videoWidth != null && runtimeDiagnostics.videoHeight != null) {
+                                "${runtimeDiagnostics.videoWidth}×${runtimeDiagnostics.videoHeight}"
+                            } else {
+                                PLAYER_DEBUG_UNAVAILABLE
+                            }
+                        add(PlayerDebugRowModel(mpvLabels.decodedSize, size))
+                    } else {
+                        add(PlayerDebugRowModel("Decoder", runtimeDiagnostics.videoDecoderName.nonBlankOrUnavailable()))
+                        add(PlayerDebugRowModel("Runtime format", runtimeDiagnostics.runtimeFormatSummary()))
+                    }
+                    addAll(
+                        listOf(
+                            PlayerDebugRowModel(
+                                "Dropped frames",
+                                runtimeDiagnostics.droppedVideoFrames?.toString() ?: PLAYER_DEBUG_UNAVAILABLE,
+                            ),
+                            PlayerDebugRowModel(
+                                "Buffer policy",
+                                runtimeDiagnostics.bufferPolicy?.name ?: PLAYER_DEBUG_UNAVAILABLE,
+                            ),
+                            PlayerDebugRowModel("Target / allocated", runtimeDiagnostics.bufferAllocationSummary()),
+                            PlayerDebugRowModel(
+                                "Buffered ahead",
+                                runtimeDiagnostics.bufferedAheadMs?.debugSecondsLabel() ?: PLAYER_DEBUG_UNAVAILABLE,
+                            ),
+                            PlayerDebugRowModel(
+                                "Bandwidth estimate",
+                                runtimeDiagnostics.bandwidthEstimateBps?.debugMbpsLabel() ?: PLAYER_DEBUG_UNAVAILABLE,
+                            ),
+                        ),
+                    )
+                },
         ),
         PlayerDebugSection(
             title = "Policy",

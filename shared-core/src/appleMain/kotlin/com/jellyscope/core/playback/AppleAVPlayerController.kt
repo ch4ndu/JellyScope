@@ -826,7 +826,8 @@ class AppleAVPlayerController(
         message: String,
         throwable: Throwable? = null,
     ) {
-        logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed, throwable)
+        val error = classifyPlaybackError(message = message, throwable = throwable)
+        logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed, throwable, error = error)
         logPlayerDiagnostics(reason = "fail-playback")
         installedItemPrepareGeneration = null
         player.replaceCurrentItemWithPlayerItem(null)
@@ -837,7 +838,7 @@ class AppleAVPlayerController(
         offlineSidecarPath = null
         updateStateFromPlayer(
             statusOverride = PlaybackStatus.Failed,
-            errorOverride = classifyPlaybackError(message = message, throwable = throwable),
+            errorOverride = error,
         )
     }
 
@@ -857,11 +858,12 @@ class AppleAVPlayerController(
                 `object` = item,
                 queue = NSOperationQueue.mainQueue,
             ) {
-                logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed)
+                val error = classifyPlaybackError(message = "AVPlayerItem failed while playing to end", item = item)
+                logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed, error = error)
                 logPlayerDiagnostics(reason = "failed-to-end-notification")
                 updateStateFromPlayer(
                     statusOverride = PlaybackStatus.Failed,
-                    errorOverride = classifyPlaybackError(message = "AVPlayerItem failed while playing to end", item = item),
+                    errorOverride = error,
                 )
             }
         notificationObservers +=
@@ -1019,6 +1021,14 @@ class AppleAVPlayerController(
             )
         }
 
+        if (resolveStatus(item, previous.status, statusOverride) == PlaybackStatus.Failed && previous.status != PlaybackStatus.Failed) {
+            logDiagnostic(
+                PlaybackDiagnosticStage.NativePlayer,
+                PlaybackDiagnosticEvent.TerminalError,
+                nativeCode = item?.error?.code ?: player.error?.code,
+                error = errorOverride ?: previous.error ?: PlaybackError.Unknown,
+            )
+        }
         emitPlaybackState(reason = "player-update") { current ->
             val status = resolveStatus(item, previous.status, statusOverride)
             current.copy(
@@ -1762,6 +1772,7 @@ class AppleAVPlayerController(
         throwable: Throwable? = null,
         nativeCode: Long? = null,
         operation: PlaybackDiagnosticOperation? = null,
+        error: PlaybackError? = null,
     ) {
         controllerLogger.i {
             formatPlaybackDiagnostic(
@@ -1769,6 +1780,10 @@ class AppleAVPlayerController(
                     stage = stage,
                     event = event,
                     platform = diagnosticPlatform,
+                    backend = activeBackend,
+                    prepareSequence = prepareGeneration.load(),
+                    sessionSequence = lastPlan?.diagnosticSessionSequence,
+                    errorCategory = error,
                     exceptionType = throwable?.playbackExceptionType(),
                     nativeCode = nativeCode,
                     operation = operation,
@@ -1800,6 +1815,9 @@ class AppleAVPlayerController(
                     stage = PlaybackDiagnosticStage.Mapping,
                     event = PlaybackDiagnosticEvent.Resolved,
                     platform = diagnosticPlatform,
+                    backend = activeBackend,
+                    prepareSequence = prepareGeneration.load(),
+                    sessionSequence = lastPlan?.diagnosticSessionSequence,
                     trackKind = kind,
                     candidateCount = candidateCount,
                     mappingResult = resolution.result,

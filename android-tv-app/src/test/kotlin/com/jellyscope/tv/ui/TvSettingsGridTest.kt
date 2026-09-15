@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 
 class TvSettingsGridTest {
     @Test
-    fun matrixContainsTheSevenRowsAndThirtyEightUniqueStableTileIds() {
+    fun matrixContainsTheSevenRowsAndFortyUniqueStableTileIds() {
         assertEquals(TV_SETTINGS_GRID_ROWS, tvSettingsGridRows.size)
         assertEquals(TV_SETTINGS_GRID_ROWS, tvSettingsGridSections.size)
         assertEquals(
@@ -34,7 +34,7 @@ class TvSettingsGridTest {
         assertTrue(tvSettingsGridRows.dropLast(1).all { row -> row.size >= TV_SETTINGS_GRID_COLUMNS })
         assertEquals(4, tvSettingsGridRows.last().size)
         assertEquals(TvSettingsTileId.entries.toSet(), tvSettingsGridRows.flatten().toSet())
-        assertEquals(39, TvSettingsTileId.entries.size)
+        assertEquals(40, TvSettingsTileId.entries.size)
         assertEquals(
             listOf(
                 listOf(
@@ -76,6 +76,7 @@ class TvSettingsGridTest {
                     TvSettingsTileId.HdrHandling,
                     TvSettingsTileId.MatchRefreshRate,
                     TvSettingsTileId.RefreshCapabilities,
+                    TvSettingsTileId.MpvVideoOutput,
                 ),
                 listOf(
                     TvSettingsTileId.OpenSubtitlesKey,
@@ -131,6 +132,7 @@ class TvSettingsGridTest {
                 TvSettingsTileId.HdrHandling to TvSettingsTileAction.HdrHandling,
                 TvSettingsTileId.MatchRefreshRate to TvSettingsTileAction.MatchRefreshRate,
                 TvSettingsTileId.RefreshCapabilities to TvSettingsTileAction.RefreshCapabilities,
+                TvSettingsTileId.MpvVideoOutput to TvSettingsTileAction.MpvVideoOutput,
                 TvSettingsTileId.OpenSubtitlesKey to TvSettingsTileAction.OpenSubtitlesKey,
                 TvSettingsTileId.ClearSubtitles to TvSettingsTileAction.ClearSubtitles,
                 TvSettingsTileId.AppVersion to TvSettingsTileAction.Detail,
@@ -201,6 +203,7 @@ class TvSettingsGridTest {
                 TvSettingsTileId.HdrHandling to SettingsIcons.HdrHandling,
                 TvSettingsTileId.MatchRefreshRate to SettingsIcons.MatchRefreshRate,
                 TvSettingsTileId.RefreshCapabilities to SettingsIcons.RefreshCapabilities,
+                TvSettingsTileId.MpvVideoOutput to SettingsIcons.VideoFormats,
                 TvSettingsTileId.OpenSubtitlesKey to SettingsIcons.OpenSubtitlesKey,
                 TvSettingsTileId.ClearSubtitles to SettingsIcons.ClearSubtitles,
                 TvSettingsTileId.AppVersion to SettingsIcons.AppVersion,

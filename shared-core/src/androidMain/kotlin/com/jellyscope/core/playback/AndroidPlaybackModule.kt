@@ -4,6 +4,7 @@ package com.jellyscope.core.playback
 
 import android.content.Context
 import com.jellyscope.core.data.local.LocalSubtitleFileStore
+import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.AndroidLibVlcAvailability
 import com.jellyscope.core.domain.playback.AndroidLibVlcRuntimeAvailability
@@ -69,6 +70,11 @@ fun androidPlaybackModule(context: Context) =
                             networkPolicy = networkPolicy,
                             logCollectionPreferences = get(),
                             initialCaBundlePath = trustBundlePath,
+                            enginePolicy =
+                                androidMpvEnginePolicy(
+                                    facts = androidMpvDeviceFacts(context.applicationContext),
+                                    tvVideoOutput = get<PlayerDeviceSettingsStore>().settings.value.androidTvMpvVideoOutput,
+                                ),
                         )
                     }.onFailure { failure ->
                         mpvConstructionFailure = failure

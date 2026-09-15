@@ -36,9 +36,12 @@ manifest_version="$(require_manifest_value manifest-version)"
     || die "APK manifest does not identify the project wrapper build"
 [[ "$(require_manifest_value wrapper-patches)" == "typed-log-request,no-raw-logcat,idempotent-destroy" ]] \
     || die "APK manifest wrapper patch list differs from the reviewed source"
-[[ "$(require_manifest_value wrapper-upstream-commit)" == "$(require_manifest_value source-commit)" ]] \
-    || die "Wrapper and native source commits differ"
+[[ "$(require_manifest_value wrapper-upstream-commit)" == "$(require_manifest_value provider-source-commit)" ]] \
+    || die "Wrapper and provider source commits differ"
 for key in \
+    artifact-coordinate artifact-url source-repository source-tag source-commit \
+    source-archive source-notices provider-artifact-coordinate \
+    native-modified-entries native-patches native-mpv-source-commit \
     media3-ffmpeg-artifact-coordinate \
     media3-ffmpeg-source-commit \
     media3-ffmpeg-declared-license \

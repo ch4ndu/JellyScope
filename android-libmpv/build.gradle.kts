@@ -15,7 +15,7 @@ private val pinnedMpvAar =
     }
 
 dependencies {
-    add(pinnedMpvAar.name, libs.libmpv)
+    add(pinnedMpvAar.name, variantOf(libs.libmpv) { artifactType("aar") })
 }
 
 private val extractedNativeDir =

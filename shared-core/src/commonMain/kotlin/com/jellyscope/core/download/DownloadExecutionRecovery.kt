@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.download
 
+import com.jellyscope.core.domain.playback.playbackExceptionType
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -18,6 +21,7 @@ internal class DownloadExecutionRecovery(
     private val queueCoordinator: DownloadQueueCoordinator,
     private val driver: DownloadExecutionDriver,
 ) {
+    private val logger = diagnosticLogger(DiagnosticTag.DownloadExecution)
     private val mutex = Mutex()
     private var initialRecoveryComplete = false
 
@@ -35,6 +39,7 @@ internal class DownloadExecutionRecovery(
 
     private suspend fun recoverNow(host: DownloadExecutionHost): Result<Unit> =
         try {
+            logger.i { "stage=download-recovery event=started" }
             // Removal dismissal is a common cleanup operation, but the follow-up wake must use
             // the already-bound platform host (UIDT/WorkManager on Android, app-active scheduling
             // on iOS/JVM). Register it at the recovery boundary so cleanup never depends on a
@@ -52,10 +57,18 @@ internal class DownloadExecutionRecovery(
                     is DownloadActiveRecoveryAction.PauseForExplicitResume,
                     -> driver.applyRecoveryAction(action)
                 }
+            }.also { result ->
+                result.fold(
+                    onSuccess = { logger.i { "stage=download-recovery event=completed" } },
+                    onFailure = { failure ->
+                        logger.w { "stage=download-recovery event=failed exceptionType=${failure.playbackExceptionType()}" }
+                    },
+                )
             }
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
+            logger.w { "stage=download-recovery event=failed exceptionType=${throwable.playbackExceptionType()}" }
             Result.failure(throwable)
         }
 }

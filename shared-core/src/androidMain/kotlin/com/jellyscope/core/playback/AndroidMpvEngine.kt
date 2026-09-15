@@ -4,11 +4,18 @@ package com.jellyscope.core.playback
 
 import android.content.Context
 import android.view.Surface
+import com.jellyscope.core.domain.playback.PlaybackNativeFailureReason
+import com.jellyscope.core.domain.playback.PlaybackNativeVideoFormat
 import dev.jdtech.mpv.MPVLib
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Project-owned events emitted by the libmpv adapter. */
 internal sealed interface AndroidMpvEvent {
+    data class VideoFormat(
+        val format: PlaybackNativeVideoFormat,
+    ) : AndroidMpvEvent
+
     data class PropertyBoolean(
         val name: String,
         val value: Boolean,
@@ -41,6 +48,7 @@ internal sealed interface AndroidMpvEvent {
     data class SanitizedLog(
         val severity: AndroidMpvLogSeverity,
         val category: AndroidMpvLogCategory,
+        val reason: PlaybackNativeFailureReason = PlaybackNativeFailureReason.Other,
     ) : AndroidMpvEvent
 }
 
@@ -51,6 +59,7 @@ internal enum class AndroidMpvLogSeverity {
 internal enum class AndroidMpvLogRequestLevel {
     Disabled,
     Error,
+    VideoFormat,
 }
 
 internal enum class AndroidMpvLogCategory {
@@ -157,6 +166,7 @@ private class AndroidMpvLibEngine(
     private val library: MPVLib,
 ) : AndroidMpvEngine {
     private val observers = CopyOnWriteArrayList<AndroidMpvEngineObserver>()
+    private val videoFormatCapture = AtomicBoolean(false)
 
     private val eventObserver =
         object : MPVLib.EventObserver {
@@ -204,11 +214,17 @@ private class AndroidMpvLibEngine(
                 level: Int,
                 text: String,
             ) {
+                if (videoFormatCapture.get() && level == MPVLib.MpvLogLevel.MPV_LOG_LEVEL_V) {
+                    parseAndroidMpvVideoFormat(prefix, text)?.let { format ->
+                        dispatch(AndroidMpvEvent.VideoFormat(format))
+                    }
+                }
                 if (level > MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR) return
                 dispatch(
                     AndroidMpvEvent.SanitizedLog(
                         severity = AndroidMpvLogSeverity.Error,
                         category = classifyMpvLog(prefix, text),
+                        reason = classifyMpvFailureReason(text),
                     ),
                 )
             }
@@ -224,13 +240,24 @@ private class AndroidMpvLibEngine(
         value: String,
     ): Int = library.setOptionString(name, value)
 
-    override fun requestLogMessages(level: AndroidMpvLogRequestLevel): Int =
-        library.requestLogMessages(
-            when (level) {
-                AndroidMpvLogRequestLevel.Disabled -> MPVLib.LogRequestLevel.Disabled
-                AndroidMpvLogRequestLevel.Error -> MPVLib.LogRequestLevel.Error
-            },
-        )
+    override fun requestLogMessages(level: AndroidMpvLogRequestLevel): Int {
+        videoFormatCapture.set(level == AndroidMpvLogRequestLevel.VideoFormat)
+        val result =
+            try {
+                library.requestLogMessages(
+                    when (level) {
+                        AndroidMpvLogRequestLevel.Disabled -> MPVLib.LogRequestLevel.Disabled
+                        AndroidMpvLogRequestLevel.Error -> MPVLib.LogRequestLevel.Error
+                        AndroidMpvLogRequestLevel.VideoFormat -> MPVLib.LogRequestLevel.Verbose
+                    },
+                )
+            } catch (throwable: Throwable) {
+                videoFormatCapture.set(false)
+                throw throwable
+            }
+        if (result < 0) videoFormatCapture.set(false)
+        return result
+    }
 
     override fun initialize() = library.init()
 
@@ -303,5 +330,16 @@ private fun classifyMpvLog(
         "decoder" in value || "codec" in value || "hwdec" in value -> AndroidMpvLogCategory.Decoder
         "unsupported" in value || "not found" in value || "unknown format" in value -> AndroidMpvLogCategory.Unsupported
         else -> AndroidMpvLogCategory.Unknown
+    }
+}
+
+private fun classifyMpvFailureReason(text: String): PlaybackNativeFailureReason {
+    val value = text.lowercase()
+    return when {
+        "cannot convert" in value -> PlaybackNativeFailureReason.VideoConversionUnsupported
+        "failed initializing any suitable video output" in value -> PlaybackNativeFailureReason.VideoOutputInitializationFailed
+        "failed to initialize a decoder" in value || "could not open codec" in value ->
+            PlaybackNativeFailureReason.DecoderInitializationFailed
+        else -> PlaybackNativeFailureReason.Other
     }
 }

@@ -61,6 +61,8 @@ fun TvPlayerScreen(
         ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val softwareRecovery by viewModel.softwarePlaybackRecovery.collectAsStateWithLifecycle()
+    val presentationState = if (softwareRecovery?.switching == true) PlayerUiState.Loading else state
     val matchDisplayRefreshRate by viewModel.matchDisplayRefreshRate.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val controllerScope = rememberCoroutineScope()
@@ -165,7 +167,7 @@ fun TvPlayerScreen(
     TvPlayerContent(
         session = session,
         initialItemId = itemId,
-        state = state,
+        state = presentationState,
         playbackStateFlow = viewModel.playbackState,
         controller = viewModel.currentPlayerController,
         runtimeDiagnosticsFlow = viewModel.runtimeDiagnostics,
@@ -206,6 +208,16 @@ fun TvPlayerScreen(
         onBack = onBackAction,
         modifier = modifier,
     )
+    softwareRecovery?.takeUnless { it.switching }?.let { prompt ->
+        TvSoftwarePlaybackRecoveryDialog(
+            prompt = prompt,
+            onSwitch = { viewModel.switchSoftwarePlaybackRecovery(prompt.token) },
+            onContinue = { viewModel.continueSoftwarePlaybackRecovery(prompt.token) },
+            onStop = {
+                if (viewModel.softwarePlaybackRecovery.value?.token == prompt.token) stopAndBack()
+            },
+        )
+    }
 }
 
 private tailrec fun Context.findActivity(): Activity? =

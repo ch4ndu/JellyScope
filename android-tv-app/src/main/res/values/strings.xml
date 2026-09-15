@@ -188,7 +188,7 @@
     <string name="tv_downloads_quota_dialog_title">Download allocation</string>
     <string name="tv_downloads_quota_dialog_description">Choose how much device storage JellyScope may reserve for downloads.</string>
     <string name="tv_downloads_quota_option">%1$d GB</string>
-    <string name="tv_downloads_quota_custom">Custom whole-GB allocation…</string>
+    <string name="tv_downloads_quota_custom">Custom allocation…</string>
     <string name="tv_downloads_quota_custom_title">Custom download allocation</string>
     <string name="tv_downloads_quota_custom_label">Allocation in GB</string>
     <string name="tv_downloads_quota_custom_range">Enter a whole number from 1 to %1$d GB.</string>
@@ -501,4 +501,18 @@
     <string name="tv_settings_opensubtitles_key_load_error">OpenSubtitles key could not be loaded. Try again.</string>
     <string name="tv_settings_local_subtitles_clear">Clear downloaded subtitles</string>
     <string name="tv_settings_local_subtitles_clearing">Clearing downloaded subtitles…</string>
+    <string name="tv_player_software_recovery_title">Playback cannot keep up</string>
+    <string name="tv_player_software_recovery_message">Playback is paused because software decoding appears unable to keep up with this video. You can try ExoPlayer with your current quality setting, continue with mpv, or stop playback.</string>
+    <string name="tv_player_software_recovery_switch">Switch to ExoPlayer</string>
+    <string name="tv_player_software_recovery_continue">Keep playing with mpv</string>
+    <string name="tv_player_software_recovery_stop">Stop playback</string>
+    <string name="tv_player_software_recovery_failed">Could not switch with the current playback settings. You can try again, keep playing with mpv if it is available, or stop playback.</string>
+    <string name="tv_player_software_recovery_unavailable">Switching players is unavailable for this playback.</string>
+    <string name="tv_settings_mpv_video_output">mpv video output</string>
+    <string name="tv_settings_mpv_output_description">Used for mpv playback on this device. Changes apply to the next playback session.</string>
+    <string name="tv_settings_mpv_output_gpu">GPU (default)</string>
+    <string name="tv_settings_mpv_output_direct">Direct MediaCodec</string>
+    <string name="tv_settings_mpv_output_gpu_description">Supports subtitles and Fit, Fill, and Zoom controls with hardware or software decoding.</string>
+    <string name="tv_settings_mpv_output_direct_description">Sends hardware-decoded video directly to the display. Separate subtitle tracks and video sizing controls are unavailable.</string>
+    <string name="tv_mpv_direct_sizing_unavailable">Video sizing is unavailable with Direct MediaCodec. Select GPU in Settings → Advanced playback → mpv video output, then restart playback.</string>
 </resources>

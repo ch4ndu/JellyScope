@@ -86,6 +86,8 @@ internal fun TvLoggedInApp(
     session: Session,
     pendingWatchNextItemId: String?,
     onWatchNextItemHandled: () -> Unit,
+    pendingPlaybackLink: TvPlaybackLink?,
+    onPlaybackLinkHandled: () -> Unit,
     onPlaybackStopped: () -> Unit,
 ) {
     val getUserLibrariesUseCase = koinInject<GetUserLibrariesUseCase>()
@@ -413,6 +415,18 @@ internal fun TvLoggedInApp(
         val itemId = pendingWatchNextItemId?.takeIf { id -> id.isNotBlank() } ?: return@LaunchedEffect
         openTvItem(itemId, MediaCardKind.Other)
         onWatchNextItemHandled()
+    }
+
+    LaunchedEffect(pendingPlaybackLink) {
+        val link = pendingPlaybackLink ?: return@LaunchedEffect
+        // A link starts a new route; it must not create overlapping native player owners.
+        if (route == TvRoute.Player.name) {
+            tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=player-active" }
+        } else {
+            openPlayer(itemId = link.itemId, startTicks = 0L, mediaSourceId = null)
+            tvPlaybackLinkLogger.i { "stage=playback-link event=handed-off" }
+        }
+        onPlaybackLinkHandled()
     }
 
     fun openCollection(

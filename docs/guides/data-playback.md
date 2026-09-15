@@ -256,7 +256,8 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   `Cancelled`, not `Failed`, so teardown races do not masquerade as storage
   failures. The
   first-output and health-summary records include bounded runtime resolution,
-  frame rate, decoder token, source bitrate, bandwidth estimate, and available
+  frame rate, decoder token, active decoding mode where available, source bitrate,
+  bandwidth estimate, and available
   presentation/drop counters so a report can distinguish planning, decode,
   delivery, and rendering symptoms without media identity. Media3 may include
   its safe exception class and numeric error code;
@@ -1559,14 +1560,27 @@ completion, and from-beginning replay belong to [single-asset playback](playback
   The record must survive release minification and be available through both
   the sanitized in-app safe-history store and the verbose platform-log path.
 - The project-owned Android wrapper defaults each new native instance to the
-  mpv `no` log request. The controller explicitly selects `Error` immediately
-  before native initialization; only the existing error observer crosses the
-  JNI boundary, and `AndroidMpvEngine` reduces its prefix/text to an
-  allowlisted severity/category. The bridge never writes raw mpv message text
-  or routine event names to Android logcat, even when verbose platform logging
-  is enabled. A failed Error request is recorded as the fixed
-  `mpv-log-level` option and bounded native result code, without enabling raw
-  logging or disabling playback policy.
+  mpv `no` log request. The controller selects `Error` before initialization,
+  or `Verbose` while **Collect diagnostic logs** is enabled, following toggles.
+  `AndroidMpvEngine` reduces errors to an allowlisted severity/category. From
+  verbose callbacks it accepts only fixed numerical FFmpeg output-crop and mpv
+  ImageReader texture-size messages, discarding all other text. Structured
+  `native-video-format` records distinguish crop-derived decoder dimensions
+  from imported texture dimensions, include the current surface size, and are
+  limited to 16 distinct observations per prepare with generation/collection
+  guards. Texture dimensions appear only when mpv reports a size change;
+  absence does not establish buffer dimensions. Capture enabled/disabled/failure
+  milestones distinguish log-request status from missing observations. A failed
+  verbose request falls back to `Error`; a failed initialization Error request
+  retains the fixed `mpv-log-level` construction failure. The bridge never writes
+  raw mpv messages or routine event names to Android logcat.
+- The same format record accepts optional experimental ImageReader observations:
+  buffer allocation, image dimensions, valid image crop, mapper source/destination
+  dimensions, and closed `Success`/`Failed`/`Unavailable` query results. Failed or
+  unavailable query values remain absent. ImageReader crop right/bottom are
+  exclusive; FFmpeg `DecoderCrop` endpoints are inclusive. These observations
+  require an instrumented native bundle; their absence on the stock provider
+  bundle does not imply unavailable hardware or a particular image size.
 - Android mpv prepares a file with mpv 0.41's five-position command shape:
   `loadfile`, opaque URL, `replace`, playlist index `-1`, then the per-file
   `start=` option. The URL never enters JellyScope diagnostics. Sanitized
@@ -1618,7 +1632,7 @@ completion, and from-beginning replay belong to [single-asset playback](playback
   delegated to it; unknown or incomplete facts stay unknown rather than becoming
   guessed software ceilings.
 - `AndroidMpvEnginePolicy` is deterministic and controller-owned: per-class
-  video output (`gpu-next` for the copy/software classes, classic `gpu` for TV;
+  video output (`gpu-next` for the copy/software classes, classic `gpu` by default for TV;
   the renderer rationale is owned by
   [`playback-architecture.md`](playback-architecture.md)),
   Android/OpenGL ES, no mpv config/scripts/ytdl/cookies/autoloaded resources or
@@ -1630,6 +1644,18 @@ completion, and from-beginning replay belong to [single-asset playback](playback
   uses `mediacodec-copy`, emulators use software decode, and TV uses zero-copy
   `mediacodec` with the `fast` profile in its explicitly selected opt-in
   path.
+- Android TV exposes **Settings → Advanced playback → mpv video output** as a
+  device-local preference, defaulting to **GPU**. The controller factory snapshots
+  it at construction; changes apply to the next playback session. **Direct
+  MediaCodec** selects `vo=mediacodec_embed` with the existing hardware-decoding
+  policy. Mobile and emulator output policies are unchanged. Selection is explicit;
+  subtitle or sizing requests do not silently change renderers.
+  Direct output requires hardware decoding and bypasses mpv subtitle/OSD and
+  Fit/Fill/Zoom rendering. Embedded or external local subtitle activation reports
+  `mpv-direct-output-unavailable`, allowing the existing subtitle recovery policy
+  to request server-rendered subtitles where available. Burned-in subtitles remain
+  visible. Sizing changes are refused and the TV menu explains how to select GPU.
+  Both drivers are already present in the pinned native bundle.
 - Android mpv writes its own verbose log to app-internal
   `files/mpv-logs/mpv-verbose.log` (the prior file is retained as
   `mpv-verbose.prev.log`; rotation happens per engine instance and on each
@@ -1684,6 +1710,37 @@ completion, and from-beginning replay belong to [single-asset playback](playback
   not restore the earlier Subtitle Off state. Native startup recovery follows
   the qualified [backend fallback contract](#settings-and-credentials); it never
   changes a live controller in place.
+- Android mpv treats a loaded, video-expected plan as `UnsupportedMedia` when
+  a native decoder/output initialization or video-conversion failure is followed
+  by confirmed `vid=no` in a non-idle, non-EOF session. Both native error and
+  video-selection changes trigger confirmation, independent of diagnostic
+  collection. It pauses native playback before publishing failure, stops that
+  prepare, and enters the existing bounded backend recovery at the retained
+  position. Audio-only plans, successful internal decoder fallback, unavailable
+  properties, natural EOF, and stopped/replaced/released prepares do not trigger
+  this path. A structured failure records the closed native reason and disabled
+  video track. Existing quality policy and offline recovery exclusions remain
+  authoritative; this does not enable direct-surface presentation.
+- Android mpv sustained slow-software recovery is mandatory player UI, independent
+  of playback-health diagnostics and warning settings. A current prepare must
+  report Software decoding, explicit play intent, Playing and at least 3 seconds
+  buffered. After a 10-second prepare grace, consecutive observation windows of
+  at least 5 seconds must accumulate 20 seconds below half the selected speed.
+  Pause/seek/resume/replan, speed/PiP changes, insufficient buffer, decoder changes,
+  discontinuous position and observation gaps over 10 seconds discard partial
+  evidence. Existing state observations drive detection; no polling job is added.
+  Online Android mpv only opts in; offline/PiP playback does not trigger it.
+  Detection pauses playback and presents Switch to ExoPlayer, Keep playing with
+  mpv and Stop playback, regardless of quality policy. Back/outside taps do not
+  dismiss the dialog. Continue resumes and suppresses this prompt for the same
+  prepare; explicit retry/quality changes can create fresh evidence. Switching
+  requires the user's confirmation and uses the explicit backend-switch path,
+  preserving current quality policy/origin/runtime cap and confirmed position.
+  Original is never silently relaxed. Selecting Switch immediately dismisses
+  the dialog and shows the player spinner during planning/preparation. A planning
+  rejection keeps the paused session and restores the dialog with an explanatory
+  failure and explicit options. No
+  automatic backend change or quality replan is initiated by this detector.
 - The shared Android player-surface host sets `keepScreenOn` on every mobile
   and TV playback view, whether the backend supplies an
   `AndroidPlayerSurfaceBridge` view or uses the Media3 wrapper. The view flag
@@ -1835,7 +1892,13 @@ completion, and from-beginning replay belong to [single-asset playback](playback
   process-memory ceiling. Time priority may allocate beyond it while reaching
   the duration floor, and codec, decoder, audio, graphics, and other native
   allocations are outside Media3's allocator. The existing one-second position
-  ticker samples buffered-ahead and allocator bytes; callbacks aggregate first
+  ticker samples buffered-ahead and allocator bytes while Playing, Buffering,
+  and Paused, because loading can continue with a stationary playhead. Idle,
+  completion, failure, stop, and release stop that sampling. Android mpv instead
+  publishes buffer diagnostics after applying its observed clock/cache sample,
+  so a final cache update while paused cannot race ahead of the values it reads.
+  Neither path invents buffer growth after the backend stops loading.
+  Media3 callbacks aggregate first
   frame, true post-start rebuffers, and audio underruns once per prepare epoch.
   Process PSS and memory-pressure evidence are sampled externally.
 - Retained validation artifacts are sanitized like release diagnostics: they
@@ -3244,6 +3307,53 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   with IOSurface presentation, while LibVLC can independently lose output
   pictures on streams beyond sustainable client capacity. Neither backend has a
   universal very-high-resolution acceptance claim.
+- Android and desktop mpv runtime diagnostics derive active video decoding from
+  `hwdec-current`: `no` means Software, a `-copy` driver means HardwareCopyBack,
+  another active driver means Hardware, and unavailable means Unknown. This is
+  separate from the configured `hwdec` preference and presentation renderer.
+  Android property-unavailable callbacks clear decoding and size observations;
+  a new prepare resets them. The shared/TV mpv overlay labels `video-codec` as
+  Codec description and native width/height as Decoded size. It does not claim
+  that decoded size is the TV output resolution. Other backends retain their
+  existing rows until they supply equivalent active-mode evidence.
+- Mandatory software-playback recovery emits bounded `software-progress` records
+  with closed admission/window outcomes, prepare/session identity, active decoding,
+  dimensions, buffer and elapsed/actual/expected progress. `software-recovery`
+  records identify Prompted, SwitchRequested, SwitchPrepared, SwitchFailed,
+  ContinueRequested, Stopped and Superseded. They use release platform logging
+  and retained diagnostic capture, but collection never gates detection or UI.
+  No health-signal or optional health-guidance state owns this recovery.
+- With diagnostic collection enabled, Android mpv records allowlisted
+  `native-snapshot` events at file load, pause/resume requests and observations,
+  seeks, video-state changes, and coalesced drop-counter changes (at most once
+  per second for counter samples). Snapshots include a controller sequence,
+  prepare sequence, monotonic sample time, requested/active output driver,
+  active audio output, signed A/V difference and cumulative A/V correction,
+  native pause/position, decoder/format availability, both native drop counters,
+  and buffered-ahead time. These are retained by the same capture filter used by
+  Send logs; the overlay is not the only source of transition measurements.
+  Native error categories and closed failure reasons are recorded immediately,
+  once per category/reason per prepare, even if audio continues. Raw native log
+  text remains excluded from uploads. Decoder/format availability and Playing
+  state do not prove visible output; unsupported first-frame evidence stays
+  explicit. Diagnostic sampling does not change backend or transcode policy.
+- Native controller diagnostics identify the backend and prepare attempt; Apple
+  and desktop records also carry the shared diagnostic session sequence when
+  available. Terminal failures preserve the typed playback error and native
+  code or exception class where the backend exposes them. Desktop VLC failure
+  events use the ordinary sanitized logger independently of optional probe
+  collection. Android mpv records terminal lifecycle failures even when native
+  initialization never reaches a playable file.
+- Download diagnostics cover durable attempt claims, state transitions and
+  finalization, recovery, app-active wake completion/cancellation, lifecycle
+  checkpoints, and Android scheduler failures. Records contain only generation,
+  closed state/failure/outcome values and exception class; a rejected durable
+  transition is recorded separately from successful settlement. Generations
+  identify revisions of an attempt, not globally unique download identities;
+  the serialized execution breadcrumbs establish ordering. Progress writes do
+  not emit per-chunk records. Native process termination may prevent the last
+  queued log from being persisted; managed previous-run failure markers do not
+  replace native crash reports.
 - Resolved playback diagnostics keep Jellyfin `Transcode reasons` separate from
   `App trigger`. The compact desktop/TV overlay shows only the server's
   `Transcode reasons`; app triggers remain in structured diagnostics, including
@@ -3457,6 +3567,23 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   Artifact-qualified sidecar activation and teardown checkpoints preserve trust
   and local resume state. Timing and VLC sizing remain unavailable. Simulator
   builds do not prove native notifications, decoding, focus, or presentation.
+- **Active decoding and presentation are different facts.** A configured hardware
+  preference can fall back to software, and a GPU renderer can present either.
+  Only mpv's active decoder property supplies the mode; generic codec names and
+  screen dimensions cannot establish hardware decoding or full-resolution output.
+  Numerical native format records distinguish decoder crop from texture import
+  without exporting credential-bearing verbose messages or treating missing
+  size-change logs as proof of a buffer's dimensions.
+  A video track explicitly removed after native failure is actionable even when
+  first-frame measurement is unsupported; continuing audio is not successful
+  video playback. Initialization errors alone can still recover within mpv.
+  Conversely, active software video can remain unusably slow without disabling
+  its track or accumulating enough dropped-frame reports. Sustained buffered
+  playback-progress evidence can identify that condition without changing codec
+  envelopes. It requires a user decision because progress evidence can be wrong;
+  Continue preserves user control and cannot create a repeated-dialog loop.
+  Accepting Switch completes the user's decision immediately; preparation belongs
+  to the player's loading state, with a fresh decision only if switching fails.
 - **Android mpv native option and command shapes are versioned API.**
   Omit the singular `script` option instead of passing an empty value, preserve
   the defined `loadfile` and `sub-add` argument positions, and treat rejected
@@ -3470,7 +3597,9 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   samples for mpv, native freshness for LibVLC, and a clock-only tvOS projection
   bound work without delaying lifecycle edges or making reporting stale.
   Downstream debounce cannot reject a late outgoing callback relabelled as new
-  state.
+  state. Buffer diagnostics consume applied clock/cache facts, and Media3 keeps
+  sampling during pause because a stationary playhead does not imply a full
+  buffer.
 - **Desktop volume coalescing stays inside its store.** That boundary guarantees
   write ordering; quitting may still lose a change made within the documented
   500 ms debounce window.
@@ -3517,6 +3646,10 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   typed snapshots upload only through the explicit server action. Raw native
   files stay local because arbitrary free-form text cannot be proven free of
   titles, IDs, paths, or credentials.
+- **Failure boundaries preserve causal evidence.** Native errors need backend
+  and attempt correlation before generic state or recovery hides their origin.
+  Download execution can finish after its caller returns, so retained wake,
+  recovery, and durable settlement outcomes must survive in client reports.
 - **Formatting and admission share one closed schema.** The scrubber allowlist
   covers the same fields emitted by structured formatters, preventing permitted
   tags from being silently discarded. Playback, fixed-download, persistence,

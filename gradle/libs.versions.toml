@@ -27,7 +27,7 @@ media3 = "1.9.0"
 media3Ffmpeg = "1.9.0+1"
 libvlc = "3.7.5"
 # Android mpv uses a small local JNI bridge build over this pinned AAR input.
-libmpv = "1.0.0"
+libmpv = "0.41.0-jellyscope.1"
 tvMaterial = "1.1.0"
 navigationCompose = "2.9.2"
 ktor = "3.5.2"
@@ -63,7 +63,7 @@ media3-session = { module = "androidx.media3:media3-session", version.ref = "med
 media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
 media3-ffmpeg-decoder = { module = "org.jellyfin.media3:media3-ffmpeg-decoder", version.ref = "media3Ffmpeg" }
 # Resolved only by :android-libmpv as the pinned native build input.
-libmpv = { module = "dev.jdtech.mpv:libmpv", version.ref = "libmpv" }
+libmpv = { module = "io.github.ch4ndu:libmpv-native", version.ref = "libmpv" }
 libvlc-all = { module = "org.videolan.android:libvlc-all", version.ref = "libvlc" }
 tv-material = { module = "androidx.tv:tv-material", version.ref = "tvMaterial" }
 koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }

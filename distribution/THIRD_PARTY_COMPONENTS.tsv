@@ -1,5 +1,5 @@
 platform	component	version	artifact-or-input	license-status	source-or-manifest
-android	mpv and FFmpeg native graph	mpv 0.41.0; FFmpeg 8.1	libmpv-android 1.0.0 pinned AAR input	owner-reviewed GPL notice/source set	scripts/android-mpv-bundle/manifest-1.0.0.txt
+android	mpv and FFmpeg native graph	mpv 0.41.0; FFmpeg 8.1	io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.1 (ARM32 mpv patched; provider 1.0.0 elsewhere)	owner-reviewed GPL notice/source set	scripts/android-mpv-bundle/manifest-1.0.0.txt
 android	Media3 FFmpeg decoder	1.9.0+1	org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1	owner-reviewed GPL-3.0 notice/source set	scripts/android-mpv-bundle/manifest-1.0.0.txt
 android	LibVLC	3.7.5	org.videolan.android:libvlc-all:3.7.5	owner-reviewed LGPL-2.1 notice/source set	scripts/android-mpv-bundle/manifest-1.0.0.txt
 android	Managed runtime families	current pinned Gradle inputs	Android mobile and TV release graphs	owner-reviewed published license/source set	distribution/MOBILE_RUNTIME_NOTICES.md

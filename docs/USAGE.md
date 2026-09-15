@@ -142,6 +142,13 @@ their own delete or clear actions.
 | macOS | LibVLC (beta) | Broad bundled fallback | Requests HDR-to-SDR conversion and has its own input ceiling |
 | Apple TV preview | AVPlayer online; VLCKit offline | Native online controls and explicit downloaded playback | Permanently unsupported alpha; no hardware-validation commitment |
 
+On Android TV, **Settings → Advanced playback → mpv video output** selects
+**GPU (default)** or **Direct MediaCodec** for the next mpv playback session.
+GPU supports subtitles and Fit/Fill/Zoom controls. Direct MediaCodec requires
+hardware decoding and sends video directly to the display; separate subtitle
+tracks and sizing controls are unavailable. Server-rendered subtitles, when
+available, remain visible because they are part of the video.
+
 While video is streamed from Jellyfin on Android, iPhone, iPad, or
 macOS, use the video-camera button to change player for the current session.
 The control is hidden during offline playback. JellyScope changes only when the
@@ -259,7 +266,7 @@ negotiated with the Jellyfin server while video is streamed from it:
 | Player | Jellyfin text tracks | Jellyfin image tracks |
 | --- | --- | --- |
 | ExoPlayer (Android) | Embedded or separate files are app-rendered; partial ASS/SSA styling | Usually app-rendered, otherwise server-rendered |
-| mpv (Android) | Embedded and same-origin separate files are app-rendered | App-rendered when supported, otherwise server-rendered |
+| mpv (Android) | Embedded and same-origin separate files are app-rendered with GPU output | App-rendered with GPU output when supported, otherwise server-rendered |
 | LibVLC (Android) | Embedded text is app-rendered; separate files are server-rendered | PGS is app-rendered; other image formats are server-rendered |
 | AVPlayer (iOS, Apple TV) | Embedded WebVTT is app-rendered; SRT, ASS/SSA, and TTML are server-rendered | Server-rendered |
 | VLCKit (iOS) | Embedded text, including ASS/SSA, is app-rendered; separate files are server-rendered | Embedded tracks are app-rendered; separate files are server-rendered |

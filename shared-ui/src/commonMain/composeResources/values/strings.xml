@@ -708,7 +708,7 @@
     <string name="downloads_allocation_dialog_gb">Quota in GB (blank to clear)</string>
     <string name="downloads_allocation_dialog_confirm">Save allocation</string>
     <string name="downloads_allocation_dialog_cancel">Cancel</string>
-    <string name="downloads_allocation_dialog_invalid">Enter a whole-GB allocation within the device&apos;s safe limit.</string>
+    <string name="downloads_allocation_dialog_invalid">Enter a whole number of at least 1 GB within the device&apos;s storage limit.</string>
     <string name="downloads_delete_title">Remove download?</string>
     <string name="downloads_delete_message">Remove %1$s from this device?</string>
     <string name="downloads_delete_confirm">Remove</string>
@@ -762,4 +762,18 @@
     <string name="settings_value_on">On</string>
     <string name="settings_value_off">Off</string>
     <string name="session_restoring">Restoring session</string>
+    <string name="player_debug_codec_description">Codec description</string>
+    <string name="player_debug_decoding">Video decoding</string>
+    <string name="player_debug_decoded_size">Decoded size</string>
+    <string name="player_debug_hardware">Hardware</string>
+    <string name="player_debug_hardware_copy_back">Hardware (copy-back)</string>
+    <string name="player_debug_software">Software</string>
+    <string name="player_debug_unknown">Unknown</string>
+    <string name="player_software_recovery_title">Playback cannot keep up</string>
+    <string name="player_software_recovery_message">Playback is paused because software decoding appears unable to keep up with this video. You can try ExoPlayer with your current quality setting, continue with mpv, or stop playback.</string>
+    <string name="player_software_recovery_switch">Switch to ExoPlayer</string>
+    <string name="player_software_recovery_continue">Keep playing with mpv</string>
+    <string name="player_software_recovery_stop">Stop playback</string>
+    <string name="player_software_recovery_failed">Could not switch with the current playback settings. You can try again, keep playing with mpv if it is available, or stop playback.</string>
+    <string name="player_software_recovery_unavailable">Switching players is unavailable for this playback.</string>
 </resources>

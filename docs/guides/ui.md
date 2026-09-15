@@ -270,8 +270,9 @@ brush and scrims without resetting Settings scroll or focus.
   safe remaining capacity, over-allocation, current-account bytes, and one
   anonymous aggregate for other accounts. They never expose another account's
   identity or titles, promise cleanup, or show raw byte/bit units. Allocation is
-  edited in whole GB; Manage opens Downloads. The section is absent without
-  permission.
+  edited in whole GB. On TV, the custom action is labelled "Custom allocation…";
+  its input guidance explains the whole-number constraint. Manage opens
+  Downloads. The section is absent without permission.
 - Usage refreshes immediately and through one conflated worker that completes
   each I/O call and permits a trailing request after 500 ms; continuous
   checkpoints must not require quiet time. One sequential collector computes
@@ -321,7 +322,12 @@ brush and scrims without resetting Settings scroll or focus.
   Container, Video, Audio, Subtitle render/styleability, launch/native first
   frame, rebuffers, audio underruns, and Status. Runtime rows are Decoder,
   Runtime format, dropped frames, buffer policy, target/allocated, buffered
-  ahead, and bandwidth estimate. Policy rows are source bitrate, request cap and
+  ahead, and bandwidth estimate. For mpv, replace Decoder/Runtime format with
+  Codec description, Video decoding, and Decoded size. Active decoding is
+  Hardware, Hardware (copy-back), Software, or Unknown; it is independent of the
+  configured hardware preference and presentation renderer. Decoded size is
+  native decoder-reported width/height, not the display or render-surface size;
+  the Video row retains stream frame-rate information. Policy rows are source bitrate, request cap and
   origin, quality policy, capability result, first video output, and effective
   transcode cap. With no playback info it shows only
   `Playback info: Unavailable` and live Status. Richer modeled facts, including
@@ -366,6 +372,15 @@ brush and scrims without resetting Settings scroll or focus.
   Debug alone uses its layer; controls, metadata, Skip, and Up Next use chrome;
   passive banners, notices, and status glyphs use popup; pickers, menus, and fatal
   errors use modal.
+- Android mpv slow-software recovery is a mandatory modal, not a playback-health
+  banner. Playback pauses and the user explicitly chooses Switch to ExoPlayer,
+  Keep playing with mpv, or Stop playback. Back/outside taps cannot dismiss it;
+  Continue resumes without repeating the prompt for that prepare. The dialog
+  closes immediately when Switch is selected; the player shows its loading
+  spinner during planning/preparation, with normal Back navigation available.
+  A rejected switch restores the dialog and explains the failure. Warning/log
+  preferences do not control this UI. The shared PlayerScreen hosts it for both
+  normal and Kids playback; Android TV uses its native D-pad dialog styling.
 - Seek and desktop volume sliders retain separate thumb sizes: seek 18/22 dp,
   volume 12/16 dp at rest/active.
 - Shared Compose and TV Favorite/Watched actions share an outlined button with
@@ -631,7 +646,8 @@ explains Apple TV's reclaimable storage and app-active transfer limit. The
   space.
 - Downloads is permission-gated top-level navigation because durable transfers,
   storage, failures, and destructive actions need a visible owner. Normal Play
-  remains remote so the active artifact is explicit.
+  remains remote so the active artifact is explicit. Allocation actions name the
+  choice; input guidance owns units and numeric restrictions.
 - Related shelf count and order stay in shared model/data owners so shared and
   TV presentation cannot drift.
 - Library selection persists through the existing server-scoped preference

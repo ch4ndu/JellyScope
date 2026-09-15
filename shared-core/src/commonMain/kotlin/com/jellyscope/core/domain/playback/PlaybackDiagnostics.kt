@@ -166,6 +166,7 @@ enum class SubtitleActivationFailureReason(
     DesktopVlcSidecarUnavailable("desktop-vlc-sidecar-unavailable"),
     MissingExternalAsset("missing-external-asset"),
     MissingExternalResource("missing-external-resource"),
+    MpvDirectOutputUnavailable("mpv-direct-output-unavailable"),
     MpvEventQueueOverflow("mpv-event-queue-overflow"),
     MpvLoadEndedBeforeSubAdd("mpv-load-ended-before-sub-add"),
     MpvSubAddRejected("mpv-sub-add-rejected"),
@@ -238,6 +239,9 @@ enum class PlaybackBackendConstructionResult {
 }
 
 enum class PlaybackNativePlayerMilestone {
+    VideoFormatCaptureEnabled,
+    VideoFormatCaptureDisabled,
+    VideoFormatCaptureFailed,
     SurfaceAttached,
     SurfaceAlreadyAttached,
     SurfaceSizeChanged,
@@ -260,11 +264,49 @@ enum class PlaybackNativePlayerMilestone {
     TransitionStale,
 }
 
+enum class PlaybackNativeSampleCause {
+    FileLoaded,
+    PauseRequested,
+    ResumeRequested,
+    PauseObserved,
+    ResumeObserved,
+    SeekRequested,
+    SeekCompleted,
+    CountersChanged,
+    VideoStateChanged,
+    NativeError,
+}
+
+enum class PlaybackNativeVideoOutput {
+    Gpu,
+    GpuNext,
+    MediaCodecEmbed,
+    Other,
+    Unavailable,
+}
+
+enum class PlaybackNativeAudioOutput {
+    AudioTrack,
+    AAudio,
+    OpenSles,
+    Other,
+    Unavailable,
+}
+
+enum class PlaybackNativeFailureReason {
+    VideoConversionUnsupported,
+    VideoOutputInitializationFailed,
+    DecoderInitializationFailed,
+    Other,
+}
+
 enum class PlaybackNativeCommandShape {
     LoadFileUrlFlagsIndexOptions,
 }
 
 enum class PlaybackDiagnosticEvent {
+    NativeVideoFormat,
+    NativeSnapshot,
     Failed,
     Fallback,
     QualityCap,
@@ -283,6 +325,8 @@ enum class PlaybackDiagnosticEvent {
     SeekCompleted,
     PerformanceSummary,
     HealthSignal,
+    SoftwareProgress,
+    SoftwareRecovery,
     HealthSummary,
     TerminalError,
     BackendSelection,
@@ -517,6 +561,22 @@ data class PlaybackDiagnostic(
     val level: Int? = null,
     val container: String? = null,
     val videoDecoderName: String? = null,
+    val videoDecodingMode: PlaybackVideoDecodingMode? = null,
+    val nativeVideoFormat: PlaybackNativeVideoFormat? = null,
+    val nativeSampleCause: PlaybackNativeSampleCause? = null,
+    val nativeControllerSequence: Long? = null,
+    val nativeSampleElapsedMs: Long? = null,
+    val nativeRequestedVideoOutput: PlaybackNativeVideoOutput? = null,
+    val nativeActiveVideoOutput: PlaybackNativeVideoOutput? = null,
+    val nativeActiveAudioOutput: PlaybackNativeAudioOutput? = null,
+    val nativeAvSyncMs: Long? = null,
+    val nativeTotalAvSyncChangeMs: Long? = null,
+    val nativeVideoTrackSelected: Boolean? = null,
+    val nativeDecoderAvailable: Boolean? = null,
+    val nativeVideoFormatAvailable: Boolean? = null,
+    val nativePaused: Boolean? = null,
+    val nativePositionMs: Long? = null,
+    val nativeFailureReason: PlaybackNativeFailureReason? = null,
     val runtimeVideoWidth: Int? = null,
     val runtimeVideoHeight: Int? = null,
     val runtimeVideoFrameRate: Double? = null,
@@ -537,6 +597,8 @@ data class PlaybackDiagnostic(
     val maxRebufferMs: Long? = null,
     val audioUnderrunCount: Int? = null,
     val maxAudioFeedGapMs: Long? = null,
+    val softwareRecoveryDecision: SoftwarePlaybackRecoveryDecision? = null,
+    val softwareProgress: SoftwarePlaybackProgressEvidence? = null,
     val healthSignal: PlaybackHealthSignalKind? = null,
     val healthThresholdClass: PlaybackHealthThresholdClass? = null,
     val healthDurationMs: Long? = null,
@@ -687,6 +749,48 @@ fun formatPlaybackDiagnostic(diagnostic: PlaybackDiagnostic): String =
         diagnostic.prepareSequence?.coerceIn(0L, MAX_DIAGNOSTIC_SEQUENCE)?.let {
             appendDiagnosticField(PlaybackDiagnosticField.PrepareSequence, it)
         }
+        diagnostic.nativeSampleCause?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeSampleCause, it.name)
+        }
+        diagnostic.nativeControllerSequence?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeControllerSequence, it.coerceIn(0L, MAX_DIAGNOSTIC_SEQUENCE))
+        }
+        diagnostic.nativeSampleElapsedMs?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeSampleElapsedMs, it.coerceAtLeast(0L))
+        }
+        diagnostic.nativeRequestedVideoOutput?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeRequestedVideoOutput, it.name)
+        }
+        diagnostic.nativeActiveVideoOutput?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeActiveVideoOutput, it.name)
+        }
+        diagnostic.nativeActiveAudioOutput?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeActiveAudioOutput, it.name)
+        }
+        diagnostic.nativeAvSyncMs?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeAvSyncMs, it)
+        }
+        diagnostic.nativeTotalAvSyncChangeMs?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeTotalAvSyncChangeMs, it)
+        }
+        diagnostic.nativeVideoTrackSelected?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeVideoTrackSelected, it)
+        }
+        diagnostic.nativeDecoderAvailable?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeDecoderAvailable, it)
+        }
+        diagnostic.nativeVideoFormatAvailable?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeVideoFormatAvailable, it)
+        }
+        diagnostic.nativePaused?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativePaused, it)
+        }
+        diagnostic.nativePositionMs?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativePositionMs, it.coerceAtLeast(0L))
+        }
+        diagnostic.nativeFailureReason?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.NativeFailureReason, it.name)
+        }
         diagnostic.sessionSequence?.coerceIn(0L, MAX_DIAGNOSTIC_SEQUENCE)?.let {
             appendDiagnosticField(PlaybackDiagnosticField.SessionSequence, it)
         }
@@ -830,6 +934,31 @@ fun formatPlaybackDiagnostic(diagnostic: PlaybackDiagnostic): String =
         }
         diagnostic.videoDecoderName?.safeVideoDecoderCategory()?.let {
             appendDiagnosticField(PlaybackDiagnosticField.VideoDecoderName, it)
+        }
+        diagnostic.videoDecodingMode?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.VideoDecodingMode, it.name)
+        }
+        diagnostic.nativeVideoFormat?.let { format ->
+            appendDiagnosticField(PlaybackDiagnosticField.NativeVideoFormatStage, format.stage.name)
+            listOf(
+                PlaybackDiagnosticField.NativeVideoWidth to format.width,
+                PlaybackDiagnosticField.NativeVideoHeight to format.height,
+                PlaybackDiagnosticField.NativeCropTop to format.cropTop,
+                PlaybackDiagnosticField.NativeCropBottom to format.cropBottom,
+                PlaybackDiagnosticField.NativeCropLeft to format.cropLeft,
+                PlaybackDiagnosticField.NativeCropRight to format.cropRight,
+                PlaybackDiagnosticField.NativeImageWidth to format.imageWidth,
+                PlaybackDiagnosticField.NativeImageHeight to format.imageHeight,
+                PlaybackDiagnosticField.NativeMapperSourceWidth to format.mapperSourceWidth,
+                PlaybackDiagnosticField.NativeMapperSourceHeight to format.mapperSourceHeight,
+                PlaybackDiagnosticField.NativeMapperDestinationWidth to format.mapperDestinationWidth,
+                PlaybackDiagnosticField.NativeMapperDestinationHeight to format.mapperDestinationHeight,
+            ).forEach { (field, value) ->
+                value?.coerceIn(0, MAX_DIAGNOSTIC_VIDEO_DIMENSION)?.let { appendDiagnosticField(field, it) }
+            }
+            format.imageWidthQuery?.let { appendDiagnosticField(PlaybackDiagnosticField.NativeImageWidthQuery, it.name) }
+            format.imageHeightQuery?.let { appendDiagnosticField(PlaybackDiagnosticField.NativeImageHeightQuery, it.name) }
+            format.imageCropQuery?.let { appendDiagnosticField(PlaybackDiagnosticField.NativeImageCropQuery, it.name) }
         }
         diagnostic.runtimeVideoWidth?.coerceIn(0, MAX_DIAGNOSTIC_VIDEO_DIMENSION)?.let {
             appendDiagnosticField(PlaybackDiagnosticField.RuntimeVideoWidth, it)
@@ -1004,6 +1133,16 @@ fun formatPlaybackDiagnostic(diagnostic: PlaybackDiagnostic): String =
         diagnostic.maxAudioFeedGapMs?.coerceAtLeast(0L)?.let {
             appendDiagnosticField(PlaybackDiagnosticField.MaxAudioFeedGapMs, it)
         }
+        diagnostic.softwareRecoveryDecision?.let {
+            appendDiagnosticField(PlaybackDiagnosticField.SoftwareRecoveryDecision, it.name)
+        }
+        diagnostic.softwareProgress?.let { evidence ->
+            appendDiagnosticField(PlaybackDiagnosticField.ProgressOutcome, evidence.outcome.name)
+            appendDiagnosticField(PlaybackDiagnosticField.ProgressDurationMs, evidence.durationMs.coerceAtLeast(0L))
+            appendDiagnosticField(PlaybackDiagnosticField.ProgressAdvancedMs, evidence.progressMs.coerceAtLeast(0L))
+            appendDiagnosticField(PlaybackDiagnosticField.ProgressExpectedMs, evidence.expectedProgressMs.coerceAtLeast(0L))
+            appendDiagnosticField(PlaybackDiagnosticField.ProgressSlowDurationMs, evidence.slowDurationMs.coerceAtLeast(0L))
+        }
         diagnostic.healthSignal?.let {
             appendDiagnosticField(PlaybackDiagnosticField.HealthSignal, it.name)
         }
@@ -1103,6 +1242,20 @@ internal enum class PlaybackDiagnosticField(
     TerminalOutcome("terminalOutcome"),
     PlaybackChangeResult("playbackChangeResult"),
     PrepareSequence("prepareSequence"),
+    NativeSampleCause("nativeSampleCause"),
+    NativeControllerSequence("nativeControllerSequence"),
+    NativeSampleElapsedMs("nativeSampleElapsedMs"),
+    NativeRequestedVideoOutput("nativeRequestedVideoOutput"),
+    NativeActiveVideoOutput("nativeActiveVideoOutput"),
+    NativeActiveAudioOutput("nativeActiveAudioOutput"),
+    NativeAvSyncMs("nativeAvSyncMs"),
+    NativeTotalAvSyncChangeMs("nativeTotalAvSyncChangeMs"),
+    NativeVideoTrackSelected("nativeVideoTrackSelected"),
+    NativeDecoderAvailable("nativeDecoderAvailable"),
+    NativeVideoFormatAvailable("nativeVideoFormatAvailable"),
+    NativePaused("nativePaused"),
+    NativePositionMs("nativePositionMs"),
+    NativeFailureReason("nativeFailureReason"),
     SessionSequence("sessionSequence"),
     RetryAttempted("retryAttempted"),
     DegradationAttempted("degradationAttempted"),
@@ -1156,6 +1309,23 @@ internal enum class PlaybackDiagnosticField(
     Level("level"),
     Container("container"),
     VideoDecoderName("videoDecoderName"),
+    VideoDecodingMode("videoDecodingMode"),
+    NativeVideoFormatStage("nativeVideoFormatStage"),
+    NativeVideoWidth("nativeVideoWidth"),
+    NativeVideoHeight("nativeVideoHeight"),
+    NativeCropTop("nativeCropTop"),
+    NativeCropBottom("nativeCropBottom"),
+    NativeCropLeft("nativeCropLeft"),
+    NativeCropRight("nativeCropRight"),
+    NativeImageWidth("nativeImageWidth"),
+    NativeImageHeight("nativeImageHeight"),
+    NativeMapperSourceWidth("nativeMapperSourceWidth"),
+    NativeMapperSourceHeight("nativeMapperSourceHeight"),
+    NativeMapperDestinationWidth("nativeMapperDestinationWidth"),
+    NativeMapperDestinationHeight("nativeMapperDestinationHeight"),
+    NativeImageWidthQuery("nativeImageWidthQuery"),
+    NativeImageHeightQuery("nativeImageHeightQuery"),
+    NativeImageCropQuery("nativeImageCropQuery"),
     RuntimeVideoWidth("runtimeVideoWidth"),
     RuntimeVideoHeight("runtimeVideoHeight"),
     RuntimeVideoFrameRate("runtimeVideoFrameRate"),
@@ -1188,6 +1358,12 @@ internal enum class PlaybackDiagnosticField(
     MaxRebufferMs("maxRebufferMs"),
     AudioUnderrunCount("audioUnderrunCount"),
     MaxAudioFeedGapMs("maxAudioFeedGapMs"),
+    SoftwareRecoveryDecision("softwareRecoveryDecision"),
+    ProgressOutcome("progressOutcome"),
+    ProgressDurationMs("progressDurationMs"),
+    ProgressAdvancedMs("progressAdvancedMs"),
+    ProgressExpectedMs("progressExpectedMs"),
+    ProgressSlowDurationMs("progressSlowDurationMs"),
     HealthSignal("healthSignal"),
     HealthThresholdClass("healthThresholdClass"),
     HealthDurationMs("healthDurationMs"),
@@ -1291,10 +1467,14 @@ private fun String.safeVideoDecoderCategory(): String {
 
 private fun PlaybackDiagnosticEvent.diagnosticName(): String =
     when (this) {
+        PlaybackDiagnosticEvent.NativeVideoFormat -> "native-video-format"
+        PlaybackDiagnosticEvent.NativeSnapshot -> "native-snapshot"
         PlaybackDiagnosticEvent.QualityCap -> "quality-cap"
         PlaybackDiagnosticEvent.ResolutionCap -> "resolution-cap"
         PlaybackDiagnosticEvent.CodecDropped -> "codec-dropped"
         PlaybackDiagnosticEvent.PerformanceSummary -> "performance-summary"
+        PlaybackDiagnosticEvent.SoftwareRecovery -> "software-recovery"
+        PlaybackDiagnosticEvent.SoftwareProgress -> "software-progress"
         PlaybackDiagnosticEvent.HealthSignal -> "health-signal"
         PlaybackDiagnosticEvent.HealthSummary -> "health-summary"
         PlaybackDiagnosticEvent.TerminalError -> "terminal-error"

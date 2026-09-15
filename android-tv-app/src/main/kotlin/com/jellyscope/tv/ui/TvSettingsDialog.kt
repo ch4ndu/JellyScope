@@ -58,6 +58,7 @@ internal data class TvSettingsDialogOption<T>(
     val enabled: Boolean = true,
     val unavailableReason: String? = null,
     val swatchColors: List<Color> = emptyList(),
+    val description: String? = null,
 )
 
 /** Window-backed dialog so the Settings grid and drawer cannot receive focus. */
@@ -214,7 +215,7 @@ private fun <T> TvSettingsChoiceRow(
                                 (isLast && event.key == Key.DirectionDown)
                         )
                 },
-        contentDescription = option.label,
+        contentDescription = listOfNotNull(option.label, option.description).joinToString(". "),
         focusedScale = 1f,
         backgroundColor = palette.surfaceRaised.copy(alpha = 0.82f),
         focusedBackgroundColor = palette.surfaceRaised,
@@ -293,6 +294,9 @@ private fun <T> TvSettingsChoiceRow(
                         )
                     }
                 }
+            }
+            option.description?.let { description ->
+                TvText(text = description, color = palette.textSecondary, maxLines = 3)
             }
             option.unavailableReason?.takeIf { !option.enabled }?.let { reason ->
                 TvText(text = reason, color = palette.textSecondary, maxLines = 2)

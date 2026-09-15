@@ -7,6 +7,9 @@ import com.jellyscope.core.domain.model.DownloadPlatformWorkIdentity
 import com.jellyscope.core.domain.model.DownloadPlatformWorkKind
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadState
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import kotlinx.coroutines.CancellationException
 
 /** Exact durable attempt identity carried by every platform callback. */
@@ -101,7 +104,24 @@ internal suspend fun cancelWakeAndRequeue(
 ): Result<DownloadLifecycleRequeueOutcome> {
     val attempt = driver.activeAttempt()
     wakeGate.cancelAndJoin(DownloadLifecycleRequeueCancellation())
-    return driver.checkpointAndRequeue(attempt)
+    val logger = diagnosticLogger(DiagnosticTag.DownloadExecution)
+    return driver.checkpointAndRequeue(attempt).also { result ->
+        result.fold(
+            onSuccess = { outcome ->
+                val outcomeName =
+                    when (outcome) {
+                        DownloadLifecycleRequeueOutcome.Requeued -> "Requeued"
+                        DownloadLifecycleRequeueOutcome.AlreadyQueued -> "AlreadyQueued"
+                        DownloadLifecycleRequeueOutcome.NoActiveAttempt -> "NoActiveAttempt"
+                        DownloadLifecycleRequeueOutcome.StaleAttempt -> "StaleAttempt"
+                        DownloadLifecycleRequeueOutcome.RemovalInProgress -> "RemovalInProgress"
+                        DownloadLifecycleRequeueOutcome.Finalizing -> "Finalizing"
+                    }
+                logger.i { "stage=download-lifecycle event=checkpoint result=$outcomeName" }
+            },
+            onFailure = { failure -> logger.w { formatSafeFailureDiagnostic("download-lifecycle", "checkpoint-failed", failure) } },
+        )
+    }
 }
 
 /**

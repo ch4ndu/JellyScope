@@ -58,10 +58,12 @@ import com.jellyscope.ui.component.AdaptiveSpinner as TvSpinner
 
 class MainActivity : ComponentActivity() {
     private var pendingWatchNextPayload by mutableStateOf<String?>(null)
+    private var pendingPlaybackLink by mutableStateOf<TvPlaybackLink?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        pendingWatchNextPayload = intent.watchNextPayload()
+        pendingWatchNextPayload = intent.takeIf { it.data == null }?.watchNextPayload()
+        pendingPlaybackLink = intent.playbackLink()
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(TRANSPARENT, TRANSPARENT),
             navigationBarStyle = SystemBarStyle.auto(TRANSPARENT, TRANSPARENT),
@@ -125,6 +127,12 @@ class MainActivity : ComponentActivity() {
                         observeSessionStateUseCase = observeSessionStateUseCase,
                         pendingWatchNextPayload = pendingWatchNextPayload,
                         onWatchNextItemHandled = { pendingWatchNextPayload = null },
+                        pendingPlaybackLink = pendingPlaybackLink,
+                        onPlaybackLinkHandled = {
+                            pendingPlaybackLink = null
+                            // A consumed launch must not replay after Activity recreation.
+                            setIntent(Intent(intent).setData(null))
+                        },
                         onPlaybackStopped = { WatchNextScheduler.enqueueImmediate(this@MainActivity) },
                     )
                 }
@@ -135,7 +143,8 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        pendingWatchNextPayload = intent.watchNextPayload()
+        pendingWatchNextPayload = intent.takeIf { it.data == null }?.watchNextPayload()
+        pendingPlaybackLink = intent.playbackLink()
     }
 }
 
@@ -146,6 +155,8 @@ private fun TvApp(
     observeSessionStateUseCase: ObserveSessionStateUseCase,
     pendingWatchNextPayload: String?,
     onWatchNextItemHandled: () -> Unit,
+    pendingPlaybackLink: TvPlaybackLink?,
+    onPlaybackLinkHandled: () -> Unit,
     onPlaybackStopped: () -> Unit,
 ) {
     val sessionState by observeSessionStateUseCase().collectAsStateWithLifecycle()
@@ -158,6 +169,12 @@ private fun TvApp(
             }
         }
         is SessionState.LoggedOut -> {
+            LaunchedEffect(pendingPlaybackLink) {
+                if (pendingPlaybackLink != null) {
+                    tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=logged-out" }
+                    onPlaybackLinkHandled()
+                }
+            }
             AmbientLaunchScaffold(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 imeAware = false,
@@ -192,6 +209,16 @@ private fun TvApp(
                     ?.takeIf { payload ->
                         payload.serverId == state.session.serverId && payload.userId == state.session.userId
                     }?.itemId
+            val acceptedPlaybackLink =
+                pendingPlaybackLink?.takeIf { link ->
+                    link.serverId == state.session.serverId && link.userId == state.session.userId
+                }
+            LaunchedEffect(pendingPlaybackLink, state.session.serverId, state.session.userId) {
+                if (pendingPlaybackLink != null && acceptedPlaybackLink == null) {
+                    tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=account-mismatch" }
+                    onPlaybackLinkHandled()
+                }
+            }
             LaunchedEffect(pendingWatchNextPayload, state.session.serverId, state.session.userId) {
                 if (pendingWatchNextPayload != null && pendingItemId == null) {
                     onWatchNextItemHandled()
@@ -208,6 +235,8 @@ private fun TvApp(
                     session = state.session,
                     pendingWatchNextItemId = pendingItemId,
                     onWatchNextItemHandled = onWatchNextItemHandled,
+                    pendingPlaybackLink = acceptedPlaybackLink,
+                    onPlaybackLinkHandled = onPlaybackLinkHandled,
                     onPlaybackStopped = onPlaybackStopped,
                 )
             }

@@ -37,6 +37,8 @@ alpha release is **0.1.0-alpha94**.
 - HDR handling, Android TV refresh-rate matching, Picture-in-Picture, Fire TV
   Watch Next, Apple media controls, three dark themes, three tile sizes, and an
   adaptive phone-to-TV interface
+- Account-qualified [Android TV playback links](docs/guides/tv-ux-behaviors.md#playback-links)
+  that open an item directly with the current playback settings
 
 Detailed controls and platform limits are in the [usage guide](docs/USAGE.md).
 
@@ -46,7 +48,11 @@ Android mobile and Android TV are the primary platforms. iPhone, iPad, and
 macOS share the browse experience with native playback.
 
 Android requires Android 7.1 / API 25 or newer, including Fire OS 6. The mpv
-backend requires API 26+; ExoPlayer remains available on API 25.
+backend requires API 26+; ExoPlayer remains available on API 25. Android builds
+use a pinned [JellyScope mpv bundle](docs/operations/android-native-dependencies.md)
+with the Cube-tested ARM32 ImageReader fix; other ABIs retain the provider build.
+Android TV offers GPU output (default) or optional Direct MediaCodec output;
+[the output setting](docs/USAGE.md) describes subtitle and sizing limitations.
 
 iPhone and iPad require iOS 16 or newer. The Apple TV preview requires tvOS 17
 or newer and is permanently unsupported, with no hardware-validation,
@@ -65,7 +71,9 @@ download for offline playback, and configure playback.
 ## More documentation
 
 - [Using JellyScope](docs/USAGE.md) — accounts, libraries, downloads, playback,
-  subtitles, queues, Picture-in-Picture, and diagnostics
+  subtitles, queues, Picture-in-Picture, and diagnostics, including active
+  hardware/software decoding for mpv and the required Android mpv recovery
+  choice when software playback cannot keep up
 - [Documentation map](docs/README.md) — the owner of each public and engineering
   fact
 - [Building and running](docs/BUILD.md) — toolchain, builds, installation, and

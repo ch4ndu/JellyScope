@@ -34,7 +34,9 @@ manifest, and corresponding-source process are owned by the
 [`android-native-dependencies.md`](operations/android-native-dependencies.md)
 runbook. That Android-only input does not change the desktop libmpv path; the
 AAR is extracted during the `android-libmpv` build and its original bridge is
-not packaged directly.
+not packaged directly. The patched native AAR downloads automatically from the
+public JellyScope mpv GitHub Release without GitHub tokens or a sibling repository.
+Normal Android builds compile only the JNI bridge, not mpv itself.
 
 `compileSdk` selects build APIs; `targetSdk` selects Android compatibility
 behavior and is currently API 36. Neither raises the installation floors above.
@@ -94,6 +96,19 @@ APKs after assembly. That package check is separate from physical mpv/LibVLC
 coexistence and playback validation, which requires minified release APKs on
 representative hardware under the
 [runtime-validation rules](guides/workflow.md#manual-and-platform-validation).
+
+For a manually initiated Android TV playback link, sign in and exit any current
+player, then invoke the item on that same server/account:
+
+```bash
+adb -s DEVICE_SERIAL shell \
+  "am start -W -a android.intent.action.VIEW -p com.udnahc.jellyscope -d 'jellyscope://play/ITEM_ID?serverId=SERVER_ID&userId=USER_ID'"
+```
+
+Replace the four placeholders before running. The link uses current playback
+settings and starts at zero; it contains no token or media URL. Accepted inputs,
+account checks, and active-player behavior are owned by
+[Playback Links](guides/tv-ux-behaviors.md#playback-links).
 
 ## Desktop (JVM)
 
@@ -193,9 +208,11 @@ Debug APKs are under `build/outputs/apk/debug/`.
 
 For Android upgrades, retain the same variant and signing key and install a
 compatible newer version over the existing app. Mobile and TV share the
-`com.jellyscope` application ID, so they cannot coexist as separate installs
+`com.udnahc.jellyscope` application ID, so they cannot coexist as separate installs
 on one device. A differently signed APK cannot update the installed app;
 uninstalling to change signing removes its local app data and downloads.
+Older builds using `com.jellyscope` are a separate application: installing this
+package does not update them or migrate their login, settings, or downloads.
 [Release signing](RELEASE.md#android-release-keystore) differs from the local
 debug-signing fallback. On macOS, quit JellyScope before replacing its copy in
 Applications. Follow the original distribution route for Apple mobile/TV

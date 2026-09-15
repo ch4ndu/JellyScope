@@ -92,6 +92,7 @@ sealed interface PlayerUiState {
         val playbackGuidance: PlaybackHealthGuidance? = null,
         val playbackActionNotice: PlaybackActionNotice? = null,
         val resizeMode: PlayerResizeMode = PlayerResizeMode.Fit,
+        val supportsVideoSizing: Boolean = true,
         val upNext: UpNextInfo? = null,
         val autoplayPolicy: AutoplayPolicySnapshot = AutoplayPolicySnapshot(),
         val stillWatchingPrompt: Boolean = false,
@@ -306,4 +307,13 @@ enum class PlayerLaunchPolicy {
 data class PlayerPlaybackTarget(
     val itemId: String,
     val offlineDownloadId: DownloadId? = null,
+)
+
+/** Mandatory recovery decision, independent of optional playback-health notices. */
+data class PlayerSoftwarePlaybackRecovery(
+    val token: Long,
+    val canSwitch: Boolean,
+    val canContinue: Boolean = true,
+    val switching: Boolean = false,
+    val switchFailed: Boolean = false,
 )

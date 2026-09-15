@@ -46,15 +46,15 @@ require_absent "$events" 'ALOGV("[%s:%s] %s"'
 require_absent "$events" 'ALOGV("event: %s'
 
 [[ "$(manifest_value artifact-role)" == "pinned-build-input-only" ]] \
-    || die "manifest does not mark the Maven AAR as a build input only"
+    || die "manifest does not mark the AAR as a build input only"
 [[ "$(manifest_value project-module)" == "android-libmpv" ]] \
     || die "manifest does not identify android-libmpv"
 [[ "$(manifest_value wrapper-build)" == "android-libmpv/build.gradle.kts" ]] \
     || die "manifest wrapper build route changed"
-[[ "$(manifest_value source-commit)" == "fcf6745703dc1265bca88f12fee8fc355ddf251e" ]] \
-    || die "manifest source commit is not the pinned upstream commit"
-[[ "$(manifest_value wrapper-upstream-commit)" == "$(manifest_value source-commit)" ]] \
-    || die "manifest wrapper/source commits differ"
+[[ "$(manifest_value provider-source-commit)" == "fcf6745703dc1265bca88f12fee8fc355ddf251e" ]] \
+    || die "manifest provider source commit is not the pinned upstream commit"
+[[ "$(manifest_value wrapper-upstream-commit)" == "$(manifest_value provider-source-commit)" ]] \
+    || die "manifest wrapper/provider commits differ"
 [[ "$(manifest_value shipped-abis)" == "arm64-v8a,armeabi-v7a,x86_64" ]] \
     || die "manifest shipped ABI set changed"
 [[ "$(manifest_value excluded-abis)" == "x86" ]] \

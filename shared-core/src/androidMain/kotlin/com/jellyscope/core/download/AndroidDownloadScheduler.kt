@@ -26,6 +26,10 @@ import androidx.work.workDataOf
 import com.jellyscope.core.domain.model.DownloadPlatformWorkIdentity
 import com.jellyscope.core.domain.model.DownloadPlatformWorkKind
 import com.jellyscope.core.domain.model.DownloadState
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.formatSafeFailureDiagnostic
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,6 +37,8 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
+
+private val downloadSchedulerLogger = diagnosticLogger(DiagnosticTag.DownloadExecution)
 
 /**
  * Android's one supported-platform execution host.
@@ -90,6 +96,9 @@ internal class AndroidDownloadScheduler(
                 queryWorkManagerWork()
             }
         } catch (throwable: Throwable) {
+            if (throwable !is CancellationException) {
+                downloadSchedulerLogger.w { formatSafeFailureDiagnostic("download-queryActiveWork", "failed", throwable) }
+            }
             Result.failure(throwable)
         }
 
@@ -118,6 +127,9 @@ internal class AndroidDownloadScheduler(
                 driver.reassociate(work)
             }
         } catch (throwable: Throwable) {
+            if (throwable !is CancellationException) {
+                downloadSchedulerLogger.w { formatSafeFailureDiagnostic("download-reassociate", "failed", throwable) }
+            }
             Result.failure(throwable)
         }
 
@@ -140,6 +152,9 @@ internal class AndroidDownloadScheduler(
             }
             Result.success(Unit)
         } catch (throwable: Throwable) {
+            if (throwable !is CancellationException) {
+                downloadSchedulerLogger.w { formatSafeFailureDiagnostic("download-cancel", "failed", throwable) }
+            }
             Result.failure(throwable)
         }
 
@@ -210,6 +225,7 @@ internal class AndroidDownloadScheduler(
         if (identity.kind != expectedKind) {
             return Result.failure(IllegalStateException("Platform work identity does not match the SDK path."))
         }
+        downloadSchedulerLogger.i { "stage=download-execute event=started kind=${identity.kind.name}" }
         var result = driver.execute(identity)
         // Keep one accepted native execution host while the common queue has
         // another active-account FIFO head.  This is deliberately not a
@@ -218,6 +234,12 @@ internal class AndroidDownloadScheduler(
         while (result.isSuccess && driver.hasRunnableWork()) {
             result = driver.execute(identity)
         }
+        result.fold(
+            onSuccess = { downloadSchedulerLogger.i { "stage=download-execute event=completed kind=${identity.kind.name}" } },
+            onFailure = { failure ->
+                downloadSchedulerLogger.w { formatSafeFailureDiagnostic("download-execute", "failed", failure) }
+            },
+        )
         return result
     }
 
@@ -251,6 +273,9 @@ internal class AndroidDownloadScheduler(
             }
             Result.success(Unit)
         } catch (throwable: Throwable) {
+            if (throwable !is CancellationException) {
+                downloadSchedulerLogger.w { formatSafeFailureDiagnostic("download-scheduleUidt", "failed", throwable) }
+            }
             Result.failure(throwable)
         }
 
@@ -271,6 +296,9 @@ internal class AndroidDownloadScheduler(
             )
             Result.success(Unit)
         } catch (throwable: Throwable) {
+            if (throwable !is CancellationException) {
+                downloadSchedulerLogger.w { formatSafeFailureDiagnostic("download-scheduleWorkManager", "failed", throwable) }
+            }
             Result.failure(throwable)
         }
 

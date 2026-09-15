@@ -1463,13 +1463,13 @@ internal class AppleVlcKitPlayerController(
         stage: PlaybackDiagnosticStage,
         error: PlaybackError = PlaybackError.Unknown,
     ) {
+        logDiagnostic(stage, PlaybackDiagnosticEvent.Failed, error = error)
         if (lastPlan?.streamMode == com.jellyscope.core.domain.playback.StreamMode.Offline) {
             val detachedOfflineLease = offlineLeaseHolder.detach()
             offlinePath = null
             offlineSidecarPath = null
             detachNativeSession { detachedOfflineLease?.release() }
         }
-        logDiagnostic(stage, PlaybackDiagnosticEvent.Failed)
         emitPlaybackState { current ->
             current.copy(
                 status = PlaybackStatus.Failed,
@@ -1943,6 +1943,7 @@ internal class AppleVlcKitPlayerController(
         mappingReason: NativeTrackMappingReason? = null,
         nativeCode: Long? = null,
         operation: PlaybackDiagnosticOperation? = null,
+        error: PlaybackError? = null,
     ) {
         vlcControllerLogger.i {
             formatPlaybackDiagnostic(
@@ -1950,6 +1951,10 @@ internal class AppleVlcKitPlayerController(
                     stage = stage,
                     event = event,
                     platform = diagnosticPlatform,
+                    backend = activeBackend,
+                    prepareSequence = generation.load(),
+                    sessionSequence = lastPlan?.diagnosticSessionSequence,
+                    errorCategory = error,
                     trackKind = trackKind,
                     candidateCount = candidateCount,
                     mappingResult = mappingResult,

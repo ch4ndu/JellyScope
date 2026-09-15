@@ -47,6 +47,7 @@ internal enum class TvSettingsTileId(
     HdrHandling(4, 2),
     MatchRefreshRate(4, 3),
     RefreshCapabilities(4, 4),
+    MpvVideoOutput(4, 5),
     OpenSubtitlesKey(5, 0),
     ClearSubtitles(5, 1),
     AppVersion(5, 2),
@@ -87,6 +88,7 @@ internal enum class TvSettingsTileAction {
     PlaybackWarnings,
     AudioOutput,
     PlayerBackend,
+    MpvVideoOutput,
     AutoPlayNext,
     AutoPlayNextDelay,
     VlcTranscodeLimit,
@@ -127,6 +129,7 @@ internal fun TvSettingsTileId.action(): TvSettingsTileAction =
         TvSettingsTileId.PlaybackWarnings -> TvSettingsTileAction.PlaybackWarnings
         TvSettingsTileId.AudioOutput -> TvSettingsTileAction.AudioOutput
         TvSettingsTileId.PlayerBackend -> TvSettingsTileAction.PlayerBackend
+        TvSettingsTileId.MpvVideoOutput -> TvSettingsTileAction.MpvVideoOutput
         TvSettingsTileId.AutoPlayNext -> TvSettingsTileAction.AutoPlayNext
         TvSettingsTileId.AutoPlayNextDelay -> TvSettingsTileAction.AutoPlayNextDelay
         TvSettingsTileId.VlcTranscodeLimit -> TvSettingsTileAction.VlcTranscodeLimit

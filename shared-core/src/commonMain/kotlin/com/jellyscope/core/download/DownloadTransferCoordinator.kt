@@ -192,7 +192,8 @@ internal class DownloadTransferCoordinator(
             } catch (cancellation: CancellationException) {
                 invalidateUnregisteredClaim(attempt, cancellation.lifecycleNextState())
                 throw cancellation
-            } catch (_: Throwable) {
+            } catch (failure: Throwable) {
+                originalDownloadTransferLogger.w { formatSafeFailureDiagnostic("original-download", "preflight-failed", failure) }
                 OriginalDownloadPreflightResult.Rejected(OriginalDownloadFailure.ServerUnavailable)
             }
         val source =
@@ -275,7 +276,8 @@ internal class DownloadTransferCoordinator(
             } catch (cancellation: CancellationException) {
                 invalidateUnregisteredClaim(attempt, cancellation.lifecycleNextState())
                 throw cancellation
-            } catch (_: Throwable) {
+            } catch (failure: Throwable) {
+                originalDownloadTransferLogger.w { formatSafeFailureDiagnostic("original-download", "prepare-failed", failure) }
                 val settled =
                     serverScopedStoreRegistry.withGuardedLease(lease) {
                         failUnregisteredClaim(attempt, DownloadFailure.ServerUnavailable)
@@ -309,7 +311,8 @@ internal class DownloadTransferCoordinator(
             } catch (cancellation: CancellationException) {
                 checkpointForSuspension(activeAttempt, cancellation.lifecycleNextState())
                 throw cancellation
-            } catch (_: Throwable) {
+            } catch (failure: Throwable) {
+                originalDownloadTransferLogger.w { formatSafeFailureDiagnostic("original-download", "transfer-failed", failure) }
                 settleFailure(activeAttempt, DownloadFailure.ServerUnavailable)
             }
         if (result == DownloadTransferResult.BoundaryChanged) {

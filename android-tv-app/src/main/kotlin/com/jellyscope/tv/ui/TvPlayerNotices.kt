@@ -2,6 +2,7 @@
 
 package com.jellyscope.tv.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,8 +13,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -28,10 +32,15 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Icon
 import com.jellyscope.core.domain.playback.PlaybackAction
@@ -51,6 +60,8 @@ import com.jellyscope.ui.screen.player.PlayerDebugRowModel
 import com.jellyscope.ui.screen.player.PlayerDebugSection
 import com.jellyscope.ui.screen.player.PlayerPlaybackChangeNotice
 import com.jellyscope.ui.screen.player.PlayerPlaybackChangeOperation
+import com.jellyscope.ui.screen.player.PlayerSoftwarePlaybackRecovery
+import com.jellyscope.ui.screen.player.playerDebugMpvLabels
 import com.jellyscope.ui.screen.player.playerDebugSections
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlinx.coroutines.flow.StateFlow
@@ -112,12 +123,14 @@ private fun TvDebugMenuContent(
 ) {
     val playback by playbackStateFlow.collectAsStateWithLifecycle()
     val runtimeDiagnostics by runtimeDiagnosticsFlow.collectAsStateWithLifecycle()
+    val mpvLabels = playerDebugMpvLabels()
     val genericRows =
-        remember(debugInfo, playback, runtimeDiagnostics) {
+        remember(debugInfo, playback, runtimeDiagnostics, mpvLabels) {
             playerDebugSections(
                 debugInfo = debugInfo,
                 playbackState = playback,
                 runtimeDiagnostics = runtimeDiagnostics,
+                mpvLabels = mpvLabels,
             ).flatMap(PlayerDebugSection::rows)
         }
     val splitIndex = (genericRows.size + 1) / 2
@@ -663,3 +676,92 @@ private fun tvPlayerErrorMessage(error: PlaybackError?): Int =
         null,
         -> R.string.tv_player_error
     }
+
+@Composable
+internal fun TvSoftwarePlaybackRecoveryDialog(
+    prompt: PlayerSoftwarePlaybackRecovery,
+    onSwitch: () -> Unit,
+    onContinue: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val primary = remember { FocusRequester() }
+    val switchEnabled = prompt.canSwitch && !prompt.switching
+    val continueEnabled = prompt.canContinue && !prompt.switching
+    BackHandler { }
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false),
+    ) {
+        LaunchedEffect(prompt.token, switchEnabled, continueEnabled) {
+            withFrameNanos { }
+            primary.requestFocusSafely()
+        }
+        Column(
+            modifier =
+                Modifier
+                    .width(TvDimens.settingsDialogWidth)
+                    .heightIn(max = TvDimens.settingsDialogMaxHeight)
+                    .verticalScroll(rememberScrollState())
+                    .background(LocalJellyfinPalette.current.surfaceNavy, RoundedCornerShape(TvDimens.panelRadius))
+                    .padding(TvDimens.playerPickerPadding)
+                    .onPreviewKeyEvent { event ->
+                        event.key in
+                            listOf(
+                                Key.Back,
+                                Key.MediaPlay,
+                                Key.MediaPause,
+                                Key.MediaPlayPause,
+                                Key.MediaNext,
+                                Key.MediaPrevious,
+                                Key.MediaFastForward,
+                                Key.MediaRewind,
+                                Key.MediaSkipForward,
+                                Key.MediaSkipBackward,
+                            )
+                    },
+            verticalArrangement = Arrangement.spacedBy(TvDimens.formGap),
+        ) {
+            TvText(text = stringResource(R.string.tv_player_software_recovery_title), style = TvPlayerSectionTitleStyle, maxLines = 2)
+            TvText(text = stringResource(R.string.tv_player_software_recovery_message), maxLines = 6)
+            when {
+                prompt.switchFailed -> TvText(text = stringResource(R.string.tv_player_software_recovery_failed), maxLines = 4)
+                !prompt.canSwitch -> TvText(text = stringResource(R.string.tv_player_software_recovery_unavailable), maxLines = 3)
+            }
+            TvButton(
+                text = stringResource(R.string.tv_player_software_recovery_switch),
+                onClick = onSwitch,
+                enabled = switchEnabled,
+                modifier = Modifier.fillMaxWidth().then(if (switchEnabled) Modifier.focusRequester(primary) else Modifier),
+            )
+            TvButton(
+                text = stringResource(R.string.tv_player_software_recovery_continue),
+                onClick = onContinue,
+                enabled = continueEnabled,
+                modifier =
+                    Modifier.fillMaxWidth().then(
+                        if (!switchEnabled &&
+                            continueEnabled
+                        ) {
+                            Modifier.focusRequester(primary)
+                        } else {
+                            Modifier
+                        },
+                    ),
+            )
+            TvButton(
+                text = stringResource(R.string.tv_player_software_recovery_stop),
+                onClick = onStop,
+                modifier =
+                    Modifier.fillMaxWidth().then(
+                        if (!switchEnabled &&
+                            !continueEnabled
+                        ) {
+                            Modifier.focusRequester(primary)
+                        } else {
+                            Modifier
+                        },
+                    ),
+            )
+        }
+    }
+}

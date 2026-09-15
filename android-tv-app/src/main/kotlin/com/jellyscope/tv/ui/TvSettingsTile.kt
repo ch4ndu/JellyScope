@@ -142,7 +142,9 @@ internal fun settingsTileIcon(id: TvSettingsTileId): ImageVector =
         TvSettingsTileId.StillWatching -> SettingsIcons.ResumeBehavior
         TvSettingsTileId.PlaybackWarnings -> SettingsIcons.ResumeBehavior
         TvSettingsTileId.AudioOutput -> SettingsIcons.AudioOutput
-        TvSettingsTileId.PlayerBackend -> SettingsIcons.VideoFormats
+        TvSettingsTileId.PlayerBackend,
+        TvSettingsTileId.MpvVideoOutput,
+        -> SettingsIcons.VideoFormats
         TvSettingsTileId.VlcTranscodeLimit -> SettingsIcons.MaxBitrate
         TvSettingsTileId.AutoPlayNext,
         TvSettingsTileId.AutoPlayNextDelay,
