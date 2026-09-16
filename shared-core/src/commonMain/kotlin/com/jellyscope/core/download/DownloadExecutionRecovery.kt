@@ -48,23 +48,32 @@ internal class DownloadExecutionRecovery(
             val records = queueCoordinator.allDownloads()
             val discoveredWork = host.queryActiveWork().getOrThrow()
             val plan = decideDownloadRecovery(records, discoveredWork)
-            applyDownloadRecoveryPlan(host, plan) { action ->
-                when (action) {
-                    DownloadActiveRecoveryAction.None -> Result.success(Unit)
-                    is DownloadActiveRecoveryAction.Reassociate -> driver.reassociate(action.work)
-                    is DownloadActiveRecoveryAction.ReconcileFinalizing,
-                    is DownloadActiveRecoveryAction.Requeue,
-                    is DownloadActiveRecoveryAction.PauseForExplicitResume,
-                    -> driver.applyRecoveryAction(action)
+            val applied =
+                applyDownloadRecoveryPlan(host, plan) { action ->
+                    when (action) {
+                        DownloadActiveRecoveryAction.None -> Result.success(Unit)
+                        is DownloadActiveRecoveryAction.Reassociate -> driver.reassociate(action.work)
+                        is DownloadActiveRecoveryAction.ReconcileFinalizing,
+                        is DownloadActiveRecoveryAction.Requeue,
+                        is DownloadActiveRecoveryAction.PauseForExplicitResume,
+                        -> driver.applyRecoveryAction(action)
+                    }
                 }
-            }.also { result ->
-                result.fold(
-                    onSuccess = { logger.i { "stage=download-recovery event=completed" } },
-                    onFailure = { failure ->
-                        logger.w { "stage=download-recovery event=failed exceptionType=${failure.playbackExceptionType()}" }
-                    },
-                )
+            applied.getOrThrow()
+            val reassociatedAttempt =
+                (plan.activeAction as? DownloadActiveRecoveryAction.Reassociate)?.work?.attempt
+            queueCoordinator.allDownloads().forEach { record ->
+                if (
+                    reassociatedAttempt?.let { attempt ->
+                        attempt.downloadId == record.downloadId && attempt.attemptGeneration == record.attemptGeneration
+                    } == true
+                ) {
+                    return@forEach
+                }
+                driver.reconcilePresentation(record).getOrThrow()
             }
+            logger.i { "stage=download-recovery event=completed" }
+            Result.success(Unit)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {

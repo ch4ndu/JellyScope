@@ -27,6 +27,9 @@ import com.jellyscope.core.domain.model.DownloadSubtitleSelection
 import com.jellyscope.core.domain.model.OriginalDownloadDraft
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.model.offlineArtworkReferences
+import com.jellyscope.core.domain.model.toDomainMediaItemDetail
+import com.jellyscope.core.domain.model.toOfflineDetailSnapshot
 import com.jellyscope.core.domain.playback.BackendSourceDescriptor
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.OriginalDownloadPlaybackCompatibility
@@ -35,8 +38,10 @@ import com.jellyscope.core.domain.playback.evaluateOriginalDownloadPlaybackCompa
 import com.jellyscope.core.domain.playback.resolvePlayerBackend
 import com.jellyscope.core.domain.usecase.OriginalDownloadAdmission
 import com.jellyscope.core.domain.usecase.OriginalDownloadAdmissionResult
+import com.jellyscope.core.util.DiagnosticOperation
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import kotlinx.coroutines.CancellationException
 
 /** Data-layer owner of authenticated Original admission and bounded sidecar localization. */
@@ -51,7 +56,7 @@ internal class DefaultOriginalDownloadAdmission(
     private val deviceProfileProvider: DeviceProfileProvider? = null,
 ) : OriginalDownloadAdmission {
     override suspend fun admit(draft: OriginalDownloadDraft): OriginalDownloadAdmissionResult =
-        when (val result = admitTrusted(draft)) {
+        when (val result = admitTrusted(draft, capturePresentation = false)) {
             is TrustedAdmission.Ready -> OriginalDownloadAdmissionResult.Ready(result.request)
             is TrustedAdmission.Rejected -> OriginalDownloadAdmissionResult.Rejected(result.decision)
         }
@@ -60,7 +65,7 @@ internal class DefaultOriginalDownloadAdmission(
         draft: OriginalDownloadDraft,
         enqueue: suspend (DownloadRequest) -> DownloadEnqueueResult,
     ): DownloadEnqueueResult =
-        when (val result = admitTrusted(draft)) {
+        when (val result = admitTrusted(draft, capturePresentation = true)) {
             is TrustedAdmission.Rejected -> DownloadEnqueueResult.Rejected(result.decision)
             is TrustedAdmission.Ready ->
                 serverScopedStoreRegistry.withGuardedLease(result.lease) {
@@ -68,7 +73,10 @@ internal class DefaultOriginalDownloadAdmission(
                 } ?: DownloadEnqueueResult.Rejected(DownloadAdmissionDecision.SourceChanged)
         }
 
-    private suspend fun admitTrusted(draft: OriginalDownloadDraft): TrustedAdmission {
+    private suspend fun admitTrusted(
+        draft: OriginalDownloadDraft,
+        capturePresentation: Boolean,
+    ): TrustedAdmission {
         val loggedIn =
             sessionRepository.sessionState.value as? SessionState.LoggedIn
                 ?: return TrustedAdmission.Rejected(DownloadAdmissionDecision.PermissionDenied)
@@ -149,6 +157,31 @@ internal class DefaultOriginalDownloadAdmission(
             } catch (_: IllegalStateException) {
                 return TrustedAdmission.Rejected(DownloadAdmissionDecision.SizeUnavailable)
             }
+        val snapshot =
+            if (capturePresentation) {
+                try {
+                    capturePresentationSnapshot(draft, context)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    originalDownloadLogger.w {
+                        formatSafeFailureDiagnostic(
+                            stage = "original-download",
+                            event = "presentation-detail-failed",
+                            operation = DiagnosticOperation.GetItemDetail,
+                            throwable = failure,
+                        ) + " reason=DetailFetchFailed result=NetworkUnavailable"
+                    }
+                    return TrustedAdmission.Rejected(DownloadAdmissionDecision.NetworkUnavailable)
+                } ?: run {
+                    originalDownloadLogger.i {
+                        "stage=original-download event=presentation-detail-rejected reason=DetailSnapshotUnavailable result=SourceChanged"
+                    }
+                    return TrustedAdmission.Rejected(DownloadAdmissionDecision.SourceChanged)
+                }
+            } else {
+                draft.snapshot
+            }
         val request =
             DownloadRequest(
                 downloadId = draft.downloadId,
@@ -162,11 +195,46 @@ internal class DefaultOriginalDownloadAdmission(
                 expectedSourceBytes = source.totalBytes,
                 sourceValidator = source.lastModified,
                 artifactKey = draft.artifactKey,
-                snapshot = draft.snapshot.copy(backendSource = trustedBackendSource),
+                snapshot = snapshot.copy(backendSource = trustedBackendSource),
                 createdAtEpochMs = draft.createdAtEpochMs,
             )
         return TrustedAdmission.Ready(request, lease)
     }
+
+    private suspend fun capturePresentationSnapshot(
+        draft: OriginalDownloadDraft,
+        context: AuthenticatedRequestContext,
+    ) = jellyfinApi
+        .getItemDetail(context, draft.businessKey.itemId)
+        .toDomainMediaItemDetail()
+        ?.takeIf { detail -> detail.item.id == draft.businessKey.itemId && detail.item.kind == draft.snapshot.itemKind }
+        ?.let { detail ->
+            val seriesDetail =
+                detail.item.seriesId
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { seriesId ->
+                        try {
+                            jellyfinApi.getItemDetail(context, seriesId).toDomainMediaItemDetail()
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (failure: Throwable) {
+                            originalDownloadLogger.w {
+                                formatSafeFailureDiagnostic(
+                                    stage = "original-download",
+                                    event = "presentation-series-fallback",
+                                    operation = DiagnosticOperation.GetItemDetail,
+                                    throwable = failure,
+                                ) + " reason=ParentDetailUnavailable"
+                            }
+                            null
+                        }
+                    }
+            draft.snapshot.copy(
+                detail = detail.toOfflineDetailSnapshot(),
+                artworkReferences = detail.offlineArtworkReferences(seriesDetail),
+                presentationCaptureEligible = true,
+            )
+        }
 
     private suspend fun resolveOfflinePlaybackBackend(
         accountIdentity: AccountIdentity,

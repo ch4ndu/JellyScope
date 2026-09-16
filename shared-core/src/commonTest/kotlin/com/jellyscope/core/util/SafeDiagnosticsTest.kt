@@ -103,11 +103,13 @@ class SafeDiagnosticsTest {
                 "WatchNextSyncWorker",
                 "SettingsViewModel",
                 "DownloadsViewModel",
+                "DownloadExecution",
                 "FixedDownload",
                 "OriginalDownload",
                 "DownloadNotificationPermission",
                 "TvPlaybackSessionPresenter",
                 "TvDisplayMode",
+                "TvPlaybackLink",
                 "JellyScopePlaybackProbe",
             )
 

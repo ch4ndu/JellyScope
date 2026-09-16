@@ -11,6 +11,16 @@
         }
       }
     },
+    "%.1f fps": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.1f fps"
+          }
+        }
+      }
+    },
     "%@ FPS": {
       "localizations": {
         "en": {
@@ -2241,6 +2251,16 @@
         }
       }
     },
+    "IMDb": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IMDb"
+          }
+        }
+      }
+    },
     "Immediately": {
       "localizations": {
         "en": {
@@ -2847,6 +2867,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Off"
+          }
+        }
+      }
+    },
+    "Offline details": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline details"
           }
         }
       }
@@ -3861,6 +3891,16 @@
         }
       }
     },
+    "Saved details unavailable": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved details unavailable"
+          }
+        }
+      }
+    },
     "Saving…": {
       "localizations": {
         "en": {
@@ -4557,6 +4597,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Synced"
+          }
+        }
+      }
+    },
+    "TMDB": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TMDB"
           }
         }
       }
@@ -5537,6 +5587,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Version"
+          }
+        }
+      }
+    },
+    "Video": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
           }
         }
       }

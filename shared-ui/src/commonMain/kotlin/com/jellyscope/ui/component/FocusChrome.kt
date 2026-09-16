@@ -84,6 +84,8 @@ object ChromeDimens {
     val detailIconLabelGap = 7.dp
     val detailActionMinHeight = 36.dp
     val detailActionHeight = 44.dp
+    val detailActionIconSize = 20.dp
+    val detailHeroLogoMaxHeight = 88.dp
     val detailTrackPickerButtonWidth = 118.dp
     val detailTrackPickerArrowSize = 18.dp
     val detailBadgeGap = 8.dp

@@ -194,6 +194,12 @@ data class OfflineMediaSnapshot(
     val embeddedTracks: List<OfflineTrackSnapshot> = emptyList(),
     val selectedAudioTrack: OfflineTrackSnapshot? = null,
     val selectedSubtitleTrack: OfflineTrackSnapshot? = null,
+    /** Present only for newly admitted downloads. Legacy snapshots remain deliberately sparse. */
+    val detail: OfflineDetailSnapshot? = null,
+    /** Credential-free source references for the sibling local presentation files. */
+    val artworkReferences: List<OfflineArtworkReference> = emptyList(),
+    /** Allows transfer-owned capture for this newly admitted row; it is false for every legacy row. */
+    val presentationCaptureEligible: Boolean = false,
     val backendSource: BackendSourceDescriptor,
 ) {
     init {
@@ -208,6 +214,9 @@ data class OfflineMediaSnapshot(
         }
         require(selectedSubtitleTrack == null || selectedSubtitleTrack.kind == OfflineTrackKind.Subtitle) {
             "Selected subtitle description must be a subtitle track."
+        }
+        require(artworkReferences.map(OfflineArtworkReference::role).distinct().size == artworkReferences.size) {
+            "Offline artwork roles must be unique."
         }
     }
 }
@@ -325,6 +334,8 @@ data class DownloadRecord(
     val state: DownloadState,
     val reservationBytes: Long,
     val physicalBytes: Long,
+    /** Presentation bytes are deliberately separate from media package/checkpoint/reservation facts. */
+    val presentationBytes: Long = 0L,
     val checkpointBytes: Long,
     val attemptGeneration: Long,
     val platformWorkIdentity: DownloadPlatformWorkIdentity? = null,
@@ -338,6 +349,7 @@ data class DownloadRecord(
         require(state != DownloadState.NotDownloaded) { "NotDownloaded is not a persisted record state." }
         require(reservationBytes >= 0L) { "Reservation bytes must be non-negative." }
         require(physicalBytes >= 0L) { "Physical bytes must be non-negative." }
+        require(presentationBytes >= 0L) { "Presentation bytes must be non-negative." }
         require(checkpointBytes in 0L..physicalBytes) { "Checkpoint bytes must be within physical bytes." }
         require(attemptGeneration >= 0L) { "Attempt generation must be non-negative." }
         require(localResumePositionMs >= 0L) { "Local resume position must be non-negative." }
@@ -388,10 +400,12 @@ data class DownloadUsageEntry(
     val state: DownloadState,
     val physicalBytes: Long,
     val reservationBytes: Long,
+    val presentationBytes: Long = 0L,
 ) {
     init {
         require(state != DownloadState.NotDownloaded) { "NotDownloaded has no usage row." }
         require(physicalBytes >= 0L) { "Physical bytes must be non-negative." }
+        require(presentationBytes >= 0L) { "Presentation bytes must be non-negative." }
         require(reservationBytes >= 0L) { "Reservation bytes must be non-negative." }
     }
 }

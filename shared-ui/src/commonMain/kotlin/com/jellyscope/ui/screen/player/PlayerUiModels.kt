@@ -296,6 +296,7 @@ data class PlayerLaunchOptions(
     val initialSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified,
     val queue: List<String> = emptyList(),
     val offlineDownloadId: DownloadId? = null,
+    val offlineRestartFromBeginning: Boolean = false,
     val launchPolicy: PlayerLaunchPolicy = PlayerLaunchPolicy.Normal,
 )
 

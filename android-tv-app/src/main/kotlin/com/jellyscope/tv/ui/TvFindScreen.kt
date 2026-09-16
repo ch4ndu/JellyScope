@@ -2,8 +2,10 @@
 
 package com.jellyscope.tv.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +80,7 @@ fun TvFindScreen(
     )
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 internal fun TvFindContent(
     session: Session,
@@ -104,6 +107,7 @@ internal fun TvFindContent(
     val requestInitialContentFocus = !hostedRailController.contentAutofocusSuppressed
     val hostedRailContentRegistrationKey = remember { hostedRailController.contentRegistrationKey }
     val resultScrollState = rememberScrollState()
+    val verticalBringIntoViewSpec = rememberRowAwareMarioBringIntoViewSpec()
     var pendingResultFocusToken by remember { mutableStateOf<FindRequestToken?>(null) }
     var searchFieldEditing by remember { mutableStateOf(false) }
     val railHasFocus = hostedRailController.railHasFocus
@@ -231,36 +235,38 @@ internal fun TvFindContent(
                         end = TvDimens.overscanHorizontal,
                     ),
             )
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(resultScrollState)
-                        .padding(bottom = TvDimens.overscanVertical),
-                verticalArrangement = Arrangement.spacedBy(TvDimens.rowGap),
-            ) {
-                TvFindResultsPane(
-                    session = session,
-                    state = state,
-                    resultsFocusRequester = resultsFocusRequester,
-                    contentStartPadding = contentStartPadding,
-                    onRecentSelected = { search ->
-                        focusSearchField()
-                        pendingResultFocusToken = onRecentSelected(search)
-                    },
-                    onClearRecentSearches = onClearRecentSearches,
-                    onPersonSelected = { person ->
-                        pendingResultFocusToken = null
-                        onPersonSelected(person)
-                    },
-                    onResultTabSelected = { tab ->
-                        pendingResultFocusToken = null
-                        onResultTabSelected(tab)
-                    },
-                    onRetry = onRetry,
-                    onItemSelected = onItemSelected,
-                    onItemPlayDirect = onItemPlayDirect,
-                )
+            CompositionLocalProvider(LocalBringIntoViewSpec provides verticalBringIntoViewSpec) {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .verticalScroll(resultScrollState)
+                            .padding(bottom = TvDimens.overscanVertical),
+                    verticalArrangement = Arrangement.spacedBy(TvDimens.rowGap),
+                ) {
+                    TvFindResultsPane(
+                        session = session,
+                        state = state,
+                        resultsFocusRequester = resultsFocusRequester,
+                        contentStartPadding = contentStartPadding,
+                        onRecentSelected = { search ->
+                            focusSearchField()
+                            pendingResultFocusToken = onRecentSelected(search)
+                        },
+                        onClearRecentSearches = onClearRecentSearches,
+                        onPersonSelected = { person ->
+                            pendingResultFocusToken = null
+                            onPersonSelected(person)
+                        },
+                        onResultTabSelected = { tab ->
+                            pendingResultFocusToken = null
+                            onResultTabSelected(tab)
+                        },
+                        onRetry = onRetry,
+                        onItemSelected = onItemSelected,
+                        onItemPlayDirect = onItemPlayDirect,
+                    )
+                }
             }
         }
     }

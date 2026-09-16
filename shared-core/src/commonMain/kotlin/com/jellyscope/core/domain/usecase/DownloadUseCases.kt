@@ -12,6 +12,7 @@ import com.jellyscope.core.domain.model.DownloadRemovalPreview
 import com.jellyscope.core.domain.model.DownloadSettings
 import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.DownloadUsage
+import com.jellyscope.core.domain.model.OfflineArtworkRole
 import com.jellyscope.core.download.DownloadCleanupCoordinator
 import kotlinx.coroutines.flow.Flow
 
@@ -29,6 +30,40 @@ class GetDownloadUseCase(
         accountIdentity: AccountIdentity,
         downloadId: DownloadId,
     ): DownloadRecord? = repository.getDownload(accountIdentity, downloadId)
+}
+
+/**
+ * Reads one retained presentation image for the current account without exposing a local path
+ * or ever falling back to the server. The bound is fixed here so UI callers cannot request an
+ * unbounded private artifact read. Missing backdrops use the saved primary image, as on online details.
+ */
+class ReadDownloadArtworkUseCase(
+    private val repository: DownloadRepository,
+) {
+    suspend operator fun invoke(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        role: OfflineArtworkRole,
+    ): ByteArray? =
+        repository.readPresentationArtwork(
+            accountIdentity = accountIdentity,
+            downloadId = downloadId,
+            role = role,
+            maxBytes = MAX_DOWNLOAD_ARTWORK_READ_BYTES,
+        ) ?: if (role == OfflineArtworkRole.Backdrop) {
+            repository.readPresentationArtwork(
+                accountIdentity = accountIdentity,
+                downloadId = downloadId,
+                role = OfflineArtworkRole.Poster,
+                maxBytes = MAX_DOWNLOAD_ARTWORK_READ_BYTES,
+            )
+        } else {
+            null
+        }
+
+    private companion object {
+        const val MAX_DOWNLOAD_ARTWORK_READ_BYTES = 2 * 1024 * 1024
+    }
 }
 
 /** Loads a completed, account-qualified offline row whose artifact is present. */

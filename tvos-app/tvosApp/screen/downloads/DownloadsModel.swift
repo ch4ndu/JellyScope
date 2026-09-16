@@ -55,6 +55,12 @@ final class DownloadsModel: ObservableObject {
         presenter.delete(downloadId: row.id, expectedAttemptGeneration: row.attemptGeneration)
     }
 
+    func row(downloadId: String) -> TvDownloadRow? {
+        state.sections
+            .flatMap(\.rows)
+            .first { $0.id == downloadId }
+    }
+
     func close() {
         guard !closed else { return }
         closed = true

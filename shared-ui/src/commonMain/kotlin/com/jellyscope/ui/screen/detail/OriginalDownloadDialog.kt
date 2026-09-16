@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
@@ -231,7 +233,10 @@ internal fun OriginalDownloadDialog(
                 DetailDownloadState.Previewing,
                 -> {
                     Column(
-                        modifier = Modifier.selectableGroup(),
+                        modifier =
+                            Modifier
+                                .verticalScroll(rememberScrollState())
+                                .selectableGroup(),
                         verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing),
                     ) {
                         Text(text = selectedVersion?.name.orEmpty(), style = MaterialTheme.typography.titleSmall)

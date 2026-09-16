@@ -7,6 +7,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -29,6 +30,7 @@ import com.jellyscope.ui.screen.detail.DetailScreen
 import com.jellyscope.ui.screen.detail.SeriesScreen
 import com.jellyscope.ui.screen.detail.SeriesViewModel
 import com.jellyscope.ui.screen.discover.DiscoverScreen
+import com.jellyscope.ui.screen.downloads.DownloadDetailScreen
 import com.jellyscope.ui.screen.downloads.DownloadsScreen
 import com.jellyscope.ui.screen.find.FindScreen
 import com.jellyscope.ui.screen.grid.GridScreen
@@ -175,17 +177,42 @@ internal fun LoggedInNavGraph(
                     session = session,
                     onBack = { navController.popBackStack() },
                     bottomContentPadding = bottomBarContentPadding,
-                    onPlayOffline = { record ->
-                        navController.navigate(
-                            Routes.player(
-                                itemId = record.businessKey.itemId,
-                                startTicks = 0L,
-                                mediaSourceId = record.businessKey.mediaSourceId,
-                                offlineDownloadId = record.downloadId,
-                            ),
-                        )
+                    onOpenDownloadDetail = { downloadId ->
+                        navController.navigate(Routes.downloadDetail(downloadId))
                     },
                 )
+            }
+        }
+        composable(Routes.DownloadDetail) { entry ->
+            val downloadId =
+                entry.arguments
+                    ?.read { getStringOrNull(Routes.DownloadIdArgument) }
+                    ?.let(Routes::offlineDownloadId)
+            if (downloadId == null) {
+                LaunchedEffect(entry) { navController.popBackStack() }
+            } else {
+                LoggedInScreenFrame(
+                    contentWindowInsets = loggedInContentInsets,
+                    startSafeDrawingConsumed = startSafeDrawingConsumed,
+                ) {
+                    DownloadDetailScreen(
+                        session = session,
+                        downloadId = downloadId,
+                        onBack = { navController.popBackStack() },
+                        bottomContentPadding = bottomBarContentPadding,
+                        onPlayOffline = { record, restart ->
+                            navController.navigate(
+                                Routes.player(
+                                    itemId = record.businessKey.itemId,
+                                    startTicks = 0L,
+                                    mediaSourceId = record.businessKey.mediaSourceId,
+                                    offlineDownloadId = record.downloadId,
+                                    offlineRestartFromBeginning = restart,
+                                ),
+                            )
+                        },
+                    )
+                }
             }
         }
         composable(Routes.Settings) {
@@ -363,11 +390,7 @@ internal fun LoggedInNavGraph(
                                 ),
                             )
                         },
-                        onSeasonSelected = { selectedSeasonId ->
-                            navController.navigate(Routes.season(seriesId, selectedSeasonId)) {
-                                launchSingleTop = true
-                            }
-                        },
+                        onSeasonSelected = seriesViewModel::selectSeason,
                         onPersonSelected = { personId -> navController.navigate(Routes.person(personId)) },
                         modifier = Modifier,
                         viewModel = seriesViewModel,
@@ -653,6 +676,10 @@ internal fun LoggedInNavGraph(
                 entry.arguments
                     ?.read { getStringOrNull(Routes.OfflineDownloadIdArgument) }
                     ?.let(Routes::offlineDownloadId)
+            val offlineRestartFromBeginning =
+                entry.arguments
+                    ?.read { getStringOrNull(Routes.OfflineRestartArgument) }
+                    ?.toBooleanStrictOrNull() == true
             val handoffQueue =
                 if (launchPolicy == PlayerLaunchPolicy.KidsSingleAsset) {
                     emptyList()
@@ -677,6 +704,7 @@ internal fun LoggedInNavGraph(
                 initialSubtitleSelection = initialSubtitleSelection,
                 queue = playbackQueue,
                 offlineDownloadId = offlineDownloadId,
+                offlineRestartFromBeginning = offlineRestartFromBeginning,
                 launchPolicy = launchPolicy,
                 onBack = { navController.popBackStack() },
                 onOpenPlaybackSettings = {

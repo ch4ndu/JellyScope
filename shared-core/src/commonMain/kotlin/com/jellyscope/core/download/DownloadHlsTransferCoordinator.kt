@@ -53,6 +53,7 @@ internal class DownloadHlsTransferCoordinator(
     private val jellyfinApi: JellyfinApi,
     private val queueCoordinator: DownloadQueueCoordinator,
     private val artifactStore: DownloadArtifactStore,
+    private val artworkCapture: DownloadArtworkCapture? = null,
 ) {
     /** Runs one already-claimed fixed-quality row under the shared transfer coordinator lease. */
     suspend fun runClaimed(
@@ -612,7 +613,7 @@ internal class DownloadHlsTransferCoordinator(
             closeCompletedPartWriter(active, partKey)
             persistProgressIfDue(active, active.partLengths[partKey] ?: 0L)?.let { return it }
         }
-        return finalizeAndPromote(active)
+        return finalizeAndPromote(active, context)
     }
 
     private suspend fun settleRegisteredOutcome(
@@ -794,10 +795,19 @@ internal class DownloadHlsTransferCoordinator(
         return DownloadTransferResult.BoundaryChanged
     }
 
-    private suspend fun finalizeAndPromote(active: HlsActiveAttempt): DownloadTransferResult {
+    private suspend fun finalizeAndPromote(
+        active: HlsActiveAttempt,
+        context: AuthenticatedRequestContext,
+    ): DownloadTransferResult {
         persistProgress(active)?.let { return it }
         active.writers.values.forEach { writer -> writer.close() }
         active.writers.clear()
+        artworkCapture?.capture(
+            record = active.record,
+            attempt = active.attempt,
+            lease = active.lease,
+            context = context,
+        )
         val finalization =
             serverScopedStoreRegistry.withGuardedLease(active.lease) {
                 queueCoordinator.finalizeRegisteredAttempt(

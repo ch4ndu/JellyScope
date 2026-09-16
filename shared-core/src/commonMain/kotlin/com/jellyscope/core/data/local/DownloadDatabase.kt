@@ -42,7 +42,7 @@ import com.jellyscope.core.domain.model.saturatingAddNonNegative
 import kotlinx.coroutines.flow.Flow
 
 internal const val DOWNLOAD_DATABASE_FILE_NAME = "download-store.db"
-internal const val DOWNLOAD_DATABASE_SCHEMA_VERSION = 2
+internal const val DOWNLOAD_DATABASE_SCHEMA_VERSION = 3
 
 private val DOWNLOAD_DATABASE_MIGRATION_1_2 =
     object : Migration(1, 2) {
@@ -54,6 +54,13 @@ private val DOWNLOAD_DATABASE_MIGRATION_1_2 =
                     "THEN (`quotaBytes` / 1073741824) * 1000000000 " +
                     "ELSE NULL END",
             )
+        }
+    }
+
+private val DOWNLOAD_DATABASE_MIGRATION_2_3 =
+    object : Migration(2, 3) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE `download_records` ADD COLUMN `presentationBytes` INTEGER NOT NULL DEFAULT 0")
         }
     }
 
@@ -145,7 +152,7 @@ internal interface DownloadDao {
         userId: String,
     ): Long
 
-    @Query("SELECT physicalBytes FROM download_records WHERE serverId = :serverId AND userId = :userId")
+    @Query("SELECT physicalBytes + presentationBytes FROM download_records WHERE serverId = :serverId AND userId = :userId")
     suspend fun physicalByteValuesForAccount(
         serverId: String,
         userId: String,
@@ -602,6 +609,34 @@ internal interface DownloadDao {
     }
 
     @Query(
+        "UPDATE download_records SET stateKey = 'queued-v1', activeSlot = NULL, presentationBytes = 0, " +
+            "platformWorkKindKey = NULL, platformWorkIdentity = NULL, failureKey = NULL, " +
+            "updatedAtEpochMs = MAX(updatedAtEpochMs, :updatedAtEpochMs) " +
+            "WHERE downloadId = :downloadId AND attemptGeneration = :expectedAttemptGeneration " +
+            "AND stateKey = 'failed-v1'",
+    )
+    suspend fun retryAfterPresentationDeleteRaw(
+        downloadId: String,
+        expectedAttemptGeneration: Long,
+        updatedAtEpochMs: Long,
+    ): Int
+
+    /** The filesystem cleanup precedes this atomic Failed-to-Queued and byte-reset mutation. */
+    @Transaction
+    suspend fun retryAfterPresentationDelete(
+        downloadId: String,
+        expectedAttemptGeneration: Long,
+        updatedAtEpochMs: Long,
+    ): Boolean {
+        if (hasPendingRemovalForRecord(downloadId)) return false
+        return retryAfterPresentationDeleteRaw(
+            downloadId = downloadId,
+            expectedAttemptGeneration = expectedAttemptGeneration,
+            updatedAtEpochMs = updatedAtEpochMs,
+        ) == 1
+    }
+
+    @Query(
         "UPDATE download_records SET stateKey = 'completed-v1', activeSlot = NULL, " +
             "reservationBytes = physicalBytes, platformWorkKindKey = NULL, platformWorkIdentity = NULL, " +
             "failureKey = NULL, updatedAtEpochMs = MAX(updatedAtEpochMs, :updatedAtEpochMs) " +
@@ -622,6 +657,101 @@ internal interface DownloadDao {
     ): Int {
         if (hasPendingRemovalForRecord(downloadId)) return 0
         return completeFinalizingAttemptRaw(downloadId, expectedAttemptGeneration, updatedAtEpochMs)
+    }
+
+    @Query(
+        "UPDATE download_records SET presentationBytes = :presentationBytes, " +
+            "updatedAtEpochMs = MAX(updatedAtEpochMs, :updatedAtEpochMs) " +
+            "WHERE downloadId = :downloadId AND serverId = :serverId AND userId = :userId " +
+            "AND attemptGeneration = :expectedAttemptGeneration AND stateKey = 'downloading-v1' " +
+            "AND presentationBytes = :expectedPresentationBytes",
+    )
+    suspend fun updatePresentationBytesForDownloadingAttemptRaw(
+        serverId: String,
+        userId: String,
+        downloadId: String,
+        expectedAttemptGeneration: Long,
+        expectedPresentationBytes: Long,
+        presentationBytes: Long,
+        updatedAtEpochMs: Long,
+    ): Int
+
+    @Transaction
+    suspend fun updatePresentationBytesForDownloadingAttempt(
+        serverId: String,
+        userId: String,
+        downloadId: String,
+        expectedAttemptGeneration: Long,
+        expectedPresentationBytes: Long,
+        presentationBytes: Long,
+        deviceAvailableBytes: Long,
+        updatedAtEpochMs: Long,
+    ): Boolean {
+        require(expectedPresentationBytes >= 0L && presentationBytes >= 0L)
+        require(deviceAvailableBytes >= 0L)
+        if (hasPendingRemovalForRecord(downloadId)) return false
+        val current = record(downloadId, expectedAttemptGeneration) ?: return false
+        if (
+            current.serverId != serverId ||
+            current.userId != userId ||
+            current.stateKey != STATE_DOWNLOADING ||
+            current.presentationBytes != expectedPresentationBytes
+        ) {
+            return false
+        }
+        val additionalBytes = (presentationBytes - expectedPresentationBytes).coerceAtLeast(0L)
+        if (additionalBytes > 0L) {
+            val usage = currentUsage(ensureSettings(), deviceAvailableBytes, DOWNLOAD_DEVICE_SAFETY_RESERVE_BYTES)
+            if (evaluateDownloadAdmission(usage, additionalBytes) != DownloadAdmissionDecision.Allowed) return false
+            if (additionalBytes > (deviceAvailableBytes - DOWNLOAD_DEVICE_SAFETY_RESERVE_BYTES).coerceAtLeast(0L)) {
+                return false
+            }
+        }
+        return updatePresentationBytesForDownloadingAttemptRaw(
+            serverId = serverId,
+            userId = userId,
+            downloadId = downloadId,
+            expectedAttemptGeneration = expectedAttemptGeneration,
+            expectedPresentationBytes = expectedPresentationBytes,
+            presentationBytes = presentationBytes,
+            updatedAtEpochMs = updatedAtEpochMs,
+        ) == 1
+    }
+
+    @Query(
+        "UPDATE download_records SET presentationBytes = :presentationBytes, " +
+            "updatedAtEpochMs = MAX(updatedAtEpochMs, :updatedAtEpochMs) " +
+            "WHERE downloadId = :downloadId AND serverId = :serverId AND userId = :userId " +
+            "AND attemptGeneration = :expectedAttemptGeneration",
+    )
+    suspend fun reconcilePresentationBytesRaw(
+        serverId: String,
+        userId: String,
+        downloadId: String,
+        expectedAttemptGeneration: Long,
+        presentationBytes: Long,
+        updatedAtEpochMs: Long,
+    ): Int
+
+    @Transaction
+    suspend fun reconcilePresentationBytes(
+        serverId: String,
+        userId: String,
+        downloadId: String,
+        expectedAttemptGeneration: Long,
+        presentationBytes: Long,
+        updatedAtEpochMs: Long,
+    ): Boolean {
+        require(presentationBytes >= 0L)
+        if (hasPendingRemovalForRecord(downloadId)) return false
+        return reconcilePresentationBytesRaw(
+            serverId,
+            userId,
+            downloadId,
+            expectedAttemptGeneration,
+            presentationBytes,
+            updatedAtEpochMs,
+        ) == 1
     }
 
     @Query(
@@ -957,7 +1087,7 @@ internal expect object DownloadDatabaseConstructor : RoomDatabaseConstructor<Dow
 
 internal fun RoomDatabase.Builder<DownloadDatabase>.buildDownloadDatabase(driver: SQLiteDriver = BundledSQLiteDriver()): DownloadDatabase =
     setDriver(driver)
-        .addMigrations(DOWNLOAD_DATABASE_MIGRATION_1_2)
+        .addMigrations(DOWNLOAD_DATABASE_MIGRATION_1_2, DOWNLOAD_DATABASE_MIGRATION_2_3)
         .setQueryCoroutineContext(platformIoDispatcher())
         .build()
 
@@ -973,7 +1103,7 @@ private fun confirmationFor(
         accountIdentity = accountIdentity,
         membershipRevision = membershipRevision,
         recordCount = records.size.toLong(),
-        physicalByteValues = records.map { record -> record.physicalBytes },
+        physicalByteValues = records.map { record -> saturatingAddNonNegative(record.physicalBytes, record.presentationBytes) },
     )
 
 private fun confirmationFor(

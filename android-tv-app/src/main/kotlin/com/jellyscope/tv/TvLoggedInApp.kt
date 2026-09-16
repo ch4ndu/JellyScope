@@ -40,6 +40,7 @@ import com.jellyscope.core.domain.usecase.GetUserLibrariesUseCase
 import com.jellyscope.tv.ui.LocalTvHostedRailController
 import com.jellyscope.tv.ui.TvCollectionScreen
 import com.jellyscope.tv.ui.TvDiscoverScreen
+import com.jellyscope.tv.ui.TvDownloadDetailScreen
 import com.jellyscope.tv.ui.TvDownloadsScreen
 import com.jellyscope.tv.ui.TvFindScreen
 import com.jellyscope.tv.ui.TvGridScreen
@@ -74,6 +75,7 @@ import com.jellyscope.ui.screen.home.HomeRow
 import com.jellyscope.ui.screen.home.HomeViewModel
 import com.jellyscope.ui.screen.library.LibraryBrowseViewModel
 import com.jellyscope.ui.screen.library.LibraryHubViewModel
+import com.jellyscope.ui.screen.player.PlayerLaunchOptions
 import com.jellyscope.ui.theme.LocalAppBackgroundBrush
 import kotlinx.coroutines.delay
 import org.koin.android.ext.android.get
@@ -106,6 +108,7 @@ internal fun TvLoggedInApp(
     var routeHistory by rememberSaveable { mutableStateOf(TvRouteHistory()) }
     var drawerAmbientPresentation by remember { mutableStateOf(TvHeroAmbientPresentation.Empty) }
     var detailItemId by rememberSaveable { mutableStateOf("") }
+    var downloadDetailId by rememberSaveable { mutableStateOf("") }
     var collectionItemId by rememberSaveable { mutableStateOf("") }
     var collectionTitle by rememberSaveable { mutableStateOf<String?>(null) }
     var collectionOriginLibraryId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -128,6 +131,7 @@ internal fun TvLoggedInApp(
     var playerInitialSubtitleStreamIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var playerInitialSubtitleAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     var playerOfflineDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
+    var playerOfflineRestartFromBeginning by rememberSaveable { mutableStateOf(false) }
     var playerStartTicks by rememberSaveable { mutableLongStateOf(0L) }
     var playerRouteKey by rememberSaveable { mutableIntStateOf(0) }
     var playerQueueIds by rememberSaveable(stateSaver = stringListSaver()) {
@@ -183,6 +187,7 @@ internal fun TvLoggedInApp(
             focusPath = focusCoordinator.activePath,
             focusMemoryEntries = focusCoordinator.activeMemory.entries,
             detailItemId = detailItemId,
+            downloadDetailId = downloadDetailId,
             collectionItemId = collectionItemId,
             collectionTitle = collectionTitle,
             collectionOriginLibraryId = collectionOriginLibraryId,
@@ -201,6 +206,7 @@ internal fun TvLoggedInApp(
             playerInitialSubtitleStreamIndex = playerInitialSubtitleStreamIndex,
             playerInitialSubtitleAssetId = playerInitialSubtitleAssetId,
             playerOfflineDownloadId = playerOfflineDownloadId,
+            playerOfflineRestartFromBeginning = playerOfflineRestartFromBeginning,
             playerStartTicks = playerStartTicks,
             playerRouteKey = playerRouteKey,
             playerQueueIds = playerQueueIds,
@@ -208,6 +214,7 @@ internal fun TvLoggedInApp(
 
     fun restoreRoute(snapshot: TvRouteSnapshot) {
         detailItemId = snapshot.detailItemId
+        downloadDetailId = snapshot.downloadDetailId
         collectionItemId = snapshot.collectionItemId
         collectionTitle = snapshot.collectionTitle
         collectionOriginLibraryId = snapshot.collectionOriginLibraryId
@@ -226,6 +233,7 @@ internal fun TvLoggedInApp(
         playerInitialSubtitleStreamIndex = snapshot.playerInitialSubtitleStreamIndex
         playerInitialSubtitleAssetId = snapshot.playerInitialSubtitleAssetId
         playerOfflineDownloadId = snapshot.playerOfflineDownloadId
+        playerOfflineRestartFromBeginning = snapshot.playerOfflineRestartFromBeginning
         playerStartTicks = snapshot.playerStartTicks
         playerRouteKey = snapshot.playerRouteKey
         playerQueueIds = snapshot.playerQueueIds
@@ -270,6 +278,7 @@ internal fun TvLoggedInApp(
         initialSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified,
         queue: List<String> = emptyList(),
         offlineDownloadId: DownloadId? = null,
+        offlineRestartFromBeginning: Boolean = false,
     ) {
         pushCurrentRoute()
         playerItemId = itemId
@@ -277,6 +286,7 @@ internal fun TvLoggedInApp(
         playerMediaSourceId = mediaSourceId
         playerInitialAudioStreamIndex = initialAudioStreamIndex
         playerOfflineDownloadId = offlineDownloadId?.value
+        playerOfflineRestartFromBeginning = offlineDownloadId != null && offlineRestartFromBeginning
         playerInitialSubtitleAssetId = (initialSubtitleSelection as? SubtitleSelectionIntent.LocalAsset)?.assetId
         playerInitialSubtitleStreamIndex =
             initialSubtitleSelection
@@ -328,7 +338,9 @@ internal fun TvLoggedInApp(
     }
 
     LaunchedEffect(session.enableContentDownloading, route) {
-        if (!isTvDownloadsVisible(session) && route == TvRoute.Downloads.name) {
+        if (!isTvDownloadsVisible(session) &&
+            (route == TvRoute.Downloads.name || route == TvRoute.DownloadDetail.name)
+        ) {
             resetRoute(TvRoute.Home)
         }
     }
@@ -606,11 +618,33 @@ internal fun TvLoggedInApp(
                                 route = route,
                                 entryId = focusCoordinator.activeRouteEntryId,
                                 detailItemId = detailItemId.takeIf { route == TvRoute.Detail.name }.orEmpty(),
+                                downloadDetailId = downloadDetailId.takeIf { route == TvRoute.DownloadDetail.name }.orEmpty(),
                                 seriesItemId =
                                     seriesItemId
                                         .takeIf { route == TvRoute.Series.name || route == TvRoute.Season.name }
                                         .orEmpty(),
                                 seasonItemId = seasonItemId.takeIf { route == TvRoute.Season.name }.orEmpty(),
+                                player =
+                                    if (route == TvRoute.Player.name) {
+                                        TvPlayerRoutePayload(
+                                            itemId = playerItemId,
+                                            options =
+                                                PlayerLaunchOptions(
+                                                    startPositionTicks = playerStartTicks,
+                                                    mediaSourceId = playerMediaSourceId,
+                                                    initialAudioStreamIndex = playerInitialAudioStreamIndex,
+                                                    initialSubtitleSelection =
+                                                        playerInitialSubtitleAssetId
+                                                            ?.let(SubtitleSelectionIntent::LocalAsset)
+                                                            ?: SubtitleSelectionIntent.fromWireIndex(playerInitialSubtitleStreamIndex),
+                                                    queue = playerQueueIds.toList(),
+                                                    offlineDownloadId = playerOfflineDownloadId.toTvOfflineDownloadIdOrNull(),
+                                                    offlineRestartFromBeginning = playerOfflineRestartFromBeginning,
+                                                ),
+                                        )
+                                    } else {
+                                        null
+                                    },
                             ),
                         label = "tv-route",
                     )
@@ -927,12 +961,38 @@ internal fun TvLoggedInApp(
                                         TvDownloadsScreen(
                                             session = session,
                                             onBack = { resetRoute(TvRoute.Home) },
-                                            onPlayOffline = { record ->
+                                            onOpenDownloadDetail = { downloadId ->
+                                                pushCurrentRoute()
+                                                downloadDetailId = downloadId.value
+                                                route = TvRoute.DownloadDetail.name
+                                            },
+                                            viewModel =
+                                                koinViewModel<DownloadsViewModel>(
+                                                    viewModelStoreOwner = topLevelViewModelStoreOwner,
+                                                    key = tvTopLevelViewModelKey(session, "downloads"),
+                                                    parameters = { parametersOf(session) },
+                                                ),
+                                        )
+                                    }
+                                }
+                            }
+                            animatedRoute == TvRoute.DownloadDetail.name && isTvDownloadsVisible(session) -> {
+                                val downloadId = renderKey.downloadDetailId.toTvOfflineDownloadIdOrNull()
+                                if (downloadId == null) {
+                                    LaunchedEffect(renderKey) { popRoute(TvRoute.Downloads) }
+                                } else {
+                                    TvRouteScope(key = "download-detail-${renderKey.entryId.value}") {
+                                        TvDownloadDetailScreen(
+                                            session = session,
+                                            downloadId = downloadId,
+                                            onBack = { popRoute(TvRoute.Downloads) },
+                                            onPlayOffline = { record, restart ->
                                                 openPlayer(
                                                     itemId = record.businessKey.itemId,
                                                     startTicks = 0L,
                                                     mediaSourceId = record.businessKey.mediaSourceId,
                                                     offlineDownloadId = record.downloadId,
+                                                    offlineRestartFromBeginning = restart,
                                                 )
                                             },
                                             viewModel =
@@ -945,24 +1005,20 @@ internal fun TvLoggedInApp(
                                     }
                                 }
                             }
-                            animatedRoute == TvRoute.Player.name -> {
-                                TvRouteScope(
-                                    key =
-                                        "player-$playerRouteKey-$playerItemId-$playerStartTicks-" +
-                                            "${playerQueueIds.size}-${playerOfflineDownloadId.orEmpty()}",
-                                ) {
+                            animatedRoute == TvRoute.Player.name && renderKey.player != null -> {
+                                val player = renderKey.player
+                                val options = player.options
+                                TvRouteScope(key = "player-${renderKey.entryId.value}") {
                                     TvPlayerScreen(
                                         session = session,
-                                        itemId = playerItemId,
-                                        startPositionTicks = playerStartTicks,
-                                        mediaSourceId = playerMediaSourceId,
-                                        initialAudioStreamIndex = playerInitialAudioStreamIndex,
-                                        initialSubtitleSelection =
-                                            playerInitialSubtitleAssetId
-                                                ?.let(SubtitleSelectionIntent::LocalAsset)
-                                                ?: SubtitleSelectionIntent.fromWireIndex(playerInitialSubtitleStreamIndex),
-                                        queue = playerQueueIds,
-                                        offlineDownloadId = playerOfflineDownloadId.toTvOfflineDownloadIdOrNull(),
+                                        itemId = player.itemId,
+                                        startPositionTicks = options.startPositionTicks,
+                                        mediaSourceId = options.mediaSourceId,
+                                        initialAudioStreamIndex = options.initialAudioStreamIndex,
+                                        initialSubtitleSelection = options.initialSubtitleSelection,
+                                        queue = options.queue,
+                                        offlineDownloadId = options.offlineDownloadId,
+                                        offlineRestartFromBeginning = options.offlineRestartFromBeginning,
                                         onBack = {
                                             onPlaybackStopped()
                                             popRoute()

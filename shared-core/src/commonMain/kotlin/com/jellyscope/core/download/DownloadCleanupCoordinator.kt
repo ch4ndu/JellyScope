@@ -371,6 +371,7 @@ class DownloadCleanupCoordinator internal constructor(
                     try {
                         artifactStore.delete(key, DownloadArtifactArea.Staging)
                         artifactStore.delete(key, DownloadArtifactArea.Completed)
+                        artifactStore.deletePresentation(key)
                         stillRemaining.remove(key)
                     } catch (cancellation: CancellationException) {
                         throw cancellation

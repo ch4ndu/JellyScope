@@ -107,6 +107,9 @@ brush and scrims without resetting Settings scroll or focus.
   preference errors, and upload results remain status. Never expose a stored
   secret as a row value or accessibility label; show only whether it is stored,
   and keep editing masked.
+- Series hides static Audio text beneath Start Now but retains the picker.
+  Season changes reload only episodes, preserving the header, overview, scroll
+  and tab focus; they do not repeat initial focus setup.
 - Movie, concrete-episode, series, and season Detail show Version only for at
   least two valid, distinct sources. Use the nonblank server name or localized
   `Version N` in stable server order. Shared touch uses `TouchTrackDropdown`;
@@ -240,9 +243,9 @@ brush and scrims without resetting Settings scroll or focus.
   pops the watch route. It has no extra hide-controls step. Background/PiP close
   uses the explicit route stop path. Permitted Downloads navigation also stops
   and pops the player before opening the existing destination.
-- Offline cards use snapshot metadata and neutral artwork placeholders; cached
-  remote thumbnails do not imply offline availability. Download permission and
-  artifact qualification remain governed by the [download contract](data-playback.md#downloads-and-offline).
+- Offline cards use saved snapshot metadata and artwork. Legacy downloads and
+  missing images use placeholders; cached remote thumbnails do not imply offline
+  availability. Download permission and artifact qualification remain governed by the [download contract](data-playback.md#downloads-and-offline).
 
 ### Downloads navigation and presentation
 
@@ -256,16 +259,23 @@ brush and scrims without resetting Settings scroll or focus.
   Review validates the selection and shows the server estimate; Start queues it.
   Preview/enqueue errors replace the dialog content with a reason-specific
   failure. Allocation stays in Settings and Downloads. Normal Play remains
-  remote; completed Detail Download, Play on a Completed row, and artifact-qualified
+  remote; completed Detail Download, Play in offline details, and artifact-qualified
   Kids download cards are explicit entrances to offline playback.
-- The account-scoped list keys rows/actions by `DownloadId`, preserving
+- The account-scoped library-style grid keys cards/actions by `DownloadId`.
+  Selecting a card opens offline details with saved metadata, artwork, local
+  resume progress and valid actions. Back restores the grid item and scroll;
+  deleted or inaccessible items exit safely. The grid preserves
   Completed, Downloading/Finalizing, Queued, Paused/Blocked, and Failed states.
   Queued rows offer Cancel and advance through one transfer slot; other states
-  expose only valid Play/Resume, Pause, Retry, Cancel, or Delete actions. Delete
-  requires confirmation and stays disabled while the exact artifact is leased;
-  a stale request returns `ArtifactInUse`. Any paused row adds a Resume-all
+  expose only valid Play/Resume/Restart, Pause, Retry, Cancel, or Delete actions.
+  Delete requires confirmation and stays disabled while the artifact is leased;
+  stale requests return `ArtifactInUse`. Any paused row adds a Resume-all
   interruption notice. Bottom content padding clears either system navigation
   or the Compact bottom bar, and horizontal padding follows adaptive safe area.
+- Downloads reuse standard asset cards and each platform's normal detail layout.
+  Completed cards show playback progress. Actions wrap on narrow windows; missing
+  backdrops use saved primary artwork, and missing logos reserve no space.
+  Artwork fallbacks never contact the server.
 - Settings and Downloads expose device allocation, physical bytes, reservations,
   safe remaining capacity, over-allocation, current-account bytes, and one
   anonymous aggregate for other accounts. They never expose another account's
@@ -646,8 +656,9 @@ explains Apple TV's reclaimable storage and app-active transfer limit. The
   space.
 - Downloads is permission-gated top-level navigation because durable transfers,
   storage, failures, and destructive actions need a visible owner. Normal Play
-  remains remote so the active artifact is explicit. Allocation actions name the
-  choice; input guidance owns units and numeric restrictions.
+  remains remote so the active artifact is explicit; saved artwork and details
+  support offline browsing. Allocation actions name the choice; input guidance
+  owns units and numeric restrictions.
 - Related shelf count and order stay in shared model/data owners so shared and
   TV presentation cannot drift.
 - Library selection persists through the existing server-scoped preference

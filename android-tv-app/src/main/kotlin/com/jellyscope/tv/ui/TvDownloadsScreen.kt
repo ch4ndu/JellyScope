@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,10 +44,8 @@ import androidx.tv.material3.Icon
 import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GB
 import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadId
-import com.jellyscope.core.domain.model.DownloadQuality
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadState
-import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.wholeGbDownloadQuotaBytes
 import com.jellyscope.tv.R
@@ -53,6 +54,7 @@ import com.jellyscope.tv.ui.focus.TvFocusTrapEffect
 import com.jellyscope.tv.ui.focus.rememberChildRequester
 import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
 import com.jellyscope.tv.ui.focus.tvFocusScope
+import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.downloads.DownloadsSection
@@ -61,7 +63,6 @@ import com.jellyscope.ui.screen.downloads.DownloadsUiError
 import com.jellyscope.ui.screen.downloads.DownloadsUiState
 import com.jellyscope.ui.screen.downloads.DownloadsViewModel
 import com.jellyscope.ui.theme.LocalJellyfinPalette
-import com.jellyscope.ui.component.AdaptiveProgressBar as TvProgressBar
 import com.jellyscope.ui.component.AdaptiveSpinner as TvSpinner
 import com.jellyscope.ui.component.DetailBodyStyle as TvBodyStyle
 import com.jellyscope.ui.component.DetailSecondaryStyle as TvSecondaryStyle
@@ -139,12 +140,10 @@ internal fun tvDownloadCustomQuotaBytes(
 internal fun TvDownloadsScreen(
     session: Session,
     onBack: () -> Unit,
-    onPlayOffline: (DownloadRecord) -> Unit,
+    onOpenDownloadDetail: (DownloadId) -> Unit,
     viewModel: DownloadsViewModel,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var actionDownloadId by rememberSaveable(session.serverId, session.userId) { mutableStateOf<String?>(null) }
-    var confirmation by remember { mutableStateOf<TvDownloadConfirmation?>(null) }
     var quotaDialogVisible by rememberSaveable(session.serverId, session.userId) { mutableStateOf(false) }
     var returnFocusKey by rememberSaveable(session.serverId, session.userId) { mutableStateOf<String?>(null) }
 
@@ -153,87 +152,18 @@ internal fun TvDownloadsScreen(
         viewModel.wakeQueueOnScreenResume()
     }
 
-    val actionRecord = state.records.firstOrNull { record -> record.downloadId.value == actionDownloadId }
-    LaunchedEffect(actionDownloadId, actionRecord) {
-        if (actionDownloadId != null && actionRecord == null) {
-            actionDownloadId = null
-        }
-    }
-    val modalVisible = actionRecord != null || confirmation != null || quotaDialogVisible
-
     TvDownloadsContent(
+        session = session,
         state = state,
-        modalVisible = modalVisible,
+        modalVisible = quotaDialogVisible,
         returnFocusKey = returnFocusKey,
         onReturnFocusConsumed = { returnFocusKey = null },
         onBack = onBack,
         onManageAllocation = { quotaDialogVisible = true },
         onResumePausedDownloads = viewModel::resumePausedDownloads,
-        onOpenActions = { record -> actionDownloadId = record.downloadId.value },
-        onPlayOffline = onPlayOffline,
+        onOpenDownloadDetail = onOpenDownloadDetail,
+        viewModel = viewModel,
     )
-
-    actionRecord?.let { record ->
-        TvDownloadActionsDialog(
-            record = record,
-            busy = state.isBulkResumeInFlight || state.inFlightDownloadId != null,
-            artifactLeased = record.downloadId.value in state.leasedDownloadIds,
-            onDismiss = {
-                actionDownloadId = null
-                returnFocusKey = tvDownloadFocusKey(record.downloadId)
-            },
-            onAction = { action ->
-                actionDownloadId = null
-                when (action) {
-                    TvDownloadAction.Play -> onPlayOffline(record)
-                    TvDownloadAction.Pause -> {
-                        returnFocusKey = tvDownloadFocusKey(record.downloadId)
-                        viewModel.pause(record.downloadId.value)
-                    }
-                    TvDownloadAction.Resume -> {
-                        returnFocusKey = tvDownloadFocusKey(record.downloadId)
-                        viewModel.resume(record.downloadId.value)
-                    }
-                    TvDownloadAction.Retry -> {
-                        returnFocusKey = tvDownloadFocusKey(record.downloadId)
-                        viewModel.retry(record.downloadId.value)
-                    }
-                    TvDownloadAction.Cancel ->
-                        confirmation =
-                            TvDownloadConfirmation(
-                                downloadId = record.downloadId.value,
-                                title = record.request.snapshot.title,
-                                kind = TvDownloadConfirmationKind.Cancel,
-                            )
-                    TvDownloadAction.Delete ->
-                        confirmation =
-                            TvDownloadConfirmation(
-                                downloadId = record.downloadId.value,
-                                title = record.request.snapshot.title,
-                                kind = TvDownloadConfirmationKind.Delete,
-                            )
-                }
-            },
-        )
-    }
-
-    confirmation?.let { pending ->
-        TvDownloadConfirmationDialog(
-            confirmation = pending,
-            onDismiss = {
-                confirmation = null
-                pending.downloadId.toDownloadFocusKeyOrNull()?.let { key -> returnFocusKey = key }
-            },
-            onConfirm = {
-                confirmation = null
-                pending.downloadId.toDownloadFocusKeyOrNull()?.let { key -> returnFocusKey = key }
-                when (pending.kind) {
-                    TvDownloadConfirmationKind.Cancel -> viewModel.cancel(pending.downloadId)
-                    TvDownloadConfirmationKind.Delete -> viewModel.delete(pending.downloadId)
-                }
-            },
-        )
-    }
 
     if (quotaDialogVisible) {
         TvDownloadQuotaDialog(
@@ -254,6 +184,7 @@ internal fun TvDownloadsScreen(
 
 @Composable
 private fun TvDownloadsContent(
+    session: Session,
     state: DownloadsUiState,
     modalVisible: Boolean,
     returnFocusKey: String?,
@@ -261,11 +192,11 @@ private fun TvDownloadsContent(
     onBack: () -> Unit,
     onManageAllocation: () -> Unit,
     onResumePausedDownloads: () -> Unit,
-    onOpenActions: (DownloadRecord) -> Unit,
-    onPlayOffline: (DownloadRecord) -> Unit,
+    onOpenDownloadDetail: (DownloadId) -> Unit,
+    viewModel: DownloadsViewModel,
 ) {
     val hostedRail = LocalTvHostedRailController.current
-    val listState = rememberLazyListState()
+    val listState = rememberLazyGridState()
     val loadingFocusRequester = remember { FocusRequester() }
     val focusScope = rememberTvFocusScopeNode(listOf("downloads", "list"))
     val manageFocusRequester = focusScope.rememberChildRequester(TV_DOWNLOADS_MANAGE_FOCUS_KEY)
@@ -346,7 +277,7 @@ private fun TvDownloadsContent(
                             if (itemInfo != null) {
                                 val viewportCenter =
                                     (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
-                                listState.scrollToItem(slot, -(viewportCenter - itemInfo.size / 2))
+                                listState.scrollToItem(slot, -(viewportCenter - itemInfo.size.height / 2))
                             }
                         },
                     )
@@ -401,7 +332,8 @@ private fun TvDownloadsContent(
         return
     }
 
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(TvDimens.posterWidth.tileScaled()),
         state = listState,
         modifier =
             Modifier
@@ -415,8 +347,12 @@ private fun TvDownloadsContent(
                 bottom = TvDimens.overscanVertical,
             ),
         verticalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
+        horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
     ) {
-        item(key = TV_DOWNLOADS_MANAGE_FOCUS_KEY) {
+        item(
+            key = TV_DOWNLOADS_MANAGE_FOCUS_KEY,
+            span = { GridItemSpan(maxLineSpan) },
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(TvDimens.itemGap)) {
                 TvText(
                     text = stringResource(R.string.tv_downloads_title),
@@ -441,7 +377,10 @@ private fun TvDownloadsContent(
             }
         }
         if (hasPausedDownloads) {
-            item(key = TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY) {
+            item(
+                key = TV_DOWNLOADS_RESUME_ALL_FOCUS_KEY,
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
                 TvDownloadsInterruptedCard(
                     busy = state.isBulkResumeInFlight,
                     focusRequester = resumeAllFocusRequester,
@@ -460,7 +399,10 @@ private fun TvDownloadsContent(
             }
         }
         if (sections.isEmpty()) {
-            item(key = "downloads:empty") {
+            item(
+                key = "downloads:empty",
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(TvDimens.settingsValueGap)) {
                     TvText(
                         text = stringResource(R.string.tv_downloads_empty),
@@ -477,7 +419,10 @@ private fun TvDownloadsContent(
             }
         } else {
             sections.forEach { section ->
-                item(key = "downloads:section:${section.kind.name}") {
+                item(
+                    key = "downloads:section:${section.kind.name}",
+                    span = { GridItemSpan(maxLineSpan) },
+                ) {
                     TvText(
                         text = stringResource(tvDownloadSectionResource(section.kind)),
                         style = TvTitleStyle,
@@ -490,10 +435,11 @@ private fun TvDownloadsContent(
                 ) { _, record ->
                     val focusKey = tvDownloadFocusKey(record.downloadId)
                     val focusRequester = focusScope.rememberChildRequester(focusKey)
-                    TvDownloadRow(
+                    TvDownloadGridCard(
+                        session = session,
                         record = record,
-                        busy = state.isBulkResumeInFlight || state.inFlightDownloadId == record.downloadId.value,
-                        artifactLeased = record.downloadId.value in state.leasedDownloadIds,
+                        card = state.detailsByDownloadId.getValue(record.downloadId).card,
+                        viewModel = viewModel,
                         focusRequester = focusRequester,
                         onFocusChanged = {
                             initialContentFocusCompleted = true
@@ -504,15 +450,23 @@ private fun TvDownloadsContent(
                                 semanticIndex = semanticIndexByFocusKey.getValue(focusKey),
                             )
                         },
-                        onRequestRailFocus = hostedRail::requestRailFocus,
-                        onClick = { onOpenActions(record) },
-                        onPlayOffline = { onPlayOffline(record) },
+                        onRequestRailFocus = {
+                            val column =
+                                listState.layoutInfo.visibleItemsInfo
+                                    .firstOrNull { it.key == record.downloadId.value }
+                                    ?.column
+                            column == 0 && hostedRail.requestRailFocus()
+                        },
+                        onClick = { onOpenDownloadDetail(record.downloadId) },
                     )
                 }
             }
         }
         state.error?.let { error ->
-            item(key = "downloads:error") {
+            item(
+                key = "downloads:error",
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
                 TvText(
                     text = stringResource(tvDownloadsErrorResource(error)),
                     color = LocalJellyfinPalette.current.error,
@@ -707,297 +661,34 @@ private fun TvDownloadsInterruptedCard(
 }
 
 @Composable
-private fun TvDownloadRow(
+private fun TvDownloadGridCard(
+    session: Session,
     record: DownloadRecord,
-    busy: Boolean,
-    artifactLeased: Boolean,
+    card: com.jellyscope.ui.component.MediaCardUi,
+    viewModel: DownloadsViewModel,
     focusRequester: FocusRequester,
     onFocusChanged: () -> Unit,
     onRequestRailFocus: () -> Boolean,
     onClick: () -> Unit,
-    onPlayOffline: () -> Unit,
 ) {
-    val palette = LocalJellyfinPalette.current
-    val expectedBytes = tvDownloadExpectedBytes(record)
-    val progress =
-        if (expectedBytes > 0L) {
-            (record.physicalBytes.toFloat() / expectedBytes.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-    TvFocusableBox(
+    TvMediaCard(
+        session = session,
+        item = card,
+        wide = false,
+        onFocused = onFocusChanged,
         onClick = onClick,
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester)
-                .onFocusChanged { focusState -> if (focusState.isFocused) onFocusChanged() }
-                .onPreviewKeyEvent { event ->
-                    when {
-                        event.requestsRail(onRequestRailFocus) -> true
-                        record.state == DownloadState.Completed && event.isPlayKeyDown() -> {
-                            onPlayOffline()
-                            true
-                        }
-                        else -> false
-                    }
-                },
-        contentDescription = record.request.snapshot.title,
-        focusedScale = 1.02f,
-        backgroundColor = palette.surfaceNavy,
-        focusedBackgroundColor = palette.surfaceRaised,
-        focusedBorderColor = palette.cyan,
-        focusGlowColor = palette.cyan.copy(alpha = TvDimens.SETTINGS_FOCUS_GLOW_ALPHA),
-        focusGlowElevation = TvDimens.settingsPanelFocusGlow,
-        contentPadding = PaddingValues(TvDimens.settingsDialogContentPadding),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(TvDimens.settingsValueGap),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(TvDimens.settingsRowIconGap),
-            ) {
-                Icon(
-                    imageVector = TvIcons.Download,
-                    contentDescription = null,
-                    tint = palette.cyan,
-                    modifier = Modifier.size(TvDimens.settingsRowIconSize),
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    TvText(text = record.request.snapshot.title, style = TvTitleStyle, maxLines = 1)
-                    record.request.snapshot.seriesName?.takeIf(String::isNotBlank)?.let { seriesName ->
-                        TvText(
-                            text = seriesName,
-                            style = TvSecondaryStyle,
-                            color = palette.textSecondary,
-                            maxLines = 1,
-                        )
-                    }
-                }
-                if (busy) {
-                    TvSpinner(modifier = Modifier.size(TvDimens.settingsRowIconSize))
-                }
-                TvText(
-                    text = stringResource(tvDownloadStateResource(record.state)),
-                    style = TvBodyStyle.copy(fontWeight = FontWeight.SemiBold),
-                    color =
-                        when (record.state) {
-                            DownloadState.Failed -> palette.error
-                            DownloadState.BlockedByQuota -> palette.accentAmber
-                            else -> palette.cyan
-                        },
-                    maxLines = 1,
-                )
-            }
-            TvDownloadSnapshotDetails(record)
-            record.request.snapshot.sourcePresentation?.takeIf(String::isNotBlank)?.let { presentation ->
-                TvText(
-                    text = stringResource(R.string.tv_downloads_version, presentation),
-                    style = TvSecondaryStyle,
-                    color = palette.textSecondary,
-                    maxLines = 1,
-                )
-            }
-            if (record.state == DownloadState.Downloading || record.state == DownloadState.Finalizing) {
-                TvProgressBar(progress = progress)
-                TvText(
-                    text =
-                        stringResource(
-                            R.string.tv_downloads_progress,
-                            tvDownloadBytes(record.physicalBytes),
-                            tvDownloadBytes(expectedBytes),
-                        ),
-                    style = TvSecondaryStyle,
-                    color = palette.textSecondary,
-                    maxLines = 1,
-                )
-            } else if (record.state == DownloadState.Completed) {
-                TvText(
-                    text = tvDownloadBytes(record.physicalBytes),
-                    style = TvSecondaryStyle,
-                    color = palette.textSecondary,
-                    maxLines = 1,
-                )
-                record.localResumePositionMs.takeIf { position -> position > 0L }?.let { position ->
-                    TvText(
-                        text = stringResource(R.string.tv_downloads_resume_at, formatDuration(position)),
-                        style = TvSecondaryStyle,
-                        color = palette.textSecondary,
-                        maxLines = 1,
-                    )
-                }
-            }
-            record.failure?.let { failure ->
-                TvText(
-                    text = stringResource(tvDownloadFailureResource(failure)),
-                    style = TvBodyStyle,
-                    color = palette.error,
-                    maxLines = 2,
-                )
-            }
-            if (artifactLeased) {
-                TvText(
-                    text = stringResource(R.string.tv_downloads_artifact_in_use),
-                    style = TvBodyStyle,
-                    color = palette.error,
-                    maxLines = 2,
-                )
-            }
-            TvText(
-                text = stringResource(R.string.tv_downloads_open_actions_hint),
-                style = TvSecondaryStyle,
-                color = palette.textSecondary,
-                maxLines = 1,
+        focusRequester = focusRequester,
+        focusChildModifier = Modifier.onPreviewKeyEvent { event -> event.requestsRail(onRequestRailFocus) },
+        artwork = {
+            TvDownloadArtworkImage(
+                session = session,
+                record = record,
+                role = com.jellyscope.core.domain.model.OfflineArtworkRole.Poster,
+                viewModel = viewModel,
+                modifier = Modifier.fillMaxSize(),
             )
-        }
-    }
-}
-
-@Composable
-private fun TvDownloadSnapshotDetails(record: DownloadRecord) {
-    val snapshot = record.request.snapshot
-    val kind =
-        stringResource(
-            when (snapshot.itemKind) {
-                MediaKind.Movie -> R.string.tv_downloads_kind_movie
-                MediaKind.Episode -> R.string.tv_downloads_kind_episode
-                MediaKind.Series,
-                MediaKind.Other,
-                -> R.string.tv_downloads_kind_video
-            },
-        )
-    val duration =
-        snapshot.durationMs
-            ?.let { durationMs -> stringResource(R.string.tv_downloads_duration_minutes, durationMs / 60_000L) }
-            ?: stringResource(R.string.tv_downloads_duration_unknown)
-    val quality =
-        when (val downloadQuality = record.request.quality) {
-            DownloadQuality.Original -> stringResource(R.string.tv_downloads_quality_original)
-            is DownloadQuality.Fixed ->
-                stringResource(
-                    R.string.tv_downloads_quality_fixed,
-                    downloadQuality.rung.height,
-                    tvDownloadBitrateMbps(downloadQuality.maxBitrateBps),
-                )
-        }
-    TvText(
-        text = stringResource(R.string.tv_downloads_item_details, kind, duration, quality),
-        style = TvSecondaryStyle,
-        color = LocalJellyfinPalette.current.textSecondary,
-        maxLines = 2,
+        },
     )
-    snapshot.seasonLabel?.takeIf(String::isNotBlank)?.let { season ->
-        TvText(text = season, style = TvSecondaryStyle, color = LocalJellyfinPalette.current.textSecondary, maxLines = 1)
-    }
-    snapshot.episodeLabel?.takeIf(String::isNotBlank)?.let { episode ->
-        TvText(text = episode, style = TvSecondaryStyle, color = LocalJellyfinPalette.current.textSecondary, maxLines = 1)
-    }
-}
-
-@Composable
-private fun TvDownloadActionsDialog(
-    record: DownloadRecord,
-    busy: Boolean,
-    artifactLeased: Boolean,
-    onDismiss: () -> Unit,
-    onAction: (TvDownloadAction) -> Unit,
-) {
-    val actions =
-        remember(record.state, record.localResumePositionMs, busy, artifactLeased) {
-            tvDownloadActions(record, busy, artifactLeased)
-        }
-    val requesters = remember(actions) { List(actions.size) { FocusRequester() } }
-    TvFocusTrapEffect()
-    LaunchedEffect(actions) {
-        requesters.firstOrNull()?.let { requester -> requestTvFocusWithRetry { requester.requestFocusSafely() } }
-    }
-    TvSettingsDialogFrame(
-        title = record.request.snapshot.title,
-        onDismiss = onDismiss,
-    ) {
-        actions.forEachIndexed { index, option ->
-            TvSettingsDialogAction(
-                text = stringResource(tvDownloadActionResource(option.action, record.localResumePositionMs)),
-                focusRequester = requesters[index],
-                onClick = { onAction(option.action) },
-                enabled = option.enabled,
-                destructive = option.destructive,
-                modifier =
-                    Modifier.onPreviewKeyEvent { event ->
-                        event.type == KeyEventType.KeyDown &&
-                            (
-                                event.key == Key.DirectionLeft ||
-                                    event.key == Key.DirectionRight ||
-                                    (index == 0 && event.key == Key.DirectionUp) ||
-                                    (index == actions.lastIndex && event.key == Key.DirectionDown)
-                            )
-                    },
-            )
-        }
-        if (artifactLeased && record.state == DownloadState.Completed) {
-            TvText(
-                text = stringResource(R.string.tv_downloads_artifact_in_use),
-                style = TvBodyStyle,
-                color = LocalJellyfinPalette.current.error,
-                maxLines = 2,
-            )
-        }
-    }
-}
-
-@Composable
-private fun TvDownloadConfirmationDialog(
-    confirmation: TvDownloadConfirmation,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
-    val confirmRequester = remember(confirmation) { FocusRequester() }
-    TvFocusTrapEffect()
-    LaunchedEffect(confirmRequester) {
-        requestTvFocusWithRetry { confirmRequester.requestFocusSafely() }
-    }
-    val deleting = confirmation.kind == TvDownloadConfirmationKind.Delete
-    TvSettingsDialogFrame(
-        title =
-            stringResource(
-                if (deleting) R.string.tv_downloads_delete_title else R.string.tv_downloads_cancel_title,
-            ),
-        onDismiss = onDismiss,
-    ) {
-        TvText(
-            text =
-                stringResource(
-                    if (deleting) R.string.tv_downloads_delete_message else R.string.tv_downloads_cancel_message,
-                    confirmation.title,
-                ),
-            style = TvBodyStyle,
-            color = LocalJellyfinPalette.current.textSecondary,
-            maxLines = 3,
-        )
-        TvSettingsDialogAction(
-            text =
-                stringResource(
-                    if (deleting) R.string.tv_downloads_delete_confirm else R.string.tv_downloads_cancel_confirm,
-                ),
-            focusRequester = confirmRequester,
-            onClick = onConfirm,
-            destructive = true,
-            modifier =
-                Modifier.onPreviewKeyEvent { event ->
-                    event.type == KeyEventType.KeyDown &&
-                        event.key in
-                        setOf(
-                            Key.DirectionLeft,
-                            Key.DirectionRight,
-                            Key.DirectionUp,
-                            Key.DirectionDown,
-                        )
-                },
-        )
-    }
 }
 
 @Composable
@@ -1184,69 +875,6 @@ private sealed interface TvDownloadQuotaChoice {
     data object Unconfigured : TvDownloadQuotaChoice
 }
 
-private enum class TvDownloadAction {
-    Play,
-    Pause,
-    Resume,
-    Retry,
-    Cancel,
-    Delete,
-}
-
-private data class TvDownloadActionOption(
-    val action: TvDownloadAction,
-    val enabled: Boolean,
-    val destructive: Boolean = false,
-)
-
-private fun tvDownloadActions(
-    record: DownloadRecord,
-    busy: Boolean,
-    artifactLeased: Boolean,
-): List<TvDownloadActionOption> =
-    buildList {
-        when (record.state) {
-            DownloadState.Queued -> Unit
-            DownloadState.Downloading -> add(TvDownloadActionOption(TvDownloadAction.Pause, enabled = !busy))
-            DownloadState.Paused,
-            DownloadState.BlockedByQuota,
-            -> add(TvDownloadActionOption(TvDownloadAction.Resume, enabled = !busy))
-            DownloadState.Failed -> add(TvDownloadActionOption(TvDownloadAction.Retry, enabled = !busy))
-            DownloadState.Completed -> add(TvDownloadActionOption(TvDownloadAction.Play, enabled = true))
-            DownloadState.NotDownloaded,
-            DownloadState.Finalizing,
-            -> Unit
-        }
-        if (record.state == DownloadState.Completed) {
-            add(
-                TvDownloadActionOption(
-                    action = TvDownloadAction.Delete,
-                    enabled = !busy && !artifactLeased,
-                    destructive = true,
-                ),
-            )
-        } else {
-            add(
-                TvDownloadActionOption(
-                    action = TvDownloadAction.Cancel,
-                    enabled = !busy,
-                    destructive = true,
-                ),
-            )
-        }
-    }
-
-private data class TvDownloadConfirmation(
-    val downloadId: String,
-    val title: String,
-    val kind: TvDownloadConfirmationKind,
-)
-
-private enum class TvDownloadConfirmationKind {
-    Cancel,
-    Delete,
-}
-
 private fun String.toDownloadFocusKeyOrNull(): String? = runCatching { tvDownloadFocusKey(DownloadId(this)) }.getOrNull()
 
 private fun KeyEvent.requestsRail(onRequestRailFocus: () -> Boolean): Boolean =
@@ -1262,14 +890,8 @@ private fun tvDownloadExpectedBytes(record: DownloadRecord): Long =
         record.physicalBytes,
     )
 
-private fun tvDownloadBitrateMbps(bitrateBps: Long): String {
-    val whole = bitrateBps / 1_000_000L
-    val remainder = bitrateBps % 1_000_000L
-    return if (remainder == 0L) whole.toString() else "$whole.${remainder / 100_000L}"
-}
-
 @Composable
-private fun tvDownloadBytes(bytes: Long): String =
+internal fun tvDownloadBytes(bytes: Long): String =
     when {
         bytes >= DOWNLOAD_BYTES_PER_GB ->
             stringResource(R.string.tv_downloads_bytes_gb, bytes.toDouble() / DOWNLOAD_BYTES_PER_GB)
@@ -1280,7 +902,7 @@ private fun tvDownloadBytes(bytes: Long): String =
         else -> stringResource(R.string.tv_downloads_bytes_b, bytes)
     }
 
-private fun tvDownloadStateResource(state: DownloadState): Int =
+internal fun tvDownloadStateResource(state: DownloadState): Int =
     when (state) {
         DownloadState.NotDownloaded -> R.string.tv_downloads_state_not_downloaded
         DownloadState.Queued -> R.string.tv_downloads_state_queued
@@ -1292,7 +914,7 @@ private fun tvDownloadStateResource(state: DownloadState): Int =
         DownloadState.Failed -> R.string.tv_downloads_state_failed
     }
 
-private fun tvDownloadFailureResource(failure: DownloadFailure): Int =
+internal fun tvDownloadFailureResource(failure: DownloadFailure): Int =
     when (failure) {
         DownloadFailure.PermissionDenied -> R.string.tv_downloads_failure_permission
         DownloadFailure.SizeUnavailable -> R.string.tv_downloads_failure_size
@@ -1307,7 +929,7 @@ private fun tvDownloadFailureResource(failure: DownloadFailure): Int =
         DownloadFailure.ArtifactInUse -> R.string.tv_downloads_artifact_in_use
     }
 
-private fun tvDownloadsErrorResource(error: DownloadsUiError): Int =
+internal fun tvDownloadsErrorResource(error: DownloadsUiError): Int =
     when (error) {
         DownloadsUiError.LoadFailed -> R.string.tv_downloads_error
         DownloadsUiError.CommandRejected -> R.string.tv_downloads_command_error
@@ -1322,24 +944,6 @@ private fun tvDownloadSectionResource(kind: DownloadsSectionKind): Int =
         DownloadsSectionKind.Queued -> R.string.tv_downloads_section_queued
         DownloadsSectionKind.Paused -> R.string.tv_downloads_section_paused
         DownloadsSectionKind.Failed -> R.string.tv_downloads_section_failed
-    }
-
-private fun tvDownloadActionResource(
-    action: TvDownloadAction,
-    localResumePositionMs: Long,
-): Int =
-    when (action) {
-        TvDownloadAction.Play ->
-            if (localResumePositionMs > 0L) {
-                R.string.tv_downloads_action_resume_playback
-            } else {
-                R.string.tv_downloads_action_play
-            }
-        TvDownloadAction.Pause -> R.string.tv_downloads_action_pause
-        TvDownloadAction.Resume -> R.string.tv_downloads_action_resume
-        TvDownloadAction.Retry -> R.string.tv_downloads_action_retry
-        TvDownloadAction.Cancel -> R.string.tv_downloads_action_cancel
-        TvDownloadAction.Delete -> R.string.tv_downloads_action_delete
     }
 
 private const val DOWNLOAD_BYTES_PER_KB = 1_000L

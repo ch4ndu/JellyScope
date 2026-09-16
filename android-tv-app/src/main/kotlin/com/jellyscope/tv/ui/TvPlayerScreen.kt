@@ -39,6 +39,7 @@ fun TvPlayerScreen(
     initialSubtitleSelection: SubtitleSelectionIntent,
     queue: List<String>,
     offlineDownloadId: DownloadId? = null,
+    offlineRestartFromBeginning: Boolean = false,
     onBack: () -> Unit,
     onOpenPlaybackSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -55,6 +56,7 @@ fun TvPlayerScreen(
                         initialSubtitleSelection = initialSubtitleSelection,
                         queue = queue,
                         offlineDownloadId = offlineDownloadId,
+                        offlineRestartFromBeginning = offlineRestartFromBeginning,
                     ),
                 )
             },

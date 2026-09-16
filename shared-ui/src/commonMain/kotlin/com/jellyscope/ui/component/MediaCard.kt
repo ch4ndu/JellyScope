@@ -193,6 +193,7 @@ fun MediaCard(
     titleMaxLines: Int = 2,
     showSubtitle: Boolean = true,
     durationLabel: String? = null,
+    artwork: (@Composable () -> Unit)? = null,
 ) {
     val cardWidth =
         if (useWideCard) {
@@ -267,7 +268,9 @@ fun MediaCard(
         ) {
             Box {
                 val imageUrl = item.imageUrl
-                if (imageUrl != null) {
+                if (artwork != null) {
+                    artwork()
+                } else if (imageUrl != null) {
                     // Decode at the size this card is drawn at, derived from the
                     // resolved tile token and display density — not from a measured
                     // per-item width, which would mint a cache entry per card. See

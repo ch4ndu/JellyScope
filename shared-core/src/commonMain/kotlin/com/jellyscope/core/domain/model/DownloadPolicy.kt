@@ -56,10 +56,12 @@ fun calculateDownloadUsage(
     var outstandingReservationBytes = 0L
     entries.forEach { entry ->
         physicalBytes = saturatingAddNonNegative(physicalBytes, entry.physicalBytes)
+        physicalBytes = saturatingAddNonNegative(physicalBytes, entry.presentationBytes)
         if (entry.state.retainsOutstandingReservation) {
             outstandingReservationBytes =
                 saturatingAddNonNegative(
                     outstandingReservationBytes,
+                    // Reservation remains media-only even though persisted use also includes presentation.
                     subtractClamped(entry.reservationBytes, entry.physicalBytes),
                 )
         }

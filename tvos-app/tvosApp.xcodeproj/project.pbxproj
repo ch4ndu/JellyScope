@@ -133,6 +133,9 @@
 		2A4756259A0630AA756DFFDB /* SearchResultTabsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32260EE49915706944F84DEF /* SearchResultTabsView.swift */; };
 		29D678858CD0CC9564B1DC15 /* DeviceSettingsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CDA59888E1161F8EE0CD95B /* DeviceSettingsModel.swift */; };
 		F622D6DAC5AC2DA9FCC384D1 /* SettingsDeviceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F97C180483D43FE70A2B96B4 /* SettingsDeviceSection.swift */; };
+		E887A7C64E70DCEC582B11A6 /* DownloadArtworkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30FF007218502367CF3F4E5 /* DownloadArtworkModel.swift */; };
+		624BDB87991F29E418ECC7F6 /* DownloadArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76BFCCC19B33B6657635A772 /* DownloadArtworkView.swift */; };
+		3DBD21261A9FB37959C46E12 /* DownloadDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1596DB242532DC46F3A305 /* DownloadDetailView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -263,6 +266,9 @@
 		32260EE49915706944F84DEF /* SearchResultTabsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultTabsView.swift; sourceTree = "<group>"; };
 		4CDA59888E1161F8EE0CD95B /* DeviceSettingsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSettingsModel.swift; sourceTree = "<group>"; };
 		F97C180483D43FE70A2B96B4 /* SettingsDeviceSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDeviceSection.swift; sourceTree = "<group>"; };
+		E30FF007218502367CF3F4E5 /* DownloadArtworkModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadArtworkModel.swift; sourceTree = "<group>"; };
+		76BFCCC19B33B6657635A772 /* DownloadArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadArtworkView.swift; sourceTree = "<group>"; };
+		8E1596DB242532DC46F3A305 /* DownloadDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadDetailView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -541,6 +547,9 @@
 		982FF34119DA11C027893C04 /* downloads */ = {
 			isa = PBXGroup;
 			children = (
+				E30FF007218502367CF3F4E5 /* DownloadArtworkModel.swift */,
+				76BFCCC19B33B6657635A772 /* DownloadArtworkView.swift */,
+				8E1596DB242532DC46F3A305 /* DownloadDetailView.swift */,
 				8F2B816802F7B4C7A947803D /* DownloadActionsView.swift */,
 				617791F5812F03EA14B58E55 /* DownloadConfirmationView.swift */,
 				EDAF748D359561DA6E1FFDA3 /* DownloadLabels.swift */,
@@ -679,6 +688,9 @@
 				2B77E8DEA6AC05F53ECD3077 /* SearchPersonSuggestionsView.swift in Sources */,
 				3CFEFEF9BBC3D4DB4CD2143F /* SearchQuestionnaireView.swift in Sources */,
 				74D58043E6B077C0AE1EC91E /* SearchLabels.swift in Sources */,
+				E887A7C64E70DCEC582B11A6 /* DownloadArtworkModel.swift in Sources */,
+				624BDB87991F29E418ECC7F6 /* DownloadArtworkView.swift in Sources */,
+				3DBD21261A9FB37959C46E12 /* DownloadDetailView.swift in Sources */,
 				B1FAFB986B6526BC90834491 /* DownloadActionsView.swift in Sources */,
 				61EE7A33FED4440E49BC0E07 /* DownloadConfirmationView.swift in Sources */,
 				6BCB0BA82F5FD9D113690086 /* DownloadLabels.swift in Sources */,

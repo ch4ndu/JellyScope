@@ -12,8 +12,14 @@ import com.jellyscope.core.domain.model.DownloadQuality
 import com.jellyscope.core.domain.model.DownloadRequest
 import com.jellyscope.core.domain.model.DownloadSubtitleSelection
 import com.jellyscope.core.domain.model.MediaKind
+import com.jellyscope.core.domain.model.OfflineArtworkReference
+import com.jellyscope.core.domain.model.OfflineArtworkRole
 import com.jellyscope.core.domain.model.OfflineChapterSnapshot
+import com.jellyscope.core.domain.model.OfflineDetailSnapshot
+import com.jellyscope.core.domain.model.OfflineExternalProviderIds
 import com.jellyscope.core.domain.model.OfflineMediaSnapshot
+import com.jellyscope.core.domain.model.OfflinePersonCreditType
+import com.jellyscope.core.domain.model.OfflinePersonSnapshot
 import com.jellyscope.core.domain.model.OfflineTrackKind
 import com.jellyscope.core.domain.model.OfflineTrackSnapshot
 import com.jellyscope.core.domain.playback.BackendSourceDescriptor
@@ -90,6 +96,31 @@ class DownloadEncodingTest {
         assertTrue("http" !in encoded.lowercase())
         assertEquals(snapshot, DownloadSnapshotCodec.decode(encoded))
         assertNull(DownloadSnapshotCodec.decode("offline-snapshot-v2:{}"))
+
+        val literalLegacy =
+            DownloadSnapshotCodec.decode(
+                "offline-snapshot-v1:{\"formatVersion\":1,\"title\":\"Legacy\",\"itemKind\":\"movie-v1\",\"seriesName\":null,\"seasonLabel\":null,\"episodeLabel\":null,\"durationMs\":null,\"chapters\":[],\"sourcePresentation\":null,\"embeddedTracks\":[],\"selectedAudioTrack\":null,\"selectedSubtitleTrack\":null,\"container\":\"mkv\",\"videoCodec\":\"h264\",\"audioCodec\":\"aac\",\"hdrOrDolbyVision\":false}",
+            )
+        assertEquals("Legacy", literalLegacy?.title)
+        assertNull(literalLegacy?.detail)
+        assertEquals(emptyList(), literalLegacy?.artworkReferences)
+        assertEquals(false, literalLegacy?.presentationCaptureEligible)
+
+        val enrichedSnapshot =
+            snapshot.copy(
+                detail =
+                    OfflineDetailSnapshot(
+                        overview = "Saved overview",
+                        communityRating = 8.4,
+                        criticRating = 91.0,
+                        genres = listOf("Drama"),
+                        people = listOf(OfflinePersonSnapshot("Performer", "Lead", OfflinePersonCreditType.Cast)),
+                        externalProviderIds = OfflineExternalProviderIds(imdbId = "tt1234567", tmdbId = "42", tmdbItemType = "movie"),
+                    ),
+                artworkReferences = listOf(OfflineArtworkReference(OfflineArtworkRole.Poster, "series-id", "image-tag")),
+                presentationCaptureEligible = true,
+            )
+        assertEquals(enrichedSnapshot, DownloadSnapshotCodec.decode(DownloadSnapshotCodec.encode(enrichedSnapshot)))
     }
 
     @Test

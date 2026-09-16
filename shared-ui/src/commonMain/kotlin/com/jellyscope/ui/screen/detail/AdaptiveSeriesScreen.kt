@@ -7,6 +7,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -85,10 +87,14 @@ fun AdaptiveSeasonScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selectedSeasonId = (state as? SeriesUiState.Content)?.content?.selectedSeasonId
+    var desiredSeasonId by rememberSaveable(seriesId, initialSeasonId) { mutableStateOf(initialSeasonId) }
 
-    LaunchedEffect(initialSeasonId, selectedSeasonId) {
-        if (initialSeasonId.isNotBlank() && selectedSeasonId != null && selectedSeasonId != initialSeasonId) {
-            viewModel.selectSeason(initialSeasonId)
+    LaunchedEffect(viewModel, desiredSeasonId, selectedSeasonId) {
+        if (desiredSeasonId.isNotBlank() &&
+            selectedSeasonId != null &&
+            selectedSeasonId != desiredSeasonId
+        ) {
+            viewModel.selectSeason(desiredSeasonId)
         }
     }
 
@@ -139,6 +145,7 @@ fun AdaptiveSeasonScreen(
                 onToggleWatched = viewModel::toggleFocusedEpisodeWatched,
                 onToggleFavorite = viewModel::toggleFocusedEpisodeFavorite,
                 onSeasonSelected = { seasonId ->
+                    desiredSeasonId = seasonId
                     viewModel.selectSeason(seasonId)
                     onSeasonSelected(seasonId)
                 },

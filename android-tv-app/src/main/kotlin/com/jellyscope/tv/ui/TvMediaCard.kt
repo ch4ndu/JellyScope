@@ -61,6 +61,7 @@ internal fun TvMediaCard(
     focusRequester: FocusRequester? = null,
     focusChildModifier: Modifier = Modifier,
     onPlayDirect: (() -> Unit)? = null,
+    artwork: (@Composable () -> Unit)? = null,
 ) {
     val requester = focusRequester ?: remember { FocusRequester() }
     val focusedScale = if (LocalTvFocusZoomEnabled.current) 1.1f else 1f
@@ -108,7 +109,9 @@ internal fun TvMediaCard(
             contentDescription = item.title,
         ) { focused ->
             Box(modifier = Modifier.fillMaxSize()) {
-                if (imageUrl != null) {
+                if (artwork != null) {
+                    artwork()
+                } else if (imageUrl != null) {
                     // Decode at the size the card is drawn at. A 1080p TV draws this
                     // card ~210px wide; it used to decode every poster at a fixed
                     // 480x720 — 5.2x the pixels — by upscaling a 300px download and

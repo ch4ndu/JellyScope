@@ -78,6 +78,7 @@ internal fun AdaptiveSeriesContent(
     var trackPickerVisible by remember { mutableStateOf<DetailTrackPickerType?>(null) }
     var restoreTrackPickerFocus by remember { mutableStateOf<DetailTrackPickerType?>(null) }
     var openedVersionSourceId by remember { mutableStateOf<String?>(null) }
+    var routeEntryFocusHandled by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val seriesPlayEpisode = content.seriesPlayEpisode
     val versionTrackRequester = remember { FocusRequester() }
@@ -127,12 +128,17 @@ internal fun AdaptiveSeriesContent(
 
     if (dpad) {
         LaunchedEffect(seriesPlayEpisode?.itemId) {
+            if (routeEntryFocusHandled) {
+                return@LaunchedEffect
+            }
             if (castFocus.restorePending() || relatedFocus.restorePending() || seasonsFocus.restorePending()) {
+                routeEntryFocusHandled = true
                 return@LaunchedEffect
             }
             if (seriesPlayEpisode != null) {
                 playRequester.requestFocusSafely()
                 listState.scrollToItem(0)
+                routeEntryFocusHandled = true
             }
         }
 
@@ -236,6 +242,7 @@ internal fun AdaptiveSeriesContent(
                                 onSelectMediaVersion = { mediaSourceId ->
                                     onSelectEpisodeMediaVersion(seriesPlayEpisode.itemId, mediaSourceId)
                                 },
+                                showStaticAudioText = false,
                             )
                         }
                     }

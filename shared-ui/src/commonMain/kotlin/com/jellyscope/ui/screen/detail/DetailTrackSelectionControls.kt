@@ -196,6 +196,7 @@ internal fun DetailTrackSelectionControls(
     selectedMediaSourceId: String? = null,
     onSelectMediaVersion: (String) -> Unit = {},
     subtitleActions: DetailSubtitlePickerActions? = null,
+    showStaticAudioText: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     if (!mediaVersionPickerPolicy(versions, selectedMediaSourceId).visible &&
@@ -211,6 +212,7 @@ internal fun DetailTrackSelectionControls(
         DpadTrackSelectionControls(
             trackSelection = trackSelection,
             selectionState = selectionState,
+            showStaticAudioText = showStaticAudioText,
             modifier = modifier,
         )
     } else {
@@ -221,6 +223,7 @@ internal fun DetailTrackSelectionControls(
             selectedMediaSourceId = selectedMediaSourceId,
             onSelectMediaVersion = onSelectMediaVersion,
             subtitleActions = subtitleActions,
+            showStaticAudioText = showStaticAudioText,
             modifier = modifier,
         )
     }

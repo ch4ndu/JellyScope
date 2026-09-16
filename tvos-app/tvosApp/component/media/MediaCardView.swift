@@ -70,24 +70,12 @@ struct MediaCardView: View {
 
     private var baseLink: some View {
         NavigationLink(value: MediaRoute(itemId: card.id)) {
-            VStack(alignment: .leading, spacing: isHomeVariant ? 9 : 8) {
-                artwork
-                Text(card.title)
-                    .font(isHomeVariant ? .callout.weight(.semibold) : .caption)
-                    .lineLimit(1)
-                if isHomeVariant {
-                    Text(cardSubtitle ?? " ")
-                        .font(.caption)
-                        .foregroundStyle(appearance.secondaryText)
-                        .lineLimit(1)
-                } else if let cardSubtitle {
-                    Text(cardSubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(width: width, alignment: .leading)
+            MediaCardContent(
+                title: card.title,
+                subtitle: cardSubtitle,
+                width: width,
+                isHomeVariant: isHomeVariant
+            ) { artwork }
         }
         .buttonStyle(.card)
     }
@@ -146,6 +134,38 @@ struct MediaCardView: View {
             return year.stringValue
         }
         return nil
+    }
+}
+
+/// Shared asset-card label layout; artwork may come from the server or an offline copy.
+struct MediaCardContent<Artwork: View>: View {
+    let title: String
+    let subtitle: String?
+    let width: CGFloat
+    var isHomeVariant = false
+    @ViewBuilder var artwork: () -> Artwork
+
+    @Environment(\.tvAppearance) private var appearance
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: isHomeVariant ? 9 : 8) {
+            artwork()
+            Text(title)
+                .font(isHomeVariant ? .callout.weight(.semibold) : .caption)
+                .lineLimit(1)
+            if isHomeVariant {
+                Text(subtitle ?? " ")
+                    .font(.caption)
+                    .foregroundStyle(appearance.secondaryText)
+                    .lineLimit(1)
+            } else if let subtitle {
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: width, alignment: .leading)
     }
 }
 

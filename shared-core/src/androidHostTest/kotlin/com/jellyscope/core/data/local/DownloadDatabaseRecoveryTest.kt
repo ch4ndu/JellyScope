@@ -310,10 +310,60 @@ class DownloadDatabaseRecoveryTest {
 
             opened.close()
             database = null
-            // The data-only migration leaves the v1 and v2 table shapes identical, so restoring
-            // the v1 Room metadata creates the historical production input.
+            // Remove the v3 presentation column before restoring the historical v1 metadata.
+            // The data-only v1-to-v2 migration leaves those two table shapes identical.
             val legacyConnection = AndroidSQLiteDriver().open(databaseFile.path)
             try {
+                // Android's legacy SQLite driver cannot DROP COLUMN; rebuild the v1 table shape.
+                legacyConnection.execSQL("ALTER TABLE `download_records` RENAME TO `current_download_records`")
+                legacyConnection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `download_records` (`downloadId` TEXT NOT NULL, `serverId` TEXT NOT NULL,
+                    `userId` TEXT NOT NULL, `itemId` TEXT NOT NULL, `mediaSourceId` TEXT NOT NULL, `itemKindKey` TEXT
+                    NOT NULL, `qualityKey` TEXT NOT NULL, `qualityBitrateBps` INTEGER, `artifactKindKey` TEXT NOT NULL,
+                    `selectedAudioStreamIndex` INTEGER, `subtitleSelectionKey` TEXT NOT NULL, `subtitleStreamIndex`
+                    INTEGER, `subtitleLocalAssetId` TEXT, `subtitleBurnInConfirmed` INTEGER NOT NULL,
+                    `admissionEstimateBytes` INTEGER NOT NULL, `initialReservationBytes` INTEGER NOT NULL,
+                    `expectedSourceBytes` INTEGER, `sourceValidator` TEXT, `artifactKey` TEXT NOT NULL,
+                    `artifactFormatVersion` INTEGER NOT NULL, `snapshotEncoding` TEXT NOT NULL, `fifoSequence` INTEGER
+                    NOT NULL, `stateKey` TEXT NOT NULL, `activeSlot` TEXT, `reservationBytes` INTEGER NOT NULL,
+                    `physicalBytes` INTEGER NOT NULL, `checkpointBytes` INTEGER NOT NULL, `attemptGeneration` INTEGER
+                    NOT NULL, `platformWorkKindKey` TEXT, `platformWorkIdentity` TEXT, `localResumePositionMs` INTEGER
+                    NOT NULL, `localWatched` INTEGER NOT NULL, `failureKey` TEXT, `createdAtEpochMs` INTEGER NOT NULL,
+                    `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`downloadId`))
+                    """.trimIndent(),
+                )
+                val legacyColumns =
+                    legacyConnection.prepare("PRAGMA table_info(`download_records`)").use { statement ->
+                        buildList {
+                            while (statement.step()) add("`${statement.getText(1)}`")
+                        }.joinToString(", ")
+                    }
+                legacyConnection.execSQL(
+                    "INSERT INTO `download_records` ($legacyColumns) " +
+                        "SELECT $legacyColumns FROM `current_download_records`",
+                )
+                legacyConnection.execSQL("DROP TABLE `current_download_records`")
+                legacyConnection.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_records_serverId_userId_itemId_mediaSourceId`" +
+                        " ON `download_records` (`serverId`, `userId`, `itemId`, `mediaSourceId`)",
+                )
+                legacyConnection.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_records_fifoSequence`" +
+                        " ON `download_records` (`fifoSequence`)",
+                )
+                legacyConnection.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_records_artifactKey`" +
+                        " ON `download_records` (`artifactKey`)",
+                )
+                legacyConnection.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_records_activeSlot`" +
+                        " ON `download_records` (`activeSlot`)",
+                )
+                legacyConnection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_download_records_serverId_userId_fifoSequence`" +
+                        " ON `download_records` (`serverId`, `userId`, `fifoSequence`)",
+                )
                 legacyConnection.execSQL("UPDATE `download_settings` SET `quotaBytes` = 2147483648 WHERE `id` = 1")
                 legacyConnection.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)")
                 legacyConnection.execSQL(
@@ -336,6 +386,7 @@ class DownloadDatabaseRecoveryTest {
             assertEquals(request.admissionEstimateBytes, migratedRecord.request.admissionEstimateBytes)
             assertEquals(physicalBytes, migratedRecord.physicalBytes)
             assertEquals(checkpointBytes, migratedRecord.checkpointBytes)
+            assertEquals(0L, migratedRecord.presentationBytes)
             assertEquals(700_000_000L, migratedRecord.reservationBytes)
         }
 

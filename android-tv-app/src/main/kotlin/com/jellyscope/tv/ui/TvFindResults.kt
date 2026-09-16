@@ -182,12 +182,14 @@ internal fun TvFindResultsPane(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TvFindChipSection(
     title: String,
     contentStartPadding: Dp,
     content: LazyListScope.() -> Unit,
 ) {
+    val horizontalBringIntoViewSpec = rememberMarioBringIntoViewSpec()
     Column(verticalArrangement = Arrangement.spacedBy(TvDimens.findResultsHeaderGap)) {
         TvText(
             text = title,
@@ -195,17 +197,19 @@ private fun TvFindChipSection(
             maxLines = 1,
             modifier = Modifier.padding(start = contentStartPadding),
         )
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(TvDimens.browseControlsGap),
-            contentPadding =
-                PaddingValues(
-                    start = contentStartPadding + TvDimens.focusBorder,
-                    top = TvDimens.focusBorder,
-                    end = TvDimens.overscanHorizontal + TvDimens.rowGap,
-                    bottom = TvDimens.focusBorder,
-                ),
-        ) {
-            content()
+        CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalBringIntoViewSpec) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(TvDimens.browseControlsGap),
+                contentPadding =
+                    PaddingValues(
+                        start = contentStartPadding + TvDimens.focusBorder,
+                        top = TvDimens.focusBorder,
+                        end = TvDimens.overscanHorizontal + TvDimens.rowGap,
+                        bottom = TvDimens.focusBorder,
+                    ),
+            ) {
+                content()
+            }
         }
     }
 }
@@ -381,8 +385,9 @@ private fun TvFindResultRow(
     val rowScope = rememberTvFocusScopeNode(listOf("find", "row:$rowKey"))
     val rowState = rememberLazyListState()
     val restoreRequest = rowScope.restoreRequest()
+    val horizontalBringIntoViewSpec = rememberMarioBringIntoViewSpec()
     val restoreAwareSpec =
-        rememberRestoreAwareBringIntoViewSpec(LocalBringIntoViewSpec.current, rowScope.restoreHandoffActive)
+        rememberRestoreAwareBringIntoViewSpec(horizontalBringIntoViewSpec, rowScope.restoreHandoffActive)
     LaunchedEffect(restoreRequest, items, rowState) {
         val request = restoreRequest ?: return@LaunchedEffect
         rowScope.restoreFocus(

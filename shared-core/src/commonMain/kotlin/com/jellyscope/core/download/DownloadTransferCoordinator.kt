@@ -93,6 +93,7 @@ internal class DownloadTransferCoordinator(
     private val localSubtitleFileStore: LocalSubtitleFileStore,
     private val hlsTransferCoordinator: DownloadHlsTransferCoordinator? = null,
     private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher(),
+    private val artworkCapture: DownloadArtworkCapture? = null,
 ) {
     suspend fun runOnce(platformWorkIdentity: DownloadPlatformWorkIdentity? = null): DownloadTransferResult =
         withContext(ioDispatcher) {
@@ -516,7 +517,7 @@ internal class DownloadTransferCoordinator(
             return settleFailure(activeAttempt, DownloadFailure.SourceChanged)
         }
         if (activeAttempt.writer.lengthBytes == source.totalBytes) {
-            return finalizeAndPromote(activeAttempt, source)
+            return finalizeAndPromote(activeAttempt, requestContext, source)
         }
 
         val streamResult =
@@ -540,7 +541,7 @@ internal class DownloadTransferCoordinator(
 
             is OriginalDownloadStreamResult.Success ->
                 when (streamResult.value) {
-                    BodyOutcome.Complete -> finalizeAndPromote(activeAttempt, source)
+                    BodyOutcome.Complete -> finalizeAndPromote(activeAttempt, requestContext, source)
                     BodyOutcome.BoundaryChanged -> DownloadTransferResult.BoundaryChanged
                     BodyOutcome.BlockedByQuota -> settleBlocked(activeAttempt)
                     BodyOutcome.SourceChanged -> settleFailure(activeAttempt, DownloadFailure.SourceChanged)
@@ -815,6 +816,7 @@ internal class DownloadTransferCoordinator(
 
     private suspend fun finalizeAndPromote(
         activeAttempt: ActiveAttempt,
+        requestContext: AuthenticatedRequestContext,
         source: OriginalDownloadSource,
     ): DownloadTransferResult {
         when (revalidateReservation(activeAttempt)) {
@@ -825,6 +827,12 @@ internal class DownloadTransferCoordinator(
             BodyOutcome.SourceChanged -> return settleFailure(activeAttempt, DownloadFailure.SourceChanged)
             BodyOutcome.Complete -> Unit
         }
+        artworkCapture?.capture(
+            record = activeAttempt.record,
+            attempt = activeAttempt.attempt,
+            lease = activeAttempt.lease,
+            context = requestContext,
+        )
         val finalization =
             serverScopedStoreRegistry.withGuardedLease(activeAttempt.lease) {
                 queueCoordinator.finalizeRegisteredAttempt(

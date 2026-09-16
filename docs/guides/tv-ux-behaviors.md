@@ -32,7 +32,8 @@ This contract applies to Android TV.
 - Ribbon restore focuses an attached key without scrolling. An unattached key
   receives one centered reveal and bounded retries. Automatic bring-into-view is
   zero only during that handoff; afterward Home/Recommended use Mario centering,
-  Detail/Series/Season use their dead zone, and Find/Person use minimal visibility.
+  Detail/Series/Season use their dead zone, Find uses row-aware vertical visibility,
+  and Person uses minimal visibility.
 - A route-owned ribbon restore suppresses ordinary entry autofocus. Saved
   positions are semantic content positions, mapped separately from lazy slots
   such as Home's loading and View All tiles. Missing items remain within their
@@ -146,11 +147,15 @@ This contract applies to Android TV.
   Silent metadata refresh does not replace or complete Related loading. Person,
   Collection, and Player remain route-scoped. Each shared Detail focus bridge is
   bound to its rendered entry so outgoing content cannot consume incoming focus.
+- Player launch inputs stay with their rendered entry through exit animations;
+  restoring the parent must not recreate the player or change its offline mode.
 
 ## Detail / series screens
 
 - Entry focuses primary Play/Resume. Version, audio, and subtitle dialogs trap
   focus on the current or first option and restore the opener on Back.
+- Download dialog options scroll at full row height; Cancel and confirmation
+  stay outside the scroll region.
 - Detail subtitle search follows Off, Jellyfin tracks, and installed assets.
   Language, results, progress, errors, quota, close, delete, and retry are
   D-pad-reachable. Search replaces the track dialog and restores the subtitle
@@ -185,16 +190,17 @@ This contract applies to Android TV.
 
 ## Season screen
 
-- Keep the season tabs visible and focus the first episode on load with the list
-  pinned to item zero.
+- Keep season tabs visible. Initial entry may focus the first episode at item
+  zero; season changes preserve tab focus and vertical scroll.
 - Reserve stable lines for focused episode metadata: title two lines and overview
   three, ellipsized. This is not a fixed-height lazy text container.
 - Up from episodes targets the selected season tab, which scrolls into composition.
   Horizontal episode/cast motion uses the shared dead zone and does not move the
   vertical list.
 - Episode strip, episode actions, and cast focus are keyed per selected season.
-  Switching seasons resets them, including action focus to Play, and swaps content
-  in place without a route transition or new route entry.
+  Season changes reset that state and the next action target to Play. Loading
+  stays in the episode area; the header and overview remain composed without
+  a route transition or new entry.
 
 ## Player
 
@@ -241,8 +247,8 @@ This contract applies to Android TV.
 - The seek bar shows buffering, thickens with a thumb when focused, and routes
   Down to Play/Pause. Trickplay starts only for a pending seek, not focus/current
   position. Show a frame only after the current sprite tile loads. Draw the full
-  sheet through a clipped Canvas viewport; keep the committed frame through
-  seek loading/buffering, then fade/collapse it. Clamp horizontal tracking and use
+  sheet with uniform aspect-fit scaling, centered and clipped to the selected
+  frame. Keep that frame through seek loading/buffering, then fade/collapse it. Clamp horizontal tracking and use
   a shallow pointer that narrows near edges. Item changes dispose old preview.
 - Play/Pause and overlay controls use translucent dark circles at rest and white
   with dark glyphs when focused.
@@ -384,6 +390,9 @@ This contract applies to Android TV.
   results cannot satisfy it. Error/empty/replacement consumes the pending intent;
   typing, clear, person selection, or tab navigation cancels it.
 - Field focus only highlights/restores. Select/click opens the keyboard.
+- The results container owns row-aware vertical focus scrolling. Result and chip
+  rows explicitly own horizontal scrolling, so moving within a visible row
+  preserves vertical position; Up/Down reveals the destination row.
 
 ## Downloads
 
@@ -395,12 +404,15 @@ This contract applies to Android TV.
 - One focus scope owns Manage, conditional Resume, and each stable `DownloadId`.
   Resume is preferred while present. Initial loading parks focus; restore reveals
   its semantic target and falls through remaining controls when a row disappears.
-  Left/Back opens the selected drawer destination.
-- Selecting a row opens a focus-trapping action dialog. Dismissal and
-  Cancel/Delete confirmation return to the row if present; leased Delete is
-  disabled. Queued offers Cancel only. Media Play on Completed starts offline
-  playback. Allocation offers accepted presets and bounded whole-GB input; Back
-  leaves nested text editing before dismissing the dialog.
+  Left opens the drawer only from the first grid column; other columns move
+  to the preceding card. Back opens the selected drawer destination.
+- Standard asset cards open offline details with the normal hero and actions.
+  Source, track, credit and chapter facts are display-only; Up/Down scrolls them.
+  Back restores the card or nearest survivor after deletion.
+- Delete requires confirmation and is disabled while leased; routine cleanup
+  shows no in-use error. Queued offers Cancel only; Completed Play starts offline
+  playback. Allocation accepts presets and bounded whole-GB input; Back leaves
+  nested text editing before dismissal.
 
 Transfer and storage semantics belong to
 [Downloads And Offline](data-playback.md#downloads-and-offline).
@@ -528,6 +540,8 @@ collection; its policy is owned by [playback architecture](playback-architecture
 
 ## Why
 
+- Find separates scroll axes so horizontal focus movement cannot shift the page.
+
 - **Playback links reuse normal playback ownership.** Account-qualified item
   identifiers make manual playback entry repeatable while preserving session
   boundaries, backend settings, and the normal planner. Requiring the previous
@@ -546,7 +560,8 @@ collection; its policy is owned by [playback architecture](playback-architecture
 
 - Successful sprite fetch controls visibility because metadata can outlive the
   image. Pending target and item identity prevent empty, canceled, or stale frames;
-  Canvas cropping avoids parent constraints clipping the full sheet.
+  Canvas cropping avoids parent constraints clipping the full sheet. Uniform
+  frame scaling preserves portrait proportions inside the fixed preview box.
 
 ### Related shelf focus
 

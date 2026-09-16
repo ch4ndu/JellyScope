@@ -6,6 +6,7 @@ import android.content.Context
 import android.system.Os
 import com.jellyscope.core.coroutines.platformIoDispatcher
 import com.jellyscope.core.domain.model.DownloadArtifactKey
+import com.jellyscope.core.domain.model.OfflineArtworkRole
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
@@ -25,6 +26,8 @@ internal class AndroidDownloadArtifactStore(
     private val completedRoot = areaDirectory(DownloadArtifactArea.Completed)
     private val stagingMetadataReplacementRoot =
         containedChild(root, "staging-metadata-replacement").also(::ensureDirectory)
+    private val presentationRoot = containedChild(root, "presentation").also(::ensureDirectory)
+    private val presentationTemporaryRoot = containedChild(root, "presentation-temporary").also(::ensureDirectory)
 
     override suspend fun openStagingWriter(
         artifactKey: DownloadArtifactKey,
@@ -227,6 +230,81 @@ internal class AndroidDownloadArtifactStore(
             )
         }
 
+    override suspend fun stagePresentation(
+        artifactKey: DownloadArtifactKey,
+        role: OfflineArtworkRole,
+        bytes: ByteArray,
+    ): Long =
+        withContext(ioDispatcher) {
+            require(bytes.size in 1..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES)
+            val temporaryDirectory = presentationTemporaryDirectory(artifactKey).also(::ensureDirectory)
+            val temporary = containedChild(temporaryDirectory, role.presentationTemporaryFileName())
+            if (temporary.exists()) {
+                checkRegularContainedFile(temporary)
+                check(temporary.delete()) { "Unable to replace temporary presentation image." }
+            }
+            RandomAccessFile(temporary, "rw").use { file ->
+                file.write(bytes)
+                file.fd.sync()
+            }
+            bytes.size.toLong()
+        }
+
+    override suspend fun publishPresentation(
+        artifactKey: DownloadArtifactKey,
+        role: OfflineArtworkRole,
+    ): DownloadPresentationInspection? =
+        withContext(ioDispatcher) {
+            val temporary = containedChild(presentationTemporaryDirectory(artifactKey), role.presentationTemporaryFileName())
+            if (!temporary.exists()) return@withContext null
+            checkRegularContainedFile(temporary)
+            if (temporary.length() !in 1L..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES.toLong()) return@withContext null
+            val target = containedChild(presentationDirectory(artifactKey).also(::ensureDirectory), role.presentationFileName())
+            if (target.exists()) checkRegularContainedFile(target)
+            Os.rename(temporary.absolutePath, target.absolutePath)
+            removeEmptyPresentationTemporaryDirectory(artifactKey)
+            presentationInspectionBlocking(artifactKey)
+        }
+
+    override suspend fun readPresentation(
+        artifactKey: DownloadArtifactKey,
+        role: OfflineArtworkRole,
+        maxBytes: Int,
+    ): ByteArray? =
+        withContext(ioDispatcher) {
+            require(maxBytes in 0..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES)
+            val file = containedChild(presentationDirectory(artifactKey), role.presentationFileName())
+            if (!file.exists()) return@withContext null
+            checkRegularContainedFile(file)
+            if (file.length() !in 1L..maxBytes.toLong()) return@withContext null
+            FileInputStream(file).use { input -> input.readBytes() }
+        }
+
+    override suspend fun reconcilePresentation(artifactKey: DownloadArtifactKey): DownloadPresentationInspection =
+        withContext(ioDispatcher) {
+            deletePresentationTemporaryDirectory(artifactKey)
+            val directory = presentationDirectory(artifactKey)
+            if (!directory.exists()) return@withContext DownloadPresentationInspection(emptyMap())
+            checkContainedDirectory(directory)
+            directory.listFiles().orEmpty().forEach { file ->
+                val recognized = OfflineArtworkRole.entries.any { role -> role.presentationFileName() == file.name }
+                if (!recognized || !file.isFile || file.length() !in 1L..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES.toLong()) {
+                    deleteContainedTree(file)
+                } else {
+                    checkRegularContainedFile(file)
+                }
+            }
+            presentationInspectionBlocking(artifactKey)
+        }
+
+    override suspend fun deletePresentation(artifactKey: DownloadArtifactKey) {
+        withContext(ioDispatcher) {
+            deletePresentationTemporaryDirectory(artifactKey)
+            val directory = presentationDirectory(artifactKey)
+            if (directory.exists()) deleteContainedTree(directory)
+        }
+    }
+
     private fun inspectBlocking(
         artifactKey: DownloadArtifactKey,
         area: DownloadArtifactArea,
@@ -248,6 +326,41 @@ internal class AndroidDownloadArtifactStore(
     }
 
     private fun areaDirectory(area: DownloadArtifactArea): File = containedChild(root, area.directoryName).also(::ensureDirectory)
+
+    private fun presentationDirectory(artifactKey: DownloadArtifactKey): File = containedChild(presentationRoot, artifactKey.value)
+
+    private fun presentationTemporaryDirectory(artifactKey: DownloadArtifactKey): File =
+        containedChild(presentationTemporaryRoot, artifactKey.value)
+
+    private fun removeEmptyPresentationTemporaryDirectory(artifactKey: DownloadArtifactKey) {
+        val directory = presentationTemporaryDirectory(artifactKey)
+        if (directory.exists() && directory.listFiles()?.isEmpty() == true) check(directory.delete())
+    }
+
+    private fun deletePresentationTemporaryDirectory(artifactKey: DownloadArtifactKey) {
+        val directory = presentationTemporaryDirectory(artifactKey)
+        if (directory.exists()) deleteContainedTree(directory)
+    }
+
+    private fun presentationInspectionBlocking(artifactKey: DownloadArtifactKey): DownloadPresentationInspection {
+        val directory = presentationDirectory(artifactKey)
+        if (!directory.exists()) return DownloadPresentationInspection(emptyMap())
+        checkContainedDirectory(directory)
+        val roleBytes =
+            OfflineArtworkRole.entries
+                .mapNotNull { role ->
+                    val file = containedChild(directory, role.presentationFileName())
+                    if (!file.exists()) {
+                        null
+                    } else {
+                        checkRegularContainedFile(file)
+                        role to file.length().takeIf { length -> length in 1L..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES.toLong() }
+                    }
+                }.associate { (role, length) -> role to checkNotNull(length) }
+        return DownloadPresentationInspection(roleBytes).also { inspection ->
+            check(inspection.totalBytes <= DOWNLOAD_PRESENTATION_TOTAL_MAX_BYTES)
+        }
+    }
 
     private fun artifactDirectory(
         artifactKey: DownloadArtifactKey,

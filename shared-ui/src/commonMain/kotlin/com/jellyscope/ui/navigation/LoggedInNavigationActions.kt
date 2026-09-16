@@ -50,6 +50,7 @@ internal fun selectedTopLevelRoute(currentRoute: String?): String? =
         Routes.Person,
         Routes.FilteredLibrary,
         -> Routes.Discover
+        Routes.DownloadDetail -> Routes.Downloads
         Routes.Home,
         Routes.Discover,
         Routes.Find,

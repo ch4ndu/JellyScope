@@ -45,7 +45,7 @@ struct DetailMetadataView: View {
                 if let resolution = content.badges.resolution {
                     badge(resolution)
                 }
-                if let audio = content.badges.audioLayout {
+                if content.kind != .series, let audio = content.badges.audioLayout {
                     badge(audio)
                 }
                 if content.badges.hasSubtitles {

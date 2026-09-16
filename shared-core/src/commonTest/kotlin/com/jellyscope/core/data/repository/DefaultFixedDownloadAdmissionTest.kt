@@ -4,6 +4,7 @@ package com.jellyscope.core.data.repository
 
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.remote.AuthenticatedRequestContext
+import com.jellyscope.core.data.remote.BaseItemDto
 import com.jellyscope.core.data.remote.FixedDownloadCleanupResult
 import com.jellyscope.core.data.remote.FixedDownloadPreflightResult
 import com.jellyscope.core.data.remote.FixedDownloadRequest
@@ -346,7 +347,11 @@ private class RecordingFixedDownloadApi(
         context: AuthenticatedRequestContext,
         itemId: String,
         includePlaybackFields: Boolean,
-    ) = error("unused")
+    ) = BaseItemDto(
+        id = itemId,
+        name = "Movie",
+        type = "Movie",
+    )
 
     override suspend fun getSimilarItems(
         context: AuthenticatedRequestContext,

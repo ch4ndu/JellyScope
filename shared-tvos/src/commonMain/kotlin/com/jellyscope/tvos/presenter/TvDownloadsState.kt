@@ -2,6 +2,9 @@
 
 package com.jellyscope.tvos.presenter
 
+import com.jellyscope.core.domain.model.MediaKind
+import com.jellyscope.core.domain.model.OfflinePersonCreditType
+
 enum class TvDownloadSectionKind {
     Completed,
     Active,
@@ -37,9 +40,25 @@ data class TvDownloadRow(
     val id: String,
     val attemptGeneration: Long,
     val title: String,
+    val itemKind: MediaKind,
+    val seriesName: String? = null,
+    val seasonLabel: String? = null,
+    val episodeLabel: String? = null,
     val secondaryTitle: String? = null,
     val sourceLabel: String? = null,
+    val durationMs: Long? = null,
+    val chapters: List<TvChapter> = emptyList(),
+    val audioTracks: List<TvTrackChoice> = emptyList(),
+    val subtitleTracks: List<TvTrackChoice> = emptyList(),
+    val backend: TvDownloadBackendInfo? = null,
+    val detail: TvDownloadDetail? = null,
+    /** Pre-grouped on the presenter worker so native SwiftUI only renders saved people facts. */
+    val cast: List<TvDownloadPerson> = emptyList(),
+    val crew: List<TvDownloadPerson> = emptyList(),
+    val otherPeople: List<TvDownloadPerson> = emptyList(),
     val state: TvDownloadRowState,
+    /** Changes after transfer-owned artwork capture so native views can re-read the published file. */
+    val presentationBytes: Long = 0L,
     val qualityBitrateBps: Long? = null,
     val physicalBytes: Long,
     val expectedBytes: Long,
@@ -55,6 +74,43 @@ data class TvDownloadRow(
     val canCancel: Boolean = false,
     val canDelete: Boolean = false,
     val isLeased: Boolean = false,
+)
+
+/** Saved, credential-free media facts that native tvOS can render without a server request. */
+data class TvDownloadDetail(
+    val overview: String? = null,
+    val tagline: String? = null,
+    val officialRating: String? = null,
+    val communityRating: Double? = null,
+    val criticRating: Double? = null,
+    val productionYear: Int? = null,
+    val genres: List<String> = emptyList(),
+    val studios: List<String> = emptyList(),
+    val people: List<TvDownloadPerson> = emptyList(),
+    val externalProviderIds: TvDownloadExternalProviderIds = TvDownloadExternalProviderIds(),
+)
+
+data class TvDownloadPerson(
+    val name: String,
+    val role: String? = null,
+    val creditType: OfflinePersonCreditType = OfflinePersonCreditType.Other,
+)
+
+data class TvDownloadExternalProviderIds(
+    val imdbId: String? = null,
+    val tmdbId: String? = null,
+    val tmdbItemType: String? = null,
+)
+
+/** Saved media facts for the selected local source, never a local path or remote URL. */
+data class TvDownloadBackendInfo(
+    val container: String? = null,
+    val videoCodec: String? = null,
+    val audioCodec: String? = null,
+    val isHdrOrDolbyVision: Boolean = false,
+    val videoWidth: Int? = null,
+    val videoHeight: Int? = null,
+    val videoFrameRate: Double? = null,
 )
 
 data class TvDownloadSection(

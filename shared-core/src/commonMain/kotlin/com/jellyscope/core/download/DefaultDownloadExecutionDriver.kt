@@ -2,8 +2,11 @@
 
 package com.jellyscope.core.download
 
+import com.jellyscope.core.data.local.DownloadArtifactStore
+import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.model.DownloadPlatformWorkIdentity
+import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
@@ -18,6 +21,8 @@ internal class DefaultDownloadExecutionDriver(
     private val sessionRepository: SessionRepository,
     private val queueCoordinator: DownloadQueueCoordinator,
     private val transferCoordinator: DownloadTransferCoordinator,
+    private val artifactStore: DownloadArtifactStore? = null,
+    private val serverScopedStoreRegistry: ServerScopedStoreRegistry? = null,
 ) : DownloadExecutionDriver {
     override suspend fun wake(): Result<Unit> {
         return try {
@@ -186,6 +191,33 @@ internal class DefaultDownloadExecutionDriver(
         } catch (throwable: Throwable) {
             Result.failure(throwable)
         }
+
+    override suspend fun reconcilePresentation(record: DownloadRecord): Result<Unit> {
+        val artifactStore = artifactStore ?: return Result.success(Unit)
+        val registry = serverScopedStoreRegistry ?: return Result.success(Unit)
+        val loggedIn = sessionRepository.sessionState.value as? SessionState.LoggedIn ?: return Result.success(Unit)
+        val accountIdentity = loggedIn.session.accountIdentity()
+        if (record.businessKey.accountIdentity != accountIdentity) return Result.success(Unit)
+        val lease =
+            registry.acquireWorkLease(
+                accountIdentity = accountIdentity,
+                boundaryEpoch = loggedIn.boundaryEpoch,
+            ) ?: return Result.failure(IllegalStateException("Download account boundary changed during presentation recovery."))
+        return try {
+            registry.withGuardedLease(lease) {
+                val inspection = artifactStore.reconcilePresentation(record.request.artifactKey)
+                if (queueCoordinator.reconcilePresentationBytes(record, inspection.totalBytes)) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(IllegalStateException("Download presentation recovery ownership changed."))
+                }
+            } ?: Result.failure(IllegalStateException("Download account boundary changed during presentation recovery."))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            Result.failure(throwable)
+        }
+    }
 
     override suspend fun cancelRequested(platformWorkIdentity: DownloadPlatformWorkIdentity): Result<Unit> =
         try {

@@ -209,6 +209,7 @@ class PlayerViewModel(
     private val monotonicTimeMs: () -> Long = ::playerMonotonicTimeMs,
     private val playbackHealthGuidancePolicy: PlaybackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Actionable,
     offlineDownloadId: DownloadId? = null,
+    private val offlineRestartFromBeginning: Boolean = false,
     private val getOfflinePlaybackPlanUseCase: GetOfflinePlaybackPlanUseCase? = null,
     private val launchPolicy: PlayerLaunchPolicy = PlayerLaunchPolicy.Normal,
 ) : ViewModel() {
@@ -240,12 +241,14 @@ class PlayerViewModel(
 
     private val isKidsSingleAsset: Boolean = launchPolicy == PlayerLaunchPolicy.KidsSingleAsset
     private var currentOfflineDownloadId: DownloadId? = offlineDownloadId
-    private var forceStartFromBeginning = false
-    private var pendingRestartFromBeginningTarget: PlayerPlaybackTarget? = null
+    private val initialPlaybackTarget = PlayerPlaybackTarget(itemId, offlineDownloadId)
+    private val initialOfflineRestartFromBeginning = offlineRestartFromBeginning && offlineDownloadId != null
+    private var forceStartFromBeginning = initialOfflineRestartFromBeginning
+    private var pendingRestartFromBeginningTarget: PlayerPlaybackTarget? =
+        initialPlaybackTarget.takeIf { initialOfflineRestartFromBeginning }
     private var pendingRestartFromBeginningLaunchGeneration: Long? = null
     private var playingPositionOwner: PlayerPlaybackTarget? = null
     private var hasManuallySelectedAsset = false
-    private val initialPlaybackTarget = PlayerPlaybackTarget(itemId, offlineDownloadId)
     private val _selectedPlaybackTarget = MutableStateFlow(PlayerPlaybackTarget(itemId, offlineDownloadId))
     val selectedPlaybackTarget: StateFlow<PlayerPlaybackTarget> = _selectedPlaybackTarget.asStateFlow()
     private var selectedPlaybackGeneration = 0L
@@ -855,8 +858,9 @@ class PlayerViewModel(
     }
 
     private fun consumeRestartFromBeginningIntentForPlayingTarget() {
+        val supportsRestartFromBeginning = isKidsSingleAsset || currentOfflineDownloadId != null
         if (
-            !isKidsSingleAsset ||
+            !supportsRestartFromBeginning ||
             !forceStartFromBeginning ||
             pendingRestartFromBeginningTarget != PlayerPlaybackTarget(currentItemId, currentOfflineDownloadId) ||
             pendingRestartFromBeginningLaunchGeneration != playbackLaunchGeneration
@@ -2137,8 +2141,7 @@ class PlayerViewModel(
         val sourceId = record.businessKey.mediaSourceId
         val activationRequestId = nextSubtitleActivationRequestId()
         val startsFromBeginning =
-            isKidsSingleAsset &&
-                forceStartFromBeginning &&
+            forceStartFromBeginning &&
                 pendingRestartFromBeginningTarget == PlayerPlaybackTarget(itemId, downloadId) &&
                 pendingRestartFromBeginningLaunchGeneration == launchGeneration
         val offlineProjection =

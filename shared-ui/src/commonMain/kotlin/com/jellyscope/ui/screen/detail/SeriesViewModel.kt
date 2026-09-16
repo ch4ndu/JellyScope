@@ -190,7 +190,7 @@ class SeriesViewModel(
 
     fun selectSeason(seasonId: String) {
         val content = (_state.value as? SeriesUiState.Content)?.content ?: return
-        if (content.selectedSeasonId == seasonId && content.episodesState is SeasonEpisodesUiState.Content) {
+        if (content.selectedSeasonId == seasonId) {
             return
         }
 
@@ -855,7 +855,10 @@ class SeriesViewModel(
             episodesState = episodesState,
             focusedEpisode = focused,
             nextUpEpisode = refreshedNextUp,
-            seriesPlayEpisode = refreshedNextUp ?: episodes.nextPlayableEpisode(),
+            seriesPlayEpisode =
+                refreshedNextUp
+                    ?: episodes.nextPlayableEpisode()
+                    ?: seriesPlayEpisode.takeIf { episodesState is SeasonEpisodesUiState.Loading },
         )
     }
 

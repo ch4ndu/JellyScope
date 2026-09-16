@@ -299,6 +299,7 @@ private fun SeriesActions(
                 onSelectMediaVersion = { mediaSourceId ->
                     onSelectEpisodeMediaVersion(episode.itemId, mediaSourceId)
                 },
+                showStaticAudioText = false,
             )
         }
         SecondaryActionButton(

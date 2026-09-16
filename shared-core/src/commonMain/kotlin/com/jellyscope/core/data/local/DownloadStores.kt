@@ -32,8 +32,14 @@ import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.DownloadSubtitleSelection
 import com.jellyscope.core.domain.model.DownloadUsageEntry
 import com.jellyscope.core.domain.model.MediaKind
+import com.jellyscope.core.domain.model.OfflineArtworkReference
+import com.jellyscope.core.domain.model.OfflineArtworkRole
 import com.jellyscope.core.domain.model.OfflineChapterSnapshot
+import com.jellyscope.core.domain.model.OfflineDetailSnapshot
+import com.jellyscope.core.domain.model.OfflineExternalProviderIds
 import com.jellyscope.core.domain.model.OfflineMediaSnapshot
+import com.jellyscope.core.domain.model.OfflinePersonCreditType
+import com.jellyscope.core.domain.model.OfflinePersonSnapshot
 import com.jellyscope.core.domain.model.OfflineTrackKind
 import com.jellyscope.core.domain.model.OfflineTrackSnapshot
 import com.jellyscope.core.domain.model.ownsActiveDownloadSlot
@@ -95,6 +101,7 @@ internal data class DownloadRecordEntity(
     val activeSlot: String?,
     val reservationBytes: Long,
     val physicalBytes: Long,
+    val presentationBytes: Long,
     val checkpointBytes: Long,
     val attemptGeneration: Long,
     val platformWorkKindKey: String?,
@@ -237,6 +244,31 @@ internal interface DownloadRecordStore {
         watched: Boolean?,
         updatedAtEpochMs: Long,
     ): Boolean
+
+    suspend fun commitPresentationBytes(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        expectedPresentationBytes: Long,
+        presentationBytes: Long,
+        deviceAvailableBytes: Long,
+        updatedAtEpochMs: Long,
+    ): Boolean = false
+
+    suspend fun reconcilePresentationBytes(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        presentationBytes: Long,
+        updatedAtEpochMs: Long,
+    ): Boolean = false
+
+    /** Completes the retry state transition only after sibling presentation cleanup succeeded. */
+    suspend fun retryAfterPresentationDelete(
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        updatedAtEpochMs: Long,
+    ): Boolean = false
 
     suspend fun delete(downloadId: DownloadId): Boolean
 }
@@ -407,6 +439,53 @@ internal class RoomDownloadRecordStore(
         ) == 1
     }
 
+    override suspend fun commitPresentationBytes(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        expectedPresentationBytes: Long,
+        presentationBytes: Long,
+        deviceAvailableBytes: Long,
+        updatedAtEpochMs: Long,
+    ): Boolean =
+        dao.updatePresentationBytesForDownloadingAttempt(
+            serverId = accountIdentity.serverId,
+            userId = accountIdentity.userId,
+            downloadId = downloadId.value,
+            expectedAttemptGeneration = expectedAttemptGeneration,
+            expectedPresentationBytes = expectedPresentationBytes,
+            presentationBytes = presentationBytes,
+            deviceAvailableBytes = deviceAvailableBytes,
+            updatedAtEpochMs = updatedAtEpochMs,
+        )
+
+    override suspend fun reconcilePresentationBytes(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        presentationBytes: Long,
+        updatedAtEpochMs: Long,
+    ): Boolean =
+        dao.reconcilePresentationBytes(
+            serverId = accountIdentity.serverId,
+            userId = accountIdentity.userId,
+            downloadId = downloadId.value,
+            expectedAttemptGeneration = expectedAttemptGeneration,
+            presentationBytes = presentationBytes,
+            updatedAtEpochMs = updatedAtEpochMs,
+        )
+
+    override suspend fun retryAfterPresentationDelete(
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        updatedAtEpochMs: Long,
+    ): Boolean =
+        dao.retryAfterPresentationDelete(
+            downloadId = downloadId.value,
+            expectedAttemptGeneration = expectedAttemptGeneration,
+            updatedAtEpochMs = updatedAtEpochMs,
+        )
+
     override suspend fun delete(downloadId: DownloadId): Boolean = dao.deleteRecordAndAdvanceMembership(downloadId.value)
 }
 
@@ -561,6 +640,7 @@ internal fun DownloadRequest.toEntity(fifoSequence: Long): DownloadRecordEntity 
         activeSlot = null,
         reservationBytes = initialReservationBytes,
         physicalBytes = 0L,
+        presentationBytes = 0L,
         checkpointBytes = 0L,
         attemptGeneration = 0L,
         platformWorkKindKey = null,
@@ -629,6 +709,7 @@ internal fun DownloadRecordEntity.toModelOrNull(): DownloadRecord? {
             state = state,
             reservationBytes = reservationBytes,
             physicalBytes = physicalBytes,
+            presentationBytes = presentationBytes,
             checkpointBytes = checkpointBytes,
             attemptGeneration = attemptGeneration,
             platformWorkIdentity = workIdentity,
@@ -646,6 +727,7 @@ internal fun DownloadRecordEntity.toUsageEntryOrNull(): DownloadUsageEntry? =
             DownloadUsageEntry(
                 state = state,
                 physicalBytes = physicalBytes,
+                presentationBytes = presentationBytes,
                 reservationBytes = reservationBytes,
             )
         }.getOrNull()
@@ -897,6 +979,39 @@ private data class OfflineSnapshotPayloadV1(
     val videoWidth: Int? = null,
     val videoHeight: Int? = null,
     val videoFrameRate: Double? = null,
+    val detail: OfflineDetailPayloadV1? = null,
+    val artworkReferences: List<OfflineArtworkReferencePayloadV1> = emptyList(),
+    val presentationCaptureEligible: Boolean = false,
+)
+
+@Serializable
+private data class OfflineDetailPayloadV1(
+    val overview: String? = null,
+    val tagline: String? = null,
+    val officialRating: String? = null,
+    val communityRating: Double? = null,
+    val criticRating: Double? = null,
+    val productionYear: Int? = null,
+    val genres: List<String> = emptyList(),
+    val studios: List<String> = emptyList(),
+    val people: List<OfflinePersonPayloadV1> = emptyList(),
+    val imdbId: String? = null,
+    val tmdbId: String? = null,
+    val tmdbItemType: String? = null,
+)
+
+@Serializable
+private data class OfflinePersonPayloadV1(
+    val name: String,
+    val role: String? = null,
+    val creditType: String = "other-v1",
+)
+
+@Serializable
+private data class OfflineArtworkReferencePayloadV1(
+    val role: String,
+    val owningItemId: String,
+    val imageTag: String,
 )
 
 @Serializable
@@ -937,6 +1052,9 @@ private fun OfflineMediaSnapshot.toPayload(): OfflineSnapshotPayloadV1 =
         videoWidth = backendSource.videoWidth,
         videoHeight = backendSource.videoHeight,
         videoFrameRate = backendSource.videoFrameRate,
+        detail = detail?.toPayload(),
+        artworkReferences = artworkReferences.map(OfflineArtworkReference::toPayload),
+        presentationCaptureEligible = presentationCaptureEligible,
     )
 
 private fun OfflineSnapshotPayloadV1.toModel(): OfflineMediaSnapshot =
@@ -953,6 +1071,9 @@ private fun OfflineSnapshotPayloadV1.toModel(): OfflineMediaSnapshot =
         embeddedTracks = embeddedTracks.map(OfflineTrackPayloadV1::toModel),
         selectedAudioTrack = selectedAudioTrack?.toModel(),
         selectedSubtitleTrack = selectedSubtitleTrack?.toModel(),
+        detail = detail?.toModel(),
+        artworkReferences = artworkReferences.map(OfflineArtworkReferencePayloadV1::toModel),
+        presentationCaptureEligible = presentationCaptureEligible,
         backendSource =
             BackendSourceDescriptor(
                 container = container,
@@ -964,6 +1085,87 @@ private fun OfflineSnapshotPayloadV1.toModel(): OfflineMediaSnapshot =
                 videoFrameRate = videoFrameRate,
             ),
     )
+
+private fun OfflineDetailSnapshot.toPayload(): OfflineDetailPayloadV1 =
+    OfflineDetailPayloadV1(
+        overview = overview,
+        tagline = tagline,
+        officialRating = officialRating,
+        communityRating = communityRating,
+        criticRating = criticRating,
+        productionYear = productionYear,
+        genres = genres,
+        studios = studios,
+        people = people.map { person -> OfflinePersonPayloadV1(person.name, person.role, person.creditType.toPayloadKey()) },
+        imdbId = externalProviderIds.imdbId,
+        tmdbId = externalProviderIds.tmdbId,
+        tmdbItemType = externalProviderIds.tmdbItemType,
+    )
+
+private fun OfflineDetailPayloadV1.toModel(): OfflineDetailSnapshot =
+    OfflineDetailSnapshot(
+        overview = overview,
+        tagline = tagline,
+        officialRating = officialRating,
+        communityRating = communityRating,
+        criticRating = criticRating,
+        productionYear = productionYear,
+        genres = genres,
+        studios = studios,
+        people =
+            people.map { person ->
+                OfflinePersonSnapshot(
+                    name = person.name,
+                    role = person.role,
+                    creditType = person.creditType.toOfflineCreditTypeOrNull() ?: error("Unknown offline person credit type."),
+                )
+            },
+        externalProviderIds = OfflineExternalProviderIds(imdbId, tmdbId, tmdbItemType),
+    )
+
+private fun OfflineArtworkReference.toPayload(): OfflineArtworkReferencePayloadV1 =
+    OfflineArtworkReferencePayloadV1(
+        role = role.toPayloadKey(),
+        owningItemId = owningItemId,
+        imageTag = imageTag,
+    )
+
+private fun OfflinePersonCreditType.toPayloadKey(): String =
+    when (this) {
+        OfflinePersonCreditType.Cast -> "cast-v1"
+        OfflinePersonCreditType.Crew -> "crew-v1"
+        OfflinePersonCreditType.Other -> "other-v1"
+    }
+
+private fun String.toOfflineCreditTypeOrNull(): OfflinePersonCreditType? =
+    when (this) {
+        "cast-v1" -> OfflinePersonCreditType.Cast
+        "crew-v1" -> OfflinePersonCreditType.Crew
+        "other-v1" -> OfflinePersonCreditType.Other
+        else -> null
+    }
+
+private fun OfflineArtworkReferencePayloadV1.toModel(): OfflineArtworkReference =
+    OfflineArtworkReference(
+        role = role.toOfflineArtworkRoleOrNull() ?: error("Unknown offline artwork role."),
+        owningItemId = owningItemId,
+        imageTag = imageTag,
+    )
+
+private fun OfflineArtworkRole.toPayloadKey(): String =
+    when (this) {
+        OfflineArtworkRole.Poster -> "poster-v1"
+        OfflineArtworkRole.Backdrop -> "backdrop-v1"
+        OfflineArtworkRole.Logo -> "logo-v1"
+    }
+
+private fun String.toOfflineArtworkRoleOrNull(): OfflineArtworkRole? =
+    when (this) {
+        "poster-v1" -> OfflineArtworkRole.Poster
+        "backdrop-v1" -> OfflineArtworkRole.Backdrop
+        "logo-v1" -> OfflineArtworkRole.Logo
+        else -> null
+    }
 
 private fun OfflineTrackSnapshot.toPayload(): OfflineTrackPayloadV1 =
     OfflineTrackPayloadV1(

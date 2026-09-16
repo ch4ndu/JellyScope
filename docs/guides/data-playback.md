@@ -2235,6 +2235,31 @@ than restating it.
   encoding cleanup; cleanup failure does not replace the authoritative transfer
   outcome.
 
+- Android and desktop mpv receive resolver-owned absolute local paths for offline
+  media and sidecars. Do not convert them to Java `file:/` URIs: mpv treats that
+  spelling as a filename and fails before loading the media.
+
+### Saved metadata and artwork
+
+- New downloads save credential-free metadata after media preflight; preview and
+  existing downloads never fetch or enrich it. Missing facts are omitted.
+- Poster, backdrop and logo references store role, owning item and image tag.
+  Episodes prefer series posters. Missing backdrops use saved primary artwork;
+  offline reads never fetch server images.
+- Optional artwork capture runs after media/sidecars and before Finalizing.
+  Network failures omit images without failing media; cancellation propagates.
+- A private presentation area keeps artwork outside media completeness checks.
+  Images are capped at 2 MiB each, 6 MiB total; lazy, account-qualified reads
+  return bounded bytes, never paths or payloads embedded in observed records.
+- Actual `presentationBytes` counts toward usage, allocation and removal without
+  another reservation. Capture respects the safety reserve; publication checks
+  account, generation and allocation under the mutation owner, without network
+  I/O. Migration 2-to-3 defaults the count to zero and preserves existing records.
+- Recovery cleans known rows and temporary members after cancelling stale work,
+  skips live writers, and reconciles retained bytes. Retry resets accounting with
+  deletion; Cancel, Delete and account removal retain row/tombstone ownership
+  until both media and artwork cleanup succeeds. No arbitrary directory sweeps.
+
 ### Queue, quota, and recovery
 
 - One device-global FIFO sequence and one device-global active slot cover every
@@ -3505,6 +3530,8 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   silently evicting another account's media. Notification permission controls
   Android visibility, not download authorization, so denial never invalidates a
   queued transfer.
+- **Artwork is optional.** Missing images must not invalidate playable media;
+  stored images still count toward allocation.
 - **Offline progress is local truth.** Its persistence drains independently of
   optional ordered server reporting so network delay cannot block the saved
   resume point. No reachability monitor or outbox can promise eventual server

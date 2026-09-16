@@ -40,6 +40,7 @@ fun PlayerScreen(
     initialSubtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified,
     queue: List<String> = emptyList(),
     offlineDownloadId: DownloadId? = null,
+    offlineRestartFromBeginning: Boolean = false,
     launchPolicy: PlayerLaunchPolicy = PlayerLaunchPolicy.Normal,
     onBack: () -> Unit,
     onOpenPlaybackSettings: () -> Unit = {},
@@ -58,6 +59,7 @@ fun PlayerScreen(
                         initialSubtitleSelection = initialSubtitleSelection,
                         queue = queue,
                         offlineDownloadId = offlineDownloadId,
+                        offlineRestartFromBeginning = offlineRestartFromBeginning,
                         launchPolicy = launchPolicy,
                     ),
                 )

@@ -56,6 +56,7 @@ internal fun TouchTrackSelectionControls(
     selectedMediaSourceId: String? = null,
     onSelectMediaVersion: (String) -> Unit = {},
     subtitleActions: DetailSubtitlePickerActions? = null,
+    showStaticAudioText: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -71,6 +72,7 @@ internal fun TouchTrackSelectionControls(
             options = trackSelection.audioOptions,
             selectedStreamIndex = selectionState.selectedAudioStreamIndex,
             onSelected = selectionState::selectAudio,
+            showStaticAudioText = showStaticAudioText,
         )
         TouchSubtitleControl(
             trackSelection = trackSelection,
@@ -118,10 +120,13 @@ internal fun TouchAudioControl(
     options: List<AudioTrackOption>,
     selectedStreamIndex: Int?,
     onSelected: (Int) -> Unit,
+    showStaticAudioText: Boolean = true,
 ) {
     val selectedLabel = selectedAudioLabel(options = options, selectedStreamIndex = selectedStreamIndex)
     if (options.size <= 1) {
-        StaticTouchTrackText(text = stringResource(Res.string.detail_audio_tracks, selectedLabel))
+        if (showStaticAudioText) {
+            StaticTouchTrackText(text = stringResource(Res.string.detail_audio_tracks, selectedLabel))
+        }
     } else {
         TouchTrackDropdown(
             label = stringResource(Res.string.player_audio),

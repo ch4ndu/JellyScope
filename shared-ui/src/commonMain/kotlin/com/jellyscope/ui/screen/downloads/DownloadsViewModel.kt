@@ -16,20 +16,29 @@ import com.jellyscope.core.domain.action.WakeDownloadsQueueAction
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadCommandResult
 import com.jellyscope.core.domain.model.DownloadDeletionResult
+import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadSettings
 import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.DownloadUsage
+import com.jellyscope.core.domain.model.OfflineArtworkRole
+import com.jellyscope.core.domain.model.OfflinePersonCreditType
+import com.jellyscope.core.domain.model.OfflinePersonSnapshot
+import com.jellyscope.core.domain.model.OfflineTrackKind
+import com.jellyscope.core.domain.model.OfflineTrackSnapshot
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.usecase.GetDownloadSettingsUseCase
 import com.jellyscope.core.domain.usecase.GetDownloadUsageUseCase
 import com.jellyscope.core.domain.usecase.IsDownloadArtifactLeasedUseCase
 import com.jellyscope.core.domain.usecase.ObserveDownloadsUseCase
+import com.jellyscope.core.domain.usecase.ReadDownloadArtworkUseCase
 import com.jellyscope.core.util.DiagnosticOperation
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.core.util.formatSafeFailureDiagnostic
+import com.jellyscope.ui.component.MediaCardKind
+import com.jellyscope.ui.component.MediaCardUi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
@@ -42,6 +51,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.round
 
 enum class DownloadsSectionKind {
     Completed,
@@ -96,8 +106,162 @@ data class DownloadsUiState(
     val inFlightDownloadId: String? = null,
     val isBulkResumeInFlight: Boolean = false,
     val leasedDownloadIds: Set<String> = emptySet(),
+    val detailsByDownloadId: Map<DownloadId, DownloadDetailUi> = emptyMap(),
     val error: DownloadsUiError? = null,
 )
+
+/** Presentation-ready local facts; the source row remains the only durable authority. */
+data class DownloadDetailUi(
+    val record: DownloadRecord,
+    val card: MediaCardUi,
+    val expectedBytes: Long,
+    val progressFraction: Float?,
+    val chapters: List<OfflineChapterUi>,
+    val audioTracks: List<OfflineTrackSnapshot>,
+    val subtitleTracks: List<OfflineTrackSnapshot>,
+    val cast: List<OfflinePersonSnapshot>,
+    val crew: List<OfflinePersonSnapshot>,
+    val otherPeople: List<OfflinePersonSnapshot>,
+    val backend: OfflineBackendUi,
+)
+
+data class OfflineChapterUi(
+    val name: String,
+    val startMs: Long,
+)
+
+data class OfflineBackendUi(
+    val container: String?,
+    val videoCodec: String?,
+    val audioCodec: String?,
+    val videoWidth: Int?,
+    val videoHeight: Int?,
+    val frameRateLabel: String?,
+    val isHdrOrDolbyVision: Boolean,
+)
+
+fun DownloadsUiState.detailUi(downloadId: DownloadId): DownloadDetailUi? = detailsByDownloadId[downloadId]
+
+fun DownloadsUiState.downloadGridSemanticIndex(downloadId: DownloadId): Int? =
+    sections
+        .flatMap(DownloadsSection::records)
+        .indexOfFirst { record -> record.downloadId == downloadId }
+        .takeIf { index -> index >= 0 }
+
+fun DownloadsUiState.downloadGridRestoreSlot(
+    downloadId: DownloadId,
+    fallbackSemanticIndex: Int?,
+): Int? {
+    val slots = mutableListOf<Pair<DownloadId, Int>>()
+    var slot = 1 // Storage card.
+    if (records.any { record -> record.state == DownloadState.Paused }) slot += 1
+    sections.forEach { section ->
+        slot += 1 // Section heading.
+        section.records.forEach { record ->
+            slots += record.downloadId to slot
+            slot += 1
+        }
+    }
+    return slots.firstOrNull { (id, _) -> id == downloadId }?.second
+        ?: fallbackSemanticIndex
+            ?.takeIf { slots.isNotEmpty() }
+            ?.let { index -> slots[index.coerceIn(0, slots.lastIndex)].second }
+}
+
+private fun downloadDetailUi(record: DownloadRecord): DownloadDetailUi {
+    val expectedBytes =
+        maxOf(
+            record.request.expectedSourceBytes ?: 0L,
+            record.reservationBytes,
+            record.request.admissionEstimateBytes,
+            record.physicalBytes,
+        )
+    val snapshot = record.request.snapshot
+    return DownloadDetailUi(
+        record = record,
+        card =
+            MediaCardUi(
+                id = record.downloadId.value,
+                title = snapshot.title,
+                subtitle = snapshot.seriesName ?: snapshot.detail?.productionYear?.toString(),
+                progressFraction =
+                    if (record.state == DownloadState.Completed) {
+                        snapshot.durationMs?.takeIf { record.localResumePositionMs > 0L }?.let { duration ->
+                            (record.localResumePositionMs.toFloat() / duration).coerceIn(0f, 1f)
+                        }
+                    } else {
+                        expectedBytes.takeIf { it > 0L }?.let { (record.physicalBytes.toFloat() / it).coerceIn(0f, 1f) }
+                    },
+                watched = record.localWatched,
+                unplayedCount = null,
+                imageUrl = null,
+                kind =
+                    if (snapshot.itemKind ==
+                        com.jellyscope.core.domain.model.MediaKind.Episode
+                    ) {
+                        MediaCardKind.Episode
+                    } else {
+                        MediaCardKind.Movie
+                    },
+            ),
+        expectedBytes = expectedBytes,
+        progressFraction =
+            expectedBytes
+                .takeIf { bytes -> bytes > 0L }
+                ?.let { bytes -> (record.physicalBytes.toFloat() / bytes.toFloat()).coerceIn(0f, 1f) },
+        chapters =
+            snapshot.chapters.map { chapter ->
+                OfflineChapterUi(
+                    name = chapter.name,
+                    startMs = chapter.startTicks / TICKS_PER_MILLISECOND,
+                )
+            },
+        audioTracks = snapshot.downloadTracks(OfflineTrackKind.Audio, snapshot.selectedAudioTrack),
+        subtitleTracks = snapshot.downloadTracks(OfflineTrackKind.Subtitle, snapshot.selectedSubtitleTrack),
+        cast =
+            snapshot.detail
+                ?.people
+                .orEmpty()
+                .filter { person -> person.creditType == OfflinePersonCreditType.Cast },
+        crew =
+            snapshot.detail
+                ?.people
+                .orEmpty()
+                .filter { person -> person.creditType == OfflinePersonCreditType.Crew },
+        otherPeople =
+            snapshot.detail
+                ?.people
+                .orEmpty()
+                .filter { person -> person.creditType == OfflinePersonCreditType.Other },
+        backend =
+            OfflineBackendUi(
+                container = snapshot.backendSource.container,
+                videoCodec = snapshot.backendSource.videoCodec,
+                audioCodec = snapshot.backendSource.audioCodec,
+                videoWidth = snapshot.backendSource.videoWidth,
+                videoHeight = snapshot.backendSource.videoHeight,
+                frameRateLabel = snapshot.backendSource.videoFrameRate.toDownloadFrameRateLabel(),
+                isHdrOrDolbyVision = snapshot.backendSource.isHdrOrDolbyVision,
+            ),
+    )
+}
+
+private fun Double?.toDownloadFrameRateLabel(): String? =
+    this
+        ?.takeIf { rate -> rate.isFinite() && rate > 0.0 }
+        ?.let { rate -> (round(rate * 1_000.0) / 1_000.0).toString() }
+
+private fun com.jellyscope.core.domain.model.OfflineMediaSnapshot.downloadTracks(
+    kind: OfflineTrackKind,
+    selected: OfflineTrackSnapshot?,
+): List<OfflineTrackSnapshot> =
+    buildList {
+        selected?.takeIf { track -> track.kind == kind }?.let(::add)
+        embeddedTracks
+            .asSequence()
+            .filter { track -> track.kind == kind && track != selected }
+            .forEach(::add)
+    }
 
 sealed interface DownloadsUiError {
     data object LoadFailed : DownloadsUiError
@@ -124,6 +288,7 @@ class DownloadsViewModel(
     private val cancelDownloadAction: CancelDownloadAction,
     private val deleteDownloadAction: DeleteDownloadAction,
     private val isDownloadArtifactLeasedUseCase: IsDownloadArtifactLeasedUseCase? = null,
+    private val readDownloadArtworkUseCase: ReadDownloadArtworkUseCase? = null,
     private val workDispatcher: CoroutineDispatcher = platformIoDispatcher(),
 ) : ViewModel() {
     private val accountIdentity: AccountIdentity = session.accountIdentity()
@@ -154,11 +319,21 @@ class DownloadsViewModel(
                     }
                     _state.update { current -> current.copy(isLoading = false, error = DownloadsUiError.LoadFailed) }
                 }.collect { records ->
-                    val sections = withContext(workDispatcher) { downloadSections(records) }
+                    val projection =
+                        withContext(workDispatcher) {
+                            DownloadRecordsProjection(
+                                sections = downloadSections(records),
+                                detailsByDownloadId =
+                                    records.associate { record ->
+                                        record.downloadId to downloadDetailUi(record)
+                                    },
+                            )
+                        }
                     _state.update { current ->
                         current.copy(
                             records = records,
-                            sections = sections,
+                            sections = projection.sections,
+                            detailsByDownloadId = projection.detailsByDownloadId,
                             isLoading = false,
                         )
                     }
@@ -300,6 +475,33 @@ class DownloadsViewModel(
             runDeletion(downloadId, DiagnosticOperation.DownloadDelete) {
                 deleteDownloadAction(accountIdentity, record.downloadId)
             }
+        }
+    }
+
+    /**
+     * Loads one local presentation image for a currently rendered card or detail view. The
+     * composable owns the call lifecycle, so changing account, item, generation, or role cancels
+     * the old read before it can update the newly rendered image.
+     */
+    suspend fun readArtwork(
+        downloadId: DownloadId,
+        role: OfflineArtworkRole,
+    ): ByteArray? {
+        val reader = readDownloadArtworkUseCase ?: return null
+        return try {
+            withContext(workDispatcher) { reader(accountIdentity, downloadId, role) }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (exception: Throwable) {
+            downloadsViewModelLogger.w {
+                formatSafeFailureDiagnostic(
+                    stage = "presentation-read",
+                    event = "failed",
+                    operation = DiagnosticOperation.DownloadLoad,
+                    throwable = exception,
+                )
+            }
+            null
         }
     }
 
@@ -462,6 +664,12 @@ class DownloadsViewModel(
 }
 
 private const val USAGE_REFRESH_COOLDOWN_MS = 500L
+private const val TICKS_PER_MILLISECOND = 10_000L
+
+private data class DownloadRecordsProjection(
+    val sections: List<DownloadsSection>,
+    val detailsByDownloadId: Map<DownloadId, DownloadDetailUi>,
+)
 
 private fun DownloadCommandResult.diagnosticValue(): String =
     when (this) {

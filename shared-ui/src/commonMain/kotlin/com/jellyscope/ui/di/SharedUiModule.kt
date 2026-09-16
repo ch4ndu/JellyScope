@@ -229,6 +229,7 @@ val sharedUiModule =
                 cancelDownloadAction = get(),
                 deleteDownloadAction = get(),
                 isDownloadArtifactLeasedUseCase = getOrNull(),
+                readDownloadArtworkUseCase = get(),
             )
         }
         viewModel { (session: Session, itemId: String) ->
@@ -303,6 +304,7 @@ val sharedUiModule =
                 initialSubtitleSelection = launchOptions.initialSubtitleSelection,
                 queue = launchOptions.queue,
                 offlineDownloadId = launchOptions.offlineDownloadId,
+                offlineRestartFromBeginning = launchOptions.offlineRestartFromBeginning,
                 launchPolicy = launchOptions.launchPolicy,
                 backend = backend,
                 playerController = PendingPlayerController,

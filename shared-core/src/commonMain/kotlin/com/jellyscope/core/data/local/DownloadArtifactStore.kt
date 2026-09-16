@@ -6,6 +6,7 @@ import com.jellyscope.core.domain.model.DownloadArtifactKey
 import com.jellyscope.core.domain.model.DownloadArtifactKind
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadSubtitleSelection
+import com.jellyscope.core.domain.model.OfflineArtworkRole
 
 /**
  * Maximum media chunk accepted by [DownloadArtifactWriter.write].
@@ -20,6 +21,14 @@ const val DOWNLOAD_ARTIFACT_MAX_REWRITE_BYTES: Int = 1 * 1024 * 1024
 
 /** Maximum bounded atomic replacement size for an HLS checkpoint manifest. */
 const val DOWNLOAD_ARTIFACT_MAX_STAGING_METADATA_REPLACEMENT_BYTES: Int = 2 * 1024 * 1024
+const val DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES: Int = 2 * 1024 * 1024
+const val DOWNLOAD_PRESENTATION_TOTAL_MAX_BYTES: Long = 6L * 1024L * 1024L
+
+data class DownloadPresentationInspection(
+    val roleBytes: Map<OfflineArtworkRole, Long>,
+) {
+    val totalBytes: Long = roleBytes.values.fold(0L, ::checkedArtifactLengthAfterWrite)
+}
 
 /** A validated, opaque, single-segment name inside one artifact package. */
 class DownloadArtifactPartKey private constructor(
@@ -283,7 +292,43 @@ internal interface DownloadArtifactStore {
     suspend fun enumerate(area: DownloadArtifactArea): List<DownloadArtifactInspection>
 
     suspend fun capacity(): DownloadArtifactCapacity
+
+    /** Writes one bounded image to a private fixed temporary member; it is not yet visible. */
+    suspend fun stagePresentation(
+        artifactKey: DownloadArtifactKey,
+        role: OfflineArtworkRole,
+        bytes: ByteArray,
+    ): Long = 0L
+
+    /** Atomically replaces the fixed completed role with the prepared temporary member. */
+    suspend fun publishPresentation(
+        artifactKey: DownloadArtifactKey,
+        role: OfflineArtworkRole,
+    ): DownloadPresentationInspection? = null
+
+    /** Account-qualified callers use this bounded byte seam; no caller receives a local path. */
+    suspend fun readPresentation(
+        artifactKey: DownloadArtifactKey,
+        role: OfflineArtworkRole,
+        maxBytes: Int,
+    ): ByteArray? = null
+
+    /** Removes incomplete temporary members and returns only retained readable completed bytes. */
+    suspend fun reconcilePresentation(artifactKey: DownloadArtifactKey): DownloadPresentationInspection =
+        DownloadPresentationInspection(emptyMap())
+
+    /** Presentation is a sibling root and must be removed before the durable row is discarded. */
+    suspend fun deletePresentation(artifactKey: DownloadArtifactKey) = Unit
 }
+
+internal fun OfflineArtworkRole.presentationFileName(): String =
+    when (this) {
+        OfflineArtworkRole.Poster -> "poster.img"
+        OfflineArtworkRole.Backdrop -> "backdrop.img"
+        OfflineArtworkRole.Logo -> "logo.img"
+    }
+
+internal fun OfflineArtworkRole.presentationTemporaryFileName(): String = "${presentationFileName()}.tmp"
 
 internal fun requireValidWriteSlice(
     bufferSize: Int,

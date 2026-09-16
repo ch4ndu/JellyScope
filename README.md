@@ -33,7 +33,9 @@ alpha release is **0.1.0-alpha94**.
   tablets, selected by the account's parental rating, with single-video
   playback, shuffled library choices, compact video controls, and permitted downloads
 - Offline downloads for individual movies and episodes on Android, iOS, macOS,
-  and the Apple TV preview when content downloading is enabled for the account
+  and the Apple TV preview when content downloading is enabled for the account,
+  with a library-style grid and offline details; new downloads save metadata
+  and artwork
 - HDR handling, Android TV refresh-rate matching, Picture-in-Picture, Fire TV
   Watch Next, Apple media controls, three dark themes, three tile sizes, and an
   adaptive phone-to-TV interface

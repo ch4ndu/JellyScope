@@ -5,6 +5,7 @@ package com.jellyscope.core.data.local
 
 import com.jellyscope.core.coroutines.platformIoDispatcher
 import com.jellyscope.core.domain.model.DownloadArtifactKey
+import com.jellyscope.core.domain.model.OfflineArtworkRole
 import kotlinx.atomicfu.atomic
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.addressOf
@@ -47,6 +48,8 @@ internal class AppleDownloadArtifactStore(
     private val completedRoot = areaDirectory(DownloadArtifactArea.Completed)
     private val stagingMetadataReplacementRoot =
         child(root, "staging-metadata-replacement", isDirectory = true).also(::ensureDirectory)
+    private val presentationRoot = child(root, "presentation", isDirectory = true).also(::ensureDirectory)
+    private val presentationTemporaryRoot = child(root, "presentation-temporary", isDirectory = true).also(::ensureDirectory)
 
     override suspend fun openStagingWriter(
         artifactKey: DownloadArtifactKey,
@@ -272,6 +275,96 @@ internal class AppleDownloadArtifactStore(
             )
         }
 
+    override suspend fun stagePresentation(
+        artifactKey: DownloadArtifactKey,
+        role: OfflineArtworkRole,
+        bytes: ByteArray,
+    ): Long =
+        withContext(ioDispatcher) {
+            require(bytes.size in 1..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES)
+            val directory = presentationTemporaryDirectory(artifactKey).also(::ensureDirectory)
+            val temporary = child(directory, role.presentationTemporaryFileName(), isDirectory = false)
+            if (attributes(temporary) != null) {
+                regularFileLength(temporary)
+                check(fileManager.removeItemAtURL(temporary, null)) { "Unable to replace temporary presentation image." }
+            }
+            val file = checkNotNull(fopen(requireNotNull(temporary.path), "wbx")) { "Unable to create temporary presentation image." }
+            try {
+                val written = bytes.usePinned { pinned -> fwrite(pinned.addressOf(0), 1u, bytes.size.toULong(), file) }
+                check(written == bytes.size.toULong()) { "Unable to write temporary presentation image." }
+                syncFile(file)
+            } finally {
+                check(fclose(file) == 0) { "Unable to close temporary presentation image." }
+            }
+            bytes.size.toLong()
+        }
+
+    override suspend fun publishPresentation(
+        artifactKey: DownloadArtifactKey,
+        role: OfflineArtworkRole,
+    ): DownloadPresentationInspection? =
+        withContext(ioDispatcher) {
+            val temporary = child(presentationTemporaryDirectory(artifactKey), role.presentationTemporaryFileName(), isDirectory = false)
+            if (attributes(temporary) == null) return@withContext null
+            if (regularFileLength(temporary) !in 1L..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES.toLong()) return@withContext null
+            val target = child(presentationDirectory(artifactKey).also(::ensureDirectory), role.presentationFileName(), isDirectory = false)
+            if (attributes(target) != null) regularFileLength(target)
+            check(rename(requireNotNull(temporary.path), requireNotNull(target.path)) == 0) {
+                "Unable to atomically publish presentation image."
+            }
+            removeEmptyPresentationTemporaryDirectory(artifactKey)
+            presentationInspectionBlocking(artifactKey)
+        }
+
+    override suspend fun readPresentation(
+        artifactKey: DownloadArtifactKey,
+        role: OfflineArtworkRole,
+        maxBytes: Int,
+    ): ByteArray? =
+        withContext(ioDispatcher) {
+            require(maxBytes in 0..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES)
+            val file = child(presentationDirectory(artifactKey), role.presentationFileName(), isDirectory = false)
+            if (attributes(file) == null) return@withContext null
+            val length = regularFileLength(file)
+            if (length !in 1L..maxBytes.toLong()) return@withContext null
+            val input = fopen(requireNotNull(file.path), "rb") ?: return@withContext null
+            try {
+                ByteArray(length.toInt()).also { bytes ->
+                    val read = bytes.usePinned { pinned -> fread(pinned.addressOf(0), 1u, length.toULong(), input) }
+                    check(read == length.toULong()) { "Unable to read presentation image." }
+                }
+            } finally {
+                check(fclose(input) == 0) { "Unable to close presentation image." }
+            }
+        }
+
+    override suspend fun reconcilePresentation(artifactKey: DownloadArtifactKey): DownloadPresentationInspection =
+        withContext(ioDispatcher) {
+            deletePresentationTemporaryDirectory(artifactKey)
+            val directory = presentationDirectory(artifactKey)
+            if (attributes(directory) == null) return@withContext DownloadPresentationInspection(emptyMap())
+            requireDirectory(directory)
+            directoryNames(directory).forEach { name ->
+                val file = child(directory, name, isDirectory = false)
+                val recognized = OfflineArtworkRole.entries.any { role -> role.presentationFileName() == name }
+                if (!recognized ||
+                    attributes(file)?.get(NSFileType) != NSFileTypeRegular ||
+                    regularFileLength(file) !in 1L..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES.toLong()
+                ) {
+                    check(fileManager.removeItemAtURL(file, null)) { "Unable to discard invalid presentation image." }
+                }
+            }
+            presentationInspectionBlocking(artifactKey)
+        }
+
+    override suspend fun deletePresentation(artifactKey: DownloadArtifactKey) {
+        withContext(ioDispatcher) {
+            deletePresentationTemporaryDirectory(artifactKey)
+            val directory = presentationDirectory(artifactKey)
+            if (attributes(directory) != null) deleteContainedPackage(directory)
+        }
+    }
+
     private fun inspectBlocking(
         artifactKey: DownloadArtifactKey,
         area: DownloadArtifactArea,
@@ -291,6 +384,43 @@ internal class AppleDownloadArtifactStore(
 
     private fun areaDirectory(area: DownloadArtifactArea): NSURL =
         child(root, area.directoryName, isDirectory = true).also(::ensureDirectory)
+
+    private fun presentationDirectory(artifactKey: DownloadArtifactKey): NSURL =
+        child(presentationRoot, artifactKey.value, isDirectory = true)
+
+    private fun presentationTemporaryDirectory(artifactKey: DownloadArtifactKey): NSURL =
+        child(presentationTemporaryRoot, artifactKey.value, isDirectory = true)
+
+    private fun removeEmptyPresentationTemporaryDirectory(artifactKey: DownloadArtifactKey) {
+        val directory = presentationTemporaryDirectory(artifactKey)
+        if (attributes(directory) != null && directoryNames(directory).isEmpty()) {
+            check(fileManager.removeItemAtURL(directory, null))
+        }
+    }
+
+    private fun deletePresentationTemporaryDirectory(artifactKey: DownloadArtifactKey) {
+        val directory = presentationTemporaryDirectory(artifactKey)
+        if (attributes(directory) != null) deleteContainedPackage(directory)
+    }
+
+    private fun presentationInspectionBlocking(artifactKey: DownloadArtifactKey): DownloadPresentationInspection {
+        val directory = presentationDirectory(artifactKey)
+        if (attributes(directory) == null) return DownloadPresentationInspection(emptyMap())
+        requireDirectory(directory)
+        val roleBytes =
+            OfflineArtworkRole.entries
+                .mapNotNull { role ->
+                    val file = child(directory, role.presentationFileName(), isDirectory = false)
+                    if (attributes(file) == null) {
+                        null
+                    } else {
+                        role to regularFileLength(file).takeIf { length -> length in 1L..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES.toLong() }
+                    }
+                }.associate { (role, length) -> role to checkNotNull(length) }
+        return DownloadPresentationInspection(roleBytes).also { inspection ->
+            check(inspection.totalBytes <= DOWNLOAD_PRESENTATION_TOTAL_MAX_BYTES)
+        }
+    }
 
     private fun artifactDirectory(
         artifactKey: DownloadArtifactKey,

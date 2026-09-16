@@ -1095,7 +1095,8 @@ internal class AndroidMpvPlayerController(
                     replacementEndExpected = markExpectedReplacementEndFile()
                     nativeReady = true
                     nativeEventGeneration.set(requestGeneration)
-                    native.command(androidMpvLoadCommand(File(path).toURI().toString(), plan.startPositionMs))
+                    // mpv accepts this resolver-owned absolute path; Java file:/ URIs are not mpv file URLs.
+                    native.command(androidMpvLoadCommand(path, plan.startPositionMs))
                     logNativeMilestone(
                         milestone = PlaybackNativePlayerMilestone.LoadCommandDispatched,
                         commandShape = PlaybackNativeCommandShape.LoadFileUrlFlagsIndexOptions,
@@ -2317,7 +2318,7 @@ internal class AndroidMpvPlayerController(
         if (rejectDirectOutputSubtitle(target)) return
         val resource =
             if (plan.streamMode == com.jellyscope.core.domain.playback.StreamMode.Offline) {
-                offlineSidecarPath?.let { path -> File(path).toURI().toString() } ?: return
+                offlineSidecarPath ?: return
             } else {
                 val request = networkRequest ?: return
                 request.subtitleUrl ?: request.localSubtitlePath ?: return

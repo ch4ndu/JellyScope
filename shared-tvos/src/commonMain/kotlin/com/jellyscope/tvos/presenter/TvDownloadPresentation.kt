@@ -18,6 +18,7 @@ import com.jellyscope.core.domain.model.MediaItemDetail
 import com.jellyscope.core.domain.model.MediaVersion
 import com.jellyscope.core.domain.model.OfflineChapterSnapshot
 import com.jellyscope.core.domain.model.OfflineMediaSnapshot
+import com.jellyscope.core.domain.model.OfflinePersonCreditType
 import com.jellyscope.core.domain.model.OfflineTrackKind
 import com.jellyscope.core.domain.model.OfflineTrackSnapshot
 import com.jellyscope.core.domain.model.OriginalDownloadDraft
@@ -31,6 +32,7 @@ import com.jellyscope.core.domain.playback.SubtitleKind
 import com.jellyscope.core.domain.playback.isExternalSubtitle
 import com.jellyscope.core.domain.playback.qualityRungs
 import com.jellyscope.core.domain.playback.subtitleKind
+import com.jellyscope.core.domain.playback.ticksToMilliseconds
 
 internal fun tvDownloadSections(
     records: List<DownloadRecord>,
@@ -73,6 +75,9 @@ private fun DownloadRecord.toTvDownloadRow(
     leasedDownloadIds: Set<String>,
 ): TvDownloadRow {
     val id = downloadId.value
+    val snapshot = request.snapshot
+    val detail = snapshot.detail?.toTvDownloadDetail()
+    val people = detail?.people.orEmpty()
     val leased = id in leasedDownloadIds
     val playable = state == DownloadState.Completed && id in playableDownloadIds
     val expectedBytes = maxOf(reservationBytes, request.admissionEstimateBytes, physicalBytes)
@@ -81,13 +86,31 @@ private fun DownloadRecord.toTvDownloadRow(
     return TvDownloadRow(
         id = id,
         attemptGeneration = attemptGeneration,
-        title = request.snapshot.title,
+        title = snapshot.title,
+        itemKind = snapshot.itemKind,
+        seriesName = snapshot.seriesName,
+        seasonLabel = snapshot.seasonLabel,
+        episodeLabel = snapshot.episodeLabel,
         secondaryTitle =
-            listOfNotNull(request.snapshot.seriesName, request.snapshot.episodeLabel)
+            listOfNotNull(snapshot.seriesName, snapshot.episodeLabel)
                 .takeIf { labels -> labels.isNotEmpty() }
                 ?.joinToString(" · "),
-        sourceLabel = request.snapshot.sourcePresentation,
+        sourceLabel = snapshot.sourcePresentation,
+        durationMs = snapshot.durationMs,
+        chapters = snapshot.chapters.map { chapter -> TvChapter(chapter.name, ticksToMilliseconds(chapter.startTicks)) },
+        audioTracks = snapshot.offlineAudioChoices(snapshot.selectedAudioTrack?.streamIndex),
+        subtitleTracks =
+            snapshot.offlineSubtitleChoices(
+                selectedChoiceKey = snapshot.selectedSubtitleTrack?.streamIndex,
+                localSubtitleChoiceKey = null,
+            ),
+        backend = snapshot.backendSource.toTvDownloadBackendInfo(),
+        detail = detail,
+        cast = people.filter { person -> person.creditType == OfflinePersonCreditType.Cast },
+        crew = people.filter { person -> person.creditType == OfflinePersonCreditType.Crew },
+        otherPeople = people.filter { person -> person.creditType == OfflinePersonCreditType.Other },
         state = state.toTvDownloadRowState(),
+        presentationBytes = presentationBytes,
         qualityBitrateBps = (request.quality as? DownloadQuality.Fixed)?.maxBitrateBps,
         physicalBytes = physicalBytes,
         expectedBytes = expectedBytes,
@@ -105,6 +128,43 @@ private fun DownloadRecord.toTvDownloadRow(
         isLeased = leased,
     )
 }
+
+private fun com.jellyscope.core.domain.model.OfflineDetailSnapshot.toTvDownloadDetail(): TvDownloadDetail =
+    TvDownloadDetail(
+        overview = overview,
+        tagline = tagline,
+        officialRating = officialRating,
+        communityRating = communityRating,
+        criticRating = criticRating,
+        productionYear = productionYear,
+        genres = genres,
+        studios = studios,
+        people =
+            people.map { person ->
+                TvDownloadPerson(
+                    name = person.name,
+                    role = person.role,
+                    creditType = person.creditType,
+                )
+            },
+        externalProviderIds =
+            TvDownloadExternalProviderIds(
+                imdbId = externalProviderIds.imdbId,
+                tmdbId = externalProviderIds.tmdbId,
+                tmdbItemType = externalProviderIds.tmdbItemType,
+            ),
+    )
+
+private fun BackendSourceDescriptor.toTvDownloadBackendInfo(): TvDownloadBackendInfo =
+    TvDownloadBackendInfo(
+        container = container,
+        videoCodec = videoCodec,
+        audioCodec = audioCodec,
+        isHdrOrDolbyVision = isHdrOrDolbyVision,
+        videoWidth = videoWidth,
+        videoHeight = videoHeight,
+        videoFrameRate = videoFrameRate,
+    )
 
 private fun DownloadState.toTvDownloadRowState(): TvDownloadRowState =
     when (this) {

@@ -54,13 +54,13 @@ internal object DetailDimens {
     val heroTopInset = ChromeDimens.heroTopInset
     val detailHeroTopPadding = ChromeDimens.detailHeroTopPadding
     val detailHeroBottomPadding = ChromeDimens.detailHeroBottomPadding
-    val detailHeroLogoMaxHeight = 88.dp
+    val detailHeroLogoMaxHeight = ChromeDimens.detailHeroLogoMaxHeight
     val detailHeroTextGap = ChromeDimens.detailHeroTextGap
     val detailSectionGap = ChromeDimens.detailSectionGap
     val detailMetaGap = ChromeDimens.detailMetaGap
     val detailIconLabelGap = ChromeDimens.detailIconLabelGap
     val detailActionHeight = ChromeDimens.detailActionHeight
-    val detailActionIconSize = 20.dp
+    val detailActionIconSize = ChromeDimens.detailActionIconSize
     val detailActionOutlineWidth = 1.dp
     val detailTrackPickerButtonWidth = ChromeDimens.detailTrackPickerButtonWidth
     val detailTrackPickerArrowSize = ChromeDimens.detailTrackPickerArrowSize

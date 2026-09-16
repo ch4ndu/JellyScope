@@ -172,6 +172,41 @@ internal class DownloadQueueCoordinator(
             true
         }
 
+    /**
+     * Commits the actual sibling-presentation total before its prepared file is made visible.
+     * The registered writer and its account lease remain the authority for this Downloading row.
+     */
+    suspend fun commitRegisteredAttemptPresentationBytes(
+        attempt: DownloadAttemptIdentity,
+        expectedPresentationBytes: Long,
+        presentationBytes: Long,
+    ): Boolean =
+        runnerMutex.withLock {
+            val registration = registeredAttempt ?: return@withLock false
+            if (registration.attempt != attempt) return@withLock false
+            repository.commitRegisteredAttemptPresentationBytes(
+                accountIdentity = registration.accountIdentity,
+                attempt = attempt,
+                expectedPresentationBytes = expectedPresentationBytes,
+                presentationBytes = presentationBytes,
+            )
+        }
+
+    /** Recovery may repair a known non-live row after the native cancellation barrier. */
+    suspend fun reconcilePresentationBytes(
+        record: DownloadRecord,
+        presentationBytes: Long,
+    ): Boolean =
+        runnerMutex.withLock {
+            if (registeredAttempt?.attempt?.let { attempt ->
+                    attempt.downloadId == record.downloadId && attempt.attemptGeneration == record.attemptGeneration
+                } == true
+            ) {
+                return@withLock false
+            }
+            repository.reconcilePresentationBytes(record, presentationBytes)
+        }
+
     suspend fun updateOriginalSourceFacts(
         attempt: DownloadAttemptIdentity,
         expectedSourceBytes: Long,

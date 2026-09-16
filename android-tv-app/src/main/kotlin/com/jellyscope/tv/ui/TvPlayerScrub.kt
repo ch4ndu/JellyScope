@@ -46,6 +46,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PointMode
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -434,18 +435,38 @@ internal fun TvTrickplayThumbnail(
                         ),
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val frameWidth = size.width
-                    val frameHeight = size.height
+                    val sourceFrameWidth =
+                        trickplay.thumbnailWidth
+                            .takeIf { width -> width > 0 }
+                            ?.toFloat()
+                            ?: size.width
+                    val sourceFrameHeight =
+                        trickplay.thumbnailHeight
+                            .takeIf { height -> height > 0 }
+                            ?.toFloat()
+                            ?: size.height
+                    val scale = minOf(size.width / sourceFrameWidth, size.height / sourceFrameHeight)
+                    val frameWidth = sourceFrameWidth * scale
+                    val frameHeight = sourceFrameHeight * scale
+                    val frameLeft = (size.width - frameWidth) / 2f
+                    val frameTop = (size.height - frameHeight) / 2f
                     val sheetSize =
                         Size(
-                            width = frameWidth * trickplay.tileWidth,
-                            height = frameHeight * trickplay.tileHeight,
+                            width = frameWidth * trickplay.tileWidth.coerceAtLeast(1),
+                            height = frameHeight * trickplay.tileHeight.coerceAtLeast(1),
                         )
-                    translate(
-                        left = -frameWidth * frame.column,
-                        top = -frameHeight * frame.row,
+                    clipRect(
+                        left = frameLeft,
+                        top = frameTop,
+                        right = frameLeft + frameWidth,
+                        bottom = frameTop + frameHeight,
                     ) {
-                        with(tilePainter) { draw(size = sheetSize) }
+                        translate(
+                            left = frameLeft - frameWidth * frame.column,
+                            top = frameTop - frameHeight * frame.row,
+                        ) {
+                            with(tilePainter) { draw(size = sheetSize) }
+                        }
                     }
                 }
             }

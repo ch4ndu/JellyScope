@@ -4,61 +4,54 @@ import SharedTv
 import SwiftUI
 
 struct DownloadRowView: View {
+    let session: Session
     let row: TvDownloadRow
     let isWorking: Bool
+    let width: CGFloat
+
+    private var imageHeight: CGFloat { width * 1.5 }
+
+    @Environment(\.tvAppearance) private var appearance
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(row.title)
-                        .font(.headline)
-                    if let secondaryTitle = row.secondaryTitle {
-                        Text(secondaryTitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+        MediaCardContent(
+            title: row.title,
+            subtitle: row.state == .completed ? row.secondaryTitle : row.state.title,
+            width: width
+        ) {
+            ZStack(alignment: .bottom) {
+                DownloadArtworkView(session: session, row: row, role: .poster, fallbackTitle: row.title)
+                    .frame(width: width, height: imageHeight)
+                if let progress = progress, progress > 0 {
+                    GeometryReader { proxy in
+                        Rectangle()
+                            .fill(appearance.accent)
+                            .frame(width: proxy.size.width * progress, height: TvDimensions.progressHeight)
+                            .frame(maxHeight: .infinity, alignment: .bottom)
                     }
                 }
-                Spacer()
-                if isWorking {
-                    ProgressView()
-                } else {
-                    Text(row.state.title)
-                        .foregroundStyle(.secondary)
+                HStack {
+                    Spacer()
+                    if row.localWatched {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.white, appearance.accent)
+                    }
+                    if isWorking { ProgressView().tint(.white) }
                 }
+                .font(.title3)
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
-
-            if row.state == .downloading || row.state == .finalizing {
-                ProgressView(value: row.progressFraction)
-            }
-
-            HStack(spacing: 12) {
-                Text(String(format: String(localized: "%@ of %@"), DownloadLabels.bytes(row.physicalBytes), DownloadLabels.bytes(row.expectedBytes)))
-                if let sourceLabel = row.sourceLabel, !sourceLabel.isEmpty {
-                    Text(sourceLabel)
-                }
-                if let bitrate = row.qualityBitrateBps?.int64Value {
-                    Text(String(format: String(localized: "%.1f Mbps"), Double(bitrate) / 1_000_000))
-                } else {
-                    Text(String(localized: "Original"))
-                }
-                if row.canPlay && row.localResumePositionMs > 0 {
-                    Text(String(format: String(localized: "Resume at %@"), DownloadLabels.duration(milliseconds: row.localResumePositionMs)))
-                }
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-
-            if let failure = row.failure {
-                Text(failure.message)
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            } else if row.state == .completed && !row.canPlay {
-                Text(String(localized: "The local media is unavailable. Delete this record and download it again."))
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            }
+            .frame(width: width, height: imageHeight)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-        .padding(.vertical, 8)
+    }
+
+    private var progress: Double? {
+        if row.state == .completed {
+            guard let duration = row.durationMs?.doubleValue, duration > 0, row.localResumePositionMs > 0 else { return nil }
+            return min(max(Double(row.localResumePositionMs) / duration, 0), 1)
+        }
+        return row.progressFraction
     }
 }

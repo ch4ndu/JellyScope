@@ -18,6 +18,7 @@ import com.jellyscope.core.domain.model.DownloadReservationExtensionResult
 import com.jellyscope.core.domain.model.DownloadSettings
 import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.DownloadUsage
+import com.jellyscope.core.domain.model.OfflineArtworkRole
 import com.jellyscope.core.download.DownloadAttemptIdentity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
@@ -46,6 +47,14 @@ interface DownloadRepository {
         downloadId: DownloadId,
         attemptGeneration: Long,
     ): Boolean = false
+
+    /** Bounded local presentation read. It never exposes a path or remote fallback. */
+    suspend fun readPresentationArtwork(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        role: OfflineArtworkRole,
+        maxBytes: Int,
+    ): ByteArray? = null
 
     /** Read-only UI hint; deletion remains guarded authoritatively by [delete]. */
     suspend fun isArtifactLeased(
@@ -188,6 +197,18 @@ internal interface DownloadQueueRepository {
         physicalBytes: Long,
         checkpointBytes: Long,
     ): Boolean
+
+    suspend fun commitRegisteredAttemptPresentationBytes(
+        accountIdentity: AccountIdentity,
+        attempt: DownloadAttemptIdentity,
+        expectedPresentationBytes: Long,
+        presentationBytes: Long,
+    ): Boolean = false
+
+    suspend fun reconcilePresentationBytes(
+        record: DownloadRecord,
+        presentationBytes: Long,
+    ): Boolean = false
 
     suspend fun clearRegisteredAttempt(attempt: DownloadAttemptIdentity): Boolean
 

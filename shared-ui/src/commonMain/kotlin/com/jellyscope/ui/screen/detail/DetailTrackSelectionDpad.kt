@@ -28,9 +28,10 @@ import org.jetbrains.compose.resources.stringResource
 internal fun DpadTrackSelectionControls(
     trackSelection: DetailTrackSelectionUi,
     selectionState: DetailTrackSelectionState,
+    showStaticAudioText: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val showAudioText = trackSelection.audioOptions.size <= 1
+    val showAudioText = showStaticAudioText && trackSelection.audioOptions.size <= 1
     val showSubtitleText = !trackSelection.subtitleOptions.hasSelectableSubtitleChoice()
     if (!showAudioText && !showSubtitleText) {
         return

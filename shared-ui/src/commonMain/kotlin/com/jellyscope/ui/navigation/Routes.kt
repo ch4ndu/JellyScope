@@ -31,6 +31,9 @@ object Routes {
     val QueueArgument = "queue"
     val QueueKeyArgument = "queueKey"
     val OfflineDownloadIdArgument = "offlineDownloadId"
+    val DownloadIdArgument = "downloadId"
+    val OfflineRestartArgument = "offlineRestart"
+    val DownloadDetail = "download-detail/{$DownloadIdArgument}"
     val LibraryTypeArgument = "libraryType"
     val Detail = "detail/{$ItemIdArgument}"
     val SeriesGraph = "series-graph/{$SeriesIdArgument}"
@@ -49,7 +52,9 @@ object Routes {
             "&audioStreamIndex={$AudioStreamIndexArgument}&subtitleStreamIndex={$SubtitleStreamIndexArgument}" +
             "&subtitleAssetId={$SubtitleAssetIdArgument}" +
             "&queue={$QueueArgument}&queueKey={$QueueKeyArgument}" +
-            "&offlineDownloadId={$OfflineDownloadIdArgument}"
+            "&offlineDownloadId={$OfflineDownloadIdArgument}&offlineRestart={$OfflineRestartArgument}"
+
+    fun downloadDetail(downloadId: DownloadId) = "download-detail/${downloadId.value.encodeRouteValue()}"
 
     fun detail(itemId: String) = "detail/$itemId"
 
@@ -153,6 +158,7 @@ object Routes {
         queue: List<String> = emptyList(),
         queueKey: String? = null,
         offlineDownloadId: DownloadId? = null,
+        offlineRestartFromBeginning: Boolean = false,
     ): String =
         buildString {
             append("player/")
@@ -196,6 +202,7 @@ object Routes {
             offlineDownloadId?.let { downloadId ->
                 append("&offlineDownloadId=")
                 append(downloadId.value.encodeRouteValue())
+                if (offlineRestartFromBeginning) append("&offlineRestart=true")
             }
         }
 

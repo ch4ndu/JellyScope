@@ -13,6 +13,8 @@ import com.jellyscope.core.playback.PlaybackReportingQueue
 import com.jellyscope.tvos.presenter.TvAccountsPresenter
 import com.jellyscope.tvos.presenter.TvAppearancePresenter
 import com.jellyscope.tvos.presenter.TvDeviceSettingsPresenter
+import com.jellyscope.tvos.presenter.TvDownloadArtworkPresenter
+import com.jellyscope.tvos.presenter.TvDownloadArtworkRequest
 import com.jellyscope.tvos.presenter.TvDownloadRequest
 import com.jellyscope.tvos.presenter.TvDownloadRequestPresenter
 import com.jellyscope.tvos.presenter.TvDownloadsPresenter
@@ -241,6 +243,16 @@ val tvosPresentationModule =
                 cancelDownload = get(),
                 deleteDownload = get(),
                 isDownloadArtifactLeased = get(),
+                dispatchers = get(),
+            )
+        }
+        factory { (request: TvDownloadArtworkRequest) ->
+            TvDownloadArtworkPresenter(
+                session = request.session,
+                downloadId = request.downloadId,
+                attemptGeneration = request.attemptGeneration,
+                role = request.role,
+                readDownloadArtwork = get(),
                 dispatchers = get(),
             )
         }

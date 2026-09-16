@@ -69,7 +69,6 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -641,7 +640,7 @@ class MpvPlayerController private constructor(
                 }
                 val playbackUrl =
                     if (offline) {
-                        File(streamUrl).toURI().toString()
+                        streamUrl
                     } else {
                         streamUrl.stripAuthQueryParams()
                     }
@@ -2266,7 +2265,7 @@ class MpvPlayerController private constructor(
             }
             return ExternalSubtitleAttachmentDraft(
                 target = externalTarget,
-                resource = File(path).toURI().toString(),
+                resource = path,
                 trackTitle = externalTarget.mpvSubtitleTitle(),
             )
         }

@@ -2,6 +2,7 @@
 
 package com.jellyscope.core.data.repository
 
+import com.jellyscope.core.data.local.DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES
 import com.jellyscope.core.data.local.DownloadArtifactArea
 import com.jellyscope.core.data.local.DownloadArtifactStore
 import com.jellyscope.core.data.local.DownloadAttemptInvalidationResult
@@ -26,6 +27,7 @@ import com.jellyscope.core.domain.model.DownloadSettings
 import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.DownloadUsage
 import com.jellyscope.core.domain.model.DownloadUsageEntry
+import com.jellyscope.core.domain.model.OfflineArtworkRole
 import com.jellyscope.core.domain.model.calculateDownloadUsage
 import com.jellyscope.core.domain.model.saturatingAddNonNegative
 import com.jellyscope.core.domain.playback.playbackExceptionType
@@ -87,6 +89,28 @@ internal class DefaultDownloadRepository(
         }
     }
 
+    override suspend fun readPresentationArtwork(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        role: OfflineArtworkRole,
+        maxBytes: Int,
+    ): ByteArray? {
+        if (maxBytes !in 1..DOWNLOAD_PRESENTATION_IMAGE_MAX_BYTES) return null
+        val record = recordStore.get(downloadId) ?: return null
+        if (
+            record.businessKey.accountIdentity != accountIdentity ||
+            !record.request.snapshot.presentationCaptureEligible ||
+            hasPendingRemoval(accountIdentity)
+        ) {
+            return null
+        }
+        return artifactStore.readPresentation(
+            artifactKey = record.request.artifactKey,
+            role = role,
+            maxBytes = maxBytes,
+        )
+    }
+
     override suspend fun isArtifactLeased(
         accountIdentity: AccountIdentity,
         downloadId: DownloadId,
@@ -112,7 +136,12 @@ internal class DefaultDownloadRepository(
             records
                 .asSequence()
                 .filter { record -> record.businessKey.accountIdentity == accountIdentity }
-                .fold(0L) { total, record -> saturatingAddNonNegative(total, record.physicalBytes) }
+                .fold(0L) { total, record ->
+                    saturatingAddNonNegative(
+                        total,
+                        saturatingAddNonNegative(record.physicalBytes, record.presentationBytes),
+                    )
+                }
         return calculateDownloadUsage(
             entries = records.map(DownloadRecord::usageEntry),
             quotaBytes = settings.quotaBytes,
@@ -197,17 +226,19 @@ internal class DefaultDownloadRepository(
                 } else {
                     null
                 }
-            if (completed != null) {
+            if (record.failure == DownloadFailure.MissingArtifact) {
                 return@withLock when (
                     val guarded =
                         artifactLeaseRegistry.withDeletionGuard(
                             OfflineArtifactLeaseIdentity(record.downloadId, record.attemptGeneration),
                         ) {
-                            artifactStore.delete(record.request.artifactKey, DownloadArtifactArea.Completed)
-                            recordStore.transition(
+                            if (completed != null) {
+                                artifactStore.delete(record.request.artifactKey, DownloadArtifactArea.Completed)
+                            }
+                            artifactStore.deletePresentation(record.request.artifactKey)
+                            recordStore.retryAfterPresentationDelete(
                                 downloadId = downloadId,
                                 expectedAttemptGeneration = record.attemptGeneration,
-                                nextState = DownloadState.Queued,
                                 updatedAtEpochMs = now(),
                             )
                         }
@@ -222,6 +253,18 @@ internal class DefaultDownloadRepository(
                 record.failure == DownloadFailure.UnsupportedArtifact
             ) {
                 artifactStore.delete(record.request.artifactKey, DownloadArtifactArea.Staging)
+                artifactStore.deletePresentation(record.request.artifactKey)
+                return@withLock if (
+                    recordStore.retryAfterPresentationDelete(
+                        downloadId = downloadId,
+                        expectedAttemptGeneration = record.attemptGeneration,
+                        updatedAtEpochMs = now(),
+                    )
+                ) {
+                    DownloadCommandResult.Applied
+                } else {
+                    DownloadCommandResult.InvalidState
+                }
             }
             if (
                 recordStore.transition(
@@ -512,6 +555,40 @@ internal class DefaultDownloadRepository(
         }
     }
 
+    override suspend fun commitRegisteredAttemptPresentationBytes(
+        accountIdentity: AccountIdentity,
+        attempt: DownloadAttemptIdentity,
+        expectedPresentationBytes: Long,
+        presentationBytes: Long,
+    ): Boolean =
+        removalMutex.withLock {
+            if (hasPendingRemoval(accountIdentity)) return@withLock false
+            recordStore.commitPresentationBytes(
+                accountIdentity = accountIdentity,
+                downloadId = attempt.downloadId,
+                expectedAttemptGeneration = attempt.attemptGeneration,
+                expectedPresentationBytes = expectedPresentationBytes,
+                presentationBytes = presentationBytes,
+                deviceAvailableBytes = artifactStore.capacity().availableBytes,
+                updatedAtEpochMs = now(),
+            )
+        }
+
+    override suspend fun reconcilePresentationBytes(
+        record: DownloadRecord,
+        presentationBytes: Long,
+    ): Boolean =
+        removalMutex.withLock {
+            if (hasPendingRemoval(record.businessKey.accountIdentity)) return@withLock false
+            recordStore.reconcilePresentationBytes(
+                accountIdentity = record.businessKey.accountIdentity,
+                downloadId = record.downloadId,
+                expectedAttemptGeneration = record.attemptGeneration,
+                presentationBytes = presentationBytes,
+                updatedAtEpochMs = now(),
+            )
+        }
+
     override suspend fun clearRegisteredAttempt(attempt: DownloadAttemptIdentity): Boolean =
         recordStore.get(attempt.downloadId, attempt.attemptGeneration) != null
 
@@ -619,6 +696,7 @@ internal class DefaultDownloadRepository(
                 ) {
                     artifactStore.delete(record.request.artifactKey, DownloadArtifactArea.Staging)
                     artifactStore.delete(record.request.artifactKey, DownloadArtifactArea.Completed)
+                    artifactStore.deletePresentation(record.request.artifactKey)
                     recordStore.delete(record.downloadId)
                 }
             when (guarded) {
@@ -754,4 +832,5 @@ private fun DownloadRecord.usageEntry(): DownloadUsageEntry =
         state = state,
         physicalBytes = physicalBytes,
         reservationBytes = reservationBytes,
+        presentationBytes = presentationBytes,
     )

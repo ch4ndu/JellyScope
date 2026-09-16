@@ -10,6 +10,8 @@ import com.jellyscope.core.data.remote.ClientInfo
 import com.jellyscope.core.di.coreModule
 import com.jellyscope.core.di.downloadsModule
 import com.jellyscope.core.di.tvosCoreModule
+import com.jellyscope.core.domain.model.DownloadId
+import com.jellyscope.core.domain.model.OfflineArtworkRole
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.platform.DeviceInfoProvider
 import com.jellyscope.core.domain.playback.detectDisplaySupportsHdr
@@ -24,6 +26,8 @@ import com.jellyscope.tvos.presenter.TvAccountsPresenter
 import com.jellyscope.tvos.presenter.TvAppearancePresenter
 import com.jellyscope.tvos.presenter.TvDetailPlaybackSelection
 import com.jellyscope.tvos.presenter.TvDeviceSettingsPresenter
+import com.jellyscope.tvos.presenter.TvDownloadArtworkPresenter
+import com.jellyscope.tvos.presenter.TvDownloadArtworkRequest
 import com.jellyscope.tvos.presenter.TvDownloadRequest
 import com.jellyscope.tvos.presenter.TvDownloadRequestPresenter
 import com.jellyscope.tvos.presenter.TvDownloadsPresenter
@@ -125,6 +129,14 @@ object TvosEntry {
     ): TvSubtitlesPresenter = koin().get { parametersOf(TvSubtitlesRequest(session, itemId, mediaSourceId)) }
 
     fun downloadsPresenter(session: Session): TvDownloadsPresenter = koin().get { parametersOf(session) }
+
+    fun downloadArtworkPresenter(
+        session: Session,
+        downloadId: String,
+        attemptGeneration: Long,
+        role: OfflineArtworkRole,
+    ): TvDownloadArtworkPresenter =
+        koin().get { parametersOf(TvDownloadArtworkRequest(session, DownloadId(downloadId), attemptGeneration, role)) }
 
     fun downloadRequestPresenter(
         session: Session,

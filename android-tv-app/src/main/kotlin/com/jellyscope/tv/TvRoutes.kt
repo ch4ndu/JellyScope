@@ -16,6 +16,7 @@ import com.jellyscope.tv.ui.focus.TvFocusPath
 import com.jellyscope.tv.ui.focus.TvRouteEntryId
 import com.jellyscope.tv.watchnext.EXTRA_ACCOUNT_PAYLOAD
 import com.jellyscope.tv.watchnext.WatchNextContract
+import com.jellyscope.ui.screen.player.PlayerLaunchOptions
 import org.koin.android.ext.android.get
 import java.io.Serializable
 
@@ -30,6 +31,7 @@ internal enum class TvRoute {
     Discover,
     Favorites,
     Downloads,
+    DownloadDetail,
     Collection,
     Person,
     Series,
@@ -66,6 +68,7 @@ internal data class TvRouteSnapshot(
     val focusPath: TvFocusPath? = null,
     val focusMemoryEntries: List<TvFocusMemoryEntry> = emptyList(),
     val detailItemId: String = "",
+    val downloadDetailId: String = "",
     val collectionItemId: String = "",
     val collectionTitle: String? = null,
     val collectionOriginLibraryId: String? = null,
@@ -87,6 +90,7 @@ internal data class TvRouteSnapshot(
     val playerRouteKey: Int = 0,
     val playerQueueIds: List<String> = emptyList(),
     val playerOfflineDownloadId: String? = null,
+    val playerOfflineRestartFromBeginning: Boolean = false,
 ) : Serializable
 
 internal fun String?.toTvOfflineDownloadIdOrNull(): DownloadId? =
@@ -94,12 +98,20 @@ internal fun String?.toTvOfflineDownloadIdOrNull(): DownloadId? =
         ?.takeIf { value -> value.isNotBlank() }
         ?.let { value -> runCatching { DownloadId(value) }.getOrNull() }
 
+/** Immutable launch input retained while its player entry animates out. */
+internal data class TvPlayerRoutePayload(
+    val itemId: String,
+    val options: PlayerLaunchOptions,
+)
+
 internal data class TvRouteRenderKey(
     val route: String,
     val entryId: TvRouteEntryId,
     val detailItemId: String = "",
+    val downloadDetailId: String = "",
     val seriesItemId: String = "",
     val seasonItemId: String = "",
+    val player: TvPlayerRoutePayload? = null,
 ) {
     /**
      * Identity for AnimatedContent's contentKey. seasonItemId is EXCLUDED — a

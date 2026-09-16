@@ -73,6 +73,9 @@ internal interface DownloadExecutionDriver {
     /** Applies a durable recovery action after native duplicate cancellation has completed. */
     suspend fun applyRecoveryAction(action: DownloadActiveRecoveryAction): Result<Unit>
 
+    /** Repairs only this known row's sibling presentation area after the cancellation barrier. */
+    suspend fun reconcilePresentation(record: DownloadRecord): Result<Unit> = Result.success(Unit)
+
     /** User-facing notification cancellation; stale-work cancellation stays host-local. */
     suspend fun cancelRequested(platformWorkIdentity: DownloadPlatformWorkIdentity): Result<Unit>
 }

@@ -103,6 +103,8 @@ internal fun AdaptiveSeasonContent(
     // One-shot: focus the episode ribbon on FIRST load only. Not re-armed on season
     // switch (parent-scoped), so switching seasons keeps focus on the season tab.
     var episodesFocusedOnce by remember { mutableStateOf(false) }
+    // The route can align its header once; in-place season selection keeps the current scroll.
+    var routeEntryScrollHandled by remember { mutableStateOf(false) }
     val episodeActionsRequester = remember { FocusRequester() }
     val versionTrackRequester = remember { FocusRequester() }
     val audioTrackRequester = remember { FocusRequester() }
@@ -147,12 +149,18 @@ internal fun AdaptiveSeasonContent(
 
     if (dpad) {
         LaunchedEffect(content.selectedSeasonId) {
-            if (episodeFocus.restorePending() || castFocus.restorePending()) {
+            val restoringFocus = episodeFocus.restorePending() || castFocus.restorePending()
+            if (restoringFocus) {
                 episodesFocusedOnce = true
             }
             trackPickerVisible = null
             trackPickerEpisode = null
-            listState.scrollToItem(0)
+            if (!routeEntryScrollHandled && content.selectedSeasonId != null) {
+                routeEntryScrollHandled = true
+                if (!restoringFocus) {
+                    listState.scrollToItem(0)
+                }
+            }
         }
 
         LaunchedEffect(infoEpisode) {

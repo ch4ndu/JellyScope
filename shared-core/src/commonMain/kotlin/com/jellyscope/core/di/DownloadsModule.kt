@@ -14,6 +14,7 @@ import com.jellyscope.core.data.local.RoomDownloadRecordStore
 import com.jellyscope.core.data.local.RoomDownloadRemovalStore
 import com.jellyscope.core.data.local.RoomDownloadSettingsStore
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
+import com.jellyscope.core.data.remote.DownloadArtworkTransport
 import com.jellyscope.core.data.remote.JellyfinApi
 import com.jellyscope.core.data.remote.JellyfinClientFactory
 import com.jellyscope.core.data.repository.DefaultDownloadRepository
@@ -51,8 +52,10 @@ import com.jellyscope.core.domain.usecase.ObserveDownloadsUseCase
 import com.jellyscope.core.domain.usecase.OriginalDownloadAdmission
 import com.jellyscope.core.domain.usecase.PreviewFixedDownloadUseCase
 import com.jellyscope.core.domain.usecase.PreviewOriginalDownloadUseCase
+import com.jellyscope.core.domain.usecase.ReadDownloadArtworkUseCase
 import com.jellyscope.core.domain.usecase.ReleaseDownloadRemovalPreviewUseCase
 import com.jellyscope.core.download.DefaultDownloadExecutionDriver
+import com.jellyscope.core.download.DownloadArtworkCapture
 import com.jellyscope.core.download.DownloadCleanupCoordinator
 import com.jellyscope.core.download.DownloadExecutionDriver
 import com.jellyscope.core.download.DownloadHlsTransferCoordinator
@@ -64,7 +67,7 @@ import com.jellyscope.core.playback.OfflineArtifactResolver
 import io.ktor.client.HttpClient
 import org.koin.dsl.module
 
-/** Download services included only by Android mobile/TV, iOS, and desktop entry graphs. */
+/** Download services included by Android mobile/TV, iOS, tvOS, and desktop entry graphs. */
 val downloadsModule =
     module {
         single<HttpClient>(downloadTransferClientQualifier) {
@@ -119,11 +122,26 @@ val downloadsModule =
         single { FixedDownloadCapability() }
         single { DownloadQueueCoordinator(repository = get()) }
         single {
+            DownloadArtworkTransport(
+                downloadClient = get(downloadTransferClientQualifier),
+                authHeaderProvider = get(),
+            )
+        }
+        single {
+            DownloadArtworkCapture(
+                serverScopedStoreRegistry = get(),
+                queueCoordinator = get(),
+                artifactStore = get(),
+                transport = get(),
+            )
+        }
+        single {
             DownloadHlsTransferCoordinator(
                 serverScopedStoreRegistry = get(),
                 jellyfinApi = get(),
                 queueCoordinator = get(),
                 artifactStore = get(),
+                artworkCapture = get(),
             )
         }
         single {
@@ -136,6 +154,7 @@ val downloadsModule =
                 localSubtitleAssetStore = get<LocalSubtitleAssetStore>(),
                 localSubtitleFileStore = get<LocalSubtitleFileStore>(),
                 hlsTransferCoordinator = get(),
+                artworkCapture = get(),
             )
         }
         single<DownloadExecutionDriver> {
@@ -143,6 +162,8 @@ val downloadsModule =
                 sessionRepository = get(),
                 queueCoordinator = get(),
                 transferCoordinator = get(),
+                artifactStore = get(),
+                serverScopedStoreRegistry = get(),
             )
         }
         single<DownloadCommandCoordinator> { get<DownloadQueueCoordinator>() }
@@ -161,6 +182,7 @@ val downloadsModule =
 
         single { ObserveDownloadsUseCase(repository = get()) }
         single { GetDownloadUseCase(repository = get()) }
+        single { ReadDownloadArtworkUseCase(repository = get()) }
         single { GetOfflinePlaybackPlanUseCase(repository = get()) }
         single { GetDownloadSettingsUseCase(repository = get()) }
         single { GetDownloadUsageUseCase(repository = get()) }

@@ -18,12 +18,17 @@ import com.jellyscope.core.domain.model.DownloadSubtitleSelection
 import com.jellyscope.core.domain.model.FixedDownloadDraft
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.model.offlineArtworkReferences
+import com.jellyscope.core.domain.model.toDomainMediaItemDetail
 import com.jellyscope.core.domain.model.toFixedDownloadSnapshot
+import com.jellyscope.core.domain.model.toOfflineDetailSnapshot
 import com.jellyscope.core.domain.usecase.FixedDownloadAdmission
 import com.jellyscope.core.domain.usecase.FixedDownloadAdmissionResult
 import com.jellyscope.core.download.withFixedDownloadEncodingCleanup
+import com.jellyscope.core.util.DiagnosticOperation
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import com.jellyscope.core.util.safeDiagnosticType
 import kotlinx.coroutines.CancellationException
 
@@ -164,8 +169,27 @@ internal class DefaultFixedDownloadAdmission(
                     FixedDownloadAdmissionDiagnosticReason.SelectionChanged,
                 )
             }
+            val presentationSnapshot =
+                if (requestKind == FixedDownloadRequestKind.AdmissionEnqueue) {
+                    try {
+                        capturePresentationSnapshot(draft, context)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (failure: Throwable) {
+                        return@withFixedDownloadEncodingCleanup rejected(
+                            DownloadAdmissionDecision.NetworkUnavailable,
+                            FixedDownloadAdmissionDiagnosticReason.DetailFetchFailed,
+                            failure,
+                        )
+                    } ?: return@withFixedDownloadEncodingCleanup rejected(
+                        DownloadAdmissionDecision.SourceChanged,
+                        FixedDownloadAdmissionDiagnosticReason.DetailSnapshotUnavailable,
+                    )
+                } else {
+                    draft.snapshot
+                }
             val fixedSnapshot =
-                draft.snapshot
+                presentationSnapshot
                     .toFixedDownloadSnapshot(source.audioStreamIndex)
                     ?.copy(durationMs = source.durationMs)
                     ?: return@withFixedDownloadEncodingCleanup rejected(
@@ -192,6 +216,41 @@ internal class DefaultFixedDownloadAdmission(
             onReady(request, lease)
         }
     }
+
+    private suspend fun capturePresentationSnapshot(
+        draft: FixedDownloadDraft,
+        context: AuthenticatedRequestContext,
+    ) = jellyfinApi
+        .getItemDetail(context, draft.businessKey.itemId)
+        .toDomainMediaItemDetail()
+        ?.takeIf { detail -> detail.item.id == draft.businessKey.itemId && detail.item.kind == draft.snapshot.itemKind }
+        ?.let { detail ->
+            val seriesDetail =
+                detail.item.seriesId
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { seriesId ->
+                        try {
+                            jellyfinApi.getItemDetail(context, seriesId).toDomainMediaItemDetail()
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (failure: Throwable) {
+                            fixedDownloadAdmissionLogger.w {
+                                formatSafeFailureDiagnostic(
+                                    stage = "fixed-download",
+                                    event = "presentation-series-fallback",
+                                    operation = DiagnosticOperation.GetItemDetail,
+                                    throwable = failure,
+                                ) + " reason=ParentDetailUnavailable"
+                            }
+                            null
+                        }
+                    }
+            draft.snapshot.copy(
+                detail = detail.toOfflineDetailSnapshot(),
+                artworkReferences = detail.offlineArtworkReferences(seriesDetail),
+                presentationCaptureEligible = true,
+            )
+        }
 
     private fun FixedDownloadFailure.toDecision(): DownloadAdmissionDecision =
         when (this) {
@@ -221,6 +280,8 @@ private enum class FixedDownloadAdmissionDiagnosticReason {
     SourceIdentityChanged,
     SelectionChanged,
     SnapshotUnavailable,
+    DetailFetchFailed,
+    DetailSnapshotUnavailable,
 }
 
 private val fixedDownloadAdmissionLogger = diagnosticLogger(DiagnosticTag.FixedDownload)

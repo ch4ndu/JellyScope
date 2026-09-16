@@ -407,7 +407,7 @@ private fun LoadingRow() {
                 .padding(
                     start = horizontalContentPadding.start,
                     end = horizontalContentPadding.end,
-                ).heightIn(min = Dimensions.minTouchTarget),
+                ).heightIn(min = Dimensions.listThumbnailWidth.tileScaled()),
         contentAlignment = Alignment.Center,
     ) {
         CircularProgressIndicator(
