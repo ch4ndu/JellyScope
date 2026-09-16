@@ -278,10 +278,10 @@ internal fun TvSettingsContent(
     }
 
     LaunchedEffect(requestInitialFocus) {
-        if (requestInitialFocus) requestTvFocusWithRetry { serverFocusRequester.requestFocusSafely() }
+        if (requestInitialFocus) requestTvFocusWithRetry { requesterFor(focusedTile).requestFocusSafely() }
     }
     LaunchedEffect(entryFocusRequests) {
-        if (entryFocusRequests > 0) requestTvFocusWithRetry { serverFocusRequester.requestFocusSafely() }
+        if (entryFocusRequests > 0) requestTvFocusWithRetry { requesterFor(focusedTile).requestFocusSafely() }
     }
     LaunchedEffect(restoreRequests) {
         val tile = restoreTile ?: return@LaunchedEffect

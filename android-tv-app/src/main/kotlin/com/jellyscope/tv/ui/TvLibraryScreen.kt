@@ -188,10 +188,10 @@ internal fun TvLibraryScreen(
     val registrationKey = remember { hostedRailController.contentRegistrationKey }
     val tabRequesters = remember { LibraryInnerView.entries.associateWith { FocusRequester() } }
     val selectedTabRequester = tabRequesters.getValue(hubState.selectedView)
-    val currentSelectedTabRequester = rememberUpdatedState(selectedTabRequester)
     val railEntryFocusScope = rememberCoroutineScope()
     val trailingTabRequester = tabRequesters.getValue(hubState.availableViews.last())
     var contentFocusAction by remember { mutableStateOf<(() -> Boolean)?>(null) }
+    val currentContentFocusAction = rememberUpdatedState(contentFocusAction)
     var headerFocusAction by remember { mutableStateOf<(() -> Boolean)?>(null) }
     var focusRegion by remember { mutableStateOf(TvLibraryFocusRegion.Chrome) }
     val chromeVisible = !railHasFocus && focusRegion != TvLibraryFocusRegion.LowerContent
@@ -202,11 +202,11 @@ internal fun TvLibraryScreen(
         if (hostedRailVisible) {
             hostedRailController.setContentRightFocusRequester(registrationKey, selectedTabRequester)
             hostedRailController.setContentRightFocusAction(registrationKey) {
-                val focused = currentSelectedTabRequester.value.requestFocusSafely()
+                val focused = currentContentFocusAction.value?.invoke() == true
                 if (!focused) {
                     railEntryFocusScope.launch {
                         requestTvFocusWithRetry {
-                            currentSelectedTabRequester.value.requestFocusSafely()
+                            currentContentFocusAction.value?.invoke() == true
                         }
                     }
                 }

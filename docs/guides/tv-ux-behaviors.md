@@ -126,9 +126,9 @@ This contract applies to Android TV.
 - Focus-dwell navigation occurs after about 500 ms and keeps focus in the drawer.
   The current destination is a no-op. Right invokes the active route's registered
   content-entry action and consumes only an accepted entry. Home enters its
-  content scope, loaded Library enters a media tile, and Settings enters Server
-  at the Account row. Temporary loading anchors are valid only without real
-  content.
+  content scope, loaded Library enters a media tile, and Settings restores its
+  last focused tile, defaulting to Server in the Account row. Temporary loading
+  anchors are valid only without real content.
 - Library drawer exit resolves the selected inner view at invocation and consumes
   Right during a temporarily rejected request, preventing stale geometric entry.
 - TV has no visible Back buttons.
@@ -350,7 +350,9 @@ This contract applies to Android TV.
   playable card.
 - Movie/show hubs expose Recommended and Library, defaulting to Recommended.
   Other types expose Library only; Discover owns Genres and Collections. Right
-  from rail enters the selected tab; Down enters that view's content.
+  from rail enters the selected view's content, including on first entry; Up
+  from its top content row reaches the selected Recommended/Library button.
+  Down from that button enters the view's content.
 - The selected library name is not repeated. Library view uses one persistent
   chrome row for inner tabs, count, optional Shuffle All, Sort, and Filter.
   Sort/Filter exist only in Library view. Chrome draws only for chrome/first-row
@@ -455,7 +457,8 @@ Transfer and storage semantics belong to
 - Tile circles hold only the glyph; centered single-line title/value sit below.
   Focused overflow marquees; unfocused text ellipsizes. Border/glow/zoom affect
   only the circle, with fixed reserve so metadata does not move or clip.
-- Rail entry retries Server. A pure grid resolver moves exactly one column,
+- Rail entry retries the last focused tile, using Server before any tile has
+  received focus. A pure grid resolver moves exactly one column,
   preserves column vertically, clamps only a shorter adjacent row, sends Left
   from column zero to rail, and consumes other outer boundaries. Row-aware and
   horizontal Mario policies own scrolling; geometric search does not.
