@@ -349,6 +349,38 @@ class DownloadTransferCoordinatorTest {
         }
 
     @Test
+    fun originalResumeWithoutSidecarPreservesCheckpointAndRequestsOnlyRemainingBytes() =
+        runTest {
+            val registry = ServerScopedStoreRegistry()
+            registry.transitionToAccount(account, boundaryEpoch = 4L)
+            val record = queuedRecord().copy(reservationBytes = 4L, physicalBytes = 2L, checkpointBytes = 2L)
+            val queue = TransferQueueFake(mutableListOf(record))
+            val artifacts = TransferArtifactStore(initialStagingBytes = "da".encodeToByteArray())
+            val ranges = mutableListOf<String?>()
+            val fixture = apiFixture { range -> ranges += range }
+            try {
+                val result =
+                    DownloadTransferCoordinator(
+                        sessionRepository = FakeSessionRepository(session),
+                        serverScopedStoreRegistry = registry,
+                        jellyfinApi = fixture.api,
+                        queueCoordinator = DownloadQueueCoordinator(queue),
+                        artifactStore = artifacts,
+                        localSubtitleAssetStore = EmptyLocalSubtitleAssetStore,
+                        localSubtitleFileStore = EmptyLocalSubtitleFileStore,
+                    ).runOnce()
+
+                assertEquals(DownloadTransferResult.Completed, result)
+                assertEquals(listOf<String?>("bytes=0-0", "bytes=2-"), ranges.toList())
+                assertEquals("data", artifacts.completedBytes().decodeToString())
+                assertEquals(DownloadState.Completed, queue.records.single().state)
+                assertEquals(4L, queue.records.single().checkpointBytes)
+            } finally {
+                fixture.client.close()
+            }
+        }
+
+    @Test
     fun originalCheckpointFailureRetainsDurableFactsAndUnblocksTheNextFifoRow() =
         runTest {
             val registry = ServerScopedStoreRegistry()
@@ -876,7 +908,13 @@ private class TransferArtifactStore(
     override suspend fun normalizeStagingCheckpoint(
         artifactKey: DownloadArtifactKey,
         checkpoint: DownloadArtifactCheckpoint,
-    ): Boolean = true
+    ): Boolean {
+        val part = checkpoint.parts.singleOrNull()?.takeIf { it.partKey == partKey } ?: return false
+        val bytes = staging ?: return part.lengthBytes == 0L
+        if (bytes.size.toLong() < part.lengthBytes) return false
+        bytes.subList(part.lengthBytes.toInt(), bytes.size).clear()
+        return true
+    }
 
     override suspend fun promote(artifactKey: DownloadArtifactKey): DownloadArtifactInspection {
         completed = staging

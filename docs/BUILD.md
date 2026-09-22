@@ -2,11 +2,9 @@
 
 Run commands from the repository root. Product capabilities: [`README.md`](../README.md).
 
-Release variants may be built from a dirty worktree for local testing. Their
-packaged metadata records that state. Only `scripts/build-release-artifacts.sh`
-automatically requires a clean tree for Gradle-owned publishable artifacts. On
-success, that script collects the versioned files in the ignored
-`release-artifacts/` directory at the repository root.
+Release variants allow local dirty-tree builds and record that state.
+`scripts/build-release-artifacts.sh` instead requires a clean tree and collects
+versioned publishable output in ignored `release-artifacts/`.
 
 ## Toolchain
 
@@ -27,21 +25,17 @@ success, that script collects the versioned files in the ignored
 - macOS 13 or newer on Apple Silicon for desktop playback and packaging.
 
 Dependencies are pinned in
-[`gradle/libs.versions.toml`](../gradle/libs.versions.toml). Bumping Media3
-means bumping `media3` and `media3Ffmpeg` together. The Android
-`android-libmpv` wrapper, its pinned AAR build input, native ABI/license
-manifest, and corresponding-source process are owned by the
-[`android-native-dependencies.md`](operations/android-native-dependencies.md)
-runbook. That Android-only input does not change the desktop libmpv path; the
-AAR is extracted during the `android-libmpv` build and its original bridge is
-not packaged directly. The patched native AAR downloads automatically from the
-public JellyScope mpv GitHub Release without GitHub tokens or a sibling repository.
-Normal Android builds compile only the JNI bridge, not mpv itself.
+[`gradle/libs.versions.toml`](../gradle/libs.versions.toml); update `media3` and
+`media3Ffmpeg` together. The
+[Android native dependency runbook](operations/android-native-dependencies.md)
+owns the `android-libmpv` AAR, ABI/license manifest, source obligations, and
+verification. Normal Android builds download that public input and compile only
+the JNI bridge; desktop libmpv is separate.
 
-`compileSdk` selects build APIs; `targetSdk` selects Android compatibility
-behavior and is currently API 36. Neither raises the installation floors above.
-The version catalog and native module are the authoritative version owners.
-Use the committed Gradle wrapper. Check the selected Kotlin version against
+`compileSdk` selects build APIs and `targetSdk` selects Android compatibility
+behavior (currently API 36); neither raises the installation floor. Use the
+committed Gradle wrapper and authoritative versions in the catalog/native module.
+Check Kotlin against
 the [Kotlin Multiplatform compatibility table](https://kotlinlang.org/docs/multiplatform/multiplatform-compatibility-guide.html)
 when selecting Xcode or changing Gradle/AGP. Successful local verification of a
 combination does not extend the vendor's supported range. `xcodebuild -version`
@@ -61,14 +55,13 @@ Its only supported keys are `devServerUrl`, `devUsername`, `devPassword`, and
 `openSubtitlesApiKey`. Leave unused values blank. `local.properties` remains
 Android SDK configuration only; do not put developer credentials in it.
 
-The file is read by local Android Debug/Release, iOS Debug/Release Run/Test,
-tvOS Debug, and desktop/macOS builds. `CI=true` or `CI=1` (case-insensitive),
-`StoreRelease`, and an explicit `-PjellyscopeDeveloperPropertiesEnabled=false`
-compile empty values without reading it; `CI=false` remains local mode. Release
-tooling also force-disables the file before Gradle, which remains authoritative
-even when another Gradle property requests enablement. A persisted
-OpenSubtitles key remains authoritative; the local value is an unpersisted
-fallback only and is never displayed or logged.
+Local Android, iOS Run/Test, tvOS Debug, and desktop builds read the file.
+`CI=true`/`CI=1`, `StoreRelease`, release tooling, or
+`-PjellyscopeDeveloperPropertiesEnabled=false` disable it. CI matching is
+case-insensitive; release tooling's force-disable wins even when another Gradle
+property requests enablement. `CI=false` remains local mode. A persisted
+OpenSubtitles key wins over the unpersisted fallback, which is never displayed
+or logged.
 
 ## Android mobile
 
@@ -86,16 +79,14 @@ fallback only and is never displayed or logged.
 ./gradlew :android-tv-app:bundleRelease
 ```
 
-Both Android shells fall back to debug signing without release credentials;
-see [`RELEASE.md`](RELEASE.md).
+Without release credentials, both Android shells use debug signing; see
+[`RELEASE.md`](RELEASE.md).
 
-LibVLC playback is degraded on debug builds. Test playback on a release build.
-The release candidate also carries the pinned Android mpv native payload and
-must pass `bash scripts/verify-android-native-bundle.sh` against both release
-APKs after assembly. That package check is separate from physical mpv/LibVLC
-coexistence and playback validation, which requires minified release APKs on
-representative hardware under the
-[runtime-validation rules](guides/workflow.md#manual-and-platform-validation).
+LibVLC is degraded in debug builds; test playback with minified release APKs on
+representative hardware. After assembly, run
+`bash scripts/verify-android-native-bundle.sh` against both release APKs.
+Package verification does not replace the
+[runtime checks](guides/workflow.md#manual-and-platform-validation).
 
 For a manually initiated Android TV playback link, sign in and exit any current
 player, then invoke the item on that same server/account:
@@ -128,23 +119,17 @@ Release package (macOS only today):
 This direct command also works with local edits; a dirty package is for testing,
 not publication.
 
-That task produces a DMG and depends on `:desktop-app:verifyDesktopMpvBundle`,
-which fetches or reuses the IINA 1.4.0 arm64 dylib set under
-`~/Library/Caches/JellyScope/mpv-runtime/iina-1.4.0-arm64`, prepares its pinned
-69-file closure, and rejects any architecture, deployment-target, or dependency
-drift. The first native-runtime use requires network; a fully valid warm cache
-works offline. Development `run` and `hotRun` use the same prepared runtime as
-packaging. No path reads Homebrew, MacPorts, `/usr/local`, or a bare system
-`libmpv`.
+That task produces a DMG and depends on `:desktop-app:verifyDesktopMpvBundle`.
+It fetches or reuses the pinned IINA 1.4.0 arm64 closure under
+`~/Library/Caches/JellyScope/mpv-runtime/`; first use needs network and a valid
+warm cache works offline. Development and packaging use the same runtime and
+never read Homebrew, MacPorts, `/usr/local`, or system `libmpv`.
 
-On Apple Silicon, macOS release packaging additionally bundles the audited VLC
-runtime. `scripts/fetch-desktop-vlc-runtime.sh` downloads the pinned VLC
-**3.0.23 (arm64)** DMG from VideoLAN once into
-`~/Library/Caches/JellyScope/vlc-runtime/`, so packaging needs network on the
-first run but no VLC install. `JELLYSCOPE_VLC_APP` overrides the source, and an
-installed `/Applications/VLC.app` is the offline fallback; whichever source is
-used must match `scripts/vlc-bundle/manifest-3.0.23-arm64.txt` or the build
-fails.
+macOS release packaging also bundles audited VLC **3.0.23 (arm64)**.
+`scripts/fetch-desktop-vlc-runtime.sh` caches it under
+`~/Library/Caches/JellyScope/vlc-runtime/`; first use needs network unless
+`JELLYSCOPE_VLC_APP` or `/Applications/VLC.app` supplies a runtime matching
+`scripts/vlc-bundle/manifest-3.0.23-arm64.txt`.
 
 ## iOS
 
@@ -160,14 +145,12 @@ xcodebuild -project ios-app/iosApp.xcodeproj -scheme iosApp \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
 ```
 
-The fetch script reuses a prepared framework on later builds. Use `devRelease`
-for local Release Run/Test and `storeRelease` for distribution work. The
-enforced archive/install boundary is the **StoreRelease configuration**; all
-committed iOS schemes already select it for Archive. It exports the Release
-Kotlin framework build type and disables developer properties before Gradle.
-Archive/install actions under other configurations stop before Gradle. The
-StoreRelease package-license phase applies the iOS release-ready check, while
-ordinary local Release uses the non-distribution check.
+The fetch script reuses its prepared framework. Use `devRelease` for local
+Release Run/Test and `storeRelease` for distribution. All committed Archive
+schemes select **StoreRelease**, which exports the Release Kotlin framework,
+disables developer properties, and runs the iOS release-ready license check.
+Other configurations cannot archive/install; local Release uses the
+non-distribution check.
 
 ## tvOS
 
@@ -189,10 +172,9 @@ uses empty values.
 
 ## Installing and upgrading
 
-Choose the platform artifact. Build commands above produce local
-artifacts; the [release runbook](RELEASE.md) owns signed distribution output
-and publication. A source checkout or build command does not imply that a
-public download or store listing is available.
+Choose the platform artifact below. These commands produce local builds; the
+[release runbook](RELEASE.md) owns signed publication. A source checkout does
+not imply a public download or store listing.
 
 | Platform | Artifact and installation |
 | --- | --- |

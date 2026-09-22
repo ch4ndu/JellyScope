@@ -1,43 +1,34 @@
 # Using JellyScope
 
-This guide covers accounts, browsing, and everyday playback and download
-choices. To obtain the app or replace an existing installation, start with
-[Installing and upgrading](BUILD.md#installing-and-upgrading). Android TV also
-refers to Google TV and Fire TV throughout this guide.
+Install or upgrade first with [Installing and upgrading](BUILD.md#installing-and-upgrading).
+Here, Android TV also means Google TV and Fire TV.
 
 ## Connect, browse, and find content
 
-Add a Jellyfin server by discovery where offered or by entering its URL,
-then sign in with a password or Quick Connect. JellyScope can retain multiple
-accounts; use the account row's **Switch** button on phones, tablets, and macOS,
-or the **Switch Users** tile on Android TV, to move between them. The TV tile
-opens the **Switch account** dialog. On Apple TV, open **Settings → Manage
-Accounts** to switch or remove an account.
+Add a server by discovery where available or enter its URL, then use a password
+or Quick Connect. For multiple accounts, use **Switch** on phones, tablets, and
+macOS; **Switch Users** on Android TV; or **Settings → Manage Accounts** on
+Apple TV. The TV tile opens **Switch account**.
 
-On phones, tablets, and macOS, choose a library from the title at the top of
-**Library**. On Android TV, choose it from the navigation drawer.
-Movie and show libraries offer **Recommended** and **Library** views. In
-**Library**, use **Sort** and **Filters**; phones, tablets, and macOS clear a
-filter by deselecting it and choosing **Apply**, while Android TV
-also provides **Clear filters**. The available sort and filter choices vary by
-library. Phones, tablets, and macOS can switch between grid and list; Android TV
-uses its own grid. **Appearance → Remember last library view**
-controls whether the next visit restores the previous view.
+Choose a library from the **Library** title on phones, tablets, and macOS, or
+from the Android TV drawer. Movie and show libraries offer **Recommended** and
+**Library**. In **Library**, use **Sort** and **Filters**; deselect filters and
+choose **Apply**, or use Android TV's **Clear filters**. Available choices vary
+by library. Touch/desktop layouts also offer grid and list modes.
+**Appearance → Remember last library view** controls restoration.
 
 Detail pages provide **Favorite** or **Unfavorite** and **Mark watched** or
 **Mark unwatched**. Favorites appear on Home and through the library's favorite
 filter. Apple TV also has a dedicated **Favorites** tab. Changing watched state
 can change whether a title appears in **Continue Watching**.
 
-On phones, tablets, macOS, and Android TV, **Find** searches titles,
-collections, and people. The phone, tablet, and macOS version also offers mood
-or genre, runtime, watch-state, and person filters. Opening a cast member leads
-to that person's page. **Discover** provides genres, studios, collections,
-suggestions, and upcoming episodes on those layouts. The Apple TV preview has
-native Home, Favorites, Libraries, Search, Downloads, and Settings tabs. Libraries
-offers Recommended and Library views with sort and filters; Search accepts
-text/year, person, genre, runtime, and watched filters. It has no separate
-Discover destination.
+**Find** searches titles, collections, and people on shared layouts and Android
+TV. Phones, tablets, and macOS also offer mood/genre, runtime, watched, and
+person filters; cast links open person pages. **Discover** contains genres,
+studios, collections, suggestions, and upcoming episodes. Apple TV instead has
+Home, Favorites, Libraries, Search, Downloads, and Settings tabs; Libraries
+includes sort/filter views, Search accepts text/year, person, genre, runtime,
+and watched filters, and there is no separate Discover tab.
 
 ### Choose a media version
 
@@ -51,11 +42,9 @@ choice on the concrete episode where it is offered.
 
 ## Download for offline playback
 
-Downloads are available on Android phones, tablets, and TVs, iPhone, iPad,
-macOS, and the Apple TV preview when the account has **Content downloading**
-permission.
-The Downloads destination and item download actions are hidden when that
-permission is absent.
+Downloads are available on Android, iPhone, iPad, macOS, and the Apple TV
+preview when the account has **Content downloading** permission. Without it,
+the destination and item actions are hidden.
 
 JellyScope does not continuously refresh that permission in a signed-in
 session. If permission is granted later, open Settings, choose
@@ -105,18 +94,24 @@ This does not change any saved online player preference.
 If VLCKit is unavailable, the offline session reports an error instead of
 silently switching to AVPlayer.
 
-If the allocation is full, increase it or delete completed downloads, then
-resume the paused item. On Android, iOS, and macOS, opening Downloads wakes
-eligible queued work without overriding an explicit pause. Android can schedule
-work with the operating system. On iOS, downloading advances while JellyScope is active;
-when the app becomes inactive it checkpoints active work and requeues it for
-the next active session. On macOS, downloading advances while JellyScope is
-open. Launch recovers checkpointed state; opening **Downloads** supplies the
-wake request that starts eligible queued work. Explicitly paused items still
-require **Resume**. On Apple TV, use **Resume Queued Downloads** to wake the
-queue; opening or refreshing the screen stays passive. Transfers run only while
-the app is active. Apple TV may reclaim saved copies, so they may need to be
-downloaded again.
+If allocation is full, increase it or delete completed downloads, then resume
+the paused item. Opening **Downloads** wakes eligible queued work on Android,
+iOS, and macOS without overriding an explicit pause. Android can schedule work
+with the operating system.
+
+On iOS 26+, an explicit **Start download**, **Resume**, bulk **Resume**, or
+**Retry** for either Original or Fixed requests continued-processing time. Work
+can continue after backgrounding only when iOS grants that request. Expiration
+or interruption checkpoints active work to Paused; return and choose **Resume**.
+Earlier iOS versions, or iOS without a grant, require JellyScope to remain
+active. This does not promise completion or survival after process death or a
+force quit.
+
+On macOS, transfers run while JellyScope is open. Launch recovers checkpointed
+state, and opening **Downloads** wakes eligible queued work; an explicit pause
+still requires **Resume**. On Apple TV, choose **Resume Queued Downloads**;
+opening or refreshing the screen is passive, transfers run only while the app
+is active, and tvOS may reclaim saved copies.
 
 Switching accounts preserves downloads. On phone, tablet and desktop layouts,
 **Remove account** and the global **Sign out** flow show the affected download
@@ -149,21 +144,18 @@ hardware decoding and sends video directly to the display; separate subtitle
 tracks and sizing controls are unavailable. Server-rendered subtitles, when
 available, remain visible because they are part of the video.
 
-While video is streamed from Jellyfin on Android, iPhone, iPad, or
-macOS, use the video-camera button to change player for the current session.
-The control is hidden during offline playback. JellyScope changes only when the
-new player can preserve the chosen source and tracks. Accepting a format does
-not guarantee smooth decoding on every device; alternate players may decode in
-software.
+During online video on Android, iPhone, iPad, or macOS, use the video-camera
+button to change player for this session. It is hidden offline, and switching
+requires preserving the chosen source and tracks. Format acceptance does not
+guarantee smooth decoding; an alternate player may use software decoding.
 
 ### Direct play and conversion
 
 - **Direct play** streams the source unchanged.
 - **Audio-only conversion** preserves the video while the server converts the
   audio.
-- **Conversion (transcode)** makes the server re-encode the video. This uses
-  server resources, may reduce quality, and is required when the server must
-  render subtitles into the picture.
+- **Conversion (transcode)** makes the server re-encode video, using server
+  resources and possibly reducing quality. Subtitle burn-in requires it.
 
 The player's **Playback info** panel, opened with the bug icon, reports the
 active player, stream decision and server reasons, codecs, bitrate, decoder,
@@ -206,28 +198,23 @@ compatibility**:
   deliberate unchanged-source attempt. It does not add hardware decoding,
   expand a player's real codec support, or guarantee smooth playback.
 
-**Maximum bitrate** sets the saved ceiling; **Original** requests the source at
-full quality. A quality selected inside the player lasts for that session. A
-saved or inherited **Auto** choice may use ordinary automatic decisions, but it
-does not authorize JellyScope to lower quality after a runtime stall or
-dropped-frame warning. Selecting **Auto** explicitly in the current player
-authorizes one bounded lower-quality recovery attempt for that session.
+**Maximum bitrate** sets the saved ceiling; **Original** requests full source
+quality. An in-player choice lasts for that session. Saved or inherited **Auto**
+does not authorize a quality drop after runtime trouble; explicitly choosing
+**Auto** in the player authorizes one bounded lower-quality recovery attempt.
 
-**Playback warnings (beta)** is off by default. Turn it on in **Settings →
-Playback → Playback warnings (beta)** to see notices and actions such as **Use Auto**,
-**Keep this quality**, **Choose lower quality**, **Try higher**, or **Playback
-settings**. This switch gates those warning prompts and actions; it does not
-disable silent decisions already allowed by the chosen mode, and fatal playback
-errors remain visible.
+**Playback warnings (beta)** is off by default. Enable **Settings → Playback →
+Playback warnings (beta)** for actions such as **Use Auto**, **Keep this
+quality**, **Choose lower quality**, **Try higher**, or **Playback settings**.
+The switch hides optional prompts, not decisions already allowed by the quality
+mode or fatal errors.
 
 ## Picture and display
 
-**Picture-in-Picture** is available as an automatic-entry preference on Android
-phones and tablets, iPhone, and iPad. Turn it on under **Settings → Advanced
-playback → Picture-in-Picture**, start eligible playback, then leave JellyScope
-with the system Home gesture or button or by switching apps. Android requires
-API 26 or newer, device PiP support, and system permission; the current player,
-playback state, or operating system can still prevent entry.
+Enable **Settings → Advanced playback → Picture-in-Picture** on Android phones
+and tablets, iPhone, or iPad; start eligible playback, then leave JellyScope.
+Android requires API 26+, device support, and system permission. The player,
+playback state, or operating system may still refuse entry.
 
 On iPhone and iPad, AVPlayer marks a transcoded PiP session as linear, so the
 system does not offer seeking for that transcode. VLCKit uses a separate
@@ -322,38 +309,30 @@ To configure it:
 4. Choose a single-file SRT or WebVTT result. Image-based and multi-file results
    are not selectable.
 
-The selected file is normalized and installed locally first. JellyScope then
-tries to upload it to Jellyfin when the account is allowed to edit subtitles.
-If upload is forbidden, the file remains local. A subtitle downloaded for a
-non-primary media version also remains local even when the account can edit
-subtitles. If upload succeeded but the server did not confirm it in time,
-select that local track and use **Retry Jellyfin sync**. That action is offered
-only for the unconfirmed-sync state.
+JellyScope installs the normalized file locally, then tries to upload it when
+the account may edit subtitles. Forbidden uploads and non-primary-version files
+remain local. For an uploaded file the server did not confirm, select the local
+track and choose **Retry Jellyfin sync**; that action appears only in this state.
 
-Use **Delete selected download** to remove the selected local file, or
-**Settings → Services → Clear local subtitles** on touch layouts, or **Settings
-→ Services & About → Clear downloaded subtitles** on Android TV, to
-remove all locally downloaded subtitle files. These explicit actions control
-the local subtitle lifecycle; they do not delete a subtitle that was already
-uploaded to Jellyfin. The files are retained across Jellyfin account switching,
-account removal, and sign-out until cleared. Apple TV offers subtitle search
-from movie/episode detail and online playback, local Select/Delete/Retry Sync
-actions, and confirmed clearing from Subtitles settings. Offline playback does
-not offer remote subtitle search or arbitrary file import.
+Use **Delete selected download** for one local file. To remove all local files,
+use **Settings → Services → Clear local subtitles** on touch layouts or
+**Settings → Services & About → Clear downloaded subtitles** on Android TV.
+These actions do not delete copies already uploaded to Jellyfin; local files
+survive account switching/removal and sign-out until cleared. Apple TV offers
+search from detail/online playback, local Select/Delete/Retry Sync, and confirmed
+clearing in Subtitles settings. Offline playback has no remote search or file import.
 
 ## Queue, chapters, skipping, and autoplay
 
 - On shared layouts and Android TV, **Shuffle All** in a movie library creates a
-  playback queue from the current filtered results. A normal standalone item with no playlist need not expose a
-  queue.
+  queue from current filtered results. A standalone item need not expose one.
 - On phones, tablets, and macOS, open **Queue** in the player and select an item
   to play it. **Shuffle queue** keeps the current item first and randomizes all
   other queued items.
-- On Android TV, press Down from the controls to open the **Up Next**
-  ribbon, press Up to return, and select a card to play it. This ribbon does not
-  offer **Shuffle queue**. Apple TV has a native **Queue** panel with direct
-  selection, previous/next, and shuffle controls. Its next-up overlay offers
-  **Play Now** and **Dismiss**. Apple TV does not have library **Shuffle All**.
+- On Android TV, press Down from controls for **Up Next**, Up to return, and
+  select a card to play; the ribbon has no **Shuffle queue**. Apple TV's native
+  **Queue** offers selection, previous/next, and shuffle; next-up offers **Play
+  Now** and **Dismiss**. Apple TV has no library **Shuffle All**.
 - The chapter picker follows server-provided chapters and is hidden when none
   exist.
 - Intro, credits, recap, preview, and commercial segments can be set to
@@ -382,15 +361,12 @@ For a reproducible problem, open **Settings → Diagnostics**:
    enable **Allow client log upload** (`EnableClientLogUpload`) before
    JellyScope can send it.
 
-Every send action includes a sanitized diagnostic snapshot with the app
-version, device model, and OS and, when available, decoder capabilities and
-recent playback-failure facts. That snapshot is sent even when **Collect
-diagnostic logs** is off; the switch controls the retained history added to it.
-When **Collect diagnostic logs** is enabled, Android mpv also retains a
-size-capped raw verbose log on the device. Server uploads exclude that raw log
-and contain only bounded, structured, scrubbed diagnostics. JellyScope has no local
-crash-report export. If the upload is disabled or fails,
-report that outcome with the reproduction steps and environment details.
+Every send includes a sanitized app/device/OS snapshot and, when available,
+decoder and recent playback-failure facts. **Collect diagnostic logs** controls
+only the retained history added to it. On Android mpv, collection also keeps a
+size-capped raw verbose file on-device; uploads exclude it and send only bounded,
+structured, scrubbed data. There is no local crash-report export. If upload is
+disabled or fails, report that result with reproduction and environment details.
 
 ## Playback controls
 

@@ -278,52 +278,35 @@ Related groups/loading and does not own that stream.
 
 ### Desktop libmpv boundary
 
-macOS arm64 development and packaging use the pinned IINA 1.4.0 69-file dylib
-inventory. Fetch/prepare scripts validate inventory, copy resources, rewrite
-non-system paths to `@loader_path`, restore signatures, and verify architecture,
-deployment floor, and dependency closure. `LibMpv` loads only bundled
-`libmpv.2.dylib` on macOS and never searches machine package paths; Linux uses
-system lookup, and Windows packages must provide `mpv-2.dll`. `LC_NUMERIC=C` is set before use.
-Release builds preserve runtime-loaded providers through the desktop ProGuard file.
+macOS loads only the pinned bundled mpv closure; Linux uses system lookup and
+Windows packages supply `mpv-2.dll`. Apple Silicon packages also bundle the
+audited VLC runtime. Acquisition and offline behavior belong to
+[BUILD](../BUILD.md#desktop-jvm), and signing, provenance, and package checks to
+the [release runbook](../RELEASE.md#manual-macos-stages). Android mpv is a
+separate integration.
 
-Apple Silicon packages also prepare the audited VLC 3.0.23 arm64 runtime and
-licenses. Intel macOS packaging is unsupported. Packaged VLC is preferred;
-development may use `/Applications/VLC.app`. Availability is a cached file check,
-while engine creation validates version. Signing covers prepared native dylibs,
-and variant-specific tasks verify packaged VLC inventory. Package acceptance also
-requires the [release checks](../RELEASE.md#manual-macos-stages), while runtime
-acceptance remains separate and requires real macOS playback through both mpv
-and LibVLC.
+Desktop sets `LC_NUMERIC=C` before using the loaded libmpv interface, and
+release shrinking preserves runtime-loaded providers and native entry points.
 
-Desktop mpv has a JVM-only presentation capability. Portable software rendering
-uses two UI-owned Skia BGRA bitmaps; core renders off Main and publishes only a
-complete front buffer on Main with one-frame ownership acknowledgement.
+Desktop mpv exposes a JVM-only presentation capability. The primary macOS path
+uses a generation-scoped app-owned `NSView`, CGL context, and three-buffer
+IOSurface swapchain; it falls back to app-owned OpenGL, then two-buffer Skia
+software rendering before item load. Core owns libmpv callbacks/context and one
+render executor. Initialization and release serialize under `engineLock`, joins
+stay outside it, and detach completes only after callbacks and context stop. No
+path supplies `wid` or lets mpv create or focus a window.
 
-On Apple Silicon, an app-owned IOSurface path is primary: UI owns a generation-
-scoped `NSView`, private CGL context, three-buffer swapchain, AppKit/Retina resize,
-and detach. Core owns libmpv callbacks/context and one render executor. Detach is
-acknowledged after callbacks stop and context frees. Initialization/release are
-serialized under `engineLock`; joins occur outside the monitor. IOSurface failure
-falls back to app-owned `NSOpenGLView`, then software before item load. No path
-supplies `wid` or lets mpv create/focus a window.
+Software fallback renders into two UI-owned BGRA buffers off Main, publishes a
+complete front buffer on Main, and waits one frame before reusing the prior
+buffer.
 
-Compose alone owns desktop controls. A `BlendMode.Clear` cutout reveals video;
-a 1 dp `SwingPanel` supplies the peer while Compose bounds size the native view.
-Native views sit below Compose and reject hit testing, keeping input on the normal
-AWT-Compose path. The OpenGL fallback uses swap interval zero. There is no popup
-controls window, synchronization observer, or synthetic native-pointer path.
-
-libmpv's deprecated OpenGL output can drop very-high-resolution presentation
-under sustained pointer motion. LibVLC avoids that path but can exceed its own
-output capacity. Probe render/present times measure CPU callback/presentation
-work only, not GPU/compositor/end-to-end latency. The rejected `wid` path opened
-a separate window and is not production behavior.
-
-Desktop LibVLC is an independent `LibVLC (beta)` controller/AppKit surface and
-does not emulate mpv render targets. Settings chooses mpv or LibVLC for the next
-session; unavailable LibVLC normalizes to mpv with a fallback notice. Native
-handles, addresses, Skia types, callbacks, and generations never enter common
-player contracts.
+Compose owns controls and input. A clear cutout exposes the native view below
+Compose; the peer view rejects hit testing. Desktop LibVLC remains an independent
+controller/AppKit surface, never an mpv render target. Native handles, callbacks,
+Skia types, and generations stay out of common contracts. Backend-specific
+presentation limits and runtime checks are owned by
+[data playback](data-playback.md#desktop-player-presentation); package success
+does not establish real playback behavior.
 
 ### Playback bridge rules
 
@@ -353,47 +336,32 @@ pipeline and backend comparison. These source boundaries enforce it:
 - Policy decisions and cheap state writes remain on Main; repository/PlaybackInfo,
   persistence, DTO mapping, and native I/O use injected dispatchers. A prepare
   generation cancels old observations before new facts can act.
-- Output evidence is capability-specific: Media3 first-frame, mpv software
-  published frame, LibVLC displayed pictures, Apple ready-for-display. mpv OpenGL
-  and iOS VLCKit declare reliable shared first-output unsupported; VLCKit may use
-  best-effort counters for readiness. Surface/Vout attachment is diagnostic only.
+- Output evidence is capability-specific. Unsupported measurements stay
+  explicit, and surface/Vout attachment alone never proves displayed output.
 - `AndroidPlayerSurfaceHost` serves mobile/TV and attaches Media3 or app-owned
   mpv/LibVLC surfaces with shell subtitle inset. iOS attaches AVPlayerLayer or a
   retained VLCKit drawable behind iOS capability interfaces. Desktop mpv publishes
   through the JVM-only BGRA capability. Common UI never casts native controllers.
-- Android LibVLC waits for window attachment before vout attach, re-enables video
-  from the vout callback, and replays play intent. Backend replacement retains
-  the owning ViewModel.
-- Optional `PlayerTimingController` keeps persistence/UI in common and application
-  in backends. Media3 audio delay uses PCM insertion/drop with video-clock progress
-  and coalesced re-prepare; zero keeps passthrough/offload. Its separate subtitle
-  overlay is positive-only and stores post-clamp values. Android LibVLC and
-  Android/desktop mpv use native timing; Apple and desktop LibVLC expose none.
+- Optional `PlayerTimingController` keeps persistence/UI common and application
+  backend-owned. Unsupported backends expose no misleading value; detailed
+  offset behavior belongs to [data playback](data-playback.md#quality-tracks-and-subtitles).
 - `SavePlaybackSelectionAction` and `SavePlaybackTimingOffsetAction` use the
   shared latest-wins per-key `DebouncedKeyedStoreWriter` off Main.
 - Android backend choice is resolved before planning and remains authoritative
-  through queue items unless explicitly switched for the session. Backend
-  defaults/order are owned by playback architecture. Eligible Jellyfin-streamed
-  alternate-backend startup recovery and the separate pre-prepare offline
-  construction fallback follow
-  [Settings And Credentials](data-playback.md#settings-and-credentials); installed
-  offline playback never performs a remote recovery replan.
+  through queue items unless explicitly switched. Startup recovery and offline
+  construction fallback are distinct; installed offline playback never performs
+  a remote recovery replan.
 - `PlayerViewModel` owns explicit remote switching: it plans off Main while the
   current controller remains installed, uses the serialized release-first
   installer, revalidates ownership/identity after suspension, preserves durable
   preference and offline resolution, and releases untransferred candidates once.
   Factory-reported backend selects the plan reaching `prepare`; switch-only
   construction fallback tries one platform default.
-- Android mpv keeps vendor API inside its engine adapter. Its controller owns
-  serialized commands, generation lifecycle, tracks/timing/diagnostics, audio
-  focus, retry, and release; `AndroidPlayerSurfaceHost` maps resize/subtitle inset
-  into the app surface bridge. Hosts are owner-qualified, and same-host replans
-  retain the engine surface. JNI logging excludes raw text and routine event names.
-- Android LibVLC projects only its own capabilities. Its optional Fixed default
-  affects initial VLC-family PlaybackInfo and is not a decoder fact or platform
-  8 Mbps rule. Diagnostics report codec/size/frame rate/lost pictures; bandwidth
-  stays absent until the API unit is verified. Track IDs use
-  `NativeTrackResolution`, with subtitle Disable at `-1`.
+- Android mpv and LibVLC keep vendor APIs inside their adapters. Controllers own
+  serialized native lifecycle, tracks, diagnostics, retry, and release; surface
+  hosts are owner-qualified and JNI/native logging admits no raw text. Their
+  capability, track, readiness, and recovery details belong to
+  [data playback](data-playback.md#durable-playback-controls-and-android-engines).
 - `AndroidAudioFocusCoordinator` alone owns focus/noisy behavior for all Android
   backends; Media3 internal focus/noisy handling is off. Media3 uses bounded
   streaming load control. LibVLC seek/resume stays Buffering until native clock
@@ -469,17 +437,15 @@ gates live in
 
 - Native tvOS preserves Siri Remote focus and keeps SwiftUI/AVKit outside common
   code while sharing Kotlin presentation/domain. Platform-family implementations
-  stay in Apple source sets; directory choices, DI entry, iOS PiP and tvOS drawable
-  adapters preserve the native boundaries.
+  stay in Apple source sets.
 - Downloads is installed only through platform graphs that supply real storage
   and lifecycle contracts; cache cleanup must not own downloaded media.
 - Duplicate iOS/JVM Skia ambient-color actuals remain because an intermediate
   source set would disable the default hierarchy and restructure every target for
   a bounded narrow seam.
-- Platform-only player capabilities use nullable side interfaces instead of
-  widening `PlayerController`.
-- Persisted enum parsing is shared but defaults stay local, preserving on-disk
-  compatibility without silently equalizing platform policy.
+- Nullable side interfaces keep platform-only capabilities out of
+  `PlayerController`; shared persisted decoding keeps defaults local so platform
+  policy and on-disk compatibility do not silently converge.
 
 ### Accounts and lifecycle
 
@@ -488,24 +454,19 @@ gates live in
 - Presentation-policy refresh must not reauthenticate or remount an active
   account. Comparing the durable active row as well as live state prevents a
   stale refresh from reactivating an account or clearing a pending logout.
-- Direct persistent-store cleanup avoids correctness depending on lazy DI order.
-- Removal and committed transition tails are atomic/non-cancellable because
-  partial durable mutation cannot be represented safely as an unchanged session.
-- Presentation-visible results live in domain so ViewModels never depend on
-  repository or transport implementation types.
+- Direct persistent-store cleanup avoids lazy-DI ordering. Removal and commit
+  tails are atomic/non-cancellable because partial durable mutation cannot
+  represent an unchanged session.
 
 ### Desktop playback embedding
 
 - macOS mpv uses IOSurface, app-owned OpenGL, then software fallback; `wid` is
   rejected because it opens a separate player window. Compose remains the sole
   controls/input scene.
-- Native teardown uses the engine lock and deferred lifetime/lease discipline;
-  render paths retain their separate lock/executor ordering to avoid per-frame
-  lease traffic.
-- VLC availability is cached file inspection with version validation at engine
-  creation. Packages bundle the pinned audited runtime and attribution.
-- Development and packaging use one pinned mpv inventory so machine-installed
-  libraries cannot silently change the native graph.
+- Engine-lock and deferred-lifetime discipline keep teardown out of render
+  callbacks. Runtime availability is a cheap file check; engine creation still
+  validates versions. Pinned packaged inventories prevent machine libraries from
+  changing the native graph.
 
 ### Android playback integration
 
@@ -516,8 +477,8 @@ Android mpv wrapper provenance belongs to
 
 - Live backend switching stays in `PlayerViewModel` because it shares launch
   identity, controller ownership, reporting, and installer authority.
-- Launch reading is shared, while owner-specific memory, explicit intent,
-  validation, reconciliation, and stale-result handling remain with each caller.
+- Launch reads are shared; memory, explicit intent, validation, reconciliation,
+  and stale-result handling remain with each caller.
 - `LocalSubtitleFileStore.resolvePath` remains a bounded synchronous stat/path
   seam; byte movement and reconciliation use injected IO owners. No common
   staging lifecycle exists to justify a wider suspend abstraction.
@@ -529,10 +490,9 @@ Android mpv wrapper provenance belongs to
 
 ### Engineering discipline
 
-- Remove obsolete internal compatibility fields so the compiler exposes every
-  consumer instead of preserving silent null fallbacks.
-- Extract only behavior that is actually common. Controller retries and mutable
-  session fields remain local where assets, timing, order, and lifecycle differ.
+- Remove obsolete compatibility fields so the compiler exposes consumers. Share
+  only real common behavior; controller retries and mutable session state remain
+  local where assets, timing, order, or lifecycle differ.
 - Native Objective-C dispatch uses one typed lazy `libobjc` facade, while each
   feature owns selectors, callbacks, AppKit dispatch, and lifecycle.
 - Concurrency fixes match access discipline: volatile for independent reads,

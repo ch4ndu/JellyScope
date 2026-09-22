@@ -469,34 +469,15 @@ additionally applies its pinned dav1d resource policy at the native-media
 boundary. That policy is self-scoped to dav1d by module ownership and remains
 separate from source compatibility and quality decisions.
 
-Android mpv's capability matrix is deliberately conservative: it advertises
-the pinned FFmpeg/container/audio families, up to eight audio channels, and
-text/bitmap subtitle delivery, but no HDR, Dolby Vision, audio passthrough, or
-display-derived ceiling. It uses Android/OpenGL ES with a 10-second cache
-target and 64 MiB forward and 16 MiB backward byte caps. Mobile uses `gpu-next`
-with `mediacodec-copy`, emulators use `gpu-next` with software decode, and the
-TV baseline uses classic `gpu` with zero-copy `mediacodec` and the
-fast profile. TV defaults to `gpu` because the supported TV set includes drivers that
-reject the external-sampler path used by `gpu-next`; the copy and software
-classes do not import external samplers and keep `gpu-next`. The TV copy path is
-rejected because it cannot guarantee real-time presentation when audio advances
-ahead of video. Direct `mediacodec_embed` presentation is an explicit TV output preference,
-not an automatic renderer fallback. It bypasses GPU import but requires hardware
-video frames and gives up mpv subtitle rendering and video sizing controls.
-The [Android mpv output policy](data-playback.md#android-mpv-backend) owns setting
-lifetime and capability handling.
-
-Android mpv presentation uses a fresh project-owned SurfaceView host for each
-Compose view instance. Surface callbacks and release are owner-qualified so an
-outgoing view cannot detach a newer replacement. Each valid attach enables the
-native window, publishes the current `android-surface-size`, and reapplies that
-size after layout/rotation changes. Same-host prepares retain that engine-bound
-surface and replace only the media; they never reattach the identical handle
-while a quality replan is dispatching. Detach disables the native window
-without destroying the player. On TV, surface teardown blocks (bounded) inside
-`surfaceDestroyed` until mpv's queued surface work drains. Sanitized lifecycle diagnostics include surface
-attachment state, dimensions, retained attachment, size changes, detach, and
-ignored stale callbacks, but never a surface handle or media identity.
+Android mpv deliberately advertises conservative pinned-engine capabilities:
+up to eight audio channels and supported text/bitmap subtitles, but no HDR,
+Dolby Vision, passthrough, or display-derived ceiling. Mobile uses copy-back,
+emulators use software decode, and TV defaults to classic GPU plus zero-copy
+MediaCodec because supported TV drivers reject the `gpu-next` external-sampler
+path and copy-back cannot guarantee real-time TV presentation. Direct MediaCodec
+is an explicit setting, never an automatic fallback, and gives up mpv subtitles
+and sizing. Exact cache, output, surface-lifetime, and diagnostic rules belong to
+the [Android mpv backend](data-playback.md#android-mpv-backend).
 
 ### Android TV
 
@@ -622,15 +603,12 @@ inspection, and coexistence gates are owned by the
 
 - **Quality has one precedence chain and no learned capacity.** A current-player
   choice outranks the active VLC-family Fixed default, which outranks the
-  general server default. Quality remains session-scoped because per-item
-  persistence and learned limits let stale experiments override current policy;
-  inherited Auto also remains distinct from an explicit session Auto choice.
-  Committing a choice only after planning succeeds prevents a rejected experiment
-  from changing the surviving stream's policy or a subsequent backend request.
-  The guarded installation boundary also prevents cancellation from ending
-  reporting for a stream that remains installed.
-  The no-client-limit sentinel is required because both a finite stand-in and an
-  omitted field can impose a server cap.
+  general server default. Session scope prevents stale experiments from
+  overriding current policy and keeps inherited Auto distinct from explicit
+  Auto. A choice commits only after planning succeeds, so rejection or
+  cancellation cannot alter the installed stream or its reporting. The
+  no-client-limit sentinel is required because both omission and a finite
+  stand-in can impose a server cap.
 
 - **Original has one manual failure contract.** Decoder, unsupported-media,
   missing-output, buffering, stall, and dropped-frame triggers all preserve the
@@ -644,12 +622,10 @@ inspection, and coexistence gates are owned by the
   a missing backend fails visibly without changing ownership.
 
 - **Recovery and reporting decisions are shared without moving lifecycle
-  ownership.** Common immutable coordinators keep activation precedence,
-  strongest-trigger PiP arbitration, one-shot budgets, reporting order, and
-  local-versus-remote settlement consistent across Compose and tvOS. Jobs,
-  notices, controller commands, navigation, and stale-result cancellation stay
-  with each presentation owner; a stateful universal player base would couple
-  unrelated native lifecycles.
+  ownership.** Common immutable coordinators keep precedence, PiP arbitration,
+  budgets, reporting order, and settlement consistent. Jobs, notices, native
+  commands, navigation, and stale cancellation stay with each presentation
+  owner; a universal stateful player would couple unrelated lifecycles.
 
 - **Controller installation is serialized.** A current launch waits for an
   earlier installer and rechecks generation and item authority. Dropping a
@@ -663,29 +639,26 @@ inspection, and coexistence gates are owned by the
 
 - **Capability facts remain concrete-backend owned.** Combining unrelated
   decoder maxima, platform probes, static declarations, or extension support
-  can describe a path that does not exist. Closed provenance preserves what was
-  measured or declared without turning evidence into a new capability or
-  sharing Media3 FFmpeg support with mpv or LibVLC.
+  can describe a nonexistent path. Closed provenance preserves what was measured
+  or declared without creating a capability or sharing Media3 FFmpeg support.
 
 - **Android TV mpv uses the selected supported rendering baseline.** Zero-copy
   `mediacodec` avoids the copy path's audio/video drift, and classic `gpu`
-  avoids the supported-TV external-sampler failure. GPU remains the default;
-  direct output is a user choice with explicit subtitle and sizing limitations,
-  rather than a silent compatibility switch. Surface teardown synchronizes with mpv's native
-  queue because asynchronous detach can race framework surface destruction.
+  avoids the supported-TV external-sampler failure. GPU remains default; direct
+  output is an explicit choice with subtitle/sizing limits. Surface teardown
+  synchronizes with mpv because asynchronous detach can race Surface destruction.
 
 - **Desktop and iOS product envelopes are scoped policy.** The macOS LibVLC
   4K60-equivalent and iOS 4K30-equivalent Standard envelopes prevent known
   unsafe inputs without claiming a universal hardware ceiling. Unrestricted
-  removes only the marked envelope; per-backend codec, container, range,
-  explicit-quality, and output facts remain active. Screen geometry, guessed
-  machine tables, and sparse per-model catalogs are not decoder evidence.
+  removes only that envelope; backend facts remain active. Screen geometry,
+  guessed machine tables, and sparse model catalogs are not decoder evidence.
 
 - **iOS transition and PiP evidence stays native and identity-bound.** Target
   arrival alone cannot prove fresh video, so bounded transition evidence also
   requires later clock and displayed-picture progress and rejects stale
   generations. VLCKit's public PiP protocols retain engine ownership; private
-  layer traversal or a parallel sample-buffer controller would duplicate it.
+  traversal or a parallel controller would duplicate it.
 
 - **Health policy is selected by the application surface.** Android TV uses the
   shared Actionable policy, while desktop and tvOS remain Advisory; placing that

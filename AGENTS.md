@@ -26,4 +26,5 @@ All implementation follows the [development workflow](docs/guides/workflow.md),
 including its scope-expansion and delegation approval rules, single integration
 responsibility, selective-test policy, and limits on Git/release authority.
 Completion requires its [final candidate verification](docs/guides/workflow.md#7-verify-the-final-candidate)
-and [documentation update rule](docs/guides/workflow.md#8-maintain-documentation).
+and [documentation update rule](docs/guides/workflow.md#8-maintain-documentation),
+including its [concise writing guidance](docs/guides/workflow.md#concise-useful-documentation).

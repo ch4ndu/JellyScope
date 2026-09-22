@@ -234,13 +234,11 @@ This contract applies to Android TV.
   Play/Pause, falling back to the player root while a modal is open; an unfocused
   notice acts immediately. Re-arm auto-hide afterward. PiP defers interactive
   replans.
-- Exhausted Auto recovery offers Choose lower quality through the in-player
-  picker and no Settings action. Failed Fixed offers Choose lower, Try higher,
-  Try Original, and Dismiss. Original never changes streams automatically;
-  Actionable Auto uses only bounded common recovery, and Fixed never auto-lowers.
-  Shell actions dispatch semantic presenter/ViewModel events, never controller calls.
-- tvOS presents the same semantic actions over AVKit with VoiceOver and Siri
-  Remote access. Kotlin presentation remains the playback/replan owner.
+- Recovery actions and stream-change authority follow
+  [playback architecture](playback-architecture.md#quality-semantics). TV makes
+  each advertised action D-pad-reachable and dispatches semantic ViewModel
+  events, never controller calls. Apple TV presentation belongs to
+  [native tvOS screens](ui.md#native-tvos-screens).
 - TV follows the shared
   [player overlay-layer order](ui.md#player-overlay-layers); each TV surface
   selects the layer assigned by that UI contract.
@@ -546,13 +544,12 @@ collection; its policy is owned by [playback architecture](playback-architecture
 - Find separates scroll axes so horizontal focus movement cannot shift the page.
 
 - **Playback links reuse normal playback ownership.** Account-qualified item
-  identifiers make manual playback entry repeatable while preserving session
-  boundaries, backend settings, and the normal planner. Requiring the previous
-  player to close avoids introducing a second native replacement flow.
+  identifiers preserve session boundaries, settings, and normal planning.
+  Requiring the previous player to close avoids a second native owner.
 
 - Paging errors preserve pending restore and require explicit Retry because a
-  failed page does not prove that the saved target is absent. Search completion
-  is request-identity-based for the same stale-result reason.
+  failed page does not prove a target absent; search uses request identity for
+  the same stale-result reason.
 
 ### Home media-card geometry
 
@@ -562,9 +559,8 @@ collection; its policy is owned by [playback architecture](playback-architecture
 ### Player trickplay preview
 
 - Successful sprite fetch controls visibility because metadata can outlive the
-  image. Pending target and item identity prevent empty, canceled, or stale frames;
-  Canvas cropping avoids parent constraints clipping the full sheet. Uniform
-  frame scaling preserves portrait proportions inside the fixed preview box.
+  image. Pending target/item identity reject stale frames; Canvas cropping keeps
+  the full sheet available, and uniform scaling preserves frame proportions.
 
 ### Related shelf focus
 
@@ -573,8 +569,8 @@ collection; its policy is owned by [playback architecture](playback-architecture
 - Player backend switching reuses the existing focus-trapping picker contract.
   Debug reuses the shared row projection while TV retains display-mode policy.
 - `TvFocusCoordinator`, route transactions, and stable-key group memory form one
-  restoration system because competing route, lazy-index, and Compose-restorer
-  memories could consume a restore without confirmed focus.
+  restoration system; competing route, lazy-index, or Compose-restorer memories
+  could consume a restore without confirmed focus.
 - TV text entry is click-to-edit so D-pad arrows remain navigation outside an
   explicitly opened editor.
 - Library chrome hides only at draw time because its stable footprint, semantics,

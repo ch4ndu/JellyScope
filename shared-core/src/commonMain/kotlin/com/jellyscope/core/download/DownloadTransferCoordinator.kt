@@ -368,6 +368,9 @@ internal class DownloadTransferCoordinator(
         if (record.physicalBytes != record.checkpointBytes) {
             // A writer can only resume from the exact durable checkpoint.  Do not guess whether
             // bytes beyond the checkpoint are complete or discard them silently.
+            originalDownloadTransferLogger.w {
+                "stage=original-download event=resume-rejected generation=${attempt.attemptGeneration} reason=PhysicalCheckpointMismatch"
+            }
             return failClaimedAttempt(attempt, DownloadFailure.UnsupportedArtifact)
         }
         val expectedTotalBytes =
@@ -393,6 +396,9 @@ internal class DownloadTransferCoordinator(
         val partKey = ORIGINAL_PART_KEY
         val expectedCheckpoint = checkpointForRecovery(record, sidecarBytes)
         if (!artifactStore.normalizeStagingCheckpoint(record.request.artifactKey, expectedCheckpoint)) {
+            originalDownloadTransferLogger.w {
+                "stage=original-download event=resume-rejected generation=${attempt.attemptGeneration} reason=CheckpointNormalization"
+            }
             return failClaimedAttempt(attempt, DownloadFailure.UnsupportedArtifact)
         }
         val staging = artifactStore.inspect(record.request.artifactKey, DownloadArtifactArea.Staging)
@@ -415,7 +421,15 @@ internal class DownloadTransferCoordinator(
                 return failClaimedAttempt(attempt, DownloadFailure.SizeUnavailable)
             }
         if (checkpointTotal != record.checkpointBytes) {
+            originalDownloadTransferLogger.w {
+                "stage=original-download event=resume-rejected generation=${attempt.attemptGeneration} reason=CheckpointLengthMismatch"
+            }
             return failClaimedAttempt(attempt, DownloadFailure.UnsupportedArtifact)
+        }
+        if (record.checkpointBytes > 0L) {
+            originalDownloadTransferLogger.i {
+                "stage=original-download event=resume-checkpoint generation=${attempt.attemptGeneration} result=Validated"
+            }
         }
         val mainPartPresent = staging?.partLength(partKey) != null
         val mode =
@@ -1162,7 +1176,7 @@ internal class DownloadTransferCoordinator(
     ): DownloadArtifactCheckpoint {
         val sidecarLength = sidecarBytes?.size?.toLong() ?: 0L
         val mainLength =
-            if (sidecarLength > 0L && record.checkpointBytes >= sidecarLength) {
+            if (record.checkpointBytes >= sidecarLength) {
                 record.checkpointBytes - sidecarLength
             } else {
                 0L

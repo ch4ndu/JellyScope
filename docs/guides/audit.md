@@ -2,10 +2,9 @@
 
 Audits are read-only and findings-first unless fixes are explicitly authorized.
 
-Treat current files as the source of truth. Compare code with the active guides;
-distinguish new defects and regressions from documented gaps, deliberate
-non-goals, and device validations that remain pending. Re-verify any inherited
-finding list against current source before planning from it.
+Current files are authoritative. Compare them with active guides, distinguish
+defects from documented gaps/non-goals/pending device checks, and re-verify
+inherited findings before planning.
 
 ## Route The Audit
 
@@ -24,22 +23,20 @@ For a whole-project audit, inspect the repository in staged subsystem passes:
 - Trace the affected call path, not only the changed line. For a named screen or
   interaction, follow state production, collection, rendering, side effects,
   platform callbacks, and persistence where applicable.
-- Report `Confirmed` only when code or a documented project contract proves the
-  defect. Report a concrete but unmeasured mechanism as `Risk`. Use
-  `Measurement needed` when runtime evidence is required to establish impact.
+- Use `Confirmed` only when code or a project contract proves the defect; use
+  `Risk` for a concrete unmeasured mechanism and `Measurement needed` when
+  runtime evidence must establish impact.
 - Do not report hypothetical failures without a reachable mechanism. Do not
   classify accepted prerequisites, deliberate non-goals, or unexecuted manual
   checks as code defects.
-- Severity describes impact: **Critical** is a reachable security breach,
-  destructive data loss, or widespread unusability; **Major** breaks an
-  important supported flow or release contract; **Minor** is a bounded
-  correctness, documentation, or maintenance defect; **Suggestion** is an
-  optional improvement without a demonstrated defect. Evidence level is
-  independent: high potential severity does not make an uncertain impact
-  confirmed. Review approval gates apply only when that workflow is invoked.
-- Prefer the smallest correction that preserves existing behavior, layering,
-  platform support, and accepted scope. Do not turn observations into unrelated
-  refactors.
+- Severity describes impact: **Critical** is reachable security breach,
+  destructive loss, or widespread unusability; **Major** breaks an important
+  supported flow/release contract; **Minor** is bounded correctness,
+  documentation, or maintenance harm; **Suggestion** has no demonstrated
+  defect. Evidence is independent of severity. Review gates apply only when
+  invoked.
+- Prefer the smallest correction preserving behavior, layering, platform
+  support, and accepted scope; do not turn observations into unrelated refactors.
 
 ## Required Checks
 
@@ -104,6 +101,14 @@ For a whole-project audit, inspect the repository in staged subsystem passes:
   source set or runtime path.
 - Build success is not behavior verification. Report which click, key, route,
   playback, lifecycle, package, or platform paths remain unverified.
+
+### Documentation
+
+Apply the [documentation writing rules](workflow.md#concise-useful-documentation)
+to changed prose. Check that readers can find the answer, each fact has one
+owner, and examples match current source. Flag lost constraints, unsupported
+claims, and broken links; distinguish optional style preferences from defects.
+Keep audit-only work read-only.
 
 ## Report Format
 

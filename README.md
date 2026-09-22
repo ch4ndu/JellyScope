@@ -8,27 +8,23 @@ JellyScope is a third-party client for Jellyfin. It is not affiliated with,
 endorsed by, or maintained by the Jellyfin Project. Jellyfin is a trademark of
 Jellyfin, Inc.
 
-JellyScope is written in Kotlin with Compose Multiplatform. It runs on Android
-phones and tablets, Android TV, Google TV, Fire TV, iPhone, iPad, and Apple
-Silicon Macs. Apple TV has an experimental native SwiftUI preview. The current
-alpha release is **0.1.0-alpha94**.
+JellyScope is a Kotlin and Compose Multiplatform client for Android phones and
+tablets, Android TV, Google TV, Fire TV, iPhone, iPad, and Apple Silicon Macs.
+Apple TV has an experimental native SwiftUI preview. The current alpha release
+is **0.1.0-alpha94**.
 
 ## Features
 
-- Network server discovery on Android and desktop, direct server URL entry on
-  iOS, Quick Connect, and multiple accounts
-- Home shelves, library browse, search, per-library recommendations, and
-  Discover views for genres, studios, collections, suggestions, and upcoming
-  episodes; people are available through Find and cast links
-- Movie, show, season, episode, and person details, including alternate media
-  versions, cast, trailers, related titles, chapters, and segment skipping
-- Direct play, audio-only conversion, or server transcoding selected for the
-  current title, device, player, and quality choice
-- A choice of playback engine on Android, iOS, and macOS, with session-only
-  in-player switching while video is streamed from Jellyfin when
-  the current source and track choices can be preserved
-- Text and image subtitles, local OpenSubtitles downloads, supported timing
-  adjustments, audio output controls, autoplay next, and a playback queue
+- Server discovery on Android and desktop, direct URL entry, Quick Connect, and
+  multiple accounts
+- Home, library browse, search, recommendations, Discover, people, and detailed
+  movie/show/episode pages with versions, cast, trailers, chapters, and skipping
+- Direct play, audio-only conversion, or transcoding based on the selected
+  player, quality, source, tracks, and device capabilities
+- Selectable players on Android, iOS, and macOS, including eligible
+  session-only switching during online playback
+- Text and image subtitles, local OpenSubtitles files, supported timing and
+  audio controls, autoplay next, and queues
 - [Kids viewing](docs/guides/ui.md#kids-watch-page) on Android/iOS phones and
   tablets, selected by the account's parental rating, with single-video
   playback, shuffled library choices, compact video controls, and permitted downloads
@@ -39,8 +35,7 @@ alpha release is **0.1.0-alpha94**.
   Original and converted downloads; earlier iOS versions require the app to
   remain active. See [download limits](docs/guides/data-playback.md#downloads-and-offline).
 - HDR handling, Android TV refresh-rate matching, Picture-in-Picture, Fire TV
-  Watch Next, Apple media controls, three dark themes, three tile sizes, and an
-  adaptive phone-to-TV interface
+  Watch Next, Apple media controls, themes, tile sizes, and adaptive layouts
 - Account-qualified [Android TV playback links](docs/guides/tv-ux-behaviors.md#playback-links)
   that open an item directly with the current playback settings
 
@@ -53,10 +48,9 @@ macOS share the browse experience with native playback.
 
 Android requires Android 7.1 / API 25 or newer, including Fire OS 6. The mpv
 backend requires API 26+; ExoPlayer remains available on API 25. Android builds
-use a pinned [JellyScope mpv bundle](docs/operations/android-native-dependencies.md)
-with the Cube-tested ARM32 ImageReader fix; other ABIs retain the provider build.
-Android TV offers GPU output (default) or optional Direct MediaCodec output;
-[the output setting](docs/USAGE.md) describes subtitle and sizing limitations.
+use a pinned [JellyScope mpv bundle](docs/operations/android-native-dependencies.md).
+Android TV offers GPU output (default) or Direct MediaCodec output; the
+[usage guide](docs/USAGE.md#choose-a-player) describes its limitations.
 
 iPhone and iPad require iOS 16 or newer. The Apple TV preview requires tvOS 17
 or newer and is permanently unsupported, with no hardware-validation,
@@ -74,14 +68,10 @@ download for offline playback, and configure playback.
 
 ## More documentation
 
-- [Using JellyScope](docs/USAGE.md) — accounts, libraries, downloads, playback,
-  subtitles, queues, Picture-in-Picture, and diagnostics, including active
-  hardware/software decoding for mpv and the required Android mpv recovery
-  choice when software playback cannot keep up
-- [Documentation map](docs/README.md) — the owner of each public and engineering
-  fact
-- [Building and running](docs/BUILD.md) — toolchain, builds, installation, and
-  upgrades
+- [Using JellyScope](docs/USAGE.md) — accounts, browsing, downloads, playback,
+  subtitles, queues, Picture-in-Picture, and diagnostics
+- [Documentation map](docs/README.md) — public and engineering guides
+- [Building and running](docs/BUILD.md) — toolchain, builds, installation, and upgrades
 - [Contributing](CONTRIBUTING.md) — development requirements
 - [Changelog](CHANGELOG.md) — what changed in each release
 

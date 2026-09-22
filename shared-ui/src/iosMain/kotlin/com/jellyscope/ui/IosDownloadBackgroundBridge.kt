@@ -3,6 +3,8 @@
 package com.jellyscope.ui
 
 import com.jellyscope.core.download.IosDownloadBackgroundExecution
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.downloads_section_downloading
 import com.jellyscope.ui.generated.resources.downloads_title
@@ -10,6 +12,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.getString
 import org.koin.mp.KoinPlatform
+
+/** Closed native scheduler outcomes; identifiers and NSError payloads stay in Swift. */
+enum class IosDownloadSchedulerEvent {
+    Registering,
+    RegistrationRejected,
+    Submitting,
+    Submitted,
+    Unavailable,
+    NotPermitted,
+    TooManyRequests,
+    ImmediateRunIneligible,
+    SubmissionFailed,
+}
 
 /**
  * Swift-owned BackgroundTasks callbacks. Values are only opaque generations
@@ -42,8 +57,16 @@ interface IosDownloadBackgroundTaskCallbacks {
  * Koin, then retain its native controller for the application's lifetime.
  */
 class IosDownloadBackgroundBridge {
+    private val logger = diagnosticLogger(DiagnosticTag.DownloadExecution)
     private val execution = KoinPlatform.getKoin().get<IosDownloadBackgroundExecution>()
     private val applicationScope = KoinPlatform.getKoin().get<CoroutineScope>()
+
+    fun reportSchedulerEvent(
+        wakeGeneration: Long,
+        event: IosDownloadSchedulerEvent,
+    ) {
+        logger.i { "stage=download-continuation event=native-scheduler generation=$wakeGeneration result=${event.name}" }
+    }
 
     fun install(callbacks: IosDownloadBackgroundTaskCallbacks) {
         execution.installCallbacks(

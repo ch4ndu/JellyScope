@@ -907,70 +907,6 @@ policy, `guidancePublishable`, and whether a buffering interval opened since the
 last restart), because gates that emit no signal are invisible to signal-scoped
 logging.
 
-Desktop subtitle vertical position is **per backend, not shared**. Desktop mpv uses its
-native/default `34` scaled-pixel `sub-margin-y` when the bottom player chrome is absent.
-The shared player surface derives one transient Boolean from normal-controls visibility,
-the current bottom picker, and picture-in-picture state: normal controls or any bottom
-picker adds the fixed `146` scaled-pixel controls offset, for a total of `180`;
-picture-in-picture keeps the native `34` because the shared chrome is not rendered
-there. The setter is live and changes only mpv's `sub-margin-y`; it does
-not reprepare media or alter subtitle selection/style preferences. Android uses the
-[subtitle presentation policy](ui.md#tv-layout); iOS accepts this surface input
-inertly, and desktop LibVLC never receives it.
-
-VLC does **not** use this policy: VLC 3.0.23 declares `sub-margin` as a plain integer
-option with no proportional form, and the option is installed at instance creation
-before any video dimensions exist, so one shared pixel value cannot express the same
-clearance for both. VLC therefore uses its native default bottom placement. Removing
-the override eliminates the app-forced displacement; it does not guarantee a final
-position, since VLC defaults and any ASS/SSA positioning tags still apply. Do not
-reintroduce a fixed VLC pixel value, and do not add per-media geometry without
-plumbing post-playback video dimensions into a per-media option.
-
-An explicit **Off** subtitle choice is durable on the detail screen as well as in the
-player. `Off` and "no explicit choice" are distinct intents: `Off` persists a typed
-no-subtitle selection, while `Unspecified` means fall back to the preferred language or
-the container default. The detail picker exposes separate subtitle-track and
-local-asset selection paths so the two cannot collapse into one nullable argument again.
-
-Deleting a downloaded subtitle asset clears the durable selection locally, so the
-rendered default must be **reprojected from the options already in state** before any
-server refresh — a refresh needs a remote item-detail response and commits nothing when
-it fails, which would leave the picker showing a selection playback has already
-abandoned. Both the initial projection and the reprojection go through one shared
-resolver so the two cannot compute different defaults from the same inputs. Reproject
-from the durable selection re-read after the delete rather than from an assumption about
-which asset was removed: deleting an unselected asset must leave the surviving
-selection, and its rendered highlight, alone.
-
-Track-resolution mapping diagnostics are **deduplicated per track kind** so a polling
-controller does not repeat an unchanged outcome. The dedup is one shared
-`TrackResolutionDiagnosticGate`, and its check-and-set is **locked**: mpv resolves tracks from
-both a background poll and a synchronous command path, and without atomicity both can pass the
-equality check before either records, emitting the same line twice.
-
-Its `reset()` is conditional because it is not an ordering barrier. A controller
-whose resolution work can remain in flight across the call must retain the gate.
-The single-threaded Media3, VLCKit, and AppleAV controllers reset at `prepare()`;
-mpv retains recorded outcomes for the controller's lifetime, bounded by the
-number of track kinds. Retention is safe because activation targets are unique
-per request: both
-`AudioActivationTarget` and `SubtitleActivationTarget` carry a monotonically incremented
-`requestId`, so a new session's key can never equal the previous session's and no per-item
-mapping line can be suppressed. If target reuse is ever introduced, the remedy is
-epoch-aware admissions — capture an epoch with the selection and reject admissions from an
-older epoch — not a reset. The key's `target` field participates in equality **only** and must
-never be formatted or logged; it can carry stream indices, identities, or asset ids.
-
-Android LibVLC reports **no** time-based buffered-ahead value. `Event.Buffering`
-exposes only a cache-fill percentage, and the pinned VLC source computes it
-against a dynamic buffering duration that folds in PTS delay, preroll, and extra
-buffering rather than a stable absolute window, so no millisecond position can be
-derived from it honestly. `bufferedPositionMs` therefore stays at the playhead for
-that backend and the seek bar draws no secondary track. The raw percentage remains
-runtime diagnostic state but is not a time-based estimate and is not a shared
-overlay row. Do not substitute a `--network-caching` estimate.
-
 The shared health evaluator supplies evidence and
 `AutoPlaybackRecoveryCoordinator` supplies the bounded decision. The policy,
 including every Original trigger and prompt action, is owned by
@@ -2303,7 +2239,10 @@ than restating it.
 - iOS 26+ requests continued-processing time for explicit Original or Fixed
   Start, Resume, Resume All, and Retry actions. An actual native grant can keep
   the existing app-owned writer running after backgrounding; submitting a
-  request alone does not grant execution. The grant is bound to one retained
+  request alone does not grant execution. Each concrete wake identifier is
+  registered once before submission; the plist wildcard supplies permission.
+  Registration or scheduling rejection retains foreground downloading, with
+  generation-correlated scheduler diagnostics. The grant is bound to one retained
   wake and account epoch. Screen entry, recovery, Pause/Cancel follow-up, and
   removal-preview dismissal never request background time. Native Stop or
   expiration checkpoints to Paused for explicit Resume. Slow server encoding
@@ -2318,6 +2257,10 @@ than restating it.
   closed-app download daemon. Existing per-write quota, source validation,
   redirect, and account-lease safeguards apply to both iOS transfer qualities.
 - Original byte checkpoints and Fixed package checkpoints are generation-bound.
+  Original resume preserves the full main-file checkpoint when no subtitle
+  sidecar exists; with a sidecar, its bytes are subtracted from the package
+  checkpoint before normalizing the main file. Only bytes beyond those durable
+  per-part checkpoints may be truncated.
   Original active-attempt settlement is non-throwing: a checkpoint failure
   retains the registration's last durable facts, both sidecar and main writers
   are independently best-effort closed under non-cancellable cleanup, and only
@@ -2345,9 +2288,9 @@ than restating it.
   tvOS uses a private Caches subtree for both the download database and media.
   Apple TV may reclaim either independently: playback verifies files, recovery
   tolerates missing rows/artifacts, and the UI explains possible redownloads.
-  Transfers run only while the app is active; the shared Apple lifecycle host
-  checkpoints on inactivity/termination. There is no background-transfer or
-  durable-retention guarantee.
+  On tvOS, transfers run only while the app is active; the shared Apple
+  lifecycle host checkpoints on inactivity/termination. tvOS has no background-
+  transfer or durable-retention guarantee.
 
 ### Offline playback, progress, and removal
 
@@ -2492,6 +2435,10 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
 
 - **[all]** Taps/scrubs commit on release (`onValueChangeFinished`), not
   continuously.
+- **[Android LibVLC]** `Event.Buffering` is a cache-fill percentage over a
+  dynamic native duration, not milliseconds. Keep `bufferedPositionMs` at the
+  playhead and draw no secondary track; the raw percentage is diagnostic-only.
+  Never substitute a `--network-caching` estimate.
 - **[all]** Draw buffered progress and show a trickplay thumbnail only while a
   user-driven scrub or pending seek target is active, and only after that
   target's current sprite sheet loads successfully. Merely focusing the seek bar
@@ -2665,6 +2612,21 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   option), so its size control is hidden rather than inert. The ViewModel
   publishes one `subtitleStyleable` truth so the shared controls, TV overlay,
   picker auto-close, and debug row cannot disagree.
+- **[desktop]** Subtitle vertical placement is backend-specific. Without bottom
+  chrome, mpv uses its native `34` scaled-pixel `sub-margin-y`; controls or a
+  bottom picker add `146` for a total of `180`, while PiP stays at `34`. This
+  live setter does not reprepare or change selection/style. Desktop LibVLC keeps
+  native placement because VLC 3.0.23 exposes only a construction-time integer
+  margin before video dimensions exist; do not restore one fixed pixel override
+  without per-media geometry. Android placement is owned by
+  [UI](ui.md#tv-layout), and iOS ignores this surface input.
+- **[all]** Explicit subtitle **Off** is durable and distinct from
+  `Unspecified`, which resolves language/default fallbacks. Detail exposes
+  separate track and local-asset paths rather than one nullable choice.
+- **[all]** After deleting a downloaded subtitle, re-read durable selection and
+  reproject from the options already in state through the shared resolver before
+  any server refresh. Deleting an unselected asset must preserve the surviving
+  selection and highlight.
 - **[all]** Requested and active subtitles are distinct. Do not mark a local row
   selected/styleable until the exact activation target is confirmed; stale
   confirmations do not activate a newer request. During re-plan, keep reporting
@@ -3234,6 +3196,13 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
   so values never cross item boundaries. Android reacts to Media3 analytics, iOS
   uses access-log/presentation information on its existing observer cadence, and
   desktop reads mpv properties on its existing poll.
+- Track mapping uses one locked `TrackResolutionDiagnosticGate` whose per-kind
+  keys prevent mpv's poll and command paths from admitting the same outcome.
+  `reset()` is not an ordering barrier: single-threaded Media3 and Apple
+  controllers reset at prepare, while mpv retains bounded outcomes for its
+  lifetime. Monotonic activation `requestId`s keep later sessions distinct. If
+  targets are ever reused, add epoch-aware admission rather than a reset. The
+  target participates only in equality and must never be formatted or logged.
 - Desktop keeps `frame-drop-count` as the compatible `droppedVideoFrames`
   value and also exposes it as output drops; `decoder-frame-drop-count` is the
   separate decoder value. Native macOS presentation labels the active path
@@ -3455,12 +3424,11 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
 
 ### Kids catalogue and history
 
-- Curated library membership is a catalogue, not a queue or recommendation
-  service. Account/epoch checks keep asynchronous results within their owner;
-  separate fresh UserData reads prevent the RAM catalogue from freezing history.
+- Curated membership is a catalogue, not a queue or recommendation service.
+  Account/epoch checks contain async results; fresh UserData avoids freezing
+  history in RAM.
 - Offline availability means a qualified completed artifact, not cached remote
-  metadata. Small generation-keyed qualification memos avoid repeated file work
-  on progress ticks while explicit retry and playback taps revalidate availability.
+  metadata. Generation memos reduce file work, while retry and playback revalidate.
 
 ### Server contract and capability modeling
 
@@ -3469,21 +3437,17 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   prevents futile network work while preserving manual URLs, local HTTP, and
   restored sessions. Bonjour and permission probes are not equivalent to the
   Jellyfin broadcast protocol.
-- **Related shelves and Find use deterministic ordering.** Priority-gated joins
-  prevent faster low-priority requests from reordering shelves, while per-kind
-  Find limits prevent one selected category from starving another. Ordered
-  joins, ID de-duplication, and all-or-nothing failure keep missing data from
-  looking like an empty category.
+- **Related shelves and Find use deterministic ordering.** Priority-gated joins,
+  per-kind limits, ID de-duplication, and all-or-nothing failure prevent latency
+  from reordering shelves or making failed categories look empty.
 - **Trickplay is source- and delivery-qualified.** Resolution alone can pair a
   tile sheet with the wrong media version, and advertised metadata does not
   prove a tile can be fetched and decoded. Source identity therefore participates
   in URL/cache keys, while preview chrome appears only after image delivery.
 - **Public server identity is authoritative.** `/System/Info/Public` binds
-  credentials to a stable server before persistence; optional display fields
-  and inconsistent authentication-result fields cannot safely replace it.
-  Password bytes remain untouched, while authorization values use one CR/LF-safe
-  RFC 3986 encoder because secret handling and header syntax are separate
-  boundaries.
+  credentials before persistence; optional display/auth-result fields cannot
+  replace it. Password bytes remain untouched, while authorization syntax uses
+  the shared CR/LF-safe RFC 3986 encoder.
 - **The API facade owns transport and wire-format drift.** Mapping transport
   failures below presentation keeps retryability stable if the HTTP stack
   changes. The hand-rolled Ktor client avoids an SDK dependency but requires
@@ -3493,17 +3457,14 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   pinned dca/DTS declaration. The bundled FFmpeg E-AC-3 result augments only
   Media3, and an active route's channel count remains separate from local
   decode/downmix capability.
-- **Source identity remains exact and session-scoped.** Media-version changes
-  reproject every source-owned field together; persisting an ID from a transient
-  server response risks stale or mixed-version state. Backend availability also
-  comes from the active `DeviceProfileProvider`, allowing an unsupported stored
-  choice to remain visible without treating it as usable.
-- **Profile and URL rewrites preserve declared intent.** Exact server spellings
-  remain on the wire while local mapping canonicalizes known aliases. Portrait
-  transcode dimensions are constrained on both URL parameter sets, and
-  server-attached subtitle parameters are stripped when they conflict with the
-  resolved selection; `SubtitleStreamIndex=-1` alone does not reliably strip a
-  server-selected subtitle.
+- **Source identity remains exact and session-scoped.** Version changes reproject
+  source-owned fields together; persisting transient response IDs risks mixed
+  state. Active provider availability keeps unsupported stored backends visible
+  without treating them as usable.
+- **Profile and URL rewrites preserve intent.** Wire spellings stay exact while
+  local mapping canonicalizes aliases. Both dimension parameter sets are capped,
+  and conflicting server-attached subtitle parameters are stripped because
+  `SubtitleStreamIndex=-1` alone is insufficient.
 
 ### Persistence
 
@@ -3514,46 +3475,43 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   read, migrate, or clean Keychain entries.
 - **The session envelope is the sole credential authority.** One versioned
   commit prevents accounts, active selection, and logout-pending state from
-  exposing mixed generations. An empty envelope is a logout tombstone, and any
-  present corrupt or unsupported envelope fails closed instead of reviving
-  legacy aliases.
+  mixing generations. Empty means durable logout; corrupt or unsupported
+  envelopes fail closed instead of reviving aliases.
 - **Durable Room state migrates without blanket destruction.** The full schema
   chain preserves playback preferences, device settings, subtitle selections,
   and local assets. Only explicitly refetchable tables may be recreated during
   future-version recovery; transactional legacy-row claiming prevents two
   accounts from inheriting one old preference snapshot.
-- **Persistence reads and writes fail independently.** Per-field launch reads
-  preserve successful sibling values and cancellation, while submitted Room
-  settings become visible only after the DAO write succeeds. Whole-snapshot
-  writers serialize and coalesce updates so slow older writes cannot overwrite
-  newer state.
+- **Persistence failures stay scoped.** Per-field launch reads preserve siblings
+  and cancellation; Room settings publish only after DAO success. Serialized,
+  coalescing writers prevent older completion from overwriting newer intent.
 
 ### Downloads and offline
 
-- **Download authorization is a current-account boundary.** A successful static
-  byte request does not prove Jellyfin's content-download policy, so session
-  admission and every start/resume revalidate the current account, policy,
-  source, and validators under the captured work lease.
+- **Download authorization is a current-account boundary.** Static bytes do not
+  prove permission; admission and every start/resume revalidate account, policy,
+  source, validators, and the captured lease.
 - **iOS continuation retains the existing writer.** A user-initiated native
   execution grant extends runtime without moving bytes into an OS-owned
   transfer pipeline that bypasses per-write allocation and redirect controls.
+  Exact, nonduplicated handler registration avoids native exceptions that
+  Swift error handling cannot catch.
   Grant expiry pauses honestly; it does not imply a corrupt or completed file.
   Older iOS and tvOS retain their app-active limits.
 - **Original and Fixed are closed artifact formats.** Original preserves the
   selected source; Fixed produces the bounded HLS-TS/H.264/AAC package that can
   be validated, resumed, and localized. Adaptive/custom packages and general HLS
   parsing would make artifact identity and completeness ambiguous.
-- **One transfer queue and one device allocation make admission deterministic.**
-  Outstanding reservations and the free-space floor prevent overcommit without
-  silently evicting another account's media. Notification permission controls
-  Android visibility, not download authorization, so denial never invalidates a
-  queued transfer.
+  A missing subtitle sidecar contributes zero bytes to a package checkpoint;
+  it must never reset already downloaded main-file bytes.
+- **One queue and device allocation make admission deterministic.** Reservations
+  and the free-space floor prevent overcommit without eviction. Android
+  notification permission controls visibility, never transfer authorization.
 - **Artwork is optional.** Missing images must not invalidate playable media;
   stored images still count toward allocation.
-- **Offline progress is local truth.** Its persistence drains independently of
-  optional ordered server reporting so network delay cannot block the saved
-  resume point. No reachability monitor or outbox can promise eventual server
-  acknowledgement or define cross-device conflict resolution.
+- **Offline progress is local truth.** It persists independently of optional
+  server reporting, so network delay cannot block resume state. No outbox claims
+  eventual delivery or cross-device conflict resolution.
 - **Account removal is a recoverable cross-store operation.** Credentials and
   artifacts cannot commit atomically, so a durable removal header,
   generation-bound leases, exact confirmation snapshot, and startup replay
@@ -3583,35 +3541,32 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   remains account/server-scoped and cannot weaken another session.
 - **Timing and subtitle placement remain backend-owned.** Desktop mpv maps the
   shared offset contract to native delay properties and applies its transient
-  subtitle margin from existing bottom-chrome state. Desktop LibVLC stays on its
-  native placement and has no timing support until equivalent evidence exists.
+  subtitle margin from chrome state. Desktop LibVLC keeps native placement and
+  no timing support until equivalent evidence exists.
 - **Apple route loss revokes play intent.** Output removal is a pause event, not
   permission to resume on newly connected hardware; only a matching interruption
   end may consume a captured one-shot resume intent.
 - **Android TV wakefulness follows the mounted player route.** Activity-window
-  ownership survives backend replacement and loading/picker states without a
-  process singleton, service, CPU wake lock, vendor branch, or screensaver
-  mutation. Physical acceptance remains an explicit validation limit.
+  ownership spans backend replacement and loading/picker states without a
+  singleton, service, CPU wake lock, vendor branch, or screensaver mutation.
+  Physical acceptance remains pending.
 - **Native observations share teardown ownership.** A diagnostic getter can
-  block inside libvlc just like stop. Serializing snapshots with native
-  transitions off Main and publishing cached state keeps observation from
-  freezing input; media/generation checks prevent stale observations from
-  changing a replacement session.
+  block like stop. Serialize snapshots with native transitions off Main, publish
+  cached state, and gate by media/generation so observation cannot freeze input
+  or mutate a replacement.
 - **Capability rejection retains its evidence.** A generic unsupported result
   cannot explain which source comparison failed. Closed reasons, numeric bounds,
   and provenance distinguish app-enforced platform evidence from independent
   native decoder performance without exposing media identity.
 - **Completion is generation-qualified.** Desktop mpv's sticky EOF and Android
   LibVLC's trailing `Stopped` event can otherwise complete the wrong media or
-  cancel a valid `Completed` state. Entry/generation readiness and
-  playback-derived progress separate true completion from seek or resume state.
+  cancel valid completion. Entry/generation readiness and playback-derived
+  progress distinguish completion from seek/resume state.
 - **Native tvOS uses AVKit online and shares VLC offline.** Cause-qualified native
-  transport preserves explicit pause while active play retains readiness/stall
-  recovery. System AVKit supplies online menus and chapters; VLC consumes the
-  same trusted offline packages as iOS through a retained native drawable.
-  Artifact-qualified sidecar activation and teardown checkpoints preserve trust
-  and local resume state. Timing and VLC sizing remain unavailable. Simulator
-  builds do not prove native notifications, decoding, focus, or presentation.
+  transport preserves pause/readiness. AVKit owns online menus/chapters; VLC
+  consumes trusted iOS-format offline packages through a retained drawable.
+  Timing and VLC sizing remain unavailable, and simulator builds prove no native
+  notification, decoding, focus, or presentation behavior.
 - **Active decoding and presentation are different facts.** A configured hardware
   preference can fall back to software, and a GPU renderer can present either.
   Only mpv's active decoder property supplies the mode; generic codec names and
@@ -3635,16 +3590,13 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   return values or failed readback as failures.
 - **Android platform playback uses installed-plan truth.** MediaSession
   seekability, PiP aspect, and command callbacks follow the current successful
-  plan and monotonic owner identity, never a merely returned prepare call or
-  transient layout bounds. Stable coded dimensions own aspect; composed bounds
-  supply only an aspect-free source rectangle.
+  plan and monotonic owner, never a returned prepare call or transient layout.
+  Coded dimensions own aspect; composed bounds supply only the source rectangle.
 - **Hot native clocks are reduced at their source.** Generation-bound latest
   samples for mpv, native freshness for LibVLC, and a clock-only tvOS projection
-  bound work without delaying lifecycle edges or making reporting stale.
-  Downstream debounce cannot reject a late outgoing callback relabelled as new
-  state. Buffer diagnostics consume applied clock/cache facts, and Media3 keeps
-  sampling during pause because a stationary playhead does not imply a full
-  buffer.
+  bound work without delaying lifecycle or reporting. Source-side gates reject
+  late outgoing callbacks; buffer diagnostics use applied clock/cache facts, and
+  Media3 samples during pause because a still playhead does not mean a full buffer.
 - **Desktop volume coalescing stays inside its store.** That boundary guarantees
   write ordering; quitting may still lose a change made within the documented
   500 ms debounce window.
@@ -3680,31 +3632,28 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
 ### Diagnostic privacy rationale
 
 - **Trust and credential attachment are one project-owned decision.** A
-  sanitized, credential-free URL result lets each native transport attach only
-  current same-origin authorization. Inline per-adapter checks can authorize one
-  URL and load another; unsupported redirect interception remains explicit.
+  credential-free decision lets native transports attach only current
+  same-origin authorization. Per-adapter checks can authorize one URL and load
+  another; redirect residuals stay explicit.
 - **Native authorization uses one backward-compatible form.** Verified modern
   Jellyfin releases accept the comma-free token or guarded `ApiKey` form, while
   legacy fallbacks preserve insecure or disabled routes. Broad inbound query
   stripping remains only to sanitize stale URLs.
 - **Diagnostics never leave automatically.** Bounded, sanitized history and
   typed snapshots upload only through the explicit server action. Raw native
-  files stay local because arbitrary free-form text cannot be proven free of
-  titles, IDs, paths, or credentials.
+  files stay local because free-form text cannot be proven identity-free.
 - **Failure boundaries preserve causal evidence.** Native errors need backend
   and attempt correlation before generic state or recovery hides their origin.
   Download execution can finish after its caller returns, so retained wake,
   recovery, and durable settlement outcomes must survive in client reports.
 - **Formatting and admission share one closed schema.** The scrubber allowlist
-  covers the same fields emitted by structured formatters, preventing permitted
-  tags from being silently discarded. Playback, fixed-download, persistence,
-  and native-stage records preserve causal decisions before generic projection
-  without carrying raw requests, URLs, identifiers, or throwable text.
+  covers structured formatter fields, preventing silent loss. Playback,
+  download, persistence, and native-stage records preserve causal decisions
+  before generic projection without raw requests or external data.
 - **Platform logs supplement the safe upload path.** Desktop probes use typed
-  records rather than stdout; the verbose writer enables controlled
-  release-equivalent capture. iOS uses the existing Kermit-to-OSLog route and
-  bounded in-app history rather than a second release logger; unified logs
-  remain available through Console, `log collect --device`, or sysdiagnose.
+  records; iOS uses Kermit-to-OSLog plus bounded in-app history rather than a
+  second logger. Unified logs remain available through Console, `log collect
+  --device`, or sysdiagnose.
 
 ### Player UX
 

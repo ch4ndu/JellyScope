@@ -13,7 +13,7 @@ struct ComposeView: UIViewControllerRepresentable {
             playerFullscreen = fullscreen.boolValue
         })
         // MainViewController has initialized Koin before this process-lifetime
-        // owner creates its shared-ui bridge or registers the wildcard.
+        // owner creates its shared-ui bridge.
         downloadBackgroundTaskController.install()
         return viewController
     }

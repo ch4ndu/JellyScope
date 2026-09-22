@@ -12,12 +12,10 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
 
 - Trace the exact screen and interaction through state production, collection,
   composition, layout, drawing, effects, and platform callbacks.
-- Do not treat recomposition, allocation, debug-build slowness, or the absence
-  of an optional optimization as a confirmed regression on its own. Name the
-  invalidation, allocation, blocking work, resource lifetime, or effect
-  mechanism. But a large or repeated allocation with a cheaper equivalent is a
-  defect rather than noise: allocation size costs UI smoothness through GC
-  pressure and memory bandwidth, not only memory footprint.
+- Recomposition, allocation, debug slowness, or a missing optional optimization
+  is not a confirmed regression without an invalidation, blocking, allocation,
+  lifetime, or effect mechanism. Large/repeated avoidable allocation is a
+  defect because GC and memory bandwidth affect smoothness.
 - Require a reason for work remaining on Main. UI/framework calls that require
   it, state writes, and cheap bounded transforms may stay; decode, projection,
   pixel sampling, I/O, crypto, and large-input layout math belong off Main.
@@ -25,11 +23,9 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
 - Before accepting a product tradeoff, check for an unnecessarily expensive
   implementation of the same feature. Attribution alone does not justify
   degrading the feature.
-- Recommend an optimization only when it preserves the current UI, focus,
-  playback, and state contracts. Use `Measurement needed` when release/runtime
-  evidence must distinguish a real cost from harmless work.
-- Static audits do not automatically run profilers or benchmarks. Recommend the
-  smallest release-mode measurement that can confirm or reject the hypothesis.
+- Recommend only optimizations that preserve UI, focus, playback, and state.
+  Use `Measurement needed` and the smallest release-mode measurement when
+  runtime evidence must distinguish a real cost from harmless work.
 
 ## Stability And Inputs
 
@@ -37,17 +33,15 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
   `compose-stability.conf` before applying stability advice. The project uses
   strong skipping: restartable composables with unstable inputs can skip, while
   unstable parameters are compared by identity.
-- Treat the configured `com.jellyscope.core.domain.model.*` package as a
-  correctness promise. Flag mutable public state or collections that violate
-  that promise; do not request stability configuration or annotations only to
-  make a composable skippable.
+- Treat configured `com.jellyscope.core.domain.model.*` stability as a
+  correctness promise: flag mutable public state/collections, but do not request
+  annotations or configuration merely to make a composable skippable.
 - Look for repeated equal-but-new lists, maps, UI models, painters, interaction
   sources, and other inputs on hot paths. Identity churn can still prevent
   skipping under strong skipping.
-- Look for large screen-state objects passed through deep trees when a smaller
-  projection would isolate invalidation. Do not request manual callback
-  `remember` without an identity-sensitive consumer or evidence that compiler
-  memoization is insufficient.
+- Flag broad screen state passed through deep trees when a smaller projection
+  isolates invalidation. Request manual callback `remember` only for an
+  identity-sensitive consumer or proven compiler-memoization gap.
 
 ## State Reads And Derived Work
 

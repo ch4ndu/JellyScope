@@ -498,26 +498,21 @@ brush and scrims without resetting Settings scroll or focus.
 
 ## Native tvOS screens
 
-The SwiftUI shell uses native `TabView` and `NavigationStack` navigation, with
-sidebar tabs on tvOS 18 and standard tabs on tvOS 17, ordered Home, Favorites,
-Libraries, Search, Downloads, and Settings. Favorites has its own navigation
-history and reuses the bounded View All grid. View All refresh keeps cards
-mounted, reports refresh failure inline, and restores surviving focus; its
-newest re-entry refresh replaces an older request. Its playable cards use the
-same home variant as Search. System Back pops the
-current destination. Browsing state follows the
+The SwiftUI shell uses `TabView`/`NavigationStack`, with a tvOS 18 sidebar and
+tvOS 17 tabs ordered Home, Favorites, Libraries, Search, Downloads, Settings.
+Favorites has its own history and reuses View All. Refresh keeps cards mounted,
+reports failure inline, restores surviving focus, and supersedes older re-entry
+refreshes. System Back pops the current destination. Browsing state follows the
 [shared account lifecycle](architecture.md#account-boundary-and-lifecycle).
 App-global appearance watches live outside the account-keyed subtree: Ocean,
 Midnight and Ember colors and Small/Medium/Large card sizes update browsing and
 settings through a native environment. Resizing preserves aspect ratios, clipped
 viewports, focus reserve and stable media identity; player video remains black.
 
-Home presents Continue Watching, Favorites, Next Up, and Recently Added in
-that order. Each ribbon loads and retries independently; successful empty
-ribbons collapse. Re-entry refresh retains visible cards. The cinematic hero
-stays above the clipped vertical shelf viewport, follows settled media focus,
-and preserves its last item while controls have focus. Artwork has stable
-fallbacks and respects Reduce Motion.
+Home orders Continue Watching, Favorites, Next Up, Recently Added. Ribbons load
+and retry independently; empty rows collapse and refresh retains cards. The hero
+follows settled media focus, remains above the clipped shelves, preserves its
+last item during control focus, and respects Reduce Motion.
 
 Libraries opens a collection-specific hub with Recommended and Library views
 where supported. Recommendation sections load and retry independently. The
@@ -528,13 +523,11 @@ card deduplication; re-entry refresh is bounded to 200 consumed items. A newer
 query or page invalidates older refresh results. The grid clips beneath its
 controls and the fixed hero; horizontal ribbons reserve room for focus scaling.
 
-Media focus identity includes its ribbon and item, so the same title can appear
-in multiple ribbons. Return navigation reveals the saved target before restoring
-focus, falling back within that ribbon when the item disappears. Select opens
-detail; Play/Pause on a movie or episode opens playback at its
-resume position. View All uses the shared bounded ribbon query. Swift renders
-typed presenter state and owns native focus; business projection remains in
-Kotlin. Android-specific focus algorithms are owned by the TV UX guide.
+Media focus identity is `(ribbon, item)`. Return reveals the saved target before
+focus, falling back within its ribbon. Select opens detail; Play/Pause starts a
+movie/episode at resume. View All uses the bounded query. Swift owns rendering
+and native focus; Kotlin owns business projection. Android focus belongs to the
+TV UX guide.
 
 Item detail presents readable metadata, source-qualified version/audio/subtitle
 choices, media information, people, and related titles. Play, Resume, and
@@ -583,13 +576,10 @@ cancel a consumed confirmation; Cancel and Back still release an unconfirmed
 preview. Add Account presents
 the same login flow, with cancellation preserving the session.
 
-Login keeps manual server entry available alongside capability-gated nearby
-discovery. Sign-in presents Quick Connect with a visible code and a password
-alternative. Native Back from sign-in cancels its work, clears password input,
-and returns to server entry while retaining discovered rows. An idle scan offers
-Search Again with or without results; discovery failure has an explicit Retry
-and never blocks manual entry. Root Back and keyboard
-editing retain system behavior; shared session state owns successful routing.
+Login keeps manual entry beside capability-gated discovery. Sign-in offers Quick
+Connect or password. Back cancels sign-in, clears the password, and returns while
+retaining discovered rows. Idle discovery offers Search Again; failure offers
+Retry and never blocks manual entry. Shared session state owns successful routing.
 
 Player components separate the installed native host, transport and panels.
 Queue offers the current item, direct selection, previous/next and shuffle.
@@ -622,29 +612,22 @@ explains Apple TV's reclaimable storage and app-active transfer limit. The
 ## Why
 
 - Subtitle bases belong to each renderer so native defaults and user preferences
-  can change independently. Mobile Media3 uses sp so control clearance does not
-  also shrink its text. Fullscreen chrome follows presentation state rather
-  than loaded content: normal mobile routes stay fullscreen, while the inline
-  Kids watch page can toggle it without replacing playback. Measuring Kids
-  controls keeps subtitle clearance appropriate for a smaller video surface.
+  change independently. Mobile Media3 uses sp so clearance does not resize text.
+  Fullscreen follows presentation state; measured Kids controls keep clearance
+  correct for its smaller live video surface.
 - Kids recommendations are discovery views, not queues. One retained
   player and explicit selection avoid autoplay while preserving responsive
-  layout and fullscreen continuity. Bounds animation retains the live native
-  surface through rotation and fullscreen changes. Rotation takes longer because
-  it moves a larger portion of the screen; its size animation uses the new
-  screen/pane center so coordinates from the old orientation cannot shift the
-  scaling anchor. Fullscreen toggles keep their shorter timing. A release threshold makes
-  fullscreen entry and dismissal reversible before lifting the finger. The
-  threshold follows video height so portrait inline playback remains reachable
-  without dragging across the much taller recommendation area.
+  layout and fullscreen continuity. Animation keeps the live surface; rotation
+  uses the destination pane center and longer timing, while fullscreen keeps its
+  shorter timing. A video-height release threshold makes drag transitions
+  reversible and reachable in portrait.
 - Switches already show state; their supporting text explains behavior instead.
   External-link icons make the browser handoff visible without adding another
   action or changing the destination.
 
-- Native tvOS keeps SwiftUI state adapters beside their feature views and owns
-  native focus while shared Kotlin presenters own business state. Qualified routes
-  protect track choices; settlement refresh and paired watched/progress rollback
-  preserve retained detail state.
+- Native tvOS keeps SwiftUI adapters/focus with feature views and business state
+  in Kotlin presenters. Qualified routes, settlement refresh, and paired
+  watched/progress rollback preserve retained detail state.
 - OpenSubtitles acknowledgement carries owner identity and selection revision
   because installation may finish after dismissal or a newer selection.
 - Overlay layers are explicit because composition order did not keep notices,
@@ -654,16 +637,13 @@ explains Apple TV's reclaimable storage and app-active transfer limit. The
 - Tile size is a single scale so aspect ratios and theme dimensions retain one
   owner; TV remains conservative because overscan and focus zoom also consume
   space.
-- Downloads is permission-gated top-level navigation because durable transfers,
-  storage, failures, and destructive actions need a visible owner. Normal Play
-  remains remote so the active artifact is explicit; saved artwork and details
-  support offline browsing. Allocation actions name the choice; input guidance
-  owns units and numeric restrictions.
+- Downloads is permission-gated top-level navigation because durable work and
+  destructive actions need a visible owner. Normal Play stays remote so offline
+  use is explicit; saved metadata supports offline browsing.
 - Related shelf count and order stay in shared model/data owners so shared and
   TV presentation cannot drift.
-- Library selection persists through the existing server-scoped preference
-  boundary; UI does not write stores. Separate inner-view owners preserve
-  context, paging, and scroll state.
+- Library selection persists through its server-scoped operation; UI does not
+  write stores. Separate inner-view owners preserve paging and scroll context.
 - Playback-warning suppression changes presentation only. Recovery policy and
   fatal failure reporting must remain active.
 - Player hot state is read at leaves because parent reads recompose unrelated

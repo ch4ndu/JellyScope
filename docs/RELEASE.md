@@ -1,11 +1,9 @@
 # Releasing JellyScope
 
-Release credentials stay local. Ordinary Android `assembleRelease` builds use
-the release signing config only when `~/Private/Keystores/keystore.properties`
-contains all required values and otherwise retain the debug-signing fallback
-needed by credential-free CI. The maintained release-artifact script is
-stricter: it requires Android release signing plus macOS signing and
-notarization credentials before it builds.
+Release credentials stay local. Android `assembleRelease` uses release signing
+only when `~/Private/Keystores/keystore.properties` is complete; otherwise it
+uses the CI-compatible debug fallback. The maintained release script requires
+Android release signing plus macOS signing and notarization credentials.
 
 Never commit `.local/`, keystores, passwords, Apple private keys, or generated
 signing output.
@@ -63,24 +61,18 @@ signing output.
 
 ## iOS and tvOS development signing
 
-The Xcode projects intentionally do not commit an Apple Development Team ID.
-Simulator builds disable code signing. For iOS, the committed
-`ios-app/Signing.xcconfig` optionally includes the ignored
-`LocalSigning.xcconfig`. Put `DEVELOPMENT_TEAM = TEAMID` in that local
-file. The project and target already use `Signing.xcconfig` for Debug, Release,
-and StoreRelease; no Base Configuration or committed Team ID edit is needed.
-For tvOS, choose the team locally or supply `DEVELOPMENT_TEAM` to `xcodebuild`;
-never include a Team ID in a commit.
+The Xcode projects do not commit a Development Team ID. For iOS, put
+`DEVELOPMENT_TEAM = TEAMID` in ignored `ios-app/LocalSigning.xcconfig`, which
+the committed signing config already includes. For tvOS, choose the team
+locally or pass `DEVELOPMENT_TEAM` to `xcodebuild`. Never commit a Team ID.
 
 Certificates and their private keys remain in the login keychain, and generated
 provisioning profiles remain in Xcode's local profile storage. Neither belongs
 in this repository.
 
-Apple release version ownership is separate from Android and desktop Gradle
-properties. Each Xcode project owns its `MARKETING_VERSION` (the displayed
-Apple version) and `CURRENT_PROJECT_VERSION` (the Apple build number). Update
-and align them within each Apple platform family; neither derives from Android
-prerelease versions.
+Each Xcode project independently owns `MARKETING_VERSION` and
+`CURRENT_PROJECT_VERSION`; align them within that Apple platform family. They
+do not derive from Android or desktop versions.
 
 ## macOS Developer ID signing
 
@@ -166,28 +158,21 @@ troubleshooting one stage in isolation.
    ./gradlew :desktop-app:packageReleaseDistributionForCurrentOS
    ```
 
-   Compose packages resources only from `common`, `<os>`, and `<os>-<arch>`
-   directories; files staged at the `appResourcesRootDir` root are dropped.
-   Inspect every `@loader_path` dependency in the produced `.app`; a supported
-   package cannot depend on system libmpv. DMG production normalizes the root
-   `Applications` symlink to `/Applications`, then remount-verifies it, the app,
-   declared icon, and complete iconset before container signing. Finder
-   automation is not required. Remounting verifies the produced container rather
-   than trusting packaging-task success after layout setup.
+   Package resources only under `common`, `<os>`, or `<os>-<arch>`; the
+   `appResourcesRootDir` root is ignored. The produced app must use only bundled
+   `@loader_path` mpv dependencies. DMG production normalizes and remount-checks
+   the `/Applications` symlink, app, icon, and iconset before signing.
 
    Release-DMG production stages `JellyScope-source-<revision>.tar.gz`,
    `vlc-3.0.23.tar.xz`, and `SOURCE_MANIFEST.txt` in
    `desktop-app/build/compose/binaries/main-release/dmg/` beside the DMG. The
-   maintained release script moves and version-renames those files after final
-   validation. The JellyScope archive is generated from `HEAD`; the script
-   requires that revision to be the exact clean release candidate. A direct
-   dirty-tree package records that state and is only a local test artifact. The
-   VLC source is structurally validated on every use against
+   maintained script moves and version-renames them after validation. It builds
+   the JellyScope archive from the exact clean release `HEAD`; a direct dirty-tree
+   package is only a local test artifact. VLC source is checked against
    `scripts/macos-source-bundle/manifest-macos-arm64.txt` and cached at
-   `~/Library/Caches/JellyScope/release-sources/vlc-3.0.23.tar.xz`; a valid warm
-   cache is offline-capable, while a cold or invalid cache is downloaded and
-   structurally validated before staging. The manifest retains the existing approved
-   IINA/mpv source routes; it does not build another native runtime.
+   `~/Library/Caches/JellyScope/release-sources/vlc-3.0.23.tar.xz`. A valid cache
+   works offline; otherwise the source is downloaded and validated. The manifest
+   retains the approved IINA/mpv source routes and builds no extra runtime.
 
 9. Notarize and staple the DMG. With an Apple ID app-specific password, use
    Compose Desktop's generated task:
@@ -221,14 +206,10 @@ for all Gradle-owned release artifacts is:
 ./scripts/build-release-artifacts.sh
 ```
 
-It runs the repository preflight, builds Android mobile and Android TV with the
-configured release key, verifies their APK and AAB signatures, then signs,
-notarizes, staples, and validates the macOS Release DMG and its
-corresponding-source artifacts. It fails before building when the Git tree is
-dirty or Android release signing is absent or incomplete, and rechecks the tree
-after building. On success, it moves the publishable files into the ignored
-`release-artifacts/` directory at the repository root and renames them with
-`jellyscope.versionName` for Android and `jellyscope.desktop.version` for macOS.
+It rejects a dirty tree or incomplete Android signing, runs preflight, builds and
+signature-checks both Android apps, then signs, notarizes, staples, and validates
+the macOS DMG and corresponding source. It rechecks source cleanliness and places
+versioned output in ignored `release-artifacts/`.
 
 #### Collected artifact names
 
@@ -243,11 +224,10 @@ JellyScope-<version>-vlc-3.0.23-source.tar.xz
 JellyScope-<version>-source-manifest.txt
 ```
 
-iOS and tvOS archives remain Xcode-owned. The script does not create a tag,
-GitHub Release, Play release, or remote upload. After the remaining smoke-test,
-binary-compliance, and release checks pass, publish the APKs for direct downloads
-and the AABs through Google Play. Publish the DMG and macOS corresponding-source
-files from the same output directory.
+iOS and tvOS archives remain Xcode-owned. The script does not tag or upload.
+Publish only after the smoke, binary-compliance, and release gates: APKs are
+direct-download artifacts, AABs go through Google Play, and the DMG ships with
+its corresponding-source files from the same output directory.
 
 ## iOS release artifacts
 
@@ -259,29 +239,26 @@ license-metadata gate from a clean release commit:
 ./gradlew verifyCleanSourceReleaseBinding verifyIosBinaryLicenseMetadataReadiness
 ```
 
-To use a locally rebuilt VLCKit, run the fetch step first, then replace only
+For a locally rebuilt VLCKit, fetch first, then replace only
 `ios-app/Frameworks/VLCKit.xcframework` with a compatible framework built from
-the recorded revision using VideoLAN's upstream tools. Preserve the adjacent
-version stamp created by the fetch script and both required device/simulator
-slices. The fetch script runs before cinterop and replaces an unprepared copy
-if the stamp or slices are missing. The stamp records preparation, not proof
-of the replacement's provenance; review its source and license record before
-distribution. JellyScope does not maintain a separate VLCKit build script.
+the recorded revision using VideoLAN's upstream tools.
+Keep its version stamp and both device/simulator slices. The stamp proves
+preparation, not provenance; review source and license records before release.
+JellyScope has no separate VLCKit build script.
 
 Archive with the `storeRelease` scheme and a generic iOS device, then use the
 Organizer's **Distribute App** flow. All committed schemes select StoreRelease
 for Archive; that configuration, rather than the scheme name, enforces the
 distribution settings described in [BUILD.md](BUILD.md#ios).
 
-- For normal public beta distribution, upload the archive to App Store Connect
-  and use TestFlight. For general public distribution, use the App Store or an
-  Apple-approved alternative-distribution route where available.
+- Use TestFlight for public beta, and the App Store or an approved alternative
+  route for public distribution.
 - Xcode can export a development or ad hoc `.ipa`. GitHub Releases can store
   that file, but it installs only on devices covered by its provisioning route;
   ad hoc distribution requires registered device identifiers and enabled
   Developer Mode. It is not a general public iOS download.
-- Do not publish the raw `.xcarchive` as an installable release. Keep it as a local
-  release record for re-exporting and crash-symbolication.
+- Keep the raw `.xcarchive` local for re-export and crash symbolication; it is
+  not installable.
 - A zipped simulator `.app` runs only in a compatible simulator; label it as a
   simulator artifact.
 
@@ -291,20 +268,14 @@ and the [TestFlight overview](https://developer.apple.com/help/app-store-connect
 
 ## Source and license metadata
 
-Every platform release package carries a `license-metadata` set
-prepared from the repository candidate. It records the full Git revision and
-matching source URL, tracked project tree, current top-level license, open-source
-notice, third-party inventory, dependency inputs, and the available Android,
-iOS, and macOS native notice/source manifests. The set also contains the
-Android/iOS managed-runtime notice and the reviewed desktop JVM runtime-family
-inventory; each required record is compared with its source file during
-verification.
+Every release package carries `license-metadata` for its exact Git revision:
+source URL/tree, project license and notice, third-party/dependency inventory,
+native notice/source manifests, managed-runtime notices, and the reviewed
+desktop JVM inventory. Verification compares each required record with source.
 
-The release-metadata preparer resolves output through its nearest existing
-parent. It accepts an empty unmarked directory or marker-owned symlink-free
-rerun; it rejects files, nonempty unmarked directories, symlinks, repository/home
-roots, and `/`. These marker and resolved-path guards prevent replacement from
-reaching unrelated data.
+The preparer resolves output through its nearest existing parent. It accepts an
+empty directory or marker-owned symlink-free rerun, and rejects files, nonempty
+unmarked directories, symlinks, repository/home roots, and `/`.
 
 Verify the generated set during ordinary development work:
 
@@ -322,10 +293,8 @@ are Xcode-owned, so run the equivalent check before archiving:
 ./gradlew verifyCleanSourceReleaseBinding
 ```
 
-This clean-source binding is a provenance check, not legal or inventory
-clearance. It records the exact source revision and metadata that a
-package carries, while the separate readiness gate below remains required for
-an actual binary release.
+Clean-source binding proves provenance, not legal or inventory readiness; the
+platform readiness gate remains required.
 
 Use the scoped gate for the platform being released:
 
@@ -335,12 +304,9 @@ Use the scoped gate for the platform being released:
 ./gradlew verifyMacosArm64BinaryLicenseMetadataReadiness
 ```
 
-Android release builds and the iOS StoreRelease metadata phase run their
-matching readiness gate automatically. Ordinary local iOS Release checks
-metadata consistency without requiring distribution readiness. macOS DMG
-packaging runs its scoped readiness gate. These readiness gates
-fail on a `review-required` entry for that platform; clean-source verification
-is the separate publication gate above.
+Android release, iOS StoreRelease, and macOS DMG tasks run their scoped gate.
+Ordinary local iOS Release checks consistency only. A `review-required` entry
+fails the affected release; clean-source verification remains separate.
 
 The all-target audit remains available:
 

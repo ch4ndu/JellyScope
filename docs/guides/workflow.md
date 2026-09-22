@@ -5,18 +5,16 @@ Setup and commands: [`BUILD.md`](../BUILD.md). Contract ownership:
 
 ## 1. Define The Change
 
-Before editing, record the required behavior, affected platforms, observable
-success criteria, and relevant edge cases. Resolve interpretations that would
-change behavior and obtain approval before weakening an existing contract.
-Check Git status, preserve unrelated work, and read the current implementation,
-tests, owning guide, and relevant recorded open issues when available. A clean
-checkout must remain understandable without local artifacts.
+Before editing, record behavior, affected platforms, observable success, and
+relevant edge cases. Resolve behavior-changing interpretations and obtain
+approval before weakening a contract. Check Git status, preserve unrelated work, and read the current
+implementation, tests, owning guide, and known issues. A clean checkout must
+remain understandable without local artifacts.
 
-For shared decisions, consider empty/single-item and first/last states, extremes,
-clamping, missing data, rapid input, cancellation, stale callbacks, focus
-restoration, dismissal, Back, and platform differences. Avoid designs that rely
-on incidental callback timing; describe significant cases without assuming
-that each needs an automated test.
+Consider empty/single and first/last states, extremes, clamping, missing data,
+rapid input, cancellation, stale callbacks, focus restoration, dismissal, Back,
+and platform differences. Do not rely on incidental callback timing or assume
+every case needs an automated test.
 
 ## 2. Bound Scope And Coordination
 
@@ -49,19 +47,18 @@ also follow the [test expansion gate](#test-expansion-decision-gate).
 ### Coordination
 
 Keep bounded work under one implementation responsibility. Delegating edits
-requires explicit approval. Parallel edits also need materially independent
-outcomes, with exact owned and
-protected paths, acceptance checks, dependencies, and integration order.
+requires explicit approval. Parallel edits also need independent outcomes,
+exact owned/protected paths, acceptance checks, dependencies, and integration
+order.
 Complete shared contracts before dependent edits; never overlap concurrent write
 ownership. Keep shared wiring, documentation, integration, final verification,
 and the completion decision under one responsibility. Reports, retained context,
 and review verdicts are evidence; completion requires the final gate below.
 
-Use one build slot per checkout. Run Gradle, formatters, generators, and other
-shared-state commands only at coherent checkpoints; batch compatible checks.
-Record starting `HEAD` and complete status once, track owned/protected inputs
-during parallel work, and inspect the complete candidate at integration. Preserve
-unrelated drift; unexpected changes to protected inputs pause dependent work.
+Use one build slot per checkout and batch shared-state commands at coherent
+checkpoints. Record starting `HEAD` and status once, track owned/protected inputs,
+and inspect the integrated candidate. Preserve unrelated drift; unexpected
+protected-input changes pause dependent work.
 
 Permission to edit does not authorize staging, committing, merging, tagging,
 versioning, publishing, or releasing.
@@ -101,24 +98,21 @@ description; do not substitute helper counts or comment quotas for review.
 
 ### First-Capture Diagnostics
 
-Changed failure-prone boundaries need structured, release-available diagnostics
-that distinguish reachable causes in the first captured session. This includes
-requests and response projection, persistence, background work, platform bridges,
-lifecycle transitions, admission, and recovery.
+Changed failure-prone request, persistence, background, platform, lifecycle,
+admission, and recovery boundaries need structured release diagnostics that
+distinguish causes in the first captured session.
 
-Record causal stage, terminal outcome, and closed rejection reason before a
-lower layer collapses failures into generic state; catches record exception
-class only. Add bounded start, handoff, and success markers when needed to
-distinguish uninvoked, running, rejected, and completed work. Correlate overlapping,
-cancelled, retried, or stale flows with identity-free sequences or closed state.
+Record stage, terminal outcome, and closed rejection reason before generic
+projection; catches record exception class only. Add bounded start/handoff/
+success markers when needed, and correlate overlapping, cancelled, retried, or
+stale flows with identity-free sequences or closed state.
 
-Use the existing tags, scrubber allowlist, and safe failure formatter. Never log
+Use existing tags, the scrubber allowlist, and safe failure formatter. Never log
 credentials, URLs, account/media identity, titles, paths, raw responses,
-throwable messages, or free-form external data. Trace both the release Logcat,
-Apple unified-log, or desktop-output route and bounded client-log capture;
-filtered fields or debug-only producers do not satisfy this contract. Repair a
-missing diagnostic decision boundary before closing the investigation or record
-its explicit follow-up. Avoid routine noise without diagnostic value.
+throwable messages, or free-form external data. Trace both the release platform
+route and bounded client-log capture; debug-only or filtered-out fields do not
+qualify. Repair a missing decision boundary or record its follow-up, without
+routine noise.
 
 ## 5. Selective Tests
 
@@ -216,17 +210,21 @@ does not itself create debt.
 
 ## 6. Review The Integrated Diff
 
-Check scope and the [clarity rules](#4-write-clear-maintainable-code), remove
-obsolete imports/branches/comments/tests/docs, and leave unrelated cleanup alone.
+Apply the [clarity rules](#4-write-clear-maintainable-code) only to changed
+hunks, including staged/untracked work, using the agreed merge base for branch
+reviews. Remove obsolete code/docs, redundant narration, forwarding wrappers,
+unsafe casts, and speculative defenses only when behavior-neutral. Preserve
+reachable failure handling, cancellation, diagnostics, compatibility paths, and
+unrelated work; send uncertain cases to correctness review. Cleanup precedes
+correctness review and authorizes no functional change. Apply the
+[writing rules](#concise-useful-documentation) to changed prose.
 Use [`audit.md`](audit.md); Compose-sensitive work also uses
 [`compose-performance-audit.md`](compose-performance-audit.md).
 
-Review a stable integrated candidate once. Establish whether each finding is a
-reachable defect or contract violation separately from whether its remedy is
-proportionate. Apply accepted findings in one repair pass, rerun only invalidated
-focused checks, and perform one focused recheck in the same review context.
-Material blockers or new scope require a decision, not another open-ended cycle.
-Small changes may use proportional self-review without a separate review pass.
+Review one stable integrated candidate. Separate defect/reachability from remedy
+proportionality, apply accepted findings in one pass, rerun invalidated checks,
+then perform one focused recheck. Material blockers or new scope require a
+decision, not an open-ended cycle; small changes may use proportional self-review.
 
 ## 7. Verify The Final Candidate
 
@@ -268,9 +266,8 @@ reopen an unbounded review after that matrix.
 
 Documentation is a current contract:
 
-- Update each fact only in its owning guide; link elsewhere. Rewrite or delete
-  the matching `## Why` entry when its rule changes. Rationale belongs beside
-  the rule, not in a separate decision log.
+- Rewrite or delete the matching `## Why` entry when its rule changes. Rationale
+  belongs beside the rule, not in a separate decision log.
 - Update the root README for changed capabilities, limitations, or support.
   `CHANGELOG.md` records releases at release time, not ongoing tasks.
 - Keep plans, scratch work, automation configuration, and review reports local
@@ -278,10 +275,42 @@ Documentation is a current contract:
   `.local/KNOWN-ISSUES.md` is the sole open-work ledger: delete closed rows in the
   closing change, close validation rows when observed and coverage rows when
   covered, and keep it near or below 150 rows and shrinking.
-- Keep guides within their current order of magnitude. Remove or merge stale
-  material before substantial additions.
+- Apply the writing rules below to changed documentation; do not expand a
+  feature change into a repository-wide prose rewrite.
 - List updated docs in the final report, or state `No docs updated;
   behavior/rules unchanged.` Include verification and outstanding gaps as above.
+
+### Concise, Useful Documentation
+
+- Lead with the answer, action, or contract. Use descriptive headings that help
+  readers find a real task or question; keep prerequisites and limitations nearby.
+- State each fact once in its owning guide and link to it elsewhere. Merge
+  repetition and remove stale text before substantial additions; keep guides
+  within their current order of magnitude. Keep entry points short; use the
+  existing documentation map rather than another index.
+- Use concrete actors, precise technical terms, and direct sentences. Cut filler,
+  promotional claims, rhetorical questions, formulaic contrasts, and repeated
+  introductions or summaries. Keep uncertainty and evidence qualifiers intact.
+- Use lists, tables, emphasis, and examples only when they improve comprehension.
+  Avoid decorative formatting and prose that narrates obvious code. Do not impose
+  punctuation bans, sentence patterns, or arbitrary length and score targets.
+- Add an example only when it answers a practical question better than prose.
+  Include the necessary context, working directory, prerequisites, and expected
+  result; label code fences with the language. Verify commands against current
+  source and report whether they were run. Keep unsafe actions clearly marked.
+- Preserve behavioral contracts, exceptions, safety and approval gates, platform
+  limits, licensing, source citations, and relevant historical qualifications.
+  Before removing unique information, confirm it is obsolete or link its surviving
+  owner. Brevity must not change the meaning or conceal an unverified claim.
+- Before handoff, check that the affected questions remain answerable, links and
+  anchors resolve, and the text matches the implementation. Report the changes
+  and remaining gaps briefly; a docs-only edit needs no application build.
+
+These rules selectively incorporate [OpenClaw's diff cleanup](https://github.com/openclaw/openclaw/blob/main/.agents/skills/deslop/SKILL.md),
+[LLM Docs Optimizer's task-oriented documentation](https://github.com/alonw0/llm-docs-optimizer/blob/main/skills/llm-docs-optimizer/SKILL.md),
+and [Stephen Turner's prose cleanup](https://github.com/stephenturner/skill-deslop/blob/main/SKILL.md).
+They do not install those skills or require scoring tools, generated indexes,
+or removal of provenance to improve a documentation score.
 
 ## Dependency And Release Changes
 
@@ -317,9 +346,9 @@ scope:
   not establish the value of permanent maintenance cost.
 - **Manual validation complements selective tests:** native output and physical
   interaction cannot be established by compilation or shared fakes.
-- **Review precedes the aggregate build:** rebuilding changing candidates adds
-  cost without verifying the final result.
-- **Release gates stay distinct:** clean source binding does not establish native
-  license readiness; a local dirty package cannot establish publication readiness.
-- **Displayed and package versions differ:** native macOS packaging rejects
-  prerelease text that is valid in the displayed SemVer.
+- **Review precedes the aggregate build:** rebuilding changing candidates does
+  not verify the final result.
+- **Release gates stay distinct:** clean source binding does not prove native
+  license or publication readiness; neither does a dirty local package.
+- **Displayed and package versions differ:** macOS package versions reject
+  prerelease text allowed by displayed SemVer.

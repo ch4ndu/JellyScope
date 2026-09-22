@@ -19,6 +19,8 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
     private var pendingGeneration: Int64?
     /// A generation submitted to BackgroundTasks but not yet delivered to its handler.
     private var submittedGeneration: Int64?
+    /// Scheduler registrations live for the process and must never be repeated.
+    private var registeredGenerations = Set<Int64>()
     /// BGTask is available at the iOS 16 deployment floor; iOS 26-only casts stay scoped.
     private var activeTask: BGTask?
     private var activeGeneration: Int64?
@@ -28,7 +30,7 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
         super.init()
     }
 
-    /// Installs one wildcard handler before any Downloads action can request native admission.
+    /// Connects Kotlin callbacks before any Downloads action requests native admission.
     func install() {
         dispatchPrecondition(condition: .onQueue(.main))
         guard !installed else { return }
@@ -36,13 +38,6 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
         let installedBridge = bridge ?? IosDownloadBackgroundBridge()
         bridge = installedBridge
         installedBridge.install(callbacks: self)
-        guard #available(iOS 26.0, *), let wildcardIdentifier else { return }
-        _ = BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: wildcardIdentifier,
-            using: .main
-        ) { [weak self] task in
-            self?.receive(task: task)
-        }
     }
 
     func configureContinuationLabels(title: String, subtitle: String) {
@@ -96,8 +91,6 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
         }
     }
 
-    private var wildcardIdentifier: String? = Bundle.main.bundleIdentifier.map { "\($0).downloads.*" }
-
     private func identifier(for generation: Int64) -> String? {
         Bundle.main.bundleIdentifier.map { "\($0).downloads.\(generation)" }
     }
@@ -135,6 +128,27 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
             rejectPendingGeneration(generation)
             return
         }
+        // The plist wildcard permits identifiers; the scheduler needs an exact
+        // handler. Missing or duplicate registration raises a fatal NSException.
+        if !registeredGenerations.contains(generation) {
+            bridge?.reportSchedulerEvent(wakeGeneration: generation, event: .registering)
+            let registered = BGTaskScheduler.shared.register(
+                forTaskWithIdentifier: identifier,
+                using: .main
+            ) { [weak self] task in
+                guard let self else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                self.receive(task: task)
+            }
+            guard registered else {
+                bridge?.reportSchedulerEvent(wakeGeneration: generation, event: .registrationrejected)
+                rejectPendingGeneration(generation)
+                return
+            }
+            registeredGenerations.insert(generation)
+        }
         let request = BGContinuedProcessingTaskRequest(
             identifier: identifier,
             title: title,
@@ -144,10 +158,31 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
         do {
             submittedGeneration = generation
             pendingGeneration = nil
+            bridge?.reportSchedulerEvent(wakeGeneration: generation, event: .submitting)
             try BGTaskScheduler.shared.submit(request)
+            bridge?.reportSchedulerEvent(wakeGeneration: generation, event: .submitted)
         } catch {
             // Submission does not authorize background execution. Kotlin keeps
             // the foreground writer running and rejects any stale callback.
+            let event: IosDownloadSchedulerEvent
+            let schedulerError = error as NSError
+            if schedulerError.domain == BGTaskScheduler.errorDomain {
+                switch schedulerError.code {
+                case BGTaskScheduler.Error.Code.unavailable.rawValue:
+                    event = .unavailable
+                case BGTaskScheduler.Error.Code.notPermitted.rawValue:
+                    event = .notpermitted
+                case BGTaskScheduler.Error.Code.tooManyPendingTaskRequests.rawValue:
+                    event = .toomanyrequests
+                case BGTaskScheduler.Error.Code.immediateRunIneligible.rawValue:
+                    event = .immediaterunineligible
+                default:
+                    event = .submissionfailed
+                }
+            } else {
+                event = .submissionfailed
+            }
+            bridge?.reportSchedulerEvent(wakeGeneration: generation, event: event)
             rejectPendingGeneration(generation)
         }
     }
