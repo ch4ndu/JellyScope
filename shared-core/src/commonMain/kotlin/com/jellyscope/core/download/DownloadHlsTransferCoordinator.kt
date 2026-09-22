@@ -54,6 +54,7 @@ internal class DownloadHlsTransferCoordinator(
     private val queueCoordinator: DownloadQueueCoordinator,
     private val artifactStore: DownloadArtifactStore,
     private val artworkCapture: DownloadArtworkCapture? = null,
+    private val executionProgress: DownloadExecutionProgress = DownloadExecutionProgress(),
 ) {
     /** Runs one already-claimed fixed-quality row under the shared transfer coordinator lease. */
     suspend fun runClaimed(
@@ -204,7 +205,19 @@ internal class DownloadHlsTransferCoordinator(
             fixedDownloadTransferLogger.i {
                 "stage=fixed-download event=transfer-started requestKind=Transfer result=Ready"
             }
-            transferPackage(prepared, context, source, packageValue)
+            val result = transferPackage(prepared, context, source, packageValue)
+            executionProgress.finished(
+                attempt = prepared.attempt,
+                transferredBytes = prepared.physicalBytes,
+                expectedBytes =
+                    if (result == DownloadTransferResult.Completed) {
+                        prepared.physicalBytes
+                    } else {
+                        estimatedProgressTotal(prepared)
+                    },
+                terminal = result.toProgressTerminal(),
+            )
+            result
         }
     }
 
@@ -542,6 +555,11 @@ internal class DownloadHlsTransferCoordinator(
             active.writers.values.forEach { writer -> writer.close() }
             return HlsPreparation.BoundaryChanged
         }
+        executionProgress.started(
+            attempt = attempt,
+            transferredBytes = actualTotal,
+            expectedBytes = estimatedProgressTotal(active),
+        )
         return HlsPreparation.Ready(active)
     }
 
@@ -649,6 +667,7 @@ internal class DownloadHlsTransferCoordinator(
             val before = writer.lengthBytes
             writer.write(bytes, offset, length)
             updatePartLength(active, partKey, before, writer.lengthBytes)
+            publishHlsProgress(active)
             offset += length
         }
         check(writer.lengthBytes == bytes.size.toLong())
@@ -710,6 +729,21 @@ internal class DownloadHlsTransferCoordinator(
         active.partLengths[partKey] = after
     }
 
+    /** Finite HLS has no trusted total byte length; its reserved bytes are a growing estimate. */
+    private fun estimatedProgressTotal(active: HlsActiveAttempt): Long {
+        val nextByte =
+            if (active.physicalBytes == Long.MAX_VALUE) Long.MAX_VALUE else active.physicalBytes + 1L
+        return maxOf(active.reservationBytes, nextByte)
+    }
+
+    private fun publishHlsProgress(active: HlsActiveAttempt) {
+        executionProgress.wrote(
+            attempt = active.attempt,
+            transferredBytes = active.physicalBytes,
+            expectedBytes = estimatedProgressTotal(active),
+        )
+    }
+
     private suspend fun streamPartIntoWriter(
         active: HlsActiveAttempt,
         partKey: DownloadArtifactPartKey,
@@ -735,6 +769,7 @@ internal class DownloadHlsTransferCoordinator(
                 throw HlsTransferOutcomeException(DownloadTransferResult.Failed(DownloadFailure.SourceChanged))
             }
             updatePartLength(active, partKey, active.partLengths[partKey] ?: 0L, writer.lengthBytes)
+            publishHlsProgress(active)
         }
         if (resource.contentLength?.let { length -> length != total } == true) {
             throw HlsTransferOutcomeException(DownloadTransferResult.Failed(DownloadFailure.SourceChanged))
@@ -1187,6 +1222,20 @@ internal class DownloadHlsTransferCoordinator(
             DownloadHlsRejectReason.MissingRequiredTag,
             -> DownloadFailure.SourceChanged
             else -> DownloadFailure.UnsupportedArtifact
+        }
+
+    private fun DownloadTransferResult.toProgressTerminal(): DownloadExecutionProgressTerminal =
+        when (this) {
+            DownloadTransferResult.Completed -> DownloadExecutionProgressTerminal.Completed
+            DownloadTransferResult.Paused -> DownloadExecutionProgressTerminal.Paused
+            DownloadTransferResult.BlockedByQuota -> DownloadExecutionProgressTerminal.QuotaBlocked
+            DownloadTransferResult.BoundaryChanged,
+            DownloadTransferResult.NoActiveAccount,
+            -> DownloadExecutionProgressTerminal.BoundaryInvalidated
+            DownloadTransferResult.NoWork,
+            DownloadTransferResult.FinalizingPending,
+            is DownloadTransferResult.Failed,
+            -> DownloadExecutionProgressTerminal.Failed
         }
 
     private fun resolveHlsResourceUrl(

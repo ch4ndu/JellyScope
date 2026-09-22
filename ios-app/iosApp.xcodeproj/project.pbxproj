@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F09B26012D1F400200A00001 /* DownloadBackgroundTaskController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F09B26002D1F400200A00001 /* DownloadBackgroundTaskController.swift */; };
 		1C1B6C0F2D1F400200A00001 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1B6C0E2D1F400200A00001 /* iOSApp.swift */; };
 		1C1B6C112D1F400200A00001 /* ComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1B6C102D1F400200A00001 /* ComposeView.swift */; };
 		6A315EA130108591006EE8A3 /* VLCKitLocal in Frameworks */ = {isa = PBXBuildFile; productRef = 6A315EA030108591006EE8A3 /* VLCKitLocal */; };
@@ -14,6 +15,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		F09B26002D1F400200A00001 /* DownloadBackgroundTaskController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadBackgroundTaskController.swift; sourceTree = "<group>"; };
 		1C1B6C0B2D1F400200A00001 /* iosApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1C1B6C0E2D1F400200A00001 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
 		1C1B6C102D1F400200A00001 /* ComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeView.swift; sourceTree = "<group>"; };
@@ -56,6 +58,7 @@
 				6ADDC36C2FFAE579009511FA /* Assets.xcassets */,
 				1C1B6C0E2D1F400200A00001 /* iOSApp.swift */,
 				1C1B6C102D1F400200A00001 /* ComposeView.swift */,
+				F09B26002D1F400200A00001 /* DownloadBackgroundTaskController.swift */,
 			);
 			path = iosApp;
 			sourceTree = "<group>";
@@ -176,6 +179,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1C1B6C112D1F400200A00001 /* ComposeView.swift in Sources */,
+				F09B26012D1F400200A00001 /* DownloadBackgroundTaskController.swift in Sources */,
 				1C1B6C0F2D1F400200A00001 /* iOSApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

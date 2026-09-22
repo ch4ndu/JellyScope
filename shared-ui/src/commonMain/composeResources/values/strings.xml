@@ -648,6 +648,8 @@
     <string name="settings_opensubtitles_key_load_error">Couldn’t load the OpenSubtitles key. Select Retry to try again.</string>
     <string name="settings_opensubtitles_key_error">Couldn’t save the OpenSubtitles key. Try again.</string>
     <string name="downloads_title">Downloads</string>
+    <string name="downloads_background_available">Downloads can continue in the background. If interrupted, return here to resume.</string>
+    <string name="downloads_background_requires_ios26">Keep JellyScope open while downloading. Background downloads require iOS 26 or later.</string>
     <string name="downloads_usage">Storage and allocation</string>
     <string name="downloads_total_stored">Total stored</string>
     <string name="downloads_current_account_stored">This account</string>

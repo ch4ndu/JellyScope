@@ -6,11 +6,16 @@ import UIKit
 
 struct ComposeView: UIViewControllerRepresentable {
     @Binding var playerFullscreen: Bool
+    let downloadBackgroundTaskController: DownloadBackgroundTaskController
 
     func makeUIViewController(context: Context) -> UIViewController {
-        MainViewControllerKt.MainViewController(onPlayerFullscreenChanged: { fullscreen in
+        let viewController = MainViewControllerKt.MainViewController(onPlayerFullscreenChanged: { fullscreen in
             playerFullscreen = fullscreen.boolValue
         })
+        // MainViewController has initialized Koin before this process-lifetime
+        // owner creates its shared-ui bridge or registers the wildcard.
+        downloadBackgroundTaskController.install()
+        return viewController
     }
 
     func updateUIViewController(

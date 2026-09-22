@@ -248,6 +248,12 @@ isolated Download database keeps durable transfer/removal state outside
 refetchable cache cleanup. See
 [Downloads And Offline](data-playback.md#downloads-and-offline).
 
+iOS optionally injects continued-execution permission into the shared Apple
+lifecycle host. The Swift controller owns BackgroundTasks objects; a narrow
+shared-ui bridge forwards opaque generations and numeric progress to the core
+adapter. Shared coordinators remain the byte writers and quota/account owners.
+tvOS uses the default app-active host without that adapter.
+
 ### Android TV focus ownership
 
 `TvFocusCoordinator` owns route focus. Each back-stack entry has a monotonic ID,

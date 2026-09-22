@@ -35,7 +35,9 @@ alpha release is **0.1.0-alpha94**.
 - Offline downloads for individual movies and episodes on Android, iOS, macOS,
   and the Apple TV preview when content downloading is enabled for the account,
   with a library-style grid and offline details; new downloads save metadata
-  and artwork
+  and artwork. iOS 26+ supports user-initiated background continuation for both
+  Original and converted downloads; earlier iOS versions require the app to
+  remain active. See [download limits](docs/guides/data-playback.md#downloads-and-offline).
 - HDR handling, Android TV refresh-rate matching, Picture-in-Picture, Fire TV
   Watch Next, Apple media controls, three dark themes, three tile sizes, and an
   adaptive phone-to-TV interface

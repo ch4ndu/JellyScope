@@ -28,6 +28,7 @@ import kotlinx.coroutines.CoroutineScope
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
 import platform.Foundation.NSBundle
+import platform.Foundation.NSProcessInfo
 import platform.UIKit.UIViewController
 
 private val DEFAULT_SERVER_URL = DevServerConfig.SERVER_URL.ifBlank { null }
@@ -92,12 +93,24 @@ private fun bundleVersionName(): String =
         } ?: "dev"
 
 @Suppress("ktlint:standard:function-naming")
+@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 fun MainViewController(onPlayerFullscreenChanged: (Boolean) -> Unit): UIViewController {
     ensureKoin()
     return ComposeUIViewController {
         CompositionLocalProvider(
             LocalPlatformCapabilities provides
-                PlatformCapabilities.Default.copy(supportsKidsPlayback = true, playerOrientationAnimation = true),
+                PlatformCapabilities.Default.copy(
+                    supportsKidsPlayback = true,
+                    playerOrientationAnimation = true,
+                    backgroundDownloadsAvailable =
+                        NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion(
+                            kotlinx.cinterop.cValue<platform.Foundation.NSOperatingSystemVersion> {
+                                majorVersion = 26
+                                minorVersion = 0
+                                patchVersion = 0
+                            },
+                        ),
+                ),
             LocalPlayerFullscreenChanged provides onPlayerFullscreenChanged,
         ) {
             JellyScopeApp(

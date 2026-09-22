@@ -94,22 +94,37 @@ internal class DownloadTransferCoordinator(
     private val hlsTransferCoordinator: DownloadHlsTransferCoordinator? = null,
     private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher(),
     private val artworkCapture: DownloadArtworkCapture? = null,
+    private val executionProgress: DownloadExecutionProgress = DownloadExecutionProgress(),
 ) {
-    suspend fun runOnce(platformWorkIdentity: DownloadPlatformWorkIdentity? = null): DownloadTransferResult =
+    suspend fun runOnce(
+        platformWorkIdentity: DownloadPlatformWorkIdentity? = null,
+        expectedBoundary: DownloadExecutionBoundary? = null,
+    ): DownloadTransferResult =
         withContext(ioDispatcher) {
-            runOnceOnIo(platformWorkIdentity)
+            runOnceOnIo(platformWorkIdentity, expectedBoundary)
         }
 
-    private suspend fun runOnceOnIo(platformWorkIdentity: DownloadPlatformWorkIdentity?): DownloadTransferResult {
+    private suspend fun runOnceOnIo(
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+        expectedBoundary: DownloadExecutionBoundary?,
+    ): DownloadTransferResult {
         val loggedIn =
             sessionRepository.sessionState.value as? SessionState.LoggedIn
                 ?: return DownloadTransferResult.NoActiveAccount
         val session = loggedIn.session
-        val accountIdentity = session.accountIdentity()
+        val boundary =
+            DownloadExecutionBoundary(
+                accountIdentity = session.accountIdentity(),
+                boundaryEpoch = loggedIn.boundaryEpoch,
+            )
+        if (expectedBoundary != null && expectedBoundary != boundary) {
+            return DownloadTransferResult.BoundaryChanged
+        }
+        val accountIdentity = boundary.accountIdentity
         val lease =
             serverScopedStoreRegistry.acquireWorkLease(
                 accountIdentity = accountIdentity,
-                boundaryEpoch = loggedIn.boundaryEpoch,
+                boundaryEpoch = boundary.boundaryEpoch,
             ) ?: return DownloadTransferResult.BoundaryChanged
         val requestContext =
             AuthenticatedRequestContext(
@@ -120,12 +135,17 @@ internal class DownloadTransferCoordinator(
 
         val claim =
             serverScopedStoreRegistry.withGuardedLease(lease) {
-                queueCoordinator.claimNext(accountIdentity, platformWorkIdentity)?.let(ClaimOutcome::Claimed)
-                    ?: ClaimOutcome.None
+                if (currentBoundary() != boundary) {
+                    ClaimOutcome.BoundaryChanged
+                } else {
+                    queueCoordinator.claimNext(accountIdentity, platformWorkIdentity)?.let(ClaimOutcome::Claimed)
+                        ?: ClaimOutcome.None
+                }
             } ?: return DownloadTransferResult.BoundaryChanged
         val record =
             when (claim) {
                 ClaimOutcome.None -> return DownloadTransferResult.NoWork
+                ClaimOutcome.BoundaryChanged -> return DownloadTransferResult.BoundaryChanged
                 is ClaimOutcome.Claimed -> claim.record
             }
         val attempt = DownloadAttemptIdentity(record.downloadId, record.attemptGeneration)
@@ -316,6 +336,12 @@ internal class DownloadTransferCoordinator(
                 originalDownloadTransferLogger.w { formatSafeFailureDiagnostic("original-download", "transfer-failed", failure) }
                 settleFailure(activeAttempt, DownloadFailure.ServerUnavailable)
             }
+        executionProgress.finished(
+            attempt = activeAttempt.attempt,
+            transferredBytes = activeAttempt.totalWrittenBytesOrNull() ?: activeAttempt.record.checkpointBytes,
+            expectedBytes = activeAttempt.expectedTotalBytes,
+            terminal = result.toProgressTerminal(),
+        )
         if (result == DownloadTransferResult.BoundaryChanged) {
             queueCoordinator.invalidateRegisteredAttemptAfterBoundary(activeAttempt.attempt)
         }
@@ -464,6 +490,11 @@ internal class DownloadTransferCoordinator(
             writer.close()
             return Preparation.BoundaryChanged
         }
+        executionProgress.started(
+            attempt = attempt,
+            transferredBytes = checkpointTotal,
+            expectedBytes = expectedTotalBytes,
+        )
         return Preparation.Ready(
             ActiveAttempt(
                 record = record,
@@ -474,6 +505,7 @@ internal class DownloadTransferCoordinator(
                 sidecarBytes = sidecarBytes,
                 registration = registration,
                 reservationBytes = record.reservationBytes,
+                expectedTotalBytes = expectedTotalBytes,
             ),
         )
     }
@@ -588,6 +620,11 @@ internal class DownloadTransferCoordinator(
                 return BodyOutcome.DeviceStorageLow
             }
             offset += length
+            executionProgress.wrote(
+                attempt = activeAttempt.attempt,
+                transferredBytes = activeAttempt.totalWrittenBytesOrNull() ?: return BodyOutcome.SourceChanged,
+                expectedBytes = activeAttempt.expectedTotalBytes,
+            )
         }
         if (writer.lengthBytes != bytes.size.toLong()) return BodyOutcome.SourceChanged
         return checkpointProgress(activeAttempt) ?: BodyOutcome.Complete
@@ -648,6 +685,11 @@ internal class DownloadTransferCoordinator(
             }
             bytesSinceCheckpoint += read.toLong()
             activeAttempt.bytesSinceCheckpoint += read.toLong()
+            executionProgress.wrote(
+                attempt = activeAttempt.attempt,
+                transferredBytes = activeAttempt.totalWrittenBytesOrNull() ?: return BodyOutcome.SourceChanged,
+                expectedBytes = activeAttempt.expectedTotalBytes,
+            )
             if (bytesSinceCheckpoint >= PROGRESS_CHECKPOINT_BYTES) {
                 checkpointProgress(activeAttempt)?.let { return it }
                 bytesSinceCheckpoint = 0L
@@ -947,10 +989,20 @@ internal class DownloadTransferCoordinator(
     private sealed interface ClaimOutcome {
         data object None : ClaimOutcome
 
+        data object BoundaryChanged : ClaimOutcome
+
         data class Claimed(
             val record: DownloadRecord,
         ) : ClaimOutcome
     }
+
+    private fun currentBoundary(): DownloadExecutionBoundary? =
+        (sessionRepository.sessionState.value as? SessionState.LoggedIn)?.let { loggedIn ->
+            DownloadExecutionBoundary(
+                accountIdentity = loggedIn.session.accountIdentity(),
+                boundaryEpoch = loggedIn.boundaryEpoch,
+            )
+        }
 
     private sealed interface Preparation {
         data class Ready(
@@ -973,6 +1025,7 @@ internal class DownloadTransferCoordinator(
         val sidecarBytes: ByteArray?,
         val registration: DownloadActiveAttemptRegistration,
         var reservationBytes: Long,
+        val expectedTotalBytes: Long,
         var bytesSinceCheckpoint: Long = 0L,
     ) {
         val sidecarBytesLength: Long
@@ -1020,6 +1073,20 @@ internal class DownloadTransferCoordinator(
             OriginalDownloadFailure.SourceChanged -> DownloadFailure.SourceChanged
             OriginalDownloadFailure.Network -> DownloadFailure.Network
             OriginalDownloadFailure.ServerUnavailable -> DownloadFailure.ServerUnavailable
+        }
+
+    private fun DownloadTransferResult.toProgressTerminal(): DownloadExecutionProgressTerminal =
+        when (this) {
+            DownloadTransferResult.Completed -> DownloadExecutionProgressTerminal.Completed
+            DownloadTransferResult.Paused -> DownloadExecutionProgressTerminal.Paused
+            DownloadTransferResult.BlockedByQuota -> DownloadExecutionProgressTerminal.QuotaBlocked
+            DownloadTransferResult.BoundaryChanged,
+            DownloadTransferResult.NoActiveAccount,
+            -> DownloadExecutionProgressTerminal.BoundaryInvalidated
+            DownloadTransferResult.NoWork,
+            DownloadTransferResult.FinalizingPending,
+            is DownloadTransferResult.Failed,
+            -> DownloadExecutionProgressTerminal.Failed
         }
 
     private fun DownloadRecord.isSupportedOriginalRequest(): Boolean =

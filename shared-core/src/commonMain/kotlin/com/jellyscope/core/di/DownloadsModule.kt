@@ -58,6 +58,8 @@ import com.jellyscope.core.download.DefaultDownloadExecutionDriver
 import com.jellyscope.core.download.DownloadArtworkCapture
 import com.jellyscope.core.download.DownloadCleanupCoordinator
 import com.jellyscope.core.download.DownloadExecutionDriver
+import com.jellyscope.core.download.DownloadExecutionProgress
+import com.jellyscope.core.download.DownloadExecutionProgressSink
 import com.jellyscope.core.download.DownloadHlsTransferCoordinator
 import com.jellyscope.core.download.DownloadQueueCoordinator
 import com.jellyscope.core.download.DownloadTransferCoordinator
@@ -135,6 +137,7 @@ val downloadsModule =
                 transport = get(),
             )
         }
+        single { DownloadExecutionProgress(sink = getOrNull<DownloadExecutionProgressSink>()) }
         single {
             DownloadHlsTransferCoordinator(
                 serverScopedStoreRegistry = get(),
@@ -142,6 +145,7 @@ val downloadsModule =
                 queueCoordinator = get(),
                 artifactStore = get(),
                 artworkCapture = get(),
+                executionProgress = get(),
             )
         }
         single {
@@ -155,6 +159,7 @@ val downloadsModule =
                 localSubtitleFileStore = get<LocalSubtitleFileStore>(),
                 hlsTransferCoordinator = get(),
                 artworkCapture = get(),
+                executionProgress = get(),
             )
         }
         single<DownloadExecutionDriver> {

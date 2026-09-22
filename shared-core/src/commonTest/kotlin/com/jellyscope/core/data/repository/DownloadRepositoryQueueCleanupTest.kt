@@ -404,7 +404,8 @@ class DownloadRepositoryQueueCleanupTest {
             val preview = coordinator.previewRemoval(scope)
 
             assertTrue(coordinator.releaseRemovalPreview(scope, preview))
-            assertEquals(1, host.userActionWakeCalls)
+            assertEquals(1, host.passiveWakeCalls)
+            assertEquals(0, host.userActionWakeCalls)
             assertEquals(DownloadId("download_a"), queueCoordinator.claimNext(account)?.downloadId)
         }
 
@@ -1235,8 +1236,14 @@ private class FakeExecutionHost(
     private val events: MutableList<String>,
 ) : DownloadExecutionHost {
     var userActionWakeCalls = 0
+    var passiveWakeCalls = 0
 
     override suspend fun wake(): Result<Unit> = Result.success(Unit)
+
+    override suspend fun wakeFromPassiveEvent(): Result<Unit> {
+        passiveWakeCalls += 1
+        return Result.success(Unit)
+    }
 
     override suspend fun wakeFromUserAction(): Result<Unit> {
         userActionWakeCalls += 1

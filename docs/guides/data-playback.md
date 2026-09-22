@@ -2299,11 +2299,24 @@ than restating it.
   a possible Task Manager stop. On API 33+, each Android app shell makes a
   best-effort notification-permission request immediately before an Original or
   Fixed Start action. The permission result affects notification visibility, not
-  Jellyfin authorization, enqueue eligibility, or transfer execution. iOS and
-  JVM desktop transfer only while the app is active/open; suspension or
-  graceful exit checkpoints the active attempt
-  back to the runnable queue, and the next active launch recovers it. Neither
-  platform promises a background daemon or closed-app transfer.
+  Jellyfin authorization, enqueue eligibility, or transfer execution.
+- iOS 26+ requests continued-processing time for explicit Original or Fixed
+  Start, Resume, Resume All, and Retry actions. An actual native grant can keep
+  the existing app-owned writer running after backgrounding; submitting a
+  request alone does not grant execution. The grant is bound to one retained
+  wake and account epoch. Screen entry, recovery, Pause/Cancel follow-up, and
+  removal-preview dismissal never request background time. Native Stop or
+  expiration checkpoints to Paused for explicit Resume. Slow server encoding
+  or Fixed preflight can show little progress and cause iOS to end execution;
+  progress is never fabricated to keep the task alive. Downloads explains the
+  version-dependent capability with a small localized helper.
+- Earlier iOS versions, or iOS without an active grant, retain app-active
+  downloading; suspension checkpoints to the runnable queue. JVM desktop
+  likewise transfers only while open and checkpoints on graceful exit. The
+  next active launch recovers durable state. iOS continued processing does not
+  promise completion, process-death survival, force-quit survival, or a
+  closed-app download daemon. Existing per-write quota, source validation,
+  redirect, and account-lease safeguards apply to both iOS transfer qualities.
 - Original byte checkpoints and Fixed package checkpoints are generation-bound.
   Original active-attempt settlement is non-throwing: a checkpoint failure
   retains the registration's last durable facts, both sidecar and main writers
@@ -3521,6 +3534,11 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
   byte request does not prove Jellyfin's content-download policy, so session
   admission and every start/resume revalidate the current account, policy,
   source, and validators under the captured work lease.
+- **iOS continuation retains the existing writer.** A user-initiated native
+  execution grant extends runtime without moving bytes into an OS-owned
+  transfer pipeline that bypasses per-write allocation and redirect controls.
+  Grant expiry pauses honestly; it does not imply a corrupt or completed file.
+  Older iOS and tvOS retain their app-active limits.
 - **Original and Fixed are closed artifact formats.** Original preserves the
   selected source; Fixed produces the bounded HLS-TS/H.264/AAC package that can
   be validated, resumed, and localized. Adaptive/custom packages and general HLS

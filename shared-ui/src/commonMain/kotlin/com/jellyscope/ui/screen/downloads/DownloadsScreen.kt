@@ -63,6 +63,8 @@ import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_gb
 import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_invalid
 import com.jellyscope.ui.generated.resources.downloads_allocation_dialog_title
 import com.jellyscope.ui.generated.resources.downloads_artifact_in_use
+import com.jellyscope.ui.generated.resources.downloads_background_available
+import com.jellyscope.ui.generated.resources.downloads_background_requires_ios26
 import com.jellyscope.ui.generated.resources.downloads_current_account_stored
 import com.jellyscope.ui.generated.resources.downloads_device_free
 import com.jellyscope.ui.generated.resources.downloads_empty
@@ -84,6 +86,7 @@ import com.jellyscope.ui.generated.resources.downloads_total_stored
 import com.jellyscope.ui.generated.resources.downloads_usage
 import com.jellyscope.ui.generated.resources.downloads_usage_error
 import com.jellyscope.ui.generated.resources.downloads_usage_loading
+import com.jellyscope.ui.platform.LocalPlatformCapabilities
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -320,6 +323,7 @@ private fun DownloadsUsageCard(
     onOpenAllocation: () -> Unit,
 ) {
     val usage = state.usage
+    val backgroundDownloadsAvailable = LocalPlatformCapabilities.current.backgroundDownloadsAvailable
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -391,6 +395,20 @@ private fun DownloadsUsageCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(Res.string.downloads_manage_allocation))
+            }
+            backgroundDownloadsAvailable?.let { available ->
+                Text(
+                    text =
+                        stringResource(
+                            if (available) {
+                                Res.string.downloads_background_available
+                            } else {
+                                Res.string.downloads_background_requires_ios26
+                            },
+                        ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

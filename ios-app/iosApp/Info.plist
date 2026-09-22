@@ -21,5 +21,9 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).downloads.*</string>
+	</array>
 </dict>
 </plist>

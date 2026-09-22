@@ -11,10 +11,13 @@ import com.jellyscope.core.domain.model.DownloadEnqueueResult
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadSettings
+import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.FixedDownloadDraft
 import com.jellyscope.core.domain.model.OriginalDownloadDraft
 import com.jellyscope.core.domain.usecase.FixedDownloadAdmission
 import com.jellyscope.core.domain.usecase.OriginalDownloadAdmission
+import com.jellyscope.core.download.DownloadExplicitWork
+import com.jellyscope.core.download.DownloadExplicitWorkEnrollment
 import com.jellyscope.core.download.DownloadLifecycleHost
 import kotlinx.coroutines.CancellationException
 
@@ -32,7 +35,7 @@ class EnqueueDownloadAction(
     suspend operator fun invoke(draft: OriginalDownloadDraft): DownloadEnqueueResult {
         val result = admission.admitAndEnqueue(draft, repository::enqueue)
         val record = result.admittedRecordOrNull()
-        if (record == null || wakeRejected(lifecycleHost)) {
+        if (record == null || wakeRejected(lifecycleHost, record.toExplicitEnrollment())) {
             return if (record == null) result else DownloadEnqueueResult.SchedulingRejected(record)
         }
         return result
@@ -48,7 +51,7 @@ class EnqueueFixedDownloadAction(
     suspend operator fun invoke(draft: FixedDownloadDraft): DownloadEnqueueResult {
         val result = admission.admitAndEnqueue(draft, repository::enqueue)
         val record = result.admittedRecordOrNull()
-        if (record == null || wakeRejected(lifecycleHost)) {
+        if (record == null || wakeRejected(lifecycleHost, record.toExplicitEnrollment())) {
             return if (record == null) result else DownloadEnqueueResult.SchedulingRejected(record)
         }
         return result
@@ -72,7 +75,7 @@ class PauseDownloadAction(
     suspend operator fun invoke(
         accountIdentity: AccountIdentity,
         downloadId: DownloadId,
-    ): DownloadCommandResult = commandCoordinator.pause(accountIdentity, downloadId).wakeIfApplied(lifecycleHost)
+    ): DownloadCommandResult = commandCoordinator.pause(accountIdentity, downloadId).wakePassiveIfApplied(lifecycleHost)
 }
 
 class ResumeDownloadAction(
@@ -82,7 +85,11 @@ class ResumeDownloadAction(
     suspend operator fun invoke(
         accountIdentity: AccountIdentity,
         downloadId: DownloadId,
-    ): DownloadCommandResult = repository.resume(accountIdentity, downloadId).wakeIfApplied(lifecycleHost)
+    ): DownloadCommandResult =
+        repository.resume(accountIdentity, downloadId).wakeIfApplied(
+            lifecycleHost = lifecycleHost,
+            enrollment = repository.explicitEnrollment(accountIdentity, setOf(downloadId)),
+        )
 }
 
 class ResumePausedDownloadsAction(
@@ -97,15 +104,21 @@ class ResumePausedDownloadsAction(
         if (uniqueDownloadIds.isEmpty()) return DownloadCommandResult.InvalidState
 
         var applied = false
+        val appliedDownloadIds = mutableSetOf<DownloadId>()
         var firstRejection: DownloadCommandResult? = null
         uniqueDownloadIds.forEach { downloadId ->
             when (val result = repository.resume(accountIdentity, downloadId)) {
-                DownloadCommandResult.Applied -> applied = true
+                DownloadCommandResult.Applied -> {
+                    applied = true
+                    appliedDownloadIds += downloadId
+                }
                 else -> if (firstRejection == null) firstRejection = result
             }
         }
         if (!applied) return firstRejection ?: DownloadCommandResult.InvalidState
-        if (wakeRejected(lifecycleHost)) return DownloadCommandResult.SchedulingRejected
+        if (wakeRejected(lifecycleHost, repository.explicitEnrollment(accountIdentity, appliedDownloadIds))) {
+            return DownloadCommandResult.SchedulingRejected
+        }
         return DownloadCommandResult.Applied
     }
 }
@@ -117,7 +130,11 @@ class RetryDownloadAction(
     suspend operator fun invoke(
         accountIdentity: AccountIdentity,
         downloadId: DownloadId,
-    ): DownloadCommandResult = repository.retry(accountIdentity, downloadId).wakeIfApplied(lifecycleHost)
+    ): DownloadCommandResult =
+        repository.retry(accountIdentity, downloadId).wakeIfApplied(
+            lifecycleHost = lifecycleHost,
+            enrollment = repository.explicitEnrollment(accountIdentity, setOf(downloadId)),
+        )
 }
 
 /**
@@ -131,27 +148,78 @@ class RetryDownloadAction(
 class WakeDownloadsQueueAction(
     private val lifecycleHost: DownloadLifecycleHost,
 ) {
-    suspend operator fun invoke(): Result<Unit> = lifecycleHost.wakeFromUserAction()
+    suspend operator fun invoke(): Result<Unit> = lifecycleHost.wakeFromPassiveEvent()
 }
 
-private suspend fun DownloadCommandResult.wakeIfApplied(lifecycleHost: DownloadLifecycleHost?): DownloadCommandResult {
+private suspend fun DownloadCommandResult.wakeIfApplied(
+    lifecycleHost: DownloadLifecycleHost?,
+    enrollment: DownloadExplicitWorkEnrollment,
+): DownloadCommandResult {
     if (this != DownloadCommandResult.Applied) return this
     if (lifecycleHost == null) return this
-    return if (lifecycleHost.wakeFromUserAction().isSuccess) {
+    return if (lifecycleHost.wakeFromUserAction(enrollment).isSuccess) {
         this
     } else {
         DownloadCommandResult.SchedulingRejected
     }
 }
 
-private suspend fun wakeRejected(lifecycleHost: DownloadLifecycleHost): Boolean =
+private suspend fun DownloadCommandResult.wakePassiveIfApplied(lifecycleHost: DownloadLifecycleHost?): DownloadCommandResult {
+    if (this != DownloadCommandResult.Applied) return this
+    if (lifecycleHost == null) return this
+    return if (lifecycleHost.wakeFromPassiveEvent().isSuccess) {
+        this
+    } else {
+        DownloadCommandResult.SchedulingRejected
+    }
+}
+
+private suspend fun wakeRejected(
+    lifecycleHost: DownloadLifecycleHost,
+    enrollment: DownloadExplicitWorkEnrollment,
+): Boolean =
     try {
-        lifecycleHost.wakeFromUserAction().isFailure
+        lifecycleHost.wakeFromUserAction(enrollment).isFailure
     } catch (cancellation: CancellationException) {
         throw cancellation
     } catch (_: Throwable) {
         true
     }
+
+private suspend fun DownloadRepository.explicitEnrollment(
+    accountIdentity: AccountIdentity,
+    downloadIds: Set<DownloadId>,
+): DownloadExplicitWorkEnrollment =
+    DownloadExplicitWorkEnrollment(
+        accountIdentity = accountIdentity,
+        work =
+            downloadIds
+                .map { downloadId ->
+                    getDownload(accountIdentity, downloadId)?.toExplicitWork()
+                        ?: DownloadExplicitWork(
+                            downloadId = downloadId,
+                            minimumCompletionAttemptGeneration = Long.MAX_VALUE,
+                        )
+                }.toSet(),
+    )
+
+private fun DownloadRecord.toExplicitEnrollment(): DownloadExplicitWorkEnrollment =
+    DownloadExplicitWorkEnrollment(
+        accountIdentity = businessKey.accountIdentity,
+        work = setOf(toExplicitWork()),
+    )
+
+private fun DownloadRecord.toExplicitWork(): DownloadExplicitWork =
+    DownloadExplicitWork(
+        downloadId = downloadId,
+        minimumCompletionAttemptGeneration =
+            when (state) {
+                DownloadState.Downloading,
+                DownloadState.Finalizing,
+                -> attemptGeneration
+                else -> (attemptGeneration + 1L).coerceAtLeast(attemptGeneration)
+            },
+    )
 
 class CancelDownloadAction(
     private val commandCoordinator: DownloadCommandCoordinator,
@@ -166,7 +234,7 @@ class CancelDownloadAction(
                 // A cancellation may release the global active slot. Wake the common driver so
                 // the next FIFO row is not stranded on app-active JVM/iOS hosts.
                 try {
-                    lifecycleHost?.wakeFromUserAction()
+                    lifecycleHost?.wakeFromPassiveEvent()
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: Throwable) {

@@ -71,6 +71,8 @@ internal class AndroidDownloadScheduler(
     /** Android process teardown is handled by the OS; no background daemon is installed. */
     override fun stop() = Unit
 
+    override suspend fun wakeFromPassiveEvent(): Result<Unit> = wakeFromUserAction()
+
     override suspend fun wakeFromUserAction(): Result<Unit> =
         recovery.recoverBeforeFirstWake(this).fold(
             onSuccess = { wake() },

@@ -42,6 +42,8 @@ internal class JvmDownloadLifecycleHost(
     /** Returns after the retained transfer task is installed, not after it drains the file. */
     override suspend fun wakeFromUserAction(): Result<Unit> = scheduleWake()
 
+    override suspend fun wakeFromPassiveEvent(): Result<Unit> = wakeFromUserAction()
+
     override suspend fun wake(): Result<Unit> = wakeIfRunnable()
 
     private suspend fun wakeIfRunnable(): Result<Unit> =

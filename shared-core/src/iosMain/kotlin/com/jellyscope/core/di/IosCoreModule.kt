@@ -8,21 +8,29 @@ import com.jellyscope.core.data.local.DownloadArtifactStore
 import com.jellyscope.core.data.local.DownloadDatabaseFactory
 import com.jellyscope.core.download.AppleDownloadLifecycleHost
 import com.jellyscope.core.download.DownloadExecutionHost
+import com.jellyscope.core.download.DownloadExecutionProgressSink
 import com.jellyscope.core.download.DownloadExecutionRecovery
 import com.jellyscope.core.download.DownloadLifecycleHost
+import com.jellyscope.core.download.IosDownloadBackgroundExecution
+import com.jellyscope.core.download.IosDownloadBackgroundProgressSink
 import org.koin.dsl.module
 
-/** iOS download storage and app-active transfer bindings. */
+/** iOS download storage and optional native continued-execution bindings. */
 val iosCoreModule =
     module {
         single<DownloadDatabaseFactory> { AppleDownloadDatabaseFactory() }
         single<DownloadArtifactStore> { AppleDownloadArtifactStore() }
         single { DownloadExecutionRecovery(queueCoordinator = get(), driver = get()) }
+        single { IosDownloadBackgroundExecution() }
+        single<DownloadExecutionProgressSink> {
+            IosDownloadBackgroundProgressSink(execution = get<IosDownloadBackgroundExecution>())
+        }
         single {
             AppleDownloadLifecycleHost(
                 driver = get(),
                 recovery = get(),
                 scope = get(),
+                continuedExecution = get<IosDownloadBackgroundExecution>(),
             )
         }
         single<DownloadExecutionHost> { get<AppleDownloadLifecycleHost>() }

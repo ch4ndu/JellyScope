@@ -61,10 +61,149 @@ internal class DefaultDownloadExecutionDriver(
         }
     }
 
+    override suspend fun prepareContinuedWorkEnrollment(enrollment: DownloadExplicitWorkEnrollment): DownloadContinuedWorkEnrollment? {
+        val boundary = currentBoundary() ?: return null
+        if (boundary.accountIdentity != enrollment.accountIdentity) return null
+        return DownloadContinuedWorkEnrollment(
+            boundary = boundary,
+            initialEnrollment = enrollment,
+        )
+    }
+
+    override suspend fun drainContinuedWork(enrollment: DownloadContinuedWorkEnrollment?): DownloadContinuedDrainOutcome {
+        val boundary =
+            currentBoundary() ?: return recordedContinuedOutcome(
+                enrollment = enrollment,
+                outcome = DownloadContinuedDrainOutcome.NoWork,
+            )
+        if (enrollment?.bindBoundary(boundary) == false) {
+            return recordedContinuedOutcome(
+                enrollment = enrollment,
+                outcome = DownloadContinuedDrainOutcome.BoundaryInvalidated,
+            )
+        }
+        var completedWork = false
+        try {
+            while (true) {
+                if (currentBoundary() != boundary) {
+                    return recordedContinuedOutcome(
+                        enrollment = enrollment,
+                        outcome = DownloadContinuedDrainOutcome.BoundaryInvalidated,
+                    )
+                }
+                if (!hasRunnableWork(boundary)) {
+                    return completedContinuedOutcome(
+                        boundary = boundary,
+                        enrollment = enrollment,
+                        completedWork = completedWork,
+                    )
+                }
+                when (val outcome = transferCoordinator.runOnce(expectedBoundary = boundary)) {
+                    DownloadTransferResult.Completed -> completedWork = true
+                    DownloadTransferResult.NoWork ->
+                        return completedContinuedOutcome(
+                            boundary = boundary,
+                            enrollment = enrollment,
+                            completedWork = completedWork,
+                        )
+                    DownloadTransferResult.Paused ->
+                        return recordedContinuedOutcome(
+                            enrollment = enrollment,
+                            outcome = DownloadContinuedDrainOutcome.Paused,
+                        )
+                    DownloadTransferResult.BlockedByQuota ->
+                        return recordedContinuedOutcome(
+                            enrollment = enrollment,
+                            outcome = DownloadContinuedDrainOutcome.QuotaBlocked,
+                        )
+                    is DownloadTransferResult.Failed -> {
+                        // A late explicit enrollment must be compared with the
+                        // version seen before this queue probe. Otherwise a
+                        // Retry that joins while this failed wake is ending can
+                        // be recorded as though it had already been considered.
+                        val failureProbeVersion = enrollment?.snapshotVersion()
+                        val continuedOutcome =
+                            if (hasRunnableEnrolledWorkAfterPredecessorFailure(boundary, enrollment)) {
+                                DownloadContinuedDrainOutcome.EnrolledWorkRunnableAfterPredecessorFailure
+                            } else {
+                                DownloadContinuedDrainOutcome.Failed
+                            }
+                        return recordedContinuedOutcome(
+                            enrollment = enrollment,
+                            outcome = continuedOutcome,
+                            observedEnrollmentVersion = failureProbeVersion,
+                        )
+                    }
+                    DownloadTransferResult.FinalizingPending ->
+                        return recordedContinuedOutcome(
+                            enrollment = enrollment,
+                            outcome = DownloadContinuedDrainOutcome.Failed,
+                        )
+                    DownloadTransferResult.BoundaryChanged,
+                    DownloadTransferResult.NoActiveAccount,
+                    ->
+                        return recordedContinuedOutcome(
+                            enrollment = enrollment,
+                            outcome = DownloadContinuedDrainOutcome.BoundaryInvalidated,
+                        )
+                }
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            return recordedContinuedOutcome(
+                enrollment = enrollment,
+                outcome = DownloadContinuedDrainOutcome.Failed,
+            )
+        }
+    }
+
+    private suspend fun completedContinuedOutcome(
+        boundary: DownloadExecutionBoundary,
+        enrollment: DownloadContinuedWorkEnrollment?,
+        completedWork: Boolean,
+    ): DownloadContinuedDrainOutcome {
+        enrollment?.observeCompleted(boundary, queueCoordinator.allDownloads())
+        val outcome =
+            if (enrollment?.isSatisfied() == true) {
+                DownloadContinuedDrainOutcome.EnrolledWorkCompleted
+            } else if (completedWork) {
+                DownloadContinuedDrainOutcome.Completed
+            } else {
+                DownloadContinuedDrainOutcome.NoWork
+            }
+        return recordedContinuedOutcome(enrollment, outcome)
+    }
+
+    private fun recordedContinuedOutcome(
+        enrollment: DownloadContinuedWorkEnrollment?,
+        outcome: DownloadContinuedDrainOutcome,
+        observedEnrollmentVersion: Long? = enrollment?.snapshotVersion(),
+    ): DownloadContinuedDrainOutcome {
+        enrollment?.recordTerminal(outcome, observedEnrollmentVersion)
+        return outcome
+    }
+
     override suspend fun hasRunnableWork(): Boolean {
         val account = currentAccount() ?: return false
         return queueCoordinator.hasClaimEligibleWork(account)
     }
+
+    private suspend fun hasRunnableWork(boundary: DownloadExecutionBoundary): Boolean =
+        currentBoundary() == boundary && queueCoordinator.hasClaimEligibleWork(boundary.accountIdentity)
+
+    /**
+     * A predecessor failure may stop the continued drain, but it must not
+     * strand an exact joined row that the queue can still claim. The queue's
+     * admission probe keeps quota, removal-preview, and active-attempt guards
+     * authoritative.
+     */
+    private suspend fun hasRunnableEnrolledWorkAfterPredecessorFailure(
+        boundary: DownloadExecutionBoundary,
+        enrollment: DownloadContinuedWorkEnrollment?,
+    ): Boolean =
+        enrollment?.hasRunnableUncompletedTarget(boundary, queueCoordinator.allDownloads()) == true &&
+            hasRunnableWork(boundary)
 
     override suspend fun execute(platformWorkIdentity: DownloadPlatformWorkIdentity): Result<Unit> =
         try {
@@ -239,7 +378,15 @@ internal class DefaultDownloadExecutionDriver(
             Result.failure(throwable)
         }
 
-    private fun currentAccount() = (sessionRepository.sessionState.value as? SessionState.LoggedIn)?.session?.accountIdentity()
+    private fun currentAccount() = currentBoundary()?.accountIdentity
+
+    private fun currentBoundary(): DownloadExecutionBoundary? =
+        (sessionRepository.sessionState.value as? SessionState.LoggedIn)?.let { loggedIn ->
+            DownloadExecutionBoundary(
+                accountIdentity = loggedIn.session.accountIdentity(),
+                boundaryEpoch = loggedIn.boundaryEpoch,
+            )
+        }
 
     /** Prevents a quota/block boundary from spinning the app-active wake indefinitely. */
     private fun outcomeStopsWake(outcome: DownloadTransferResult): Boolean =

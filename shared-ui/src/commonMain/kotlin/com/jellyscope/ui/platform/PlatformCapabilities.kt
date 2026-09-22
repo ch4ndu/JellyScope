@@ -14,6 +14,8 @@ data class PlatformCapabilities(
     val desktopResizeModes: Boolean = false,
     val desktopPlayerControls: Boolean = false,
     val playerFullscreenControl: Boolean = false,
+    /** Null hides the iOS-only Downloads continuation note on other platforms. */
+    val backgroundDownloadsAvailable: Boolean? = null,
 ) {
     companion object {
         val Default = PlatformCapabilities()

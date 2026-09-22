@@ -44,7 +44,7 @@ internal class DownloadExecutionRecovery(
             // the already-bound platform host (UIDT/WorkManager on Android, app-active scheduling
             // on iOS/JVM). Register it at the recovery boundary so cleanup never depends on a
             // platform scheduler or DI edge of its own.
-            queueCoordinator.registerRemovalPreviewReleaseWake { host.wakeFromUserAction() }
+            queueCoordinator.registerRemovalPreviewReleaseWake { host.wakeFromPassiveEvent() }
             val records = queueCoordinator.allDownloads()
             val discoveredWork = host.queryActiveWork().getOrThrow()
             val plan = decideDownloadRecovery(records, discoveredWork)
