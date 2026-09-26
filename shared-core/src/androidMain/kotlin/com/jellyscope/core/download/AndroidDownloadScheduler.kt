@@ -60,7 +60,6 @@ internal class AndroidDownloadScheduler(
     private val applicationContext = context.applicationContext
     private val started = AtomicBoolean(false)
 
-    /** Starts the recovery path once for this process. */
     override fun start() {
         if (!started.compareAndSet(false, true)) return
         scope.launch(Dispatchers.Default) {
@@ -68,7 +67,6 @@ internal class AndroidDownloadScheduler(
         }
     }
 
-    /** Android process teardown is handled by the OS; no background daemon is installed. */
     override fun stop() = Unit
 
     override suspend fun wakeFromPassiveEvent(): Result<Unit> = wakeFromUserAction()
@@ -185,6 +183,7 @@ internal class AndroidDownloadScheduler(
                 }?.let { record ->
                     DownloadAttemptIdentity(record.downloadId, record.attemptGeneration)
                 }
+        if (attempt == null) return Result.success(Unit)
         return checkpointAndSuspend(attempt)
     }
 

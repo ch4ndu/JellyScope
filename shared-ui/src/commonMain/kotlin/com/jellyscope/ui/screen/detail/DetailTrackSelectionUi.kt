@@ -123,8 +123,7 @@ internal fun DetailTrackSelectionUi.resolveLaunchDefaults(
  * A durable selection can be dropped locally — deleting the selected local asset
  * clears it — and the rendered default must follow immediately. Reprojecting from
  * the retained options keeps the picker and the play projection agreeing without
- * waiting on the server round trip a full reload needs, so a failed refresh can
- * no longer leave the pre-deletion selection on screen.
+ * waiting on the server round trip a full reload needs, including when refresh fails.
  */
 internal fun DetailTrackSelectionUi.reprojectSubtitleDefaults(
     playbackPreferences: PlaybackPreferences,

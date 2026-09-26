@@ -9,11 +9,14 @@ import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlaybackSelectionStore
 import com.jellyscope.core.data.local.PlayerBackendOverrideStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
+import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.local.SubtitleSelectionStore
 import com.jellyscope.core.data.repository.DownloadRepository
 import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.data.repository.MediaRepository
+import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.action.SavePlaybackSelectionAction
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.DownloadArtifactKey
 import com.jellyscope.core.domain.model.DownloadArtifactKind
@@ -47,6 +50,7 @@ import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PlaybackSelection
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.platform.DeviceInfoProvider
 import com.jellyscope.core.domain.playback.AudioActivationState
@@ -108,6 +112,7 @@ import com.jellyscope.core.playback.PlaybackStopSettlementRegistry
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.SupervisorJob
@@ -117,6 +122,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -493,7 +499,13 @@ internal fun playerFixture(
                 ),
             savePlaybackSelectionAction =
                 selectionStore?.let { store ->
-                    SavePlaybackSelectionAction(store, CoroutineScope(SupervisorJob() + workDispatcher), workDispatcher)
+                    val scope = CoroutineScope(SupervisorJob() + workDispatcher)
+                    val sessions = PlayerFixtureSessionRepository(session)
+                    val registry = ServerScopedStoreRegistry()
+                    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                        registry.transitionToAccount(session.accountIdentity(), boundaryEpoch = 1L)
+                    }
+                    SavePlaybackSelectionAction(store, sessions, registry, scope, workDispatcher)
                 },
             observePlayerDeviceSettingsUseCase = ObservePlayerDeviceSettingsUseCase(playerDeviceSettingsStore),
             playerControllerFactory = playerControllerFactory ?: { controller },
@@ -1496,3 +1508,16 @@ internal val session =
         accessToken = "token-1",
         deviceId = "device-1",
     )
+
+private class PlayerFixtureSessionRepository(
+    session: Session,
+) : SessionRepository {
+    override val sessionState: StateFlow<SessionState> = MutableStateFlow(SessionState.LoggedIn(session, boundaryEpoch = 1L))
+
+    override suspend fun setLoggedIn(session: Session): Unit = error("Unused test mutation")
+
+    override suspend fun setLoggedOut(
+        serverUrl: String?,
+        authorization: SessionRemovalAuthorization,
+    ): Result<Unit> = error("Unused test mutation")
+}

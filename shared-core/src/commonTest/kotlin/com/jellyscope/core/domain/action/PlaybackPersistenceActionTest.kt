@@ -5,21 +5,29 @@ package com.jellyscope.core.domain.action
 import com.jellyscope.core.data.local.PlaybackSelectionStore
 import com.jellyscope.core.data.local.PlaybackTimingStore
 import com.jellyscope.core.data.local.PlayerBackendOverrideStore
+import com.jellyscope.core.data.local.ServerScopedStoreRegistry
+import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.PlaybackSelection
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
 import com.jellyscope.core.domain.model.PlaybackTimingKey
 import com.jellyscope.core.domain.model.PlaybackTimingKind
 import com.jellyscope.core.domain.model.PlaybackTimingOffset
+import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.playback.PlayerBackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class PlaybackPersistenceActionTest {
     @Test
@@ -29,7 +37,8 @@ class PlaybackPersistenceActionTest {
             val scope = CoroutineScope(SupervisorJob() + dispatcher)
             try {
                 val store = FakePlaybackSelectionStore()
-                val action = SavePlaybackSelectionAction(store, scope, dispatcher)
+                val boundary = playbackBoundary()
+                val action = SavePlaybackSelectionAction(store, boundary.sessions, boundary.registry, scope, dispatcher)
                 val key = PlaybackSelectionKey("server", "user", "item", "source")
 
                 action.save(key, PlaybackSelection(audioStreamIndex = 1))
@@ -52,7 +61,8 @@ class PlaybackPersistenceActionTest {
             val scope = CoroutineScope(SupervisorJob() + dispatcher)
             try {
                 val store = FakePlaybackTimingStore()
-                val action = SavePlaybackTimingOffsetAction(store, scope, dispatcher)
+                val boundary = playbackBoundary()
+                val action = SavePlaybackTimingOffsetAction(store, boundary.sessions, boundary.registry, scope, dispatcher)
                 val key = PlaybackTimingKey("server", "user", "item", "source", "track", PlaybackTimingKind.Audio)
 
                 action.save(PlaybackTimingOffset(key, offsetMs = -500L))
@@ -72,9 +82,10 @@ class PlaybackPersistenceActionTest {
             val key = PlaybackSelectionKey("server", "user", "item", "source")
             val selection = PlaybackSelection(audioStreamIndex = 2)
             val scope = CoroutineScope(SupervisorJob())
+            val boundary = playbackBoundary()
 
             try {
-                SavePlaybackSelectionAction(store, scope).invoke(key, selection)
+                SavePlaybackSelectionAction(store, boundary.sessions, boundary.registry, scope).invoke(key, selection)
 
                 assertEquals(selection.normalized(), store.values[key])
 
@@ -84,6 +95,27 @@ class PlaybackPersistenceActionTest {
             } finally {
                 scope.cancel()
             }
+        }
+
+    @Test
+    fun delayedSelectionWriteIsCancelledAfterAccountLeavesAndReturns() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val scope = CoroutineScope(SupervisorJob() + dispatcher)
+            val boundary = playbackBoundary()
+            val store = FakePlaybackSelectionStore()
+            val action = SavePlaybackSelectionAction(store, boundary.sessions, boundary.registry, scope, dispatcher)
+            val key = PlaybackSelectionKey("server", "user", "item", "source")
+
+            val write = action.save(key, PlaybackSelection(audioStreamIndex = 2))
+            boundary.sessions.publish(AccountIdentity("other-server", "other-user"), 2L)
+            boundary.registry.transitionToAccount(AccountIdentity("other-server", "other-user"), 2L)
+            boundary.sessions.publish(AccountIdentity("server", "user"), 3L)
+            boundary.registry.transitionToAccount(AccountIdentity("server", "user"), 3L)
+            advanceUntilIdle()
+            assertTrue(write.isCancelled)
+            assertNull(store.values[key])
+            scope.cancel()
         }
 
     @Test
@@ -100,6 +132,47 @@ class PlaybackPersistenceActionTest {
             assertEquals(null, store.values["server" to "item"])
         }
 }
+
+private suspend fun playbackBoundary(): PlaybackBoundary {
+    val account = AccountIdentity("server", "user")
+    val sessions = FakePlaybackSessionRepository(account, 1L)
+    val registry = ServerScopedStoreRegistry()
+    registry.transitionToAccount(account, 1L)
+    return PlaybackBoundary(sessions, registry)
+}
+
+private data class PlaybackBoundary(
+    val sessions: FakePlaybackSessionRepository,
+    val registry: ServerScopedStoreRegistry,
+)
+
+private class FakePlaybackSessionRepository(
+    accountIdentity: AccountIdentity,
+    boundaryEpoch: Long,
+) : SessionRepository {
+    private val state = MutableStateFlow<SessionState>(loggedInSession(accountIdentity, boundaryEpoch))
+    override val sessionState: StateFlow<SessionState> = state
+
+    fun publish(
+        accountIdentity: AccountIdentity,
+        boundaryEpoch: Long,
+    ) {
+        state.value = loggedInSession(accountIdentity, boundaryEpoch)
+    }
+
+    override suspend fun setLoggedIn(session: Session): Unit = error("Unused test mutation")
+
+    override suspend fun setLoggedOut(
+        serverUrl: String?,
+        authorization: SessionRemovalAuthorization,
+    ): Result<Unit> = error("Unused test mutation")
+}
+
+private fun loggedInSession(
+    account: AccountIdentity,
+    epoch: Long,
+): SessionState.LoggedIn =
+    SessionState.LoggedIn(Session("https://example", account.serverId, "Server", account.userId, "User", "token", "device"), epoch)
 
 private class FakePlaybackSelectionStore : PlaybackSelectionStore {
     val values = mutableMapOf<PlaybackSelectionKey, PlaybackSelection>()

@@ -12,13 +12,18 @@ internal const val ANDROID_MPV_DIAGNOSTIC_LOG_NAME = "mpv-verbose.log"
 internal const val ANDROID_MPV_DIAGNOSTIC_LOG_PREVIOUS_NAME = "mpv-verbose.prev.log"
 
 /**
- * App-internal storage on purpose: the raw file contains the stream URL and
+ * No-backup app-internal storage on purpose: the raw file contains the stream URL and
  * the Authorization header (mpv echoes `http-header-fields` at verbose level,
  * device-verified), and external-files is readable by other storage-permission
  * apps on API 25-28. Raw files never enter client-log uploads.
  */
 internal fun androidMpvDiagnosticLogDirectory(context: Context): File? =
-    runCatching { File(context.filesDir, "mpv-logs").apply { mkdirs() } }.getOrNull()
+    runCatching {
+        clearAndroidMpvRawLogs(File(context.filesDir, ANDROID_MPV_LOG_DIRECTORY))
+        File(context.noBackupFilesDir, ANDROID_MPV_LOG_DIRECTORY).apply {
+            check(isDirectory || mkdirs()) { "Android mpv diagnostic directory is unavailable." }
+        }
+    }.getOrNull()
 
 /**
  * Owns deletion of raw mpv verbose logs when diagnostic collection is
@@ -34,9 +39,16 @@ internal class AndroidMpvDiagnosticLogSource internal constructor(
     override suspend fun clear() {
         withContext(Dispatchers.IO) {
             val directory = directoryProvider() ?: return@withContext
-            listOf(ANDROID_MPV_DIAGNOSTIC_LOG_NAME, ANDROID_MPV_DIAGNOSTIC_LOG_PREVIOUS_NAME).forEach { name ->
-                runCatching { File(directory, name).delete() }
-            }
+            clearAndroidMpvRawLogs(directory)
         }
     }
 }
+
+private fun clearAndroidMpvRawLogs(directory: File) {
+    listOf(ANDROID_MPV_DIAGNOSTIC_LOG_NAME, ANDROID_MPV_DIAGNOSTIC_LOG_PREVIOUS_NAME).forEach { name ->
+        File(directory, name).delete()
+    }
+    directory.delete()
+}
+
+private const val ANDROID_MPV_LOG_DIRECTORY = "mpv-logs"

@@ -3,6 +3,7 @@
 package com.jellyscope.core.data.repository
 
 import com.jellyscope.core.coroutines.platformIoDispatcher
+import com.jellyscope.core.data.local.AccountTransitionCleanupOutcome
 import com.jellyscope.core.data.local.BoundaryMutation
 import com.jellyscope.core.data.local.CommittedSessionSnapshot
 import com.jellyscope.core.data.local.LogoutCleanupCancellationException
@@ -112,10 +113,15 @@ class SessionTransitionCoordinator(
                         advanceLocalSubtitleAccountBarrier(accountIdentity)
                     }
                     val boundaryEpoch = nextBoundaryEpoch()
-                    withContext(ioDispatcher) {
-                        transitionToAccount(session.accountIdentity(), boundaryEpoch)
+                    val cleanupOutcome =
+                        withContext(ioDispatcher) {
+                            transitionToAccount(session.accountIdentity(), boundaryEpoch)
+                        }
+                    val published = publish(committedSnapshot, boundaryEpoch)
+                    when (cleanupOutcome) {
+                        AccountTransitionCleanupOutcome.Completed -> published
+                        is AccountTransitionCleanupOutcome.Failed -> throw cleanupOutcome.failure
                     }
-                    publish(committedSnapshot, boundaryEpoch)
                 }
             callerContext.ensureActive()
             result
@@ -147,10 +153,15 @@ class SessionTransitionCoordinator(
                         advanceLocalSubtitleAccountBarrier(accountIdentity)
                     }
                     val boundaryEpoch = nextBoundaryEpoch()
-                    withContext(ioDispatcher) {
-                        transitionToAccount(session.accountIdentity(), boundaryEpoch)
+                    val cleanupOutcome =
+                        withContext(ioDispatcher) {
+                            transitionToAccount(session.accountIdentity(), boundaryEpoch)
+                        }
+                    val published = publish(committedSnapshot, boundaryEpoch)
+                    when (cleanupOutcome) {
+                        AccountTransitionCleanupOutcome.Completed -> published
+                        is AccountTransitionCleanupOutcome.Failed -> throw cleanupOutcome.failure
                     }
-                    publish(committedSnapshot, boundaryEpoch)
                 }
             callerContext.ensureActive()
             result
@@ -285,8 +296,12 @@ class SessionTransitionCoordinator(
                             activeSession.accountIdentity() != removedSession.accountIdentity() -> {
                                 val epoch = nextBoundaryEpoch()
                                 try {
-                                    withContext(ioDispatcher) {
-                                        transitionToAccount(activeSession.accountIdentity(), epoch)
+                                    val cleanupOutcome =
+                                        withContext(ioDispatcher) {
+                                            transitionToAccount(activeSession.accountIdentity(), epoch)
+                                        }
+                                    if (cleanupOutcome is AccountTransitionCleanupOutcome.Failed) {
+                                        throw cleanupOutcome.failure
                                     }
                                 } catch (throwable: Throwable) {
                                     appendCleanupFailures(failures, throwable)

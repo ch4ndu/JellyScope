@@ -45,10 +45,12 @@ import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.core.util.formatSafeFailureDiagnostic
+import io.ktor.utils.io.errors.IOException
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 private val originalDownloadTransferLogger = diagnosticLogger(DiagnosticTag.OriginalDownload)
@@ -107,10 +109,20 @@ internal class DownloadTransferCoordinator(
     private suspend fun runOnceOnIo(
         platformWorkIdentity: DownloadPlatformWorkIdentity?,
         expectedBoundary: DownloadExecutionBoundary?,
+        preclaimedRecord: DownloadRecord? = null,
+        completedRetryDelays: Int = 0,
     ): DownloadTransferResult {
         val loggedIn =
             sessionRepository.sessionState.value as? SessionState.LoggedIn
-                ?: return DownloadTransferResult.NoActiveAccount
+                ?: run {
+                    preclaimedRecord?.let { record ->
+                        invalidateUnregisteredClaim(
+                            DownloadAttemptIdentity(record.downloadId, record.attemptGeneration),
+                            DownloadState.Queued,
+                        )
+                    }
+                    return DownloadTransferResult.NoActiveAccount
+                }
         val session = loggedIn.session
         val boundary =
             DownloadExecutionBoundary(
@@ -118,6 +130,12 @@ internal class DownloadTransferCoordinator(
                 boundaryEpoch = loggedIn.boundaryEpoch,
             )
         if (expectedBoundary != null && expectedBoundary != boundary) {
+            preclaimedRecord?.let { record ->
+                invalidateUnregisteredClaim(
+                    DownloadAttemptIdentity(record.downloadId, record.attemptGeneration),
+                    DownloadState.Queued,
+                )
+            }
             return DownloadTransferResult.BoundaryChanged
         }
         val accountIdentity = boundary.accountIdentity
@@ -125,7 +143,15 @@ internal class DownloadTransferCoordinator(
             serverScopedStoreRegistry.acquireWorkLease(
                 accountIdentity = accountIdentity,
                 boundaryEpoch = boundary.boundaryEpoch,
-            ) ?: return DownloadTransferResult.BoundaryChanged
+            ) ?: run {
+                preclaimedRecord?.let { record ->
+                    invalidateUnregisteredClaim(
+                        DownloadAttemptIdentity(record.downloadId, record.attemptGeneration),
+                        DownloadState.Queued,
+                    )
+                }
+                return DownloadTransferResult.BoundaryChanged
+            }
         val requestContext =
             AuthenticatedRequestContext(
                 serverUrl = session.serverUrl,
@@ -134,14 +160,15 @@ internal class DownloadTransferCoordinator(
             )
 
         val claim =
-            serverScopedStoreRegistry.withGuardedLease(lease) {
-                if (currentBoundary() != boundary) {
-                    ClaimOutcome.BoundaryChanged
-                } else {
-                    queueCoordinator.claimNext(accountIdentity, platformWorkIdentity)?.let(ClaimOutcome::Claimed)
-                        ?: ClaimOutcome.None
-                }
-            } ?: return DownloadTransferResult.BoundaryChanged
+            preclaimedRecord?.let(ClaimOutcome::Claimed)
+                ?: serverScopedStoreRegistry.withGuardedLease(lease) {
+                    if (currentBoundary() != boundary) {
+                        ClaimOutcome.BoundaryChanged
+                    } else {
+                        queueCoordinator.claimNext(accountIdentity, platformWorkIdentity)?.let(ClaimOutcome::Claimed)
+                            ?: ClaimOutcome.None
+                    }
+                } ?: return DownloadTransferResult.BoundaryChanged
         val record =
             when (claim) {
                 ClaimOutcome.None -> return DownloadTransferResult.NoWork
@@ -183,7 +210,13 @@ internal class DownloadTransferCoordinator(
                     queueCoordinator.checkpointUnregisteredClaim(attempt, DownloadState.Queued)
                 }
             }
-            return hlsResult
+            return retryNetworkFailure(
+                result = hlsResult,
+                failedRecord = record,
+                boundary = boundary,
+                platformWorkIdentity = platformWorkIdentity,
+                completedRetryDelays = completedRetryDelays,
+            )
         }
 
         // Original transfers keep selected text sidecars in the same private
@@ -229,7 +262,15 @@ internal class DownloadTransferCoordinator(
                             invalidateUnregisteredClaim(attempt, DownloadState.Queued)
                             return DownloadTransferResult.BoundaryChanged
                         }
-                    return if (settled) DownloadTransferResult.Failed(failure) else DownloadTransferResult.BoundaryChanged
+                    val result =
+                        if (settled) DownloadTransferResult.Failed(failure) else DownloadTransferResult.BoundaryChanged
+                    return retryNetworkFailure(
+                        result = result,
+                        failedRecord = record,
+                        boundary = boundary,
+                        platformWorkIdentity = platformWorkIdentity,
+                        completedRetryDelays = completedRetryDelays,
+                    )
                 }
             }
         if (
@@ -345,7 +386,54 @@ internal class DownloadTransferCoordinator(
         if (result == DownloadTransferResult.BoundaryChanged) {
             queueCoordinator.invalidateRegisteredAttemptAfterBoundary(activeAttempt.attempt)
         }
-        return result
+        return retryNetworkFailure(
+            result = result,
+            failedRecord = record,
+            boundary = boundary,
+            platformWorkIdentity = platformWorkIdentity,
+            completedRetryDelays = completedRetryDelays,
+        )
+    }
+
+    private suspend fun retryNetworkFailure(
+        result: DownloadTransferResult,
+        failedRecord: DownloadRecord,
+        boundary: DownloadExecutionBoundary,
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+        completedRetryDelays: Int,
+    ): DownloadTransferResult {
+        if (result !is DownloadTransferResult.Failed || result.failure != DownloadFailure.Network) return result
+        val delayMs = NETWORK_RETRY_DELAYS_MILLIS.getOrNull(completedRetryDelays) ?: return result
+        delay(delayMs)
+        if (currentBoundary() != boundary) return DownloadTransferResult.BoundaryChanged
+        val lease =
+            serverScopedStoreRegistry.acquireWorkLease(
+                accountIdentity = boundary.accountIdentity,
+                boundaryEpoch = boundary.boundaryEpoch,
+            ) ?: return DownloadTransferResult.BoundaryChanged
+        val retryClaim =
+            serverScopedStoreRegistry.withGuardedLease(lease) {
+                if (currentBoundary() != boundary) {
+                    RetryClaimOutcome.BoundaryChanged
+                } else {
+                    queueCoordinator
+                        .claimFailedNetworkRetry(failedRecord, platformWorkIdentity)
+                        ?.let(RetryClaimOutcome::Claimed)
+                        ?: RetryClaimOutcome.Unavailable
+                }
+            } ?: return DownloadTransferResult.BoundaryChanged
+        val retryRecord =
+            when (retryClaim) {
+                RetryClaimOutcome.BoundaryChanged -> return DownloadTransferResult.BoundaryChanged
+                RetryClaimOutcome.Unavailable -> return result
+                is RetryClaimOutcome.Claimed -> retryClaim.record
+            }
+        return runOnceOnIo(
+            platformWorkIdentity = platformWorkIdentity,
+            expectedBoundary = boundary,
+            preclaimedRecord = retryRecord,
+            completedRetryDelays = completedRetryDelays + 1,
+        )
     }
 
     private suspend fun prepareAttempt(
@@ -550,6 +638,7 @@ internal class DownloadTransferCoordinator(
             BodyOutcome.BlockedByQuota -> return settleBlocked(activeAttempt)
             BodyOutcome.SourceChanged -> return settleFailure(activeAttempt, DownloadFailure.SourceChanged)
             BodyOutcome.DeviceStorageLow -> return settleFailure(activeAttempt, DownloadFailure.DeviceStorageLow)
+            BodyOutcome.Network -> return settleFailure(activeAttempt, DownloadFailure.Network)
         }
         return transferMain(activeAttempt, requestContext, source)
     }
@@ -592,6 +681,7 @@ internal class DownloadTransferCoordinator(
                     BodyOutcome.BlockedByQuota -> settleBlocked(activeAttempt)
                     BodyOutcome.SourceChanged -> settleFailure(activeAttempt, DownloadFailure.SourceChanged)
                     BodyOutcome.DeviceStorageLow -> settleFailure(activeAttempt, DownloadFailure.DeviceStorageLow)
+                    BodyOutcome.Network -> settleFailure(activeAttempt, DownloadFailure.Network)
                 }
         }
     }
@@ -654,7 +744,14 @@ internal class DownloadTransferCoordinator(
         while (activeAttempt.writer.lengthBytes < source.totalBytes) {
             val remaining = source.totalBytes - activeAttempt.writer.lengthBytes
             val readLength = minOf(buffer.size.toLong(), remaining).toInt()
-            val read = stream.body.readAvailable(buffer, 0, readLength)
+            val read =
+                try {
+                    stream.body.readAvailable(buffer, 0, readLength)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: IOException) {
+                    return BodyOutcome.Network
+                }
             if (read < 0) break
             if (read == 0) continue
 
@@ -881,6 +978,7 @@ internal class DownloadTransferCoordinator(
             BodyOutcome.BoundaryChanged -> return DownloadTransferResult.BoundaryChanged
             BodyOutcome.DeviceStorageLow -> return settleFailure(activeAttempt, DownloadFailure.DeviceStorageLow)
             BodyOutcome.SourceChanged -> return settleFailure(activeAttempt, DownloadFailure.SourceChanged)
+            BodyOutcome.Network -> return settleFailure(activeAttempt, DownloadFailure.Network)
             BodyOutcome.Complete -> Unit
         }
         artworkCapture?.capture(
@@ -1030,6 +1128,16 @@ internal class DownloadTransferCoordinator(
         data object BoundaryChanged : Preparation
     }
 
+    private sealed interface RetryClaimOutcome {
+        data object BoundaryChanged : RetryClaimOutcome
+
+        data object Unavailable : RetryClaimOutcome
+
+        data class Claimed(
+            val record: DownloadRecord,
+        ) : RetryClaimOutcome
+    }
+
     private data class ActiveAttempt(
         val record: DownloadRecord,
         val attempt: DownloadAttemptIdentity,
@@ -1075,6 +1183,7 @@ internal class DownloadTransferCoordinator(
         BlockedByQuota,
         SourceChanged,
         DeviceStorageLow,
+        Network,
     }
 
     private fun OriginalDownloadFailure.toDownloadFailure(): DownloadFailure =
@@ -1279,5 +1388,6 @@ internal class DownloadTransferCoordinator(
         val SIDECAR_PART_KEY: DownloadArtifactPartKey = DOWNLOAD_ORIGINAL_SIDECAR_PART_KEY
         const val PROGRESS_CHECKPOINT_BYTES: Long = 1L * 1024L * 1024L
         const val MAX_SIDECAR_BYTES: Int = 8 * 1024 * 1024
+        val NETWORK_RETRY_DELAYS_MILLIS = listOf(1_000L, 3_000L)
     }
 }

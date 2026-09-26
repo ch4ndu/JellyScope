@@ -2685,11 +2685,8 @@ internal class AndroidMpvPlayerController(
         }
     }
 
-    /** Keeps the long-standing trailing-lambda call shape source-compatible. */
-    private fun enqueueNative(action: (AndroidMpvEngine) -> Unit): Job = enqueueNative(onComplete = null, action = action)
-
     private fun enqueueNative(
-        onComplete: (() -> Unit)?,
+        onComplete: (() -> Unit)? = null,
         action: (AndroidMpvEngine) -> Unit,
     ): Job =
         nativeScope.launch {

@@ -5,16 +5,26 @@ package com.jellyscope.core.download
 import android.app.job.JobParameters
 import android.app.job.JobService
 import android.os.Build
+import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.diagnosticLogger
+import com.jellyscope.core.util.formatSafeFailureDiagnostic
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.koin.core.context.GlobalContext
+
+private val downloadJobServiceLogger = diagnosticLogger(DiagnosticTag.DownloadExecution)
 
 /** API-34+ User-Initiated Data Transfer execution host. */
 class AndroidDownloadJobService : JobService() {
@@ -32,22 +42,40 @@ class AndroidDownloadJobService : JobService() {
         }
         val scheduler = schedulerOrNull() ?: return false
         val identity = AndroidDownloadScheduler.UIDT_WORK_ID
-        setNotification(
-            params,
-            AndroidDownloadScheduler.NOTIFICATION_ID,
-            scheduler.uidtNotification(),
-            JobService.JOB_END_NOTIFICATION_POLICY_REMOVE,
-        )
+        try {
+            setNotification(
+                params,
+                AndroidDownloadScheduler.NOTIFICATION_ID,
+                scheduler.uidtNotification(),
+                JobService.JOB_END_NOTIFICATION_POLICY_REMOVE,
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            downloadJobServiceLogger.w {
+                formatSafeFailureDiagnostic("download-notification", "setup-failed", throwable)
+            }
+            return false
+        }
         progressJob?.cancel()
         progressJob =
             serviceScope.launch {
                 while (isActive) {
-                    setNotification(
-                        params,
-                        AndroidDownloadScheduler.NOTIFICATION_ID,
-                        scheduler.notification(identity),
-                        JobService.JOB_END_NOTIFICATION_POLICY_REMOVE,
-                    )
+                    try {
+                        setNotification(
+                            params,
+                            AndroidDownloadScheduler.NOTIFICATION_ID,
+                            scheduler.notification(identity),
+                            JobService.JOB_END_NOTIFICATION_POLICY_REMOVE,
+                        )
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (throwable: Throwable) {
+                        downloadJobServiceLogger.w {
+                            formatSafeFailureDiagnostic("download-notification", "refresh-failed", throwable)
+                        }
+                        return@launch
+                    }
                     delay(PROGRESS_REFRESH_MILLIS)
                 }
             }
@@ -66,14 +94,16 @@ class AndroidDownloadJobService : JobService() {
         val jobs = listOfNotNull(executionJob, progressJob)
         executionJob = null
         progressJob = null
-        serviceScope.launch {
-            // A normal stop callback can checkpoint.  If Task Manager Stop
-            // kills the process, this callback may never arrive; startup
-            // recovery therefore treats absent UIDT work as Paused and never
-            // relies on this callback for correctness.
-            jobs.forEach { job -> job.cancel() }
-            jobs.joinAll()
-            scheduler.checkpointForWork(AndroidDownloadScheduler.UIDT_WORK_ID)
+        serviceScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) {
+                withTimeout(STOP_CHECKPOINT_TIMEOUT_MILLIS) {
+                    // A normal stop callback can checkpoint. If Task Manager Stop
+                    // kills the process, startup recovery remains authoritative.
+                    jobs.forEach { job -> job.cancel() }
+                    jobs.joinAll()
+                    scheduler.checkpointForWork(AndroidDownloadScheduler.UIDT_WORK_ID)
+                }
+            }
         }
         return false
     }
@@ -90,5 +120,6 @@ class AndroidDownloadJobService : JobService() {
 
     private companion object {
         const val PROGRESS_REFRESH_MILLIS = 1_000L
+        const val STOP_CHECKPOINT_TIMEOUT_MILLIS = 5_000L
     }
 }

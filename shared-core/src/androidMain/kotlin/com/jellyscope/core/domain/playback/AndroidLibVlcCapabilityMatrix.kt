@@ -169,10 +169,8 @@ object AndroidLibVlcAvailability {
      *
      * The probe builds and releases a full native engine, and both callers (the
      * playback DI factory and [AndroidDeviceProfileProvider]) reach it on the
-     * playback-start path — so every LibVLC start used to construct two native
-     * engines on the Fire TV target. A runtime that appears later already
-     * requires an app restart to be picked up (the documented desktop policy),
-     * so the first verdict is authoritative for the process.
+     * playback-start path. Caching avoids constructing two native engines for
+     * one playback start. The first verdict is authoritative for the process.
      */
     @Synchronized
     fun check(context: Context): AndroidLibVlcRuntimeAvailability =

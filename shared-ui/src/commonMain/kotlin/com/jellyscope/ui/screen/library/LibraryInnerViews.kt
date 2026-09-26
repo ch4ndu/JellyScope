@@ -114,16 +114,8 @@ internal fun LibraryRecommendedContent(
                     }
                 LibraryRecommendationRowState.Empty -> Unit
                 is LibraryRecommendationRowState.Content ->
-                    // One lazy item per shelf. Emitting a whole section's shelves
-                    // inside a single item defeated vertical virtualization: the
-                    // lazy column had to compose and measure every shelf in the
-                    // section at once, and could not retain per-shelf scroll state.
-                    //
-                    // Keyed by section AND row key. The row key comes from the
-                    // server hub and is only documented as unique within its
-                    // section, so composing the two is what makes the key unique
-                    // across the whole list — not a blanket prefix on a key that
-                    // was already unique.
+                    // A lazy item per shelf preserves vertical virtualization and per-shelf scroll
+                    // state. Server row keys are section-local, so include the section in the key.
                     state.rows.forEach { row ->
                         item(key = "${section.name}/${row.key}") {
                             LibraryMediaShelf(

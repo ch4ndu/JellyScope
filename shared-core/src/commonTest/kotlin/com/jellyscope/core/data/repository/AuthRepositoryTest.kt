@@ -961,7 +961,7 @@ private class RejectingAuthRemovalParticipant(
     override suspend fun resumeIncompleteRemovalOperations(
         executor: SessionRemovalExecutor,
         gateHeldBoundaryCommit: GateHeldBoundaryCommit,
-    ): Result<Unit> = Result.success(Unit)
+    ): Result<SessionRemovalReplayOutcome> = Result.success(SessionRemovalReplayOutcome.Completed)
 }
 
 private fun mockClient(engine: MockEngine): HttpClient =

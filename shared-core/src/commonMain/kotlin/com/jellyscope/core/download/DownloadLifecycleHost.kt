@@ -46,16 +46,14 @@ interface DownloadLifecycleHost {
 
     /**
      * Explicit wake carrying the exact durable rows that caused admission.
-     * Existing hosts retain their former behavior through the default; iOS
-     * uses it only to report native completion truthfully.
+     * iOS uses the enrollment to report native completion truthfully.
      */
     suspend fun wakeFromUserAction(enrollment: DownloadExplicitWorkEnrollment): Result<Unit> = wakeFromUserAction()
 
     /**
      * Runs durable work after a passive lifecycle, recovery, or screen event.
      *
-     * The default preserves existing platform behavior. iOS overrides this so
-     * observing a queued row never submits a continued-processing request.
+     * iOS overrides this so observing a queued row never submits a continued-processing request.
      */
     suspend fun wakeFromPassiveEvent(): Result<Unit> = wakeFromUserAction()
 }

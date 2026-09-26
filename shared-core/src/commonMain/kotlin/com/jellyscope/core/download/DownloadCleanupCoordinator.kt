@@ -8,11 +8,14 @@ import com.jellyscope.core.data.local.DownloadAttemptInvalidationResult
 import com.jellyscope.core.data.local.DownloadRemovalStore
 import com.jellyscope.core.data.local.GateHeldBoundaryCommit
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
+import com.jellyscope.core.data.local.StoreCleanupException
+import com.jellyscope.core.data.local.appendCleanupFailures
 import com.jellyscope.core.data.repository.DownloadQueueRepository
 import com.jellyscope.core.data.repository.DownloadRemovalMutex
 import com.jellyscope.core.data.repository.PreparedSessionRemoval
 import com.jellyscope.core.data.repository.SessionBoundaryParticipant
 import com.jellyscope.core.data.repository.SessionRemovalExecutor
+import com.jellyscope.core.data.repository.SessionRemovalReplayOutcome
 import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.action.SessionRemovalError
 import com.jellyscope.core.domain.action.SessionRemovalScope
@@ -275,14 +278,73 @@ class DownloadCleanupCoordinator internal constructor(
     override suspend fun resumeIncompleteRemovalOperations(
         executor: SessionRemovalExecutor,
         gateHeldBoundaryCommit: GateHeldBoundaryCommit,
-    ): Result<Unit> =
+    ): Result<SessionRemovalReplayOutcome> =
         try {
             removalMutex.withLock {
+                val credentialFailures = mutableListOf<Throwable>()
                 removalStore.pending().forEach { operation ->
-                    settleOperation(operation, executor)
+                    try {
+                        settleCredentials(operation, executor)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (throwable: Throwable) {
+                        appendCleanupFailures(credentialFailures, throwable)
+                    }
                 }
+                val credentialPending = removalStore.pending()
+                credentialPending.flatMap { operation -> operation.targets }.forEach { target ->
+                    if (!target.accountRemoved) {
+                        credentialFailures += IllegalStateException("Session account removal checkpoint remains unsettled.")
+                    }
+                    try {
+                        if (!executor.isAccountAbsent(target.accountIdentity).getOrThrow()) {
+                            credentialFailures += IllegalStateException("Session account removal remains unsettled.")
+                        }
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (throwable: Throwable) {
+                        credentialFailures += throwable
+                    }
+                }
+                if (credentialFailures.isNotEmpty()) {
+                    return@withLock Result.failure(StoreCleanupException(credentialFailures))
+                }
+
+                val artifactFailures = mutableListOf<Throwable>()
+                credentialPending.forEach { operation ->
+                    operation.targets.forEach { target ->
+                        try {
+                            deleteTargetArtifacts(target)
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (throwable: Throwable) {
+                            artifactFailures += throwable
+                        }
+                    }
+                    try {
+                        removalStore.deleteIfSettled(operation.operationId)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (throwable: Throwable) {
+                        artifactFailures += throwable
+                    }
+                }
+                val remaining = removalStore.pending()
+                if (remaining.any { operation -> operation.targets.any { target -> !target.accountRemoved } }) {
+                    return@withLock Result.failure(IllegalStateException("Session account removal replay lost its settled checkpoint."))
+                }
+                val pendingTargetCount = remaining.sumOf { operation -> operation.targets.size }
+                Result.success(
+                    if (pendingTargetCount == 0) {
+                        SessionRemovalReplayOutcome.Completed
+                    } else {
+                        SessionRemovalReplayOutcome.ArtifactCleanupPending(
+                            pendingTargetCount = pendingTargetCount,
+                            failureCount = artifactFailures.size,
+                        )
+                    },
+                )
             }
-            Result.success(Unit)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
@@ -293,49 +355,65 @@ class DownloadCleanupCoordinator internal constructor(
         operation: DownloadRemovalOperation,
         executor: SessionRemovalExecutor,
     ) {
+        settleCredentials(operation, executor)
+        operation.targets
+            .sortedWith(compareBy({ it.accountIdentity.serverId }, { it.accountIdentity.userId }))
+            .forEach { target -> deleteTargetArtifacts(target) }
+        removalStore.deleteIfSettled(operation.operationId)
+    }
+
+    private suspend fun settleCredentials(
+        operation: DownloadRemovalOperation,
+        executor: SessionRemovalExecutor,
+    ) {
         // This is process-local only.  If a previous crash marked one target settled but the
         // full-account mutation never reached another target, the next replay must issue the
         // idempotent remove-all call again rather than treating a settled sibling as proof that
         // the whole operation was attempted.
         var fullLogoutAttempted = false
+        val failures = mutableListOf<Throwable>()
         operation.targets
             .sortedWith(compareBy({ it.accountIdentity.serverId }, { it.accountIdentity.userId }))
             .forEach { target ->
-                if (!target.accountRemoved) {
-                    val absentBefore = executor.isAccountAbsent(target.accountIdentity).getOrThrow()
-                    if (!absentBefore) {
-                        val removalResult =
-                            if (operation.kind == DownloadRemovalKind.FullLogout) {
-                                if (!fullLogoutAttempted) {
-                                    fullLogoutAttempted = true
-                                    executor.removeAllAccounts()
+                try {
+                    if (!target.accountRemoved) {
+                        val absentBefore = executor.isAccountAbsent(target.accountIdentity).getOrThrow()
+                        if (!absentBefore) {
+                            val removalResult =
+                                if (operation.kind == DownloadRemovalKind.FullLogout) {
+                                    if (!fullLogoutAttempted) {
+                                        fullLogoutAttempted = true
+                                        executor.removeAllAccounts()
+                                    } else {
+                                        Result.success(Unit)
+                                    }
                                 } else {
-                                    Result.success(Unit)
+                                    executor.removeAccount(target.accountIdentity)
                                 }
-                            } else {
-                                executor.removeAccount(target.accountIdentity)
+                            // A credential mutation may have succeeded and lost its reply. Verify
+                            // absence before failing the replay, making the operation idempotent.
+                            if (removalResult.isFailure && !executor.isAccountAbsent(target.accountIdentity).getOrThrow()) {
+                                removalResult.getOrThrow()
                             }
-                        // A credential mutation may have succeeded and lost its reply.  Verify
-                        // absence before failing the replay, making the operation idempotent.
-                        if (removalResult.isFailure && !executor.isAccountAbsent(target.accountIdentity).getOrThrow()) {
-                            removalResult.getOrThrow()
                         }
+                        check(executor.isAccountAbsent(target.accountIdentity).getOrThrow()) {
+                            "Session account removal did not settle."
+                        }
+                        check(
+                            removalStore.markAccountRemoved(
+                                operationId = target.operationId,
+                                accountIdentity = target.accountIdentity,
+                                cleanupGeneration = target.cleanupGeneration,
+                            ),
+                        ) { "Download removal account settlement became stale." }
                     }
-                    check(executor.isAccountAbsent(target.accountIdentity).getOrThrow()) {
-                        "Session account removal did not settle."
-                    }
-                    check(
-                        removalStore.markAccountRemoved(
-                            operationId = target.operationId,
-                            accountIdentity = target.accountIdentity,
-                            cleanupGeneration = target.cleanupGeneration,
-                        ),
-                    ) { "Download removal account settlement became stale." }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    appendCleanupFailures(failures, throwable)
                 }
-
-                deleteTargetArtifacts(target)
             }
-        removalStore.deleteIfSettled(operation.operationId)
+        if (failures.isNotEmpty()) throw StoreCleanupException(failures)
     }
 
     private suspend fun deleteTargetArtifacts(target: com.jellyscope.core.domain.model.DownloadRemovalTarget) {

@@ -754,7 +754,14 @@ internal class DownloadHlsTransferCoordinator(
         val buffer = ByteArray(DOWNLOAD_ARTIFACT_MAX_WRITE_CHUNK_BYTES)
         var total = 0L
         while (true) {
-            val read = resource.body.readAvailable(buffer, 0, buffer.size)
+            val read =
+                try {
+                    resource.body.readAvailable(buffer, 0, buffer.size)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: IOException) {
+                    throw HlsTransferOutcomeException(DownloadTransferResult.Failed(DownloadFailure.Network))
+                }
             if (read < 0) break
             if (read == 0) continue
             total += read.toLong()

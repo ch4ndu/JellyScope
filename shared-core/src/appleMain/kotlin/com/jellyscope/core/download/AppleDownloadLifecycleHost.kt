@@ -140,7 +140,6 @@ internal class AppleDownloadLifecycleHost(
         }
     }
 
-    /** Removes lifecycle observers and completes the bounded exit checkpoint. */
     override fun stop() {
         if (!started) return
         started = false

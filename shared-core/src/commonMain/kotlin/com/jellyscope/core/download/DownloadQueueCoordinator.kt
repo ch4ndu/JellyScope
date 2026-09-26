@@ -106,6 +106,34 @@ internal class DownloadQueueCoordinator(
             }
         }
 
+    suspend fun claimFailedNetworkRetry(
+        record: DownloadRecord,
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+    ): DownloadRecord? =
+        runnerMutex.withLock {
+            val accountIdentity = record.businessKey.accountIdentity
+            if (!canClaimNewWorkLocked(accountIdentity)) return@withLock null
+            val records = repository.allDownloads()
+            if (hasDurableActiveLocked(records)) return@withLock null
+            val current =
+                records.firstOrNull { candidate ->
+                    candidate.downloadId == record.downloadId &&
+                        candidate.attemptGeneration == record.attemptGeneration &&
+                        candidate.businessKey.accountIdentity == accountIdentity &&
+                        candidate.state == DownloadState.Failed &&
+                        candidate.failure == DownloadFailure.Network
+                } ?: return@withLock null
+            repository
+                .claimFailedNetworkRetry(
+                    activeAccount = accountIdentity,
+                    downloadId = current.downloadId,
+                    expectedAttemptGeneration = current.attemptGeneration,
+                    platformWorkIdentity = platformWorkIdentity,
+                )?.also { claimed ->
+                    claimedAttempt = DownloadAttemptIdentity(claimed.downloadId, claimed.attemptGeneration)
+                }
+        }
+
     /**
      * The scheduling admission probe shares the exact new-claim guard and FIFO-head predicate
      * used by [claimNext].  In particular, a queued row under a removal preview is not runnable

@@ -318,22 +318,24 @@ class DefaultMediaRepository(
             jellyfinApi.getLatestItems(context).mapNotNull { it.toDomainMediaItem() }
         }
 
-    override suspend fun getUpcomingEpisodes(): Result<List<MediaItem>> {
-        val snapshot = currentSessionSnapshot()
-        val session = snapshot.session
-        return discoveryCache.getOrLoad(
-            accountIdentity = session.accountIdentity(),
-            boundaryEpoch = snapshot.boundaryEpoch,
-            key = "upcoming",
-        ) {
-            withSession(session, RepositoryOperation.GetUpcomingEpisodes) { context ->
-                jellyfinApi
-                    .getUpcomingEpisodes(context = context, fields = defaultItemFields)
-                    .items
-                    .mapNotNull { item -> item.toDomainMediaItem() }
-            }
+    override suspend fun getUpcomingEpisodes(): Result<List<MediaItem>> =
+        runCatchingCancellable {
+            val snapshot = currentSessionSnapshot()
+            val session = snapshot.session
+            discoveryCache
+                .getOrLoad(
+                    accountIdentity = session.accountIdentity(),
+                    boundaryEpoch = snapshot.boundaryEpoch,
+                    key = "upcoming",
+                ) {
+                    withSession(session, RepositoryOperation.GetUpcomingEpisodes) { context ->
+                        jellyfinApi
+                            .getUpcomingEpisodes(context = context, fields = defaultItemFields)
+                            .items
+                            .mapNotNull { item -> item.toDomainMediaItem() }
+                    }
+                }.getOrThrow()
         }
-    }
 
     private suspend fun getItems(
         query: ItemsQuery,
@@ -349,7 +351,10 @@ class DefaultMediaRepository(
     private suspend fun getPagedItems(
         query: ItemsQuery,
         operation: RepositoryOperation,
-    ): Result<PagedItems> = getPagedItems(query, currentSession(), operation)
+    ): Result<PagedItems> =
+        runCatchingCancellable {
+            getPagedItems(query, currentSession(), operation).getOrThrow()
+        }
 
     private suspend fun getPagedItems(
         query: ItemsQuery,
@@ -396,39 +401,43 @@ class DefaultMediaRepository(
         )
     }
 
-    override suspend fun getGenres(parentId: String?): Result<List<LibraryFacet>> {
-        val snapshot = currentSessionSnapshot()
-        val session = snapshot.session
-        return discoveryCache.getOrLoad(
-            accountIdentity = session.accountIdentity(),
-            boundaryEpoch = snapshot.boundaryEpoch,
-            key = "genres:${parentId.orEmpty()}",
-        ) {
-            withSession(session, RepositoryOperation.GetGenres) { context ->
-                jellyfinApi
-                    .getGenres(context = context, parentId = parentId)
-                    .items
-                    .mapNotNull { facet -> facet.toDomainLibraryFacet() }
-            }
+    override suspend fun getGenres(parentId: String?): Result<List<LibraryFacet>> =
+        runCatchingCancellable {
+            val snapshot = currentSessionSnapshot()
+            val session = snapshot.session
+            discoveryCache
+                .getOrLoad(
+                    accountIdentity = session.accountIdentity(),
+                    boundaryEpoch = snapshot.boundaryEpoch,
+                    key = "genres:${parentId.orEmpty()}",
+                ) {
+                    withSession(session, RepositoryOperation.GetGenres) { context ->
+                        jellyfinApi
+                            .getGenres(context = context, parentId = parentId)
+                            .items
+                            .mapNotNull { facet -> facet.toDomainLibraryFacet() }
+                    }
+                }.getOrThrow()
         }
-    }
 
-    override suspend fun getStudios(parentId: String?): Result<List<LibraryFacet>> {
-        val snapshot = currentSessionSnapshot()
-        val session = snapshot.session
-        return discoveryCache.getOrLoad(
-            accountIdentity = session.accountIdentity(),
-            boundaryEpoch = snapshot.boundaryEpoch,
-            key = "studios:${parentId.orEmpty()}",
-        ) {
-            withSession(session, RepositoryOperation.GetStudios) { context ->
-                jellyfinApi
-                    .getStudios(context = context, parentId = parentId)
-                    .items
-                    .mapNotNull { facet -> facet.toDomainLibraryFacet() }
-            }
+    override suspend fun getStudios(parentId: String?): Result<List<LibraryFacet>> =
+        runCatchingCancellable {
+            val snapshot = currentSessionSnapshot()
+            val session = snapshot.session
+            discoveryCache
+                .getOrLoad(
+                    accountIdentity = session.accountIdentity(),
+                    boundaryEpoch = snapshot.boundaryEpoch,
+                    key = "studios:${parentId.orEmpty()}",
+                ) {
+                    withSession(session, RepositoryOperation.GetStudios) { context ->
+                        jellyfinApi
+                            .getStudios(context = context, parentId = parentId)
+                            .items
+                            .mapNotNull { facet -> facet.toDomainLibraryFacet() }
+                    }
+                }.getOrThrow()
         }
-    }
 
     override suspend fun getLibraryFilters(parentId: String?): Result<LibraryFacets> =
         withSession(operation = RepositoryOperation.GetLibraryFilters) { context ->
@@ -546,21 +555,23 @@ class DefaultMediaRepository(
             }
         }
 
-    override suspend fun getCollections(parentId: String?): Result<List<MediaItem>> {
-        val snapshot = currentSessionSnapshot()
-        val session = snapshot.session
-        return discoveryCache.getOrLoad(
-            accountIdentity = session.accountIdentity(),
-            boundaryEpoch = snapshot.boundaryEpoch,
-            key = "collections:${parentId.orEmpty()}",
-        ) {
-            getItems(
-                collectionsQuery.copy(parentId = parentId?.takeIf { id -> id.isNotBlank() }),
-                session,
-                RepositoryOperation.GetCollections,
-            )
+    override suspend fun getCollections(parentId: String?): Result<List<MediaItem>> =
+        runCatchingCancellable {
+            val snapshot = currentSessionSnapshot()
+            val session = snapshot.session
+            discoveryCache
+                .getOrLoad(
+                    accountIdentity = session.accountIdentity(),
+                    boundaryEpoch = snapshot.boundaryEpoch,
+                    key = "collections:${parentId.orEmpty()}",
+                ) {
+                    getItems(
+                        collectionsQuery.copy(parentId = parentId?.takeIf { id -> id.isNotBlank() }),
+                        session,
+                        RepositoryOperation.GetCollections,
+                    )
+                }.getOrThrow()
         }
-    }
 
     override suspend fun getCollectionItems(
         collectionId: String,
@@ -664,43 +675,45 @@ class DefaultMediaRepository(
             }
         }
 
-    override suspend fun getSuggestions(): Result<MediaSuggestions> {
-        val snapshot = currentSessionSnapshot()
-        val session = snapshot.session
-        return discoveryCache.getOrLoad(
-            accountIdentity = session.accountIdentity(),
-            boundaryEpoch = snapshot.boundaryEpoch,
-            key = "suggestions",
-        ) {
-            withSession(session, RepositoryOperation.GetSuggestions) { context ->
-                val seedItem =
-                    jellyfinApi
-                        .getResumeItems(
-                            context = context,
-                            limit = 1,
-                            fields = defaultItemFields,
-                        ).items
-                        .firstNotNullOfOrNull { item -> item.toDomainMediaItem() }
-                val suggestedItems =
-                    seedItem
-                        ?.let { seed ->
+    override suspend fun getSuggestions(): Result<MediaSuggestions> =
+        runCatchingCancellable {
+            val snapshot = currentSessionSnapshot()
+            val session = snapshot.session
+            discoveryCache
+                .getOrLoad(
+                    accountIdentity = session.accountIdentity(),
+                    boundaryEpoch = snapshot.boundaryEpoch,
+                    key = "suggestions",
+                ) {
+                    withSession(session, RepositoryOperation.GetSuggestions) { context ->
+                        val seedItem =
                             jellyfinApi
-                                .getSimilarItems(
+                                .getResumeItems(
                                     context = context,
-                                    itemId = seed.id,
-                                    limit = SUGGESTIONS_LIMIT,
+                                    limit = 1,
+                                    fields = defaultItemFields,
                                 ).items
-                                .mapNotNull { item -> item.toDomainMediaItem() }
-                                .filterNot { item -> item.id == seed.id }
-                        }.orEmpty()
+                                .firstNotNullOfOrNull { item -> item.toDomainMediaItem() }
+                        val suggestedItems =
+                            seedItem
+                                ?.let { seed ->
+                                    jellyfinApi
+                                        .getSimilarItems(
+                                            context = context,
+                                            itemId = seed.id,
+                                            limit = SUGGESTIONS_LIMIT,
+                                        ).items
+                                        .mapNotNull { item -> item.toDomainMediaItem() }
+                                        .filterNot { item -> item.id == seed.id }
+                                }.orEmpty()
 
-                MediaSuggestions(
-                    seedItem = seedItem,
-                    items = suggestedItems,
-                )
-            }
+                        MediaSuggestions(
+                            seedItem = seedItem,
+                            items = suggestedItems,
+                        )
+                    }
+                }.getOrThrow()
         }
-    }
 
     override suspend fun getRibbonItems(
         ribbon: MediaRibbon,
@@ -1044,7 +1057,10 @@ class DefaultMediaRepository(
     private suspend fun <T> withSession(
         operation: RepositoryOperation,
         block: suspend (AuthenticatedRequestContext) -> T,
-    ): Result<T> = withSession(currentSession(), operation, block)
+    ): Result<T> =
+        runCatchingCancellable {
+            withSession(currentSession(), operation, block).getOrThrow()
+        }
 
     private suspend fun <T> withSession(
         session: Session,

@@ -3,6 +3,8 @@
 package com.jellyscope.ui.preview
 
 import androidx.compose.runtime.Composable
+import com.jellyscope.ui.screen.FoundationScreen
+import com.jellyscope.ui.screen.home.SessionRestoringContent
 import com.jellyscope.ui.screen.login.LoginContent
 import com.jellyscope.ui.screen.login.LoginUiState
 import com.jellyscope.ui.screen.login.QuickConnectUiState
@@ -10,21 +12,21 @@ import com.jellyscope.ui.screen.serverentry.DiscoveredServerUi
 import com.jellyscope.ui.screen.serverentry.ServerEntryContent
 import com.jellyscope.ui.screen.serverentry.ServerEntryUiState
 
-// @JellyScopeScreenPreviews
-// @Composable
-// private fun FoundationScreenPreview() {
-//    JellyScopePreviewSurface {
-//        FoundationScreen()
-//    }
-// }
-//
-// @JellyScopeScreenPreviews
-// @Composable
-// private fun SessionRestoringPreview() {
-//    JellyScopePreviewSurface {
-//        SessionRestoringContent()
-//    }
-// }
+@JellyScopeScreenPreviews
+@Composable
+private fun FoundationScreenPreview() {
+    JellyScopePreviewSurface {
+        FoundationScreen()
+    }
+}
+
+@JellyScopeScreenPreviews
+@Composable
+private fun SessionRestoringPreview() {
+    JellyScopePreviewSurface {
+        SessionRestoringContent()
+    }
+}
 
 @JellyScopeScreenPreviews
 @Composable

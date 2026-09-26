@@ -1373,7 +1373,7 @@ class PlayerViewModel(
         requestedLocalSubtitleAsset = null
         requestedSubtitleSelection = streamIndex.toSubtitleSelectionIntent()
         persistSubtitleSelection(requestedSubtitleSelection)
-        rememberSelection()
+        rememberSelection(persistDurable = false)
 
         val installedTrack = currentPlan.plannedSubtitle as? PlannedSubtitle.Track
         val retainedEmbeddedDescriptor =
@@ -5467,7 +5467,7 @@ class PlayerViewModel(
             mediaSegments = mediaSegments,
         )
 
-    /** [persistDurable] is true only for explicit audio actions. */
+    /** Durable writes are reserved for explicit audio choices; process-local memory tracks substitutions and subtitle actions. */
     private fun rememberSelection(persistDurable: Boolean = true) {
         val selection =
             PlaybackSelection(

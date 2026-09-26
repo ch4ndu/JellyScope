@@ -10,17 +10,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Serializes first-page / next-page loads for a paged list ViewModel.
- *
- * Encapsulates the Mutex + Job + dispatcher launch scaffolding that
- * CollectionViewModel, PersonViewModel and LibraryBrowseViewModel each carried
- * verbatim. The actual page fetch + state reduction stays in the caller via
- * [loadPage]; the caller keeps its own state-shape-specific guards before
- * calling [more].
- *
- * @param loadPage suspending page loader; `reset == true` loads the first page,
- *   `false` appends the next one. It runs under the paginator's lock so only one
- *   load is ever in flight.
+ * Serializes first-page and next-page loads. [loadPage] runs under the paginator lock while the
+ * caller retains state-specific admission and reduction.
  */
 class Paginator(
     private val scope: CoroutineScope,

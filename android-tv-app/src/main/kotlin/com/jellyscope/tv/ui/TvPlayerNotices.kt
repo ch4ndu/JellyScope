@@ -684,7 +684,9 @@ internal fun TvSoftwarePlaybackRecoveryDialog(
     onContinue: () -> Unit,
     onStop: () -> Unit,
 ) {
-    val primary = remember { FocusRequester() }
+    val switchRequester = remember { FocusRequester() }
+    val continueRequester = remember { FocusRequester() }
+    val stopRequester = remember { FocusRequester() }
     val switchEnabled = prompt.canSwitch && !prompt.switching
     val continueEnabled = prompt.canContinue && !prompt.switching
     BackHandler { }
@@ -693,8 +695,16 @@ internal fun TvSoftwarePlaybackRecoveryDialog(
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false),
     ) {
         LaunchedEffect(prompt.token, switchEnabled, continueEnabled) {
-            withFrameNanos { }
-            primary.requestFocusSafely()
+            val target =
+                when {
+                    switchEnabled -> switchRequester
+                    continueEnabled -> continueRequester
+                    else -> stopRequester
+                }
+            val focused = requestTvFocusWithRetry { target.requestFocusSafely() }
+            if (!focused && target !== stopRequester) {
+                requestTvFocusWithRetry { stopRequester.requestFocusSafely() }
+            }
         }
         Column(
             modifier =
@@ -731,36 +741,18 @@ internal fun TvSoftwarePlaybackRecoveryDialog(
                 text = stringResource(R.string.tv_player_software_recovery_switch),
                 onClick = onSwitch,
                 enabled = switchEnabled,
-                modifier = Modifier.fillMaxWidth().then(if (switchEnabled) Modifier.focusRequester(primary) else Modifier),
+                modifier = Modifier.fillMaxWidth().focusRequester(switchRequester),
             )
             TvButton(
                 text = stringResource(R.string.tv_player_software_recovery_continue),
                 onClick = onContinue,
                 enabled = continueEnabled,
-                modifier =
-                    Modifier.fillMaxWidth().then(
-                        if (!switchEnabled &&
-                            continueEnabled
-                        ) {
-                            Modifier.focusRequester(primary)
-                        } else {
-                            Modifier
-                        },
-                    ),
+                modifier = Modifier.fillMaxWidth().focusRequester(continueRequester),
             )
             TvButton(
                 text = stringResource(R.string.tv_player_software_recovery_stop),
                 onClick = onStop,
-                modifier =
-                    Modifier.fillMaxWidth().then(
-                        if (!switchEnabled &&
-                            !continueEnabled
-                        ) {
-                            Modifier.focusRequester(primary)
-                        } else {
-                            Modifier
-                        },
-                    ),
+                modifier = Modifier.fillMaxWidth().focusRequester(stopRequester),
             )
         }
     }

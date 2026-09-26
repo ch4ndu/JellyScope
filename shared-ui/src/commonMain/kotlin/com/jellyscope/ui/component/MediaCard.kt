@@ -410,9 +410,8 @@ data class ImageDecode(
  * Everything needed to build an image URL, so the requested variant width can be
  * chosen where the display size is known rather than baked in by the mapper.
  *
- * The mapper used to hand cards a finished URL at a fixed `maxWidth`, which made
- * "request what you are going to decode" impossible to express: the width is only
- * known inside composition, after the tile scale and density are resolved.
+ * Building the URL here keeps display-size selection out of the data layer; the
+ * tile scale and density are available only inside composition.
  */
 data class MediaImageRef(
     val serverUrl: String,

@@ -151,6 +151,13 @@ internal interface DownloadQueueRepository {
         platformWorkIdentity: DownloadPlatformWorkIdentity?,
     ): DownloadRecord?
 
+    suspend fun claimFailedNetworkRetry(
+        activeAccount: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+    ): DownloadRecord?
+
     suspend fun updateAttemptProgress(
         downloadId: DownloadId,
         expectedAttemptGeneration: Long,

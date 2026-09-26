@@ -61,6 +61,14 @@ interface GateHeldBoundaryCommit {
     fun isCurrentLease(lease: AccountWorkLease): Boolean
 }
 
+sealed interface AccountTransitionCleanupOutcome {
+    data object Completed : AccountTransitionCleanupOutcome
+
+    data class Failed(
+        val failure: Throwable,
+    ) : AccountTransitionCleanupOutcome
+}
+
 /**
  * Operations that are valid only while the registry mutation gate is held.
  * The session transition coordinator uses this narrow surface to publish
@@ -77,7 +85,7 @@ interface BoundaryMutation : GateHeldBoundaryCommit {
     suspend fun transitionToAccount(
         accountIdentity: AccountIdentity,
         boundaryEpoch: Long,
-    )
+    ): AccountTransitionCleanupOutcome
 
     fun invalidateBoundary()
 
@@ -107,7 +115,10 @@ class ServerScopedStoreRegistry {
         boundaryEpoch: Long = 0L,
     ): Long =
         withBoundaryMutation {
-            transitionToAccount(accountIdentity, boundaryEpoch)
+            when (val outcome = transitionToAccount(accountIdentity, boundaryEpoch)) {
+                AccountTransitionCleanupOutcome.Completed -> Unit
+                is AccountTransitionCleanupOutcome.Failed -> throw outcome.failure
+            }
             boundaryGeneration
         }
 
@@ -219,10 +230,15 @@ class ServerScopedStoreRegistry {
         override suspend fun transitionToAccount(
             accountIdentity: AccountIdentity,
             boundaryEpoch: Long,
-        ) {
+        ): AccountTransitionCleanupOutcome {
             boundaryGeneration += 1
             activeBoundary = ActiveBoundary(accountIdentity, boundaryEpoch)
-            clearRefetchableCachesLocked()
+            return try {
+                clearRefetchableCachesLocked()
+                AccountTransitionCleanupOutcome.Completed
+            } catch (throwable: Throwable) {
+                AccountTransitionCleanupOutcome.Failed(throwable)
+            }
         }
 
         override fun invalidateBoundary() {

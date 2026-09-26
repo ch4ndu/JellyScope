@@ -11,7 +11,9 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class JvmPlainFileSecureStoreTest {
     private lateinit var tempDir: Path
@@ -55,16 +57,24 @@ class JvmPlainFileSecureStoreTest {
         }
 
     @Test
-    fun corruptFileBehavesAsEmptyAndCanBeOverwritten() =
+    fun corruptFileIsQuarantinedBeforeRecoveryWrite() =
         runTest {
             val file = tempDir.resolve("secure-store.json").toFile()
             Files.writeString(file.toPath(), "{", StandardCharsets.UTF_8)
             val store = JvmPlainFileSecureStore(file)
 
             assertNull(store.read("token"))
+            assertFalse(file.exists())
+            val quarantines =
+                Files.list(tempDir).use { paths ->
+                    paths.filter { it.fileName.toString().startsWith("secure-store.json.corrupt-") }.toList()
+                }
+            assertEquals(1, quarantines.size)
+            assertEquals("{", Files.readString(quarantines.single(), StandardCharsets.UTF_8))
 
             store.write(key = "token", value = "abc")
 
+            assertTrue(file.exists())
             assertEquals("abc", JvmPlainFileSecureStore(file).read("token"))
         }
 

@@ -458,11 +458,25 @@ val coreModule =
         single { SetPictureInPictureEnabledAction(pictureInPictureStore = get()) }
         single { SavePlayerDeviceSettingsAction(playerDeviceSettingsStore = get()) }
         single { SavePlaybackPreferencesAction(playbackPreferencesStore = get()) }
-        single { SavePlaybackSelectionAction(store = get(), scope = get()) }
+        single {
+            SavePlaybackSelectionAction(
+                store = get(),
+                sessionRepository = get(),
+                serverScopedStoreRegistry = get(),
+                scope = get(),
+            )
+        }
         single { DeletePlaybackSelectionAction(store = get()) }
         single { DeletePlayerBackendOverrideAction(store = get()) }
         single { SavePlayerBackendOverrideAction(store = get()) }
-        single { SavePlaybackTimingOffsetAction(store = get(), scope = get()) }
+        single {
+            SavePlaybackTimingOffsetAction(
+                store = get(),
+                sessionRepository = get(),
+                serverScopedStoreRegistry = get(),
+                scope = get(),
+            )
+        }
         single { SaveSubtitleSelectionAction(coordinator = get(), scope = get()) }
         single {
             InstallLocalSubtitleAction(

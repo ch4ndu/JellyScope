@@ -1044,10 +1044,10 @@ private class StartupReplayingParticipant(
     override suspend fun resumeIncompleteRemovalOperations(
         executor: SessionRemovalExecutor,
         gateHeldBoundaryCommit: GateHeldBoundaryCommit,
-    ): Result<Unit> {
+    ): Result<SessionRemovalReplayOutcome> {
         events += "resume"
         executor.removeAccount(accountIdentity).getOrThrow()
-        return Result.success(Unit)
+        return Result.success(SessionRemovalReplayOutcome.Completed)
     }
 }
 
@@ -1074,7 +1074,7 @@ private class FailingStartupRemovalParticipant(
     override suspend fun resumeIncompleteRemovalOperations(
         executor: SessionRemovalExecutor,
         gateHeldBoundaryCommit: GateHeldBoundaryCommit,
-    ): Result<Unit> {
+    ): Result<SessionRemovalReplayOutcome> {
         events += "resume"
         return Result.failure(SessionRemovalError.ConfirmationStale)
     }

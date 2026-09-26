@@ -23,6 +23,7 @@ import com.jellyscope.core.domain.model.DOWNLOAD_DEVICE_SAFETY_RESERVE_BYTES
 import com.jellyscope.core.domain.model.DownloadAdmissionDecision
 import com.jellyscope.core.domain.model.DownloadArtifactKey
 import com.jellyscope.core.domain.model.DownloadEnqueueResult
+import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadRemovalConfirmation
 import com.jellyscope.core.domain.model.DownloadRemovalKind
 import com.jellyscope.core.domain.model.DownloadRemovalOperation
@@ -333,6 +334,70 @@ internal interface DownloadDao {
             return null
         }
         return record(oldest.downloadId, nextGeneration)
+    }
+
+    @Transaction
+    suspend fun claimFailedNetworkRetryRecord(
+        serverId: String,
+        userId: String,
+        downloadId: String,
+        expectedAttemptGeneration: Long,
+        platformWorkKindKey: String?,
+        platformWorkIdentity: String?,
+        deviceAvailableBytes: Long,
+        updatedAtEpochMs: Long,
+    ): DownloadRecordEntity? {
+        require(deviceAvailableBytes >= 0L)
+        if ((platformWorkKindKey == null) != (platformWorkIdentity == null)) return null
+        if (hasPendingRemovalForAccount(serverId, userId)) return null
+        if (activeRecord() != null) return null
+        val current = record(downloadId, expectedAttemptGeneration) ?: return null
+        val currentRecord = current.toModelOrNull() ?: return null
+        if (
+            current.serverId != serverId ||
+            current.userId != userId ||
+            currentRecord.state != DownloadState.Failed ||
+            currentRecord.failure != DownloadFailure.Network
+        ) {
+            return null
+        }
+
+        val usage = currentUsage(ensureSettings(), deviceAvailableBytes, DOWNLOAD_DEVICE_SAFETY_RESERVE_BYTES)
+        val retryReservationBytes =
+            (currentRecord.reservationBytes - currentRecord.physicalBytes).coerceAtLeast(0L)
+        val projectedRetryBytes = saturatingAddNonNegative(usage.projectedCommittedBytes, retryReservationBytes)
+        val quotaAllowsClaim =
+            usage.quotaBytes != null &&
+                !usage.overAllocation &&
+                projectedRetryBytes <= usage.quotaBytes &&
+                projectedRetryBytes <= usage.maximumConfigurableQuotaBytes
+        if (!quotaAllowsClaim) return null
+        val nextGeneration = nextDownloadAttemptGeneration(expectedAttemptGeneration) ?: return null
+
+        if (
+            !transitionAttempt(
+                downloadId = downloadId,
+                expectedAttemptGeneration = expectedAttemptGeneration,
+                nextState = DownloadState.Queued,
+                platformWorkKindKey = null,
+                platformWorkIdentity = null,
+                failureKey = null,
+                updatedAtEpochMs = updatedAtEpochMs,
+            )
+        ) {
+            return null
+        }
+        check(
+            claimQueuedRecord(
+                downloadId = downloadId,
+                expectedAttemptGeneration = expectedAttemptGeneration,
+                nextAttemptGeneration = nextGeneration,
+                platformWorkKindKey = platformWorkKindKey,
+                platformWorkIdentity = platformWorkIdentity,
+                updatedAtEpochMs = updatedAtEpochMs,
+            ) == 1,
+        ) { "Exact download retry claim changed after admission." }
+        return record(downloadId, nextGeneration)
     }
 
     @Query(

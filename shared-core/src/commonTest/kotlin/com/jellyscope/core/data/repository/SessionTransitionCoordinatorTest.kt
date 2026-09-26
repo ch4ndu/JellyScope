@@ -545,7 +545,7 @@ private class SwitchRecordingParticipant(
     override suspend fun resumeIncompleteRemovalOperations(
         executor: SessionRemovalExecutor,
         gateHeldBoundaryCommit: GateHeldBoundaryCommit,
-    ): Result<Unit> = Result.success(Unit)
+    ): Result<SessionRemovalReplayOutcome> = Result.success(SessionRemovalReplayOutcome.Completed)
 }
 
 private class RejectingRemovalParticipant : SessionBoundaryParticipant {
@@ -576,7 +576,7 @@ private class RejectingRemovalParticipant : SessionBoundaryParticipant {
     override suspend fun resumeIncompleteRemovalOperations(
         executor: SessionRemovalExecutor,
         gateHeldBoundaryCommit: GateHeldBoundaryCommit,
-    ): Result<Unit> = Result.success(Unit)
+    ): Result<SessionRemovalReplayOutcome> = Result.success(SessionRemovalReplayOutcome.Completed)
 }
 
 private class ReplayingRemovalParticipant(
@@ -607,13 +607,13 @@ private class ReplayingRemovalParticipant(
     override suspend fun resumeIncompleteRemovalOperations(
         executor: SessionRemovalExecutor,
         gateHeldBoundaryCommit: GateHeldBoundaryCommit,
-    ): Result<Unit> {
+    ): Result<SessionRemovalReplayOutcome> {
         executor.removeAccount(accountIdentity).getOrThrow()
         removeCalls += 1
         executor.removeAccount(accountIdentity).getOrThrow()
         removeCalls += 1
         verifiedAbsent = executor.isAccountAbsent(accountIdentity).getOrThrow()
-        return Result.success(Unit)
+        return Result.success(SessionRemovalReplayOutcome.Completed)
     }
 }
 

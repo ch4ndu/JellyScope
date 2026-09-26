@@ -52,7 +52,7 @@ signing output.
 5. Run the Android release verification gate when credentials are available:
 
    ```sh
-   ./gradlew \
+   JELLYSCOPE_FORCE_DISABLE_DEVELOPER_PROPERTIES=true ./gradlew \
      :android-app:assembleRelease \
      :android-app:bundleRelease \
      :android-tv-app:assembleRelease \

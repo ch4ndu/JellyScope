@@ -42,7 +42,6 @@ interface LocalSubtitleFileStore {
      * a single stat, no network and no byte transfer — so the platform players'
      * non-suspending `prepare` paths may call it directly. The suspending
      * operations above own their own IO dispatch; this one does not need it.
-     * If resolution ever becomes non-trivial, this is the seam to revisit.
      */
     fun resolvePath(fileId: String): String?
 }

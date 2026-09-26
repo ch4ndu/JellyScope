@@ -32,6 +32,15 @@ interface SessionRemovalExecutor {
     suspend fun isAccountAbsent(accountIdentity: AccountIdentity): Result<Boolean>
 }
 
+sealed interface SessionRemovalReplayOutcome {
+    data object Completed : SessionRemovalReplayOutcome
+
+    data class ArtifactCleanupPending(
+        val pendingTargetCount: Int,
+        val failureCount: Int,
+    ) : SessionRemovalReplayOutcome
+}
+
 /**
  * Generic session-boundary extension point. A supported feature may quiesce
  * account work and maintain its own durable removal facts, while core retains
@@ -58,7 +67,7 @@ interface SessionBoundaryParticipant {
     suspend fun resumeIncompleteRemovalOperations(
         executor: SessionRemovalExecutor,
         gateHeldBoundaryCommit: GateHeldBoundaryCommit,
-    ): Result<Unit>
+    ): Result<SessionRemovalReplayOutcome>
 }
 
 object NoOpSessionBoundaryParticipant : SessionBoundaryParticipant {
@@ -82,5 +91,5 @@ object NoOpSessionBoundaryParticipant : SessionBoundaryParticipant {
     override suspend fun resumeIncompleteRemovalOperations(
         executor: SessionRemovalExecutor,
         gateHeldBoundaryCommit: GateHeldBoundaryCommit,
-    ): Result<Unit> = Result.success(Unit)
+    ): Result<SessionRemovalReplayOutcome> = Result.success(SessionRemovalReplayOutcome.Completed)
 }

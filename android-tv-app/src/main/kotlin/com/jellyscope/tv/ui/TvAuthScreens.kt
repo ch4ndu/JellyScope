@@ -112,8 +112,7 @@ internal fun TvServerEntryContent(
                 leadingIcon = LaunchIcons.Lan,
             )
             LazyRow(
-                // Preserve the alpha11 four-edge focus-scale reserve so the first and
-                // last focused cards never clip at the list bounds.
+                // Reserve both list edges so focus scaling cannot clip the first or last card.
                 contentPadding =
                     PaddingValues(
                         horizontal = TvDimens.launchListHorizontalReserve,

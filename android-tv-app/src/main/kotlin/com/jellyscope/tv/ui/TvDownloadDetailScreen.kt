@@ -290,6 +290,7 @@ private fun TvDownloadDetailContent(
                                 }
                             },
                             enabled = option.enabled,
+                            focusableWhenDisabled = true,
                             modifier =
                                 Modifier
                                     .height(ChromeDimens.detailActionHeight)

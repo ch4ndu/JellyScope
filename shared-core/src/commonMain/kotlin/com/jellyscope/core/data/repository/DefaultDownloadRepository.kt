@@ -343,6 +343,30 @@ internal class DefaultDownloadRepository(
                 }
         }
 
+    override suspend fun claimFailedNetworkRetry(
+        activeAccount: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+    ): DownloadRecord? =
+        removalMutex.withLock {
+            recordStore
+                .claimFailedNetworkRetry(
+                    accountIdentity = activeAccount,
+                    downloadId = downloadId,
+                    expectedAttemptGeneration = expectedAttemptGeneration,
+                    platformWorkIdentity = platformWorkIdentity,
+                    deviceAvailableBytes = artifactStore.capacity().availableBytes,
+                    updatedAtEpochMs = now(),
+                ).also { claimed ->
+                    if (claimed != null) {
+                        logger.i {
+                            "stage=download-claim event=retry generation=${claimed.attemptGeneration} state=${claimed.state.name}"
+                        }
+                    }
+                }
+        }
+
     override suspend fun updateAttemptProgress(
         downloadId: DownloadId,
         expectedAttemptGeneration: Long,

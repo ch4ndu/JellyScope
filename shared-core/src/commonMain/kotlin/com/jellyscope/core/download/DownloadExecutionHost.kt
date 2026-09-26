@@ -236,28 +236,6 @@ internal class DownloadContinuedWorkEnrollment(
             isSatisfiedLocked()
         }
 
-    /**
-     * Identifies an exact enrolled row that remains queued after a different
-     * FIFO predecessor failed. Admission still belongs to the queue owner; this
-     * only distinguishes the joined intent from a failed enrolled row.
-     */
-    fun hasRunnableUncompletedTarget(
-        currentBoundary: DownloadExecutionBoundary,
-        records: List<DownloadRecord>,
-    ): Boolean =
-        lock.withLock {
-            if (boundary != currentBoundary || minimumCompletionGeneration.isEmpty()) {
-                return@withLock false
-            }
-            records.any { record ->
-                val minimumGeneration = minimumCompletionGeneration[record.downloadId]
-                minimumGeneration != null &&
-                    record.businessKey.accountIdentity == currentBoundary.accountIdentity &&
-                    record.state == DownloadState.Queued &&
-                    record.attemptGeneration < minimumGeneration
-            }
-        }
-
     /** Seals the generation so a late join becomes a separately observed follow-up. */
     fun closeWith(outcome: DownloadContinuedDrainOutcome): Boolean =
         lock.withLock {
@@ -275,7 +253,6 @@ internal class DownloadContinuedWorkEnrollment(
                 terminal == null ||
                     terminal.outcome == DownloadContinuedDrainOutcome.Completed ||
                     terminal.outcome == DownloadContinuedDrainOutcome.NoWork ||
-                    terminal.outcome == DownloadContinuedDrainOutcome.EnrolledWorkRunnableAfterPredecessorFailure ||
                     (
                         terminal.outcome == DownloadContinuedDrainOutcome.EnrolledWorkCompleted &&
                             enrollmentAdvancedAfterTerminal
@@ -334,13 +311,6 @@ internal sealed interface DownloadContinuedDrainOutcome {
 
     /** Every exact row enrolled by the explicit action completed at its intended generation. */
     data object EnrolledWorkCompleted : DownloadContinuedDrainOutcome
-
-    /**
-     * A different FIFO row failed while an exact joined enrollment remained
-     * runnable. One serialized follow-up may observe that enrollment; this is
-     * not a retry of the failed row.
-     */
-    data object EnrolledWorkRunnableAfterPredecessorFailure : DownloadContinuedDrainOutcome
 
     data object Paused : DownloadContinuedDrainOutcome
 

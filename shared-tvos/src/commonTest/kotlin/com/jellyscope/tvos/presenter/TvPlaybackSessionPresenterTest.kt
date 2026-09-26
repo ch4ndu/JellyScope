@@ -6,6 +6,7 @@ import co.touchlab.kermit.LogWriter
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.jellyscope.core.data.local.PlaybackSelectionStore
+import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.repository.LocalSubtitleMutationCoordinator
 import com.jellyscope.core.domain.action.SavePlaybackSelectionAction
 import com.jellyscope.core.domain.action.SaveSubtitleSelectionAction
@@ -14,6 +15,8 @@ import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.PlaybackSelection
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
+import com.jellyscope.core.domain.model.SessionState
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.AudioActivationState
 import com.jellyscope.core.domain.playback.DirectPlayPlanner
 import com.jellyscope.core.domain.playback.MediaSegment
@@ -56,8 +59,10 @@ import com.jellyscope.core.playback.PlaybackStopSettlementRegistry
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.LogScrubber
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -1731,7 +1736,13 @@ class TvPlaybackSessionPresenterTest {
                 saveSubtitleSelection = SaveSubtitleSelectionAction(subtitleMutationCoordinator, backgroundScope),
                 savePlaybackSelection =
                     selectionStore?.let { store ->
-                        SavePlaybackSelectionAction(store, backgroundScope, dispatcher)
+                        val sessions = FakeTvSessionRepository()
+                        sessions.update(SessionState.LoggedIn(testSession(), boundaryEpoch = 1L))
+                        val registry = ServerScopedStoreRegistry()
+                        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                            registry.transitionToAccount(testSession().accountIdentity(), boundaryEpoch = 1L)
+                        }
+                        SavePlaybackSelectionAction(store, sessions, registry, backgroundScope, dispatcher)
                     },
                 imageUrlBuilder = JellyfinImageUrlBuilder(),
                 deviceInfoProvider = FakeTvDeviceInfoProvider(),

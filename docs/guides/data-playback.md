@@ -22,8 +22,11 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   logged-out flow makes no automatic or retry UDP call. iOS deliberately does
   not request the multicast entitlement required for UDP broadcast/multicast.
   Keep `NSLocalNetworkUsageDescription` and `NSAllowsLocalNetworking`: manual
-  server URLs, including direct local HTTP, and restored sessions/accounts remain
-  supported. Do not substitute Bonjour or a permission probe for discovery.
+  server entry and restored sessions/accounts remain supported. The ATS
+  local-network exception covers unqualified and `.local` hostnames; use HTTPS
+  for qualified custom or public hostnames. Numeric-IP HTTP behavior depends on
+  the Apple OS version and requires runtime validation. Do not broaden ATS
+  exceptions or substitute Bonjour or a permission probe for discovery.
 - Keep auth token/header creation centralized. Password authentication sends the
   supplied password unchanged, including trailing whitespace; username and
   server-input normalization remain separate from secret handling.
@@ -137,6 +140,11 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   to, read from, migrated from, or cleaned up through Apple Keychain or
   Security.framework. Existing Keychain entries are intentionally ignored;
   Android Keystore storage is unchanged.
+- Desktop malformed JSON or invalid UTF-8 is atomically moved to a unique owner-only
+  sibling before returning an empty store. Other read or quarantine failures
+  propagate. Replacement files receive POSIX `0600` at creation, or a verified
+  owner-only ACL while still empty, before credential bytes are written.
+  Storage without either permission mechanism fails closed.
 - `SessionStore` persists ordered accounts, active account, envelope-era marker,
   and logout-pending state in one versioned secure envelope; the device ID is a
   separate durable key and survives session clearing. Envelope absence alone
@@ -173,6 +181,13 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   state, are never registered with the runtime cache registry, survive removal
   of a sibling account on the same server, and clear only on full logout or
   removal of the last account for that server.
+- Once a new account boundary is installed, a refetchable-cache cleanup failure
+  still publishes the committed session and its new epoch before reporting the
+  failure. Credential, subtitle-barrier, and participant failures before that
+  point remain fail-closed. Removal replay attempts every target credential
+  change first, then verifies durable checkpoints and actual account absence.
+  Only settled credential removal permits surviving sessions to restore while
+  artifact cleanup remains pending; its durable removal records remain for retry.
 - Playback preferences are keyed by `AccountIdentity`; deleting one account
   deletes only that account's preference row, while server and global cleanup
   retain their broader scopes. A schema-10 server-only row migrates under one
@@ -535,7 +550,12 @@ owns the detailed data, request, persistence, player, and runtime contracts.
   is session-only; legacy quality columns remain for schema compatibility but
   are ignored on read and cleared on write. Account/server cleanup removes
   durable audio rows, while a source change isolates them. Subtitle intent and
-  timing offsets remain separate records.
+  timing offsets remain separate records. Subtitle-only changes update subtitle
+  intent and session memory without rewriting durable audio selection.
+- Selection and timing saves capture the current account and boundary epoch
+  when submitted, require matching key identity, and guard the physical write
+  with that captured lease. A delayed write cannot become valid again after an
+  account switch away and back; immediate selection writes use the same gate.
 - `GetPlaybackLaunchContextUseCase` is the single read owner for normalized
   playback preferences, normalized durable audio selection, and durable
   subtitle intent once an exact item/media-source pair is known. It constructs
@@ -1592,8 +1612,8 @@ completion, and from-beginning replay belong to [single-asset playback](playback
   to request server-rendered subtitles where available. Burned-in subtitles remain
   visible. Sizing changes are refused and the TV menu explains how to select GPU.
   Both drivers are already present in the pinned native bundle.
-- Android mpv writes its own verbose log to app-internal
-  `files/mpv-logs/mpv-verbose.log` (the prior file is retained as
+- Android mpv writes its own verbose log beneath `Context.noBackupFilesDir` at
+  `mpv-logs/mpv-verbose.log` (the prior file is retained as
   `mpv-verbose.prev.log`; rotation happens per engine instance and on each
   mid-session re-enable, and a 30-second watchdog closes the file once it
   crosses 32 MiB). Writing happens only while the diagnostics-collection
@@ -1603,9 +1623,11 @@ completion, and from-beginning replay belong to [single-asset playback](playback
   defects; the in-process observer seam stays reduced to sanitized
   categories. The RAW file contains secrets — mpv echoes the Authorization
   header via its `http-header-fields` property at verbose level — which is why
-  it lives in internal storage and never enters client-log uploads. Disabling
-  diagnostic collection deletes both retained files; uploads contain only the
-  structured diagnostics report and scrubber-admitted bounded history.
+  it lives in no-backup storage and never enters client-log uploads. The log
+  provider removes the legacy `files/mpv-logs` directory on use and when
+  collection is disabled; both app shells exclude that legacy subtree from
+  cloud backup and device transfer. Uploads contain only the structured
+  diagnostics report and scrubber-admitted bounded history.
 - `AndroidMpvNetworkPolicy` strips auth-query parameters before native loading,
   attaches only the modern token-only `Authorization: MediaBrowser
   Token="..."` header on the trusted same-origin HTTP(S) request, clears stale
@@ -2214,6 +2236,16 @@ than restating it.
   Native tvOS instead exposes an explicit queue wake and reports scheduling
   rejection without changing durable row state. Its entry and Refresh stay
   passive. Passive app start never wakes the queue.
+- Within an existing execution window, Original and Fixed transfers retry only
+  `DownloadFailure.Network`, at most twice after cancellable delays of 1 and
+  3 seconds. Writers settle and checkpoint before each retry. Reclaim requires
+  the same account, epoch, failed row and attempt, with no competing command,
+  active slot, removal, or quota conflict. Requeue preserves generation; the
+  exact claim increments it. Source, quota, artifact, and server-unavailable
+  failures remain terminal. There is no persisted retry counter or new wake.
+- A failed row does not stop later eligible FIFO work. Continued-processing
+  completion checks the exact enrolled rows and generations, including late
+  joins; draining past a failure alone does not prove those rows completed.
 - The user must configure a device-wide hard allocation in positive whole
   decimal GB, with a 1 GB minimum. Admission and every durable transfer
   checkpoint account for completed and partial physical bytes plus outstanding
@@ -2235,7 +2267,12 @@ than restating it.
   a possible Task Manager stop. On API 33+, each Android app shell makes a
   best-effort notification-permission request immediately before an Original or
   Fixed Start action. The permission result affects notification visibility, not
-  Jellyfin authorization, enqueue eligibility, or transfer execution.
+  Jellyfin authorization, enqueue eligibility, or transfer execution. Android
+  job-stop cleanup starts undispatched and non-cancellable, with a five-second
+  bound for cancel/join and the exact UIDT attempt checkpoint. Without an attempt
+  identity it performs no broad checkpoint; process loss retains recovery as the
+  fallback. Notification setup failures retain safe diagnostics and prevent
+  transfer work from starting without the required notification.
 - iOS 26+ requests continued-processing time for explicit Original or Fixed
   Start, Resume, Resume All, and Retry actions. An actual native grant can keep
   the existing app-owned writer running after backgrounding; submitting a
@@ -3422,6 +3459,20 @@ desktop pointer, **[ios]** iOS, and **[mobile]** Android mobile plus iOS phones.
 Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
 [playback-architecture.md](playback-architecture.md#why).
 
+### Persistence and transfer recovery
+
+- Capturing the account epoch at submission prevents delayed preference writes
+  from surviving a switch away and back. Publishing an already committed
+  boundary keeps observers aligned even when refetchable cleanup fails.
+- Credential removal must settle before artifact failures can become cleanup
+  debt; otherwise cold restore could revive an account being removed.
+- Bounded in-window network retries absorb transient reads without creating
+  background execution promises. Exact attempt claims preserve queue ownership,
+  while continued drains distinguish row failure from enrollment completion.
+- Owner-only desktop replacements and Android no-backup logs limit exposure of
+  plaintext credentials and raw native diagnostics. Neither changes the accepted
+  Apple credential-storage policy.
+
 ### Kids catalogue and history
 
 - Curated membership is a catalogue, not a queue or recommendation service.
@@ -3434,9 +3485,9 @@ Pipeline, quality-policy, recovery, and backend-ownership rationale lives in
 
 - **Discovery availability is a platform capability.** iOS omits the multicast
   entitlement required by UDP discovery, so marking discovery unavailable
-  prevents futile network work while preserving manual URLs, local HTTP, and
-  restored sessions. Bonjour and permission probes are not equivalent to the
-  Jellyfin broadcast protocol.
+  prevents futile network work while preserving manual URLs and restored
+  sessions under the platform ATS policy. Bonjour and permission probes are not
+  equivalent to the Jellyfin broadcast protocol.
 - **Related shelves and Find use deterministic ordering.** Priority-gated joins,
   per-kind limits, ID de-duplication, and all-or-nothing failure prevent latency
   from reordering shelves or making failed categories look empty.

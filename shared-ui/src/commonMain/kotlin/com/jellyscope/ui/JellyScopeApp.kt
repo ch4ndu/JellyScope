@@ -33,27 +33,10 @@ import io.ktor.client.HttpClient
 import org.koin.compose.koinInject
 
 /**
- * The whole application, shared across every platform. Applies the selected
- * theme, then drives the session lifecycle: restore an existing session,
- * otherwise show server entry -> login, and hand off to the shared logged-in
- * navigation once authenticated.
- *
- * Platform entry points (Android `MainActivity`, iOS `MainViewController`, and
- * future desktop `main`) do nothing more than start Koin, apply any
- * platform-only window setup, and call this. Keep platform roots this thin so
- * the app flow lives in one place.
- *
- * @param initialServerUrl prefilled into the server-entry field on first launch.
- * @param prefillUsername / [prefillPassword] optional dev-login conveniences.
- * @param initialPlaybackItemId optional development convenience that opens the
- * normal player route after a stored session is restored.
- * @param initialDetailItemId optional deep-link target that opens the normal
- * item detail route after a stored session is restored.
- * @param initialDetailEvent optional consumable deep-link target. The event is
- * acknowledged after its route is installed so the same item can be delivered
- * again as a new event without replaying after an account boundary.
- * @param onDetailNavigationBoundaryChanged informs platform deep-link owners
- * about the active account boundary before logged-in navigation consumes an event.
+ * Shared application root for theme, session restoration, authentication, navigation, and
+ * account-scoped deep links. Platform roots own only DI and platform window setup. Detail events
+ * are acknowledged after route installation so repeated deliveries remain distinct without
+ * replaying across an account boundary.
  */
 @Composable
 fun JellyScopeApp(

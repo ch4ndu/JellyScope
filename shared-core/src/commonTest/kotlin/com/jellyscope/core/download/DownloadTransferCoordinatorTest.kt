@@ -55,6 +55,9 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import io.ktor.utils.io.ByteChannel
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.errors.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -425,6 +428,43 @@ class DownloadTransferCoordinatorTest {
             }
         }
 
+    @Test
+    fun networkRetriesAreBoundedAndContinuedDrainAdvancesToTheNextRow() =
+        runTest {
+            val registry = ServerScopedStoreRegistry()
+            registry.transitionToAccount(account, boundaryEpoch = 4L)
+            val queue =
+                TransferQueueFake(
+                    mutableListOf(
+                        queuedRecord(fifoSequence = 1L),
+                        queuedRecord(downloadId = DownloadId("download_next"), fifoSequence = 2L),
+                    ),
+                )
+            val queueCoordinator = DownloadQueueCoordinator(queue)
+            val fixture = apiFixture(networkBodyFailures = 3)
+            val outcome =
+                DefaultDownloadExecutionDriver(
+                    sessionRepository = FakeSessionRepository(session),
+                    queueCoordinator = queueCoordinator,
+                    transferCoordinator =
+                        DownloadTransferCoordinator(
+                            FakeSessionRepository(session),
+                            registry,
+                            fixture.api,
+                            queueCoordinator,
+                            TransferArtifactStore(),
+                            EmptyLocalSubtitleAssetStore,
+                            EmptyLocalSubtitleFileStore,
+                        ),
+                ).drainContinuedWork(null)
+
+            assertEquals(DownloadContinuedDrainOutcome.Failed, outcome)
+            assertEquals(DownloadFailure.Network, queue.records[0].failure)
+            assertEquals(3L, queue.records[0].attemptGeneration)
+            assertEquals(DownloadState.Completed, queue.records[1].state)
+            fixture.client.close()
+        }
+
     private fun queuedRecord(
         downloadId: DownloadId = DownloadId("download_original"),
         fifoSequence: Long = 1L,
@@ -460,8 +500,10 @@ class DownloadTransferCoordinatorTest {
 
     private fun apiFixture(
         truncatedResume: Boolean = false,
+        networkBodyFailures: Int = 0,
         onTransferRequest: suspend (String?) -> Unit = {},
     ): ApiFixture {
+        var remainingNetworkBodyFailures = networkBodyFailures
         val engine =
             MockEngine { request ->
                 when (request.url.encodedPath) {
@@ -472,7 +514,12 @@ class DownloadTransferCoordinatorTest {
                         onTransferRequest(range)
                         when (range) {
                             "bytes=0-0" -> respondPartial("a", "bytes 0-0/4")
-                            "bytes=0-" -> respondPartial("data", "bytes 0-3/4")
+                            "bytes=0-" ->
+                                if (remainingNetworkBodyFailures-- > 0) {
+                                    respondPartial("data", "bytes 0-3/4", IOException("test network failure"))
+                                } else {
+                                    respondPartial("data", "bytes 0-3/4")
+                                }
                             "bytes=2-" ->
                                 respondPartial(
                                     if (truncatedResume) "t" else "ta",
@@ -518,8 +565,9 @@ private fun MockRequestHandleScope.respondJson(content: String) =
 private fun MockRequestHandleScope.respondPartial(
     content: String,
     contentRange: String,
+    failure: IOException? = null,
 ) = respond(
-    content = content,
+    content = failure?.let { ByteChannel().apply { cancel(it) } } ?: ByteReadChannel(content.encodeToByteArray()),
     status = HttpStatusCode.PartialContent,
     headers =
         headersOf(
@@ -584,6 +632,29 @@ private class TransferQueueFake(
             )
         records[records.indexOf(current)] = claimed
         return claimed
+    }
+
+    override suspend fun claimFailedNetworkRetry(
+        activeAccount: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+    ): DownloadRecord? {
+        val current = get(downloadId, expectedAttemptGeneration) ?: return null
+        if (
+            current.businessKey.accountIdentity != activeAccount ||
+            current.state != DownloadState.Failed ||
+            current.failure != DownloadFailure.Network
+        ) {
+            return null
+        }
+        return current
+            .copy(
+                state = DownloadState.Downloading,
+                attemptGeneration = current.attemptGeneration + 1L,
+                platformWorkIdentity = platformWorkIdentity,
+                failure = null,
+            ).also { records[records.indexOf(current)] = it }
     }
 
     override suspend fun updateAttemptProgress(

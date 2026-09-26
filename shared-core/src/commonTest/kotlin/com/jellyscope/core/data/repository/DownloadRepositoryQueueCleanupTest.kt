@@ -508,7 +508,7 @@ class DownloadRepositoryQueueCleanupTest {
         }
 
     @Test
-    fun replaySettlesIndependentCrashHalvesAndIsIdempotent() =
+    fun replayKeepsArtifactDebtButSettlesEveryCredentialBeforeRestoringSurvivors() =
         runTest {
             val keyA = DownloadArtifactKey("artifact_a")
             val keyB = DownloadArtifactKey("artifact_b")
@@ -549,17 +549,26 @@ class DownloadRepositoryQueueCleanupTest {
                         ),
                 )
             removalStore.pendingOperations += operation
-            val artifacts = FakeArtifactStore()
+            val artifacts = FakeArtifactStore().apply { failingDeleteKey = keyA }
             val executor = FakeExecutor(setOf(accountB))
             val coordinator = cleanup(queue, removalStore, artifacts)
 
-            assertTrue(coordinator.resumeIncompleteRemovalOperations(executor, Gate(true)).isSuccess)
+            val pending = coordinator.resumeIncompleteRemovalOperations(executor, Gate(true)).getOrThrow()
+            assertTrue(pending is SessionRemovalReplayOutcome.ArtifactCleanupPending)
             assertEquals(1, executor.removeCalls)
-            assertTrue(artifacts.deleted.isNotEmpty())
-            assertTrue(removalStore.pendingOperations.isEmpty())
+            assertTrue(
+                removalStore.pendingOperations
+                    .single()
+                    .targets
+                    .all { it.accountRemoved },
+            )
 
-            // A second replay observes no header and cannot call the executor again.
-            assertTrue(coordinator.resumeIncompleteRemovalOperations(executor, Gate(true)).isSuccess)
+            artifacts.failingDeleteKey = null
+            assertEquals(
+                SessionRemovalReplayOutcome.Completed,
+                coordinator.resumeIncompleteRemovalOperations(executor, Gate(true)).getOrThrow(),
+            )
+            assertTrue(removalStore.pendingOperations.isEmpty())
             assertEquals(1, executor.removeCalls)
         }
 
@@ -769,6 +778,7 @@ internal class FakeArtifactStore(
     private val completedParts: List<DownloadArtifactPartInspection>? = null,
 ) : DownloadArtifactStore {
     val deleted = mutableListOf<String>()
+    var failingDeleteKey: DownloadArtifactKey? = null
 
     override suspend fun openStagingWriter(
         artifactKey: DownloadArtifactKey,
@@ -835,6 +845,7 @@ internal class FakeArtifactStore(
         artifactKey: DownloadArtifactKey,
         area: DownloadArtifactArea,
     ) {
+        if (artifactKey == failingDeleteKey) error("artifact delete failed")
         deleted +=
             "${artifactKey.value}:${area.name}"
     }
@@ -879,6 +890,15 @@ internal class FakeRecordStore(
 
     override suspend fun claimOldest(
         accountIdentity: AccountIdentity,
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+        deviceAvailableBytes: Long,
+        updatedAtEpochMs: Long,
+    ): DownloadRecord? = null
+
+    override suspend fun claimFailedNetworkRetry(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
         platformWorkIdentity: DownloadPlatformWorkIdentity?,
         deviceAvailableBytes: Long,
         updatedAtEpochMs: Long,
@@ -1001,10 +1021,23 @@ internal class FakeQueueRepository(
                 .filter { record -> record.businessKey.accountIdentity == activeAccount && record.state == DownloadState.Queued }
                 .minByOrNull { record -> record.fifoSequence }
                 ?: return null
-        val next = current.copy(state = DownloadState.Downloading, platformWorkIdentity = platformWorkIdentity)
+        val next =
+            current.copy(
+                state = DownloadState.Downloading,
+                attemptGeneration = current.attemptGeneration + 1L,
+                platformWorkIdentity = platformWorkIdentity,
+                failure = null,
+            )
         records[records.indexOf(current)] = next
         return next
     }
+
+    override suspend fun claimFailedNetworkRetry(
+        activeAccount: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+    ): DownloadRecord? = null
 
     override suspend fun updateAttemptProgress(
         downloadId: DownloadId,
@@ -1032,7 +1065,12 @@ internal class FakeQueueRepository(
         nextState: DownloadState,
         platformWorkIdentity: DownloadPlatformWorkIdentity?,
         failure: DownloadFailure?,
-    ): Boolean = false
+    ): Boolean {
+        val index = records.indexOfFirst { it.downloadId == downloadId && it.attemptGeneration == expectedAttemptGeneration }
+        if (index < 0) return false
+        records[index] = records[index].copy(state = nextState, platformWorkIdentity = platformWorkIdentity, failure = failure)
+        return true
+    }
 
     override suspend fun completeFinalizing(
         downloadId: DownloadId,

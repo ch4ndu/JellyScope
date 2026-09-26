@@ -18,7 +18,7 @@ const val DEFAULT_LOAD_MORE_THRESHOLD = 8
 
 /**
  * Requests the next page once the last visible item comes within [threshold] items of the end of a
- * paged list. Shared by the mobile library/collection grids and the TV library grid.
+ * paged list.
  *
  * The effect is started once and never restarted, so `distinctUntilChanged` retains its memory for
  * the composable's lifetime. Every caller must therefore publish an observable [isLoadingMore]

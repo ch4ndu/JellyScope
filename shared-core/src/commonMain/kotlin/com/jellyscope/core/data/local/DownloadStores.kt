@@ -190,6 +190,15 @@ internal interface DownloadRecordStore {
         updatedAtEpochMs: Long,
     ): DownloadRecord?
 
+    suspend fun claimFailedNetworkRetry(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+        deviceAvailableBytes: Long,
+        updatedAtEpochMs: Long,
+    ): DownloadRecord?
+
     suspend fun updateProgress(
         downloadId: DownloadId,
         expectedAttemptGeneration: Long,
@@ -323,6 +332,26 @@ internal class RoomDownloadRecordStore(
             .claimOldestQueuedRecord(
                 serverId = accountIdentity.serverId,
                 userId = accountIdentity.userId,
+                platformWorkKindKey = platformWorkIdentity?.kind?.toKey(),
+                platformWorkIdentity = platformWorkIdentity?.value,
+                deviceAvailableBytes = deviceAvailableBytes,
+                updatedAtEpochMs = updatedAtEpochMs,
+            )?.toModelOrNull()
+
+    override suspend fun claimFailedNetworkRetry(
+        accountIdentity: AccountIdentity,
+        downloadId: DownloadId,
+        expectedAttemptGeneration: Long,
+        platformWorkIdentity: DownloadPlatformWorkIdentity?,
+        deviceAvailableBytes: Long,
+        updatedAtEpochMs: Long,
+    ): DownloadRecord? =
+        dao
+            .claimFailedNetworkRetryRecord(
+                serverId = accountIdentity.serverId,
+                userId = accountIdentity.userId,
+                downloadId = downloadId.value,
+                expectedAttemptGeneration = expectedAttemptGeneration,
                 platformWorkKindKey = platformWorkIdentity?.kind?.toKey(),
                 platformWorkIdentity = platformWorkIdentity?.value,
                 deviceAvailableBytes = deviceAvailableBytes,

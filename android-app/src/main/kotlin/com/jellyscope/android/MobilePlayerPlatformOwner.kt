@@ -18,6 +18,7 @@ import android.os.Process
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.content.ContextCompat
 import androidx.core.util.Consumer
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -376,12 +377,12 @@ private class MobilePlayerPlatformOwner(
                 addAction(ACTION_PIP_REWIND)
                 addAction(ACTION_PIP_FORWARD)
             }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            activity.registerReceiver(pictureInPictureActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("DEPRECATION")
-            activity.registerReceiver(pictureInPictureActionReceiver, filter)
-        }
+        ContextCompat.registerReceiver(
+            activity,
+            pictureInPictureActionReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         receiverRegistered = true
     }
 
