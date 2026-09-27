@@ -68,10 +68,12 @@ versioning, publishing, or releasing.
 [`architecture.md`](architecture.md) owns layering, domain operations, state and
 events, DI, dispatchers, cancellation, persistence boundaries, and source sets.
 [`ui.md`](ui.md) and [`tv-ux-behaviors.md`](tv-ux-behaviors.md) own rendering,
-resources, navigation, layout, and input. Playback changes follow
-[`playback-architecture.md`](playback-architecture.md) and
-[`data-playback.md`](data-playback.md); update shared plans and contracts before
-platform mappings.
+resources, navigation, layout, and input. Playback changes follow the [pipeline](playback-architecture.md),
+[policy](playback-policy.md), and [runtime](playback-runtime.md) owners before
+platform mappings. [Accounts](accounts-and-persistence.md),
+[downloads](downloads.md), [subtitles](subtitles.md), and
+[diagnostics](diagnostics.md) own their respective contracts.
+The [documentation map](../README.md) routes platform and feature detail.
 
 Third-party source, structure, and assets require file-level license review
 before copying. Dependency and distribution decisions follow
@@ -285,15 +287,26 @@ Documentation is a current contract:
 - Lead with the answer, action, or contract. Use descriptive headings that help
   readers find a real task or question; keep prerequisites and limitations nearby.
 - State each fact once in its owning guide and link to it elsewhere. Merge
-  repetition and remove stale text before substantial additions; keep guides
-  within their current order of magnitude. Keep entry points short; use the
-  existing documentation map rather than another index.
+  repetition and remove stale text before substantial additions. User guides
+  target 750–1,000 words and must stay at or below 1,500. Engineering guides
+  retain necessary detail; prefer 1,500–2,500 words per cohesive topic and review
+  pages over 3,000 for a useful split. Record a cohesive-ownership reason when
+  retaining a larger engineering page. Indexes target at most 500 words.
+- Count whitespace-delimited words, including tables and code. Release history,
+  license text, generated/reference data and design provenance are exempt;
+  narrative must not be moved into a nominal reference appendix to evade size.
+- User guides own actions, choices and limitations; engineering guides own
+  implementation contracts and rationale. Remove generic streaming-app
+  explanations and duplication, while preserving product-specific exceptions,
+  safety constraints and useful controls. Keep one user index and one engineering
+  map. On relocation, update first-party links and retain valuable legacy
+  anchors as brief forwarding links.
 - Use concrete actors, precise technical terms, and direct sentences. Cut filler,
   promotional claims, rhetorical questions, formulaic contrasts, and repeated
   introductions or summaries. Keep uncertainty and evidence qualifiers intact.
 - Use lists, tables, emphasis, and examples only when they improve comprehension.
   Avoid decorative formatting and prose that narrates obvious code. Do not impose
-  punctuation bans, sentence patterns, or arbitrary length and score targets.
+  punctuation bans, sentence patterns, or arbitrary score targets.
 - Add an example only when it answers a practical question better than prose.
   Include the necessary context, working directory, prerequisites, and expected
   result; label code fences with the language. Verify commands against current
@@ -339,6 +352,10 @@ scope:
 | `jellyscope.desktop.packageVersion` | Native desktop package version | macOS requires 1–3 integers, first positive |
 
 ## Why
+
+- **Audience and topic ownership bound document growth:** short user guides make
+  tasks findable; cohesive engineering guides retain the detail needed to
+  preserve contracts. Links remove duplication without discarding exceptions.
 
 - Native tvOS uses source tracing and compilation to limit ongoing SwiftUI test
   maintenance. That boundary does not justify deleting shared Kotlin coverage.

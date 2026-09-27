@@ -130,8 +130,8 @@ brush and scrims without resetting Settings scroll or focus.
   repository-projected groups (`RELATED_GROUP_DISPLAY_LIMIT`) in Cast-first,
   priority-gated order and hides empty groups. Focus and scroll follow rendered
   order. Episode keeps Next Up then Similar; Series keeps its flattened Related
-  shelf. [Data playback](data-playback.md#related-shelves) owns source order;
-  [TV UX](tv-ux-behaviors.md#related-shelf-focus) owns D-pad behavior.
+  shelf. [API and caching](api-and-caching.md#related-shelves) owns source order;
+  [TV UX](tv-screen-behavior.md#related-shelf-focus) owns D-pad behavior.
 - UI adapts its structure instead of stretching the phone layout. Shared shells
   resolve `WindowWidthTier` once from actual width: Compact below 600 dp,
   Medium 600-839, Expanded 840-1239, and XLarge 1240+. Compact uses bottom
@@ -171,91 +171,17 @@ brush and scrims without resetting Settings scroll or focus.
 
 ### Kids watch page
 
-- Eligibility and account freshness follow [Kids account playback](data-playback.md#kids-account-playback).
-  The presentation is captured once per player route on Android/iOS phones and
-  tablets; TV and desktop keep normal playback. There is no app toggle, Kids
-  home redesign, parent approval, or viewing timer.
-- The [selected touch mockups](../design/kids-mode/player-mockups/README.md)
-  define video placement and control hierarchy. Recommendations use the vertical
-  grid described below, superseding the mockup carousels and featured first card.
-  Portrait uses the full available video width with no horizontal outer padding,
-  above the recommendation grid.
-  Landscape uses a left-aligned player and a fixed, normally scrolling right
-  recommendation region; this follows window orientation, not the 840 dp tier.
-  The 16:9 viewport uses Fit to preserve source aspect, never stretching into
-  a column. Fullscreen/PiP fit and
-  center that viewport in the available canvas without replacing its native owner.
-  Portrait and landscape fullscreen entry/exit animate the same 16:9 viewport
-  over 250 ms; recommendations slide and fade out, then return on exit. Rotation
-  uses 500 ms to resize the video around the destination pane center while
-  recommendations move to their new region beneath the video layer. Old screen
-  coordinates never drive the rotating video's center. Center and size have
-  separate animation state, so a fullscreen toggle during rotation continues
-  from the visible center. The native player stays
-  installed. Safe spacing follows system-bar changes; animation and drag values are
-  read during layout/placement. Rapid toggles retarget the current animation.
-  PiP uses direct geometry. Geometry changes never replan or restart playback.
-- Inline layout consumes the top safe-drawing inset once above the video.
-  Cutout/navigation insets protect overlaid controls and recommendation content,
-  without becoming horizontal video margins. Landscape sizing leaves the bottom
-  system area clear. Fullscreen retains native bar hiding and safe control insets.
-- The current title is compact and single-line below the portrait video, and
-  below the landscape video when vertical space permits. One More to watch
-  heading covers online or offline recommendations. A single shuffled pool
-  is projected off Main into one vertically scrolling adaptive grid on all phone
-  and tablet orientations. Columns adapt to the available recommendation width
-  and tile-size preference; every asset occupies one equal-width cell. There are
-  no horizontal ribbons or special first-card spans. Every card uses 16:9 artwork,
-  a one-line ellipsized title, and an optional
-  duration badge when metadata exists. No subtitle/metadata row adds tile height.
-  The current asset is excluded; there is no history shelf, inferred recommendation
-  category, or autoplay queue. Scroll positions survive orientation/fullscreen.
-- Initial preparation and buffering show a centered compact loading indicator,
-  including when controls are hidden. Play/Pause/Replay replaces the indicator
-  only after preparation or buffering ends; terminal failures use the shared typed
-  error/recovery presentation without a Play action. PiP omits the custom center
-  control. Media-button toggles use the shared play-intent and Replay policy.
-  Centered play/pause or Replay and top Back/options overlay the video. Elapsed
-  time, seek, duration, and fullscreen share one compact bottom row. The primary
-  button uses the active theme accent; timestamps retain contrast on bright video.
-  All buttons retain 48 dp or larger targets. Audio, Subtitles, Quality, and
-  recovery use the existing UI; open options suspend auto-hide. Inline gestures
-  do not intercept list scrolling. Existing loading/error/retry and permitted
-  Downloads actions remain available. No social or duplicate below-video controls
-  are added. Audio-unavailable, subtitle, and backend notices use existing shared
-  banners and timeout constants; the audio warning can be dismissed and returns
-  on control interaction, with a glyph while controls are hidden. Gesture HUDs
-  expire using the shared timeout.
-- Dragging the inline video upward enters fullscreen; dragging the fullscreen
-  video downward exits it. Either direction follows the finger up to 50% of the
-  watch screen height, allowing the video to move off-screen. The release
-  threshold in both directions is 20% of the measured video viewport height at
-  pointer-down, fixed for that gesture even if its size changes. Releasing at or
-  beyond that distance in the active direction commits the animated transition;
-  a shorter or cancelled drag animates back. Reversing before release uses the final
-  displacement. The gesture starts on the video, not the recommendation grid;
-  inline taps still toggle controls without double-tap seek or hold speed.
-  Rotation/PiP or an external fullscreen change cancel the drag;
-  system gesture edges and overlaid controls keep their input ownership. Kids
-  disables brightness/volume swipes on both sides without acquiring the native
-  brightness controller. Fullscreen tap, double-tap seek, and hold speed remain.
-- Back returns within or closes a picker, then exits fullscreen, then stops and
-  pops the watch route. It has no extra hide-controls step. Background/PiP close
-  uses the explicit route stop path. Permitted Downloads navigation also stops
-  and pops the player before opening the existing destination.
-- Offline cards use saved snapshot metadata and artwork. Legacy downloads and
-  missing images use placeholders; cached remote thumbnails do not imply offline
-  availability. Download permission and artifact qualification remain governed by the [download contract](data-playback.md#downloads-and-offline).
+See [Kids viewing](kids-viewing.md#kids-watch-page).
 
 ### Downloads navigation and presentation
 
 - Downloads is the fifth shared destination after Home, Library, Discover, and
   Find when the effective session permission allows downloads. Compact Android
   and iOS use the bottom bar; Medium+ shared layouts use the rail. TV behavior
-  is defined in [TV Downloads](tv-ux-behaviors.md#downloads).
+  is defined in [TV Downloads](tv-screen-behavior.md#downloads).
 - Movie and concrete-episode Detail show Download only with permission. The
   dialog starts at Original and lists only valid Fixed choices and track
-  confirmations from the [download contract](data-playback.md#downloads-and-offline).
+  confirmations from the [download contract](downloads.md#downloads-and-offline).
   Review validates the selection and shows the server estimate; Start queues it.
   Preview/enqueue errors replace the dialog content with a reason-specific
   failure. Allocation stays in Settings and Downloads. Normal Play remains
@@ -382,15 +308,10 @@ brush and scrims without resetting Settings scroll or focus.
   Debug alone uses its layer; controls, metadata, Skip, and Up Next use chrome;
   passive banners, notices, and status glyphs use popup; pickers, menus, and fatal
   errors use modal.
-- Android mpv slow-software recovery is a mandatory modal, not a playback-health
-  banner. Playback pauses and the user explicitly chooses Switch to ExoPlayer,
-  Keep playing with mpv, or Stop playback. Back/outside taps cannot dismiss it;
-  Continue resumes without repeating the prompt for that prepare. The dialog
-  closes immediately when Switch is selected; the player shows its loading
-  spinner during planning/preparation, with normal Back navigation available.
-  A rejected switch restores the dialog and explains the failure. Warning/log
-  preferences do not control this UI. The shared PlayerScreen hosts it for both
-  normal and Kids playback; Android TV uses its native D-pad dialog styling.
+- The [mandatory mpv recovery](playback-runtime.md#mandatory-mpv-recovery)
+  uses the modal layer. Shared PlayerScreen hosts it for normal and Kids
+  playback; Android TV owns its D-pad dialog styling and
+  [focus/transport contract](tv-screen-behavior.md#mandatory-mpv-playback-recovery).
 - Seek and desktop volume sliders retain separate thumb sizes: seek 18/22 dp,
   volume 12/16 dp at rest/active.
 - Shared Compose and TV Favorite/Watched actions share an outlined button with
@@ -498,116 +419,7 @@ brush and scrims without resetting Settings scroll or focus.
 
 ## Native tvOS screens
 
-The SwiftUI shell uses `TabView`/`NavigationStack`, with a tvOS 18 sidebar and
-tvOS 17 tabs ordered Home, Favorites, Libraries, Search, Downloads, Settings.
-Favorites has its own history and reuses View All. Refresh keeps cards mounted,
-reports failure inline, restores surviving focus, and supersedes older re-entry
-refreshes. System Back pops the current destination. Browsing state follows the
-[shared account lifecycle](architecture.md#account-boundary-and-lifecycle).
-App-global appearance watches live outside the account-keyed subtree: Ocean,
-Midnight and Ember colors and Small/Medium/Large card sizes update browsing and
-settings through a native environment. Resizing preserves aspect ratios, clipped
-viewports, focus reserve and stable media identity; player video remains black.
-
-Home orders Continue Watching, Favorites, Next Up, Recently Added. Ribbons load
-and retry independently; empty rows collapse and refresh retains cards. The hero
-follows settled media focus, remains above the clipped shelves, preserves its
-last item during control focus, and respects Reduce Motion.
-
-Libraries opens a collection-specific hub with Recommended and Library views
-where supported. Recommendation sections load and retry independently. The
-Library view retains a paged grid, collection-specific sort choices, and draft
-filters with Apply, Reset, and Cancel. Sort and the optional last inner view use
-shared preferences. Paging tracks consumed server offsets independently of
-card deduplication; re-entry refresh is bounded to 200 consumed items. A newer
-query or page invalidates older refresh results. The grid clips beneath its
-controls and the fixed hero; horizontal ribbons reserve room for focus scaling.
-
-Media focus identity is `(ribbon, item)`. Return reveals the saved target before
-focus, falling back within its ribbon. Select opens detail; Play/Pause starts a
-movie/episode at resume. View All uses the bounded query. Swift owns rendering
-and native focus; Kotlin owns business projection. Android focus belongs to the
-TV UX guide.
-
-Item detail presents readable metadata, source-qualified version/audio/subtitle
-choices, media information, people, and related titles. Play, Resume, and
-Restart follow the shared resume decision. Watched applies to movies and
-episodes; an explicit change clears the launch bookmark, and a failed change
-restores the confirmed watched status and progress. Series exposes favorite.
-Explicit track choices travel with the
-playback route and are validated against its original item and source. Local
-subtitle handoff keeps Play, Restart, and Download mounted but disabled until
-selection settles; failures require a new subtitle or source choice. A person
-credited in both Cast and Crew remains in both sections, with distinct role
-labels preserved within each section.
-
-Series opens seasons and Next Up; an explicit season keeps precedence over
-Next Up. Account-qualified final Stop settlement refreshes retained detail,
-relevant episodes and Next Up, including when settlement follows the initial
-return refresh. Refresh preserves visible content and explicit choices.
-Episode Select opens detail, while Play/Pause and row actions target
-that episode. Season errors and item-action failures remain visible and
-retryable. Person links open a header and paged Movies/Shows filmography.
-Detail headers scroll with content; the fixed browsing hero is specific to
-Home and Libraries.
-
-Search uses the system field and keyboard for the full Find query: text/year,
-person, genre, runtime, and watched status. Person and filter-only requests work
-without free text; keyboard edits clear a person selection while retaining
-questionnaire filters. All, Movies, Shows, and Episodes select cached result
-sections. Query, filters, results, focus, and navigation survive detail/player
-return and tab changes. Recent queries are account-scoped and recorded on
-submit, recent selection, or person selection; filter edits never add blank
-recents. Failed searches retain useful results with Retry.
-
-Settings uses native forms and navigation-link pickers for supported playback,
-language, segment, browsing, appearance, subtitles, diagnostics, and account
-controls. A failed playback-preference load shows Retry and keeps only playback,
-language, and segment controls disabled until a successful read; recovery retains
-the last confirmed values. Remember Library Tab uses the
-shared preference; autoplay-next controls automatic advancement while keeping
-manual Next available. Delay and still-watching preferences use the shared
-playback writer. Diagnostics disclosure and open-source notices remain
-reachable. Account information and Manage Accounts show each configured server
-URL, including its base path. Account switching and confirmed removal use shared Actions; removal
-shows the captured account's download count/bytes, refreshes stale previews,
-blocks leased artifacts, and releases canceled previews. Native dismissal cannot
-cancel a consumed confirmation; Cancel and Back still release an unconfirmed
-preview. Add Account presents
-the same login flow, with cancellation preserving the session.
-
-Login keeps manual entry beside capability-gated discovery. Sign-in offers Quick
-Connect or password. Back cancels sign-in, clears the password, and returns while
-retaining discovered rows. Idle discovery offers Search Again; failure offers
-Retry and never blocks manual entry. Shared session state owns successful routing.
-
-Player components separate the installed native host, transport and panels.
-Queue offers the current item, direct selection, previous/next and shuffle.
-Next-up offers identity/artwork, Play Now and Dismiss; completion countdown and
-still-watching semantics are owned by
-[data-playback.md](data-playback.md#tvos-native-player). Modal precedence is
-action/error, still-watching, a user-opened panel, then next-up. Back closes the
-topmost panel and returns focus to its invoker; unobscured Back closes playback.
-Progress updates do not steal focus or rebuild AVKit menus. Controls expose
-speed, supported subtitle style, AVKit video sizing and sanitized diagnostics.
-Timing and VLC video sizing are explicitly unavailable.
-
-OpenSubtitles settings provide a masked consumer-key editor, result preference
-and confirmed local-asset clearing. Movie/episode detail and online playback
-open account/item/source-qualified search. Results show loading, empty, failure,
-unsupported, quota and installation states; local rows offer Select, Delete and
-Retry Sync. Off clears selection. Offline playback has no remote subtitle-search
-entry or arbitrary file import.
-
-Downloads has its own tab and navigation path. Movie/episode detail previews the
-current version and track selection for Original or supported converted quality
-before enqueue. The local list groups completed, active, queued, paused and
-failed records and provides guarded playback, pause/resume/retry, Resume All,
-explicit Resume Queued Downloads with pending and retryable failure states,
-Cancel/Delete and storage allocation controls. Destructive actions confirm and
-respect active leases. Retained-account access survives server failure; the UI
-explains Apple TV's reclaimable storage and app-active transfer limit. The
-[download contract](data-playback.md#downloads-and-offline) owns those rules.
+See [native tvOS UI](tvos-ui.md#native-tvos-screens).
 
 ## Why
 
@@ -615,19 +427,11 @@ explains Apple TV's reclaimable storage and app-active transfer limit. The
   change independently. Mobile Media3 uses sp so clearance does not resize text.
   Fullscreen follows presentation state; measured Kids controls keep clearance
   correct for its smaller live video surface.
-- Kids recommendations are discovery views, not queues. One retained
-  player and explicit selection avoid autoplay while preserving responsive
-  layout and fullscreen continuity. Animation keeps the live surface; rotation
-  uses the destination pane center and longer timing, while fullscreen keeps its
-  shorter timing. A video-height release threshold makes drag transitions
-  reversible and reachable in portrait.
+
 - Switches already show state; their supporting text explains behavior instead.
   External-link icons make the browser handoff visible without adding another
   action or changing the destination.
 
-- Native tvOS keeps SwiftUI adapters/focus with feature views and business state
-  in Kotlin presenters. Qualified routes, settlement refresh, and paired
-  watched/progress rollback preserve retained detail state.
 - OpenSubtitles acknowledgement carries owner identity and selection revision
   because installation may finish after dismissal or a newer selection.
 - Overlay layers are explicit because composition order did not keep notices,

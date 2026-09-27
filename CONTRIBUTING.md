@@ -1,7 +1,7 @@
 # Development
 
 - [Build and run](docs/BUILD.md): toolchain, modules, platform commands, and installation.
-- [Development workflow](docs/guides/workflow.md): scope, implementation, tests,
+- [Development workflow](docs/engineering/workflow.md): scope, implementation, tests,
   review, verification, and documentation updates.
 - [Documentation map](docs/README.md): architecture, UI, playback, and platform contracts.
 - [Licensing and distribution](docs/operations/licensing-and-distribution.md):

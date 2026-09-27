@@ -34,7 +34,7 @@ What happened instead?
 
 ## Diagnostics
 
-Follow [Diagnostics and troubleshooting](https://github.com/ch4ndu/JellyScope/blob/main/docs/USAGE.md#diagnostics-and-troubleshooting),
+Follow [Diagnostics and troubleshooting](https://github.com/ch4ndu/JellyScope/blob/main/docs/user/troubleshooting.md#diagnostics-and-troubleshooting),
 then include the returned server filename. If the upload was disabled or failed,
 record that outcome instead.
 

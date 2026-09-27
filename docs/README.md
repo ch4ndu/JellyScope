@@ -1,31 +1,45 @@
 # Documentation Map
 
-Use this map to find each document's scope. The
-[development workflow](guides/workflow.md#8-maintain-documentation) owns
-documentation maintenance and single-owner rules.
+## User guides
 
-## Sources Of Truth
+Start with [Using JellyScope](USAGE.md) for task-based instructions and platform limits.
 
-| File | Owns |
+## Engineering
+
+Each guide owns the detailed contract named below. Link to its owner instead of
+copying rules. [Documentation maintenance](engineering/workflow.md#8-maintain-documentation)
+owns audience, size and migration policy.
+
+| Guide | Owns |
 | --- | --- |
-| [`../README.md`](../README.md) | Project overview, feature summary, supported platforms, and starting points |
-| [`USAGE.md`](USAGE.md) | Feature guide: accounts, browsing, queues, versions, downloads, playback, subtitles, PiP, and diagnostics |
-| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Development entry point and change requirements |
-| [`../CHANGELOG.md`](../CHANGELOG.md) | What shipped in which release |
-| [Project instructions](../AGENTS.md) | Contract routing and required gates |
-| [`BUILD.md`](BUILD.md) | Toolchain, per-platform build commands, installation and upgrades, verification baseline, module map |
-| [`RELEASE.md`](RELEASE.md) | Release runbook: Android and Apple signing setup, release builds, smoke-test checklist |
-| [`guides/architecture.md`](guides/architecture.md) | Layers, state/events, source layout, and platform boundaries |
-| [`guides/playback-architecture.md`](guides/playback-architecture.md) | Shared playback decision pipeline and platform/backend ownership |
-| [`guides/data-playback.md`](guides/data-playback.md) | Jellyfin API, auth, cache, settings, playback planning and behavior, player UX, probe-verified server behavior |
-| [`guides/ui.md`](guides/ui.md) | Shared UI, adaptive layout, accessibility, resources, previews |
-| [`guides/tv-ux-behaviors.md`](guides/tv-ux-behaviors.md) | TV focus, remote input, navigation, screen behavior |
-| [`guides/workflow.md`](guides/workflow.md) | Step-by-step development, testing, review, verification, and documentation workflow |
-| [`guides/audit.md`](guides/audit.md) | Architecture, correctness, code-quality, performance audit workflow |
-| [`guides/compose-performance-audit.md`](guides/compose-performance-audit.md) | Compose performance and correctness audit method |
-| [`operations/android-native-dependencies.md`](operations/android-native-dependencies.md) | Android native dependency pins, packaged-binary verification, licenses, corresponding-source obligations |
-| [`operations/licensing-and-distribution.md`](operations/licensing-and-distribution.md) | Project-license direction, platform-distribution obligations, source availability, trademarks, and migration gate |
-| `design/**` | Published brand/icon asset provenance and retained design assets |
+| [architecture](engineering/architecture.md) | Layers, state, DI, source sets and platform bridges |
+| [accounts-and-persistence](engineering/accounts-and-persistence.md) | Credentials, account boundaries, settings and durable state |
+| [api-and-caching](engineering/api-and-caching.md) | Jellyfin requests, projections, discovery and caches |
+| [playback-architecture](engineering/playback-architecture.md) | Playback pipeline and platform ownership |
+| [playback-policy](engineering/playback-policy.md) | Quality, capabilities, wire profiles and server evidence |
+| [playback-runtime](engineering/playback-runtime.md) | Session installation, activation, reporting and recovery |
+| [subtitles](engineering/subtitles.md) | Track delivery, local assets and OpenSubtitles |
+| [downloads](engineering/downloads.md) | Admission, storage, artifacts, offline playback and removal |
+| [download-execution](engineering/download-execution.md) | Queue execution, retry, checkpoints and OS grants |
+| [android-playback](engineering/android-playback.md) | Media3, LibVLC, mpv and Android transport integration |
+| [apple-playback](engineering/apple-playback.md) | iOS and tvOS native playback integration |
+| [desktop-playback](engineering/desktop-playback.md) | Desktop native playback and presentation |
+| [player-interactions](engineering/player-interactions.md) | Shared player input, overlays and picker contracts |
+| [diagnostics](engineering/diagnostics.md) | Collection, safe logging, privacy and reporting |
+| [ui](engineering/ui.md) | Compose, design, adaptive layout and shared screen contracts |
+| [kids-viewing](engineering/kids-viewing.md) | Kids eligibility, single-asset playback and layout |
+| [tvos-ui](engineering/tvos-ui.md) | Native tvOS presentation and navigation |
+| [tv-ux-behaviors](engineering/tv-ux-behaviors.md) | Android TV focus kernel, navigation and playback links |
+| [tv-screen-behavior](engineering/tv-screen-behavior.md) | Android TV screen and remote behavior |
+| [workflow](engineering/workflow.md) | Development, tests, reviews and documentation maintenance |
+| [audit](engineering/audit.md) | Architecture and code audit method |
+| [compose-performance-audit](engineering/compose-performance-audit.md) | Compose correctness and performance audit method |
 
-The overview and feature guide describe application behavior; engineering
-contracts and development process belong in the guides.
+## Build, release and project records
+
+- [Build](BUILD.md): toolchains, local artifacts, installation commands and module map.
+- [Release](RELEASE.md): signing, publication commands and acceptance gates.
+- [Native dependencies](operations/android-native-dependencies.md): Android pins, binary verification and source/license obligations.
+- [Licensing and distribution](operations/licensing-and-distribution.md): legal direction and distribution requirements.
+- [Project overview](../README.md), [contributing](../CONTRIBUTING.md), [project instructions](../AGENTS.md), and [release history](../CHANGELOG.md).
+- `design/**`: retained design assets and provenance; not an engineering contract owner.

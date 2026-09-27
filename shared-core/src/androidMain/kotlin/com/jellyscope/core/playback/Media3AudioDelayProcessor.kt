@@ -21,7 +21,7 @@ import java.nio.ByteBuffer
  * The processor deliberately does NOT compensate the media clock: the inserted
  * silence / dropped frames flow through to the audio clock so the audible audio
  * shifts relative to the clock-slaved video. Reported position tracks video
- * (accepted; see docs/guides/data-playback.md). An offset change is applied by a
+ * (accepted; see docs/engineering/data-playback.md). An offset change is applied by a
  * controller-driven re-prepare, whose sink flush re-runs [onFlush] and
  * re-establishes the shift at the new position — this processor holds no live
  * transition state of its own.

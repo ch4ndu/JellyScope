@@ -67,48 +67,11 @@ Local subtitles use `LocalSubtitleFileStore`. Room stores metadata and selection
 one app-scoped coordinator is the sole writer of subtitle files, asset rows, and
 selection and owns account cleanup. Players receive sealed remote/local
 `SubtitleAsset`; offline packages use trusted `PlannedSubtitle.OfflineSidecar`
-leases from [Downloads](data-playback.md#downloads-and-offline).
+leases from [Downloads](downloads.md#downloads-and-offline).
 
 ## Account Boundary And Lifecycle
 
-- `AccountIdentity(serverId, userId)` keys account-owned caches, activity,
-  playback memory, and provider state. Replaceable connection URLs are session
-  metadata, not identity.
-- `SessionTransitionCoordinator` serializes restore, login/add, switch, removal,
-  and logout through `ServerScopedStoreRegistry`. Authentication runs outside
-  the mutation gate; its opaque token must still be current at commit.
-- Cold restore publishes LoggedIn only after installing exact identity and
-  boundary epoch under the gate. Background work captures one immutable snapshot
-  and acquires an account lease; stale leases cannot begin or commit work.
-- Shared, Android TV, and native tvOS logged-in roots are keyed by identity plus
-  epoch, so same-account token rotation receives a fresh lifecycle. `accounts`
-  and `SessionState` derive from one committed snapshot, including active markers.
-- Login, switch, and reauthentication validate and prepare while cancellable,
-  then explicitly check cancellation before one `NonCancellable` commit tail:
-  envelope persistence/load, required outgoing subtitle barrier, registry/epoch
-  transition, and exact snapshot publication. Cancellation is surfaced only
-  after durable and observable state agree. Removal carries its committed
-  snapshot; no transition rereads secure storage after commit.
-- Parental-rating refresh uses a narrow same-boundary update under the existing
-  mutation gate. Both the full live Session/epoch and the persisted active
-  account/row must match the captured request, with no pending logout. Changed
-  ratings persist then publish in one non-cancellable tail; unchanged ratings
-  skip publication. This neither changes the epoch nor invalidates login
-  attempts or runs account/cache cleanup. The existing idempotent subtitle-sync
-  `collectLatest` consumer may restart when the changed Session is published.
-  Refresh triggers and offline behavior belong to
-  [Kids account playback](data-playback.md#kids-account-playback).
-- Removal computes values needed after mutation before the first write, runs
-  cleanup outside caller cancellation, and aggregates phase failures so one
-  failing store does not abandon the rest.
-- `PersistentAccountStoreCleaner` directly owns persistent full/server/account
-  cleanup; correctness does not depend on lazy feature resolution. App-global
-  theme, tile, PiP, logging, OpenSubtitles key, device policy, and subtitle
-  file/asset policies remain outside it.
-- Registry filters do not overlap: switch calls only `RefetchableServerCache`,
-  removal calls only `AccountScopedClearableStore`. A runtime store that must
-  clear at both boundaries implements both and has a focused check for each.
-  `PlaybackDiagnosticsContext`, `DiscoveryCache`, and `DetailRelatedCache` do so.
+See [accounts and persistence](accounts-and-persistence.md#account-boundary-and-lifecycle).
 
 ## UseCases And Actions
 
@@ -222,7 +185,7 @@ Entry-point responsibilities:
   notifications, callback-owned MediaSession, and PiP. TV provides its own
   shell but reuses Android player/surface/audio-focus/backend bridges. Android
   backend order and mpv's API-26 availability follow the
-  [data/playback backend policy](data-playback.md#backend-selection).
+  [playback runtime backend policy](playback-runtime.md#backend-selection).
 - iOS wires AVPlayer/VLCKit, settings/session storage, and Apple lifecycle. App
   credentials/preferences use app-owned `NSUserDefaults`; designated data stays
   in Room. Application credentials do not use Keychain.
@@ -246,7 +209,7 @@ feed domain UseCases/Actions; ViewModels and native presenters consume those
 surfaces, and UI never owns queue/filesystem. The
 isolated Download database keeps durable transfer/removal state outside
 refetchable cache cleanup. See
-[Downloads And Offline](data-playback.md#downloads-and-offline).
+[Downloads And Offline](downloads.md#downloads-and-offline).
 
 iOS optionally injects continued-execution permission into the shared Apple
 lifecycle host. The Swift controller owns BackgroundTasks objects; a narrow
@@ -278,35 +241,7 @@ Related groups/loading and does not own that stream.
 
 ### Desktop libmpv boundary
 
-macOS loads only the pinned bundled mpv closure; Linux uses system lookup and
-Windows packages supply `mpv-2.dll`. Apple Silicon packages also bundle the
-audited VLC runtime. Acquisition and offline behavior belong to
-[BUILD](../BUILD.md#desktop-jvm), and signing, provenance, and package checks to
-the [release runbook](../RELEASE.md#manual-macos-stages). Android mpv is a
-separate integration.
-
-Desktop sets `LC_NUMERIC=C` before using the loaded libmpv interface, and
-release shrinking preserves runtime-loaded providers and native entry points.
-
-Desktop mpv exposes a JVM-only presentation capability. The primary macOS path
-uses a generation-scoped app-owned `NSView`, CGL context, and three-buffer
-IOSurface swapchain; it falls back to app-owned OpenGL, then two-buffer Skia
-software rendering before item load. Core owns libmpv callbacks/context and one
-render executor. Initialization and release serialize under `engineLock`, joins
-stay outside it, and detach completes only after callbacks and context stop. No
-path supplies `wid` or lets mpv create or focus a window.
-
-Software fallback renders into two UI-owned BGRA buffers off Main, publishes a
-complete front buffer on Main, and waits one frame before reusing the prior
-buffer.
-
-Compose owns controls and input. A clear cutout exposes the native view below
-Compose; the peer view rejects hit testing. Desktop LibVLC remains an independent
-controller/AppKit surface, never an mpv render target. Native handles, callbacks,
-Skia types, and generations stay out of common contracts. Backend-specific
-presentation limits and runtime checks are owned by
-[data playback](data-playback.md#desktop-player-presentation); package success
-does not establish real playback behavior.
+See [desktop playback](desktop-playback.md#desktop-libmpv-boundary).
 
 ### Playback bridge rules
 
@@ -344,7 +279,7 @@ pipeline and backend comparison. These source boundaries enforce it:
   through the JVM-only BGRA capability. Common UI never casts native controllers.
 - Optional `PlayerTimingController` keeps persistence/UI common and application
   backend-owned. Unsupported backends expose no misleading value; detailed
-  offset behavior belongs to [data playback](data-playback.md#quality-tracks-and-subtitles).
+  offset behavior belongs to [subtitle selection](subtitles.md#quality-tracks-and-subtitles).
 - `SavePlaybackSelectionAction` and `SavePlaybackTimingOffsetAction` use the
   shared latest-wins per-key `DebouncedKeyedStoreWriter` off Main.
 - Android backend choice is resolved before planning and remains authoritative
@@ -361,7 +296,7 @@ pipeline and backend comparison. These source boundaries enforce it:
   serialized native lifecycle, tracks, diagnostics, retry, and release; surface
   hosts are owner-qualified and JNI/native logging admits no raw text. Their
   capability, track, readiness, and recovery details belong to
-  [data playback](data-playback.md#durable-playback-controls-and-android-engines).
+  [Android playback](android-playback.md#android-mpv-backend).
 - `AndroidAudioFocusCoordinator` alone owns focus/noisy behavior for all Android
   backends; Media3 internal focus/noisy handling is off. Media3 uses bounded
   streaming load control. LibVLC seek/resume stays Buffering until native clock
@@ -373,7 +308,8 @@ pipeline and backend comparison. These source boundaries enforce it:
   closed decision inputs, stage, outcome, and safe exception class/result code,
   with enough bounded transitions and surface milestones to reconstruct cause.
   Never log URLs, headers, tokens, paths, identities, messages, stacks, or raw
-  payloads. Detailed track/recovery/profile mapping belongs to data playback.
+  payloads. Detailed [track](subtitles.md), [recovery](playback-runtime.md), and
+   [profile](playback-policy.md) mapping has separate owners.
 
 ### Other bridges
 
@@ -422,7 +358,7 @@ Diagnostics cross platforms only through sanitized app models. A causal report
 distinguishes planning, admission, construction, prepare, runtime,
 fallback/recovery, and outcome. A boundary that catches a failure records its
 safe operation/stage/result before recovery. Upload/scrubbing policy belongs to
-[data playback](data-playback.md#diagnostics-logging-and-privacy).
+[diagnostic privacy](diagnostics.md#diagnostics-logging-and-privacy).
 
 ## External Source Boundary
 
@@ -446,27 +382,6 @@ gates live in
 - Nullable side interfaces keep platform-only capabilities out of
   `PlayerController`; shared persisted decoding keeps defaults local so platform
   policy and on-disk compatibility do not silently converge.
-
-### Accounts and lifecycle
-
-- Server-plus-user identity and one immutable session snapshot prevent requests,
-  caches, and publication from crossing account generations.
-- Presentation-policy refresh must not reauthenticate or remount an active
-  account. Comparing the durable active row as well as live state prevents a
-  stale refresh from reactivating an account or clearing a pending logout.
-- Direct persistent-store cleanup avoids lazy-DI ordering. Removal and commit
-  tails are atomic/non-cancellable because partial durable mutation cannot
-  represent an unchanged session.
-
-### Desktop playback embedding
-
-- macOS mpv uses IOSurface, app-owned OpenGL, then software fallback; `wid` is
-  rejected because it opens a separate player window. Compose remains the sole
-  controls/input scene.
-- Engine-lock and deferred-lifetime discipline keep teardown out of render
-  callbacks. Runtime availability is a cheap file check; engine creation still
-  validates versions. Pinned packaged inventories prevent machine libraries from
-  changing the native graph.
 
 ### Android playback integration
 

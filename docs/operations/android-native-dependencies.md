@@ -17,7 +17,7 @@ artifact-only Ivy repository restricted to that module. No GitHub credentials,
 local AAR override or native source build is needed for a normal clone/build.
 
 The existing bundle includes both GPU and Direct MediaCodec video-output drivers.
-The [TV output setting](../guides/data-playback.md#android-mpv-backend) selects
+The [TV output setting](../engineering/android-playback.md#android-mpv-backend) selects
 between them without a native rebuild or an additional release.
 
 The bundle replaces only `jni/armeabi-v7a/libmpv.so` from the original
@@ -138,7 +138,7 @@ sidecars, and keeps URLs, headers, tokens, paths, titles, and raw native errors
 out of shared/exported diagnostics and native message forwarding to logcat.
 When **Collect diagnostic logs** is enabled, mpv can retain a sensitive raw log
 in app-private storage; it is excluded from crash upload and bounded client-log export. The
-[Android mpv diagnostic policy](../guides/data-playback.md#android-mpv-backend) owns that
+[Android mpv diagnostic policy](../engineering/android-playback.md#android-mpv-backend) owns that
 exception and its collection controls.
 
 The remaining native residuals are explicit: mpv/FFmpeg does not inherit

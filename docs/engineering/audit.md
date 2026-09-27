@@ -68,7 +68,7 @@ For a whole-project audit, inspect the repository in staged subsystem passes:
 - URL normalization, auth headers, logging, and diagnostics are centralized and
   sanitized. Jellyfin credentials never reach untrusted absolute URLs.
 - Treat the documented Apple credential-persistence policy in
-  [`data-playback.md`](data-playback.md#persistence-and-account-isolation) as an
+  [accounts and persistence](accounts-and-persistence.md#persistence-and-account-isolation) as an
   accepted constraint,
   not a finding. Audit concrete violations of that boundary or newly applicable
   external requirements, not the documented plaintext-at-rest tradeoff itself.
@@ -93,7 +93,7 @@ For a whole-project audit, inspect the repository in staged subsystem passes:
   controls expose semantics, touch targets remain reasonable, and adaptive
   layouts preserve their documented content/inset behavior.
 - Lazy layouts preserve stable identity and virtualization. Compose performance
-  findings follow `docs/guides/compose-performance-audit.md`.
+  findings follow `docs/engineering/compose-performance-audit.md`.
 - TV paths preserve D-pad, BACK, SELECT, media-key, focus restoration, and
   stable-key behavior for the exact affected route.
 - Tests verify observable behavior and state rather than incidental call order.

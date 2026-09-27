@@ -128,7 +128,7 @@ graphs are reviewed.
 The macOS arm64 mpv package consumes IINA's versioned 1.4.0 dylib set. The
 69-file inventory, IINA bundle route, disclosed mpv revision `c0dd2b3`,
 GPL texts, and source routes are owned by
-[`scripts/desktop-mpv-bundle/`](../../scripts/desktop-mpv-bundle/). JellyScope
+[`scripts/desktop-mpv-bundle/`](../../scripts/desktop-mpv-bundle). JellyScope
 validates the complete inventory on every cache use and changes only staged install
 names so non-system dependencies resolve through sibling `@loader_path`
 references, then re-signs the staged files. It does not read Homebrew, MacPorts,
@@ -195,7 +195,7 @@ Contribution and trademark policies are separate governance work. Signing,
 notarization, store terms, privacy declarations, and device smoke tests remain
 release operations; they are not third-party license-inventory entries.
 The documented Apple application credential-persistence policy is owned by
-the [data and playback guide](../guides/data-playback.md#persistence-and-account-isolation).
+the [accounts and persistence guide](../engineering/accounts-and-persistence.md#persistence-and-account-isolation).
 Its accepted plaintext-at-rest tradeoff is not a project licensing or binary
 inventory blocker and must not be reopened by these gates; a newly applicable
 external store requirement remains a separate release review.

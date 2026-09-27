@@ -86,7 +86,7 @@ LibVLC is degraded in debug builds; test playback with minified release APKs on
 representative hardware. After assembly, run
 `bash scripts/verify-android-native-bundle.sh` against both release APKs.
 Package verification does not replace the
-[runtime checks](guides/workflow.md#manual-and-platform-validation).
+[runtime checks](engineering/workflow.md#manual-and-platform-validation).
 
 For a manually initiated Android TV playback link, sign in and exit any current
 player, then invoke the item on that same server/account:
@@ -99,7 +99,7 @@ adb -s DEVICE_SERIAL shell \
 Replace the four placeholders before running. The link uses current playback
 settings and starts at zero; it contains no token or media URL. Accepted inputs,
 account checks, and active-player behavior are owned by
-[Playback Links](guides/tv-ux-behaviors.md#playback-links).
+[Playback Links](engineering/tv-ux-behaviors.md#playback-links).
 
 ## Desktop (JVM)
 
@@ -172,6 +172,9 @@ uses empty values.
 
 ## Installing and upgrading
 
+For user installation and upgrade precautions, see [Getting started](user/getting-started.md#install-and-upgrade).
+The artifact paths and commands below are for local development builds.
+
 Choose the platform artifact below. These commands produce local builds; the
 [release runbook](RELEASE.md) owns signed publication. A source checkout does
 not imply a public download or store listing.
@@ -203,7 +206,7 @@ updates. After installation, see the [usage guide](USAGE.md).
 ## Verification
 
 The preflight stops Gradle daemons when finished. The
-[development workflow](guides/workflow.md) defines change-specific checks and
+[development workflow](engineering/workflow.md) defines change-specific checks and
 completion criteria. Broad changes use this baseline:
 
 ```bash
@@ -219,7 +222,7 @@ completion criteria. Broad changes use this baseline:
 #   -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' build
 ```
 
-Apply the workflow's [behavior verification and runtime-authorization rules](guides/workflow.md#7-verify-the-final-candidate)
+Apply the workflow's [behavior verification and runtime-authorization rules](engineering/workflow.md#7-verify-the-final-candidate)
 to UI, playback, and platform changes.
 
 ## Module map
@@ -240,8 +243,8 @@ to UI, playback, and platform changes.
 - `tvos-app`: native SwiftUI Apple TV shell driven by `shared-tvos`.
 
 Layers, platform seams, and source-layout rules are owned by
-[`guides/architecture.md`](guides/architecture.md).
+[`guides/architecture.md`](engineering/architecture.md).
 
 Change requirements are in [`../CONTRIBUTING.md`](../CONTRIBUTING.md). Detailed
 code conventions live in the
-[development workflow](guides/workflow.md#4-write-clear-maintainable-code).
+[development workflow](engineering/workflow.md#4-write-clear-maintainable-code).

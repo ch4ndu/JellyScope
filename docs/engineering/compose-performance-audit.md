@@ -3,7 +3,7 @@
 Use with [`ui.md`](ui.md) and the relevant feature guide. Static audits do not
 run profiling or benchmarks unless measurement is explicitly authorized.
 
-Use the report format and evidence levels from `docs/guides/audit.md`. Use visible,
+Use the report format and evidence levels from `docs/engineering/audit.md`. Use visible,
 searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
 `[EFFECT_LIFECYCLE]`, `[LAZY_VIRTUALIZATION]`, `[FLOW_SCOPE]`, `[MAIN_THREAD]`,
 `[IMAGE_PIPELINE]`, and `[BUILD_PERF]`.
@@ -46,7 +46,7 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
 ## State Reads And Derived Work
 
 - Apply the projection, lowest-scope collection, lazy-key, and hot-read rules in
-  `docs/guides/ui.md`; do not replace ViewModel/domain projections with
+  `docs/engineering/ui.md`; do not replace ViewModel/domain projections with
   composition-local caching.
 - Flag duplicate or broad state reads that invalidate unrelated UI. Collect
   branch-specific flows only while the branch, mode, screen, or component that

@@ -63,8 +63,9 @@ internal class JellyfinMedia3RenderersFactory(
                 // playout position, because that is exactly what shifts the
                 // audible audio relative to the clock-slaved video. Reported
                 // position (and Jellyfin progress) therefore tracks video; the
-                // resulting <=10 s cosmetic shift vs the audible audio is an
-                // accepted trade (see docs/guides/data-playback.md).
+                // resulting cosmetic shift vs the audible audio is bounded by
+                // PLAYBACK_TIMING_OFFSET_LIMIT_MS, an accepted trade
+                // (see docs/engineering/data-playback.md).
                 .setAudioProcessors(arrayOf(audioProcessor))
                 .build()
         // Media3 normally treats a device-supported encoded format as a

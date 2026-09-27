@@ -364,7 +364,7 @@ class PlaybackInfoPlanner(
                 recoveryIntent = PlaybackRecoveryIntent.Compatibility,
                 // AllowVideoStreamCopy=false is what actually forces the video
                 // re-encode: with it true a "transcode" can remux the oversize
-                // video verbatim, invisibly (docs/guides/data-playback.md).
+                // video verbatim, invisibly (docs/engineering/data-playback.md).
                 // This flag is also decidePlan's proof that the recovery response's
                 // transcode is safe to accept for a copy-refused source.
                 allowVideoStreamCopy = false,
