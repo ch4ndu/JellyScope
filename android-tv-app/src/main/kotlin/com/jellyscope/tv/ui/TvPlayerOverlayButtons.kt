@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.player.PlayerMediaMetadata
+import com.jellyscope.ui.screen.player.rememberPlayerClockText
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import com.jellyscope.ui.component.DetailBodyStyle as TvBodyStyle
 import com.jellyscope.ui.component.DetailSecondaryStyle as TvSecondaryStyle
@@ -103,6 +104,7 @@ internal fun TvPillButton(
 @Composable
 internal fun OverlayMetadataRow(
     metadata: PlayerMediaMetadata,
+    showClock: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -142,5 +144,18 @@ internal fun OverlayMetadataRow(
                 maxLines = 1,
             )
         }
+        if (showClock) {
+            TvPlayerClock(modifier = Modifier.align(Alignment.Top))
+        }
     }
+}
+
+@Composable
+private fun TvPlayerClock(modifier: Modifier = Modifier) {
+    TvText(
+        text = rememberPlayerClockText(),
+        modifier = modifier,
+        style = TvPlayerNowPlayingTitleStyle,
+        maxLines = 1,
+    )
 }

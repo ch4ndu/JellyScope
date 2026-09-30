@@ -70,3 +70,12 @@ can remove downloaded media after confirmation; see [download removal](downloads
 Refreshing download permission requires authenticating the same account again,
 not removing it. Downloaded OpenSubtitles files have a separate lifecycle and
 remain until explicitly cleared through subtitle settings.
+
+Image quality is available under **Settings → Appearance → Image quality** on
+all apps. **High** is the default and uses the original artwork sizes.
+**Medium** decodes at 75% of the displayed bounds in each dimension; **Low**
+is 20% smaller than Medium. Neither ever loads larger artwork than High, so on
+large screens they can look the same as High. The choice includes hero images, posters, wide
+cards, and downloaded artwork, persists on this device, and leaves video
+quality unchanged. Compare sharpness and scrolling on your screen before
+choosing a reduced level.

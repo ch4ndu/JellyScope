@@ -196,6 +196,13 @@ struct PlayerScreen: View {
                 Label("Controls", systemImage: "slider.horizontal.3")
             }
             .focused($launcherFocus, equals: .controls)
+            if model.showsClock {
+                TimelineView(.everyMinute) { context in
+                    Text(context.date, style: .time)
+                        .font(.headline)
+                        .monospacedDigit()
+                }
+            }
         }
     }
 

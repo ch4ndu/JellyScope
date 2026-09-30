@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.AppColorThemeId
 import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GB
 import com.jellyscope.core.domain.model.DownloadRemovalPreview
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.model.SendClientLogsResult
 import com.jellyscope.core.domain.model.Session
@@ -157,6 +158,7 @@ fun TvSettingsScreen(
         onRefreshPlayerDevicePolicy = viewModel::refreshPlayerDevicePolicy,
         onThemeSelected = viewModel::setAppTheme,
         onTileSizeSelected = viewModel::setTileSize,
+        onImageQualitySelected = viewModel::setImageQuality,
         focusedCardZoomEnabled = focusedCardZoomEnabled,
         showLibraryGridHero = showLibraryGridHero,
         onFocusedCardZoomEnabledChange = preferenceViewModel::setFocusedCardZoomEnabled,
@@ -170,6 +172,7 @@ fun TvSettingsScreen(
         onCollectLogsChange = viewModel::setLogCollectionEnabled,
         onVerboseLogcatChange = viewModel::setVerboseLogcatEnabled,
         onPlaybackInfoAtStartChange = viewModel::setPlaybackInfoAtStartEnabled,
+        onPlayerClockChange = viewModel::setPlayerClockEnabled,
         onSendClientLogs = viewModel::sendClientLogs,
         modifier = modifier.fillMaxSize(),
     )
@@ -210,6 +213,7 @@ internal fun TvSettingsContent(
     onRefreshPlayerDevicePolicy: () -> Unit,
     onThemeSelected: (AppColorThemeId) -> Unit,
     onTileSizeSelected: (TileSizeId) -> Unit,
+    onImageQualitySelected: (ImageQuality) -> Unit = {},
     focusedCardZoomEnabled: Boolean,
     showLibraryGridHero: Boolean,
     onFocusedCardZoomEnabledChange: (Boolean) -> Unit,
@@ -223,6 +227,7 @@ internal fun TvSettingsContent(
     onCollectLogsChange: (Boolean) -> Unit = {},
     onVerboseLogcatChange: (Boolean) -> Unit = {},
     onPlaybackInfoAtStartChange: (Boolean) -> Unit = {},
+    onPlayerClockChange: (Boolean) -> Unit = {},
     onSendClientLogs: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -422,6 +427,7 @@ internal fun TvSettingsContent(
                 onRefreshPlayerDevicePolicy = onRefreshPlayerDevicePolicy,
                 onThemeSelected = onThemeSelected,
                 onTileSizeSelected = onTileSizeSelected,
+                onImageQualitySelected = onImageQualitySelected,
                 onFocusedCardZoomEnabledChange = onFocusedCardZoomEnabledChange,
                 onShowLibraryGridHeroChange = onShowLibraryGridHeroChange,
                 onRememberLastLibraryViewChange = onRememberLastLibraryViewChange,
@@ -433,6 +439,7 @@ internal fun TvSettingsContent(
                 onCollectLogsChange = onCollectLogsChange,
                 onVerboseLogcatChange = onVerboseLogcatChange,
                 onPlaybackInfoAtStartChange = onPlaybackInfoAtStartChange,
+                onPlayerClockChange = onPlayerClockChange,
                 onSendClientLogs = onSendClientLogs,
             )
         }
@@ -538,6 +545,11 @@ private fun tvSettingsTilePresentation(
                 TvSettingsTilePresentation(
                     stringResource(R.string.tv_settings_tile_size),
                     tvTileSizeLabel(state.tileSize),
+                )
+            TvSettingsTileId.ImageQuality ->
+                TvSettingsTilePresentation(
+                    stringResource(R.string.tv_settings_image_quality),
+                    tvImageQualityLabel(state.imageQuality),
                 )
             TvSettingsTileId.FocusedCardZoom ->
                 TvSettingsTilePresentation(
@@ -719,6 +731,11 @@ private fun tvSettingsTilePresentation(
                     stringResource(R.string.tv_settings_playback_info_at_start),
                     tvSettingsToggleValue(state.playbackInfoAtStartEnabled),
                 )
+            TvSettingsTileId.PlayerClock ->
+                TvSettingsTilePresentation(
+                    stringResource(R.string.tv_settings_player_clock),
+                    tvSettingsToggleValue(state.playerClockEnabled),
+                )
         }
     val playbackStatus =
         when {
@@ -848,6 +865,7 @@ private fun TvSettingsTileDialog(
     onRefreshPlayerDevicePolicy: () -> Unit,
     onThemeSelected: (AppColorThemeId) -> Unit,
     onTileSizeSelected: (TileSizeId) -> Unit,
+    onImageQualitySelected: (ImageQuality) -> Unit = {},
     onFocusedCardZoomEnabledChange: (Boolean) -> Unit,
     onShowLibraryGridHeroChange: (Boolean) -> Unit,
     onRememberLastLibraryViewChange: (Boolean) -> Unit,
@@ -858,6 +876,7 @@ private fun TvSettingsTileDialog(
     onCollectLogsChange: (Boolean) -> Unit,
     onVerboseLogcatChange: (Boolean) -> Unit,
     onPlaybackInfoAtStartChange: (Boolean) -> Unit,
+    onPlayerClockChange: (Boolean) -> Unit,
     onSendClientLogs: () -> Unit,
     logoutFailed: Boolean,
 ) {
@@ -920,6 +939,18 @@ private fun TvSettingsTileDialog(
                 options = TileSizeId.entries.map { TvSettingsDialogOption(it, tvTileSizeLabel(it)) },
                 onSelected = { size ->
                     onTileSizeSelected(size)
+                    onDismiss()
+                },
+                onDismiss = onDismiss,
+            )
+        TvSettingsTileAction.ImageQuality ->
+            TvSettingsChoiceDialog(
+                title = stringResource(R.string.tv_settings_image_quality),
+                description = stringResource(R.string.tv_settings_image_quality_description),
+                selected = state.imageQuality,
+                options = ImageQuality.entries.map { TvSettingsDialogOption(it, tvImageQualityLabel(it)) },
+                onSelected = { size ->
+                    onImageQualitySelected(size)
                     onDismiss()
                 },
                 onDismiss = onDismiss,
@@ -1190,6 +1221,17 @@ private fun TvSettingsTileDialog(
                 value = state.playbackInfoAtStartEnabled,
                 onSelected = { enabled ->
                     onPlaybackInfoAtStartChange(enabled)
+                    onDismiss()
+                },
+                onDismiss = onDismiss,
+            )
+        TvSettingsTileAction.PlayerClock ->
+            TvBooleanDialog(
+                title = stringResource(R.string.tv_settings_player_clock),
+                description = stringResource(R.string.tv_settings_player_clock_description),
+                value = state.playerClockEnabled,
+                onSelected = { enabled ->
+                    onPlayerClockChange(enabled)
                     onDismiss()
                 },
                 onDismiss = onDismiss,
@@ -1872,3 +1914,13 @@ private fun AccountUiError.messageResource(): Int =
         AccountUiError.ServerError -> R.string.tv_error_server
         AccountUiError.RemovalFailed -> R.string.tv_settings_account_removal_error
     }
+
+@Composable
+private fun tvImageQualityLabel(quality: ImageQuality): String =
+    stringResource(
+        when (quality) {
+            ImageQuality.Low -> R.string.tv_image_quality_low
+            ImageQuality.Medium -> R.string.tv_image_quality_medium
+            ImageQuality.High -> R.string.tv_image_quality_high
+        },
+    )

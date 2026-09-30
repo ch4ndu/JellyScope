@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.AppColorThemeId
 import com.jellyscope.core.domain.model.DownloadRemovalPreview
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.OpenSubtitleResultPreference
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.model.SendClientLogsResult
@@ -114,6 +115,7 @@ fun SettingsScreen(
         onSetAutoPlayNext = viewModel::setAutoPlayNext,
         onSetStillWatchingPrompt = viewModel::setStillWatchingPrompt,
         onSetPlaybackWarningsEnabled = viewModel::setPlaybackWarningsEnabled,
+        onSetPlayerClockEnabled = viewModel::setPlayerClockEnabled,
         onSetAllowInsecureDesktopTls = viewModel::setAllowInsecureDesktopTls,
         onSetAutoPlayNextDelaySeconds = viewModel::setAutoPlayNextDelaySeconds,
         onSetSegmentSkipPolicy = viewModel::setSegmentSkipPolicy,
@@ -124,6 +126,7 @@ fun SettingsScreen(
         onRefreshPlayerDevicePolicy = viewModel::refreshPlayerDevicePolicy,
         onSetAppTheme = viewModel::setAppTheme,
         onSetTileSize = viewModel::setTileSize,
+        onSetImageQuality = viewModel::setImageQuality,
         onSetPictureInPictureEnabled = viewModel::setPictureInPictureEnabled,
         onSetRememberLastLibraryView = viewModel::setRememberLastLibraryView,
         onSetOpenSubtitlesApiKey = viewModel::setOpenSubtitlesApiKey,
@@ -205,6 +208,7 @@ fun SettingsContent(
     onSetAutoPlayNext: (Boolean) -> Unit = {},
     onSetStillWatchingPrompt: (Boolean) -> Unit = {},
     onSetPlaybackWarningsEnabled: (Boolean) -> Unit = {},
+    onSetPlayerClockEnabled: (Boolean) -> Unit = {},
     onSetAllowInsecureDesktopTls: (Boolean) -> Unit = {},
     onSetAutoPlayNextDelaySeconds: (Int) -> Unit = {},
     onSetSegmentSkipPolicy: (MediaSegmentType, SegmentSkipPolicy) -> Unit,
@@ -215,6 +219,7 @@ fun SettingsContent(
     onRefreshPlayerDevicePolicy: () -> Unit,
     onSetAppTheme: (AppColorThemeId) -> Unit,
     onSetTileSize: (TileSizeId) -> Unit,
+    onSetImageQuality: (ImageQuality) -> Unit = {},
     onSetPictureInPictureEnabled: (Boolean) -> Unit,
     onSetRememberLastLibraryView: (Boolean) -> Unit,
     onSetOpenSubtitlesApiKey: (String, () -> Unit) -> Unit = { _, _ -> },
@@ -296,6 +301,8 @@ fun SettingsContent(
                         onSetAppTheme = onSetAppTheme,
                         selectedTileSize = state.tileSize,
                         onSetTileSize = onSetTileSize,
+                        selectedImageQuality = state.imageQuality,
+                        onSetImageQuality = onSetImageQuality,
                         rememberLastLibraryView = state.rememberLastLibraryView,
                         onRememberLastLibraryViewChange = onSetRememberLastLibraryView,
                         openRow = openRow,
@@ -316,6 +323,7 @@ fun SettingsContent(
                         onSetAutoPlayNext = onSetAutoPlayNext,
                         onSetStillWatchingPrompt = onSetStillWatchingPrompt,
                         onSetPlaybackWarningsEnabled = onSetPlaybackWarningsEnabled,
+                        onSetPlayerClockEnabled = onSetPlayerClockEnabled,
                         onSetAllowInsecureDesktopTls = onSetAllowInsecureDesktopTls,
                         onSetAutoPlayNextDelaySeconds = onSetAutoPlayNextDelaySeconds,
                         openRow = openRow,

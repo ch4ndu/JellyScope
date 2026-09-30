@@ -6,6 +6,7 @@ import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
 import com.jellyscope.core.domain.action.SetPlaybackInfoAtStartEnabledAction
+import com.jellyscope.core.domain.action.SetPlayerClockEnabledAction
 import com.jellyscope.core.domain.action.SetRememberLastLibraryViewAction
 import com.jellyscope.core.domain.model.MAX_AUTOPLAY_NEXT_DELAY_SECONDS
 import com.jellyscope.core.domain.model.MIN_AUTOPLAY_NEXT_DELAY_SECONDS
@@ -21,6 +22,7 @@ import com.jellyscope.core.domain.playback.playbackQualityChoices
 import com.jellyscope.core.domain.usecase.GetLogCollectionStateUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackInfoAtStartStateUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackPreferencesUseCase
+import com.jellyscope.core.domain.usecase.ObservePlayerClockEnabledUseCase
 import com.jellyscope.core.domain.usecase.ObserveRememberLastLibraryViewUseCase
 import com.jellyscope.core.util.DiagnosticOperation
 import com.jellyscope.core.util.DiagnosticTag
@@ -52,7 +54,9 @@ class TvSettingsPresenter(
     private val getPlaybackPreferences: GetPlaybackPreferencesUseCase,
     private val savePlaybackPreferences: SavePlaybackPreferencesAction,
     observeRememberLastLibraryView: ObserveRememberLastLibraryViewUseCase,
-    private val setRememberLastLibraryView: SetRememberLastLibraryViewAction,
+    setRememberLastLibraryView: SetRememberLastLibraryViewAction,
+    observePlayerClockEnabled: ObservePlayerClockEnabledUseCase,
+    setPlayerClockEnabled: SetPlayerClockEnabledAction,
     private val getLogCollectionState: GetLogCollectionStateUseCase,
     private val setLogCollectionEnabled: SetLogCollectionEnabledAction,
     getPlaybackInfoAtStartState: GetPlaybackInfoAtStartStateUseCase,
@@ -70,10 +74,23 @@ class TvSettingsPresenter(
 
     private val pendingWrites = Channel<PlaybackPreferences>(Channel.CONFLATED)
     private val preferencesMutex = Mutex()
-    private val pendingRememberWrites = Channel<Boolean>(Channel.CONFLATED)
     private val pendingPlaybackInfoWrites = Channel<PlaybackInfoAtStartWrite>(Channel.CONFLATED)
-    private val rememberLastLibraryView = observeRememberLastLibraryView()
-    private var rememberLastLibraryViewIntent: Boolean? = null
+    private val rememberLastLibraryViewToggle =
+        DeviceToggle(
+            stored = observeRememberLastLibraryView(),
+            write = setRememberLastLibraryView::invoke,
+            operation = DiagnosticOperation.SetRememberLastLibraryView,
+            failureEvent = "remember-library-view-failed",
+            publish = { current, enabled -> current.copy(rememberLastLibraryView = enabled) },
+        )
+    private val playerClockToggle =
+        DeviceToggle(
+            stored = observePlayerClockEnabled(),
+            write = setPlayerClockEnabled::invoke,
+            operation = DiagnosticOperation.SetPlayerClockEnabled,
+            failureEvent = "player-clock-failed",
+            publish = { current, enabled -> current.copy(playerClockEnabled = enabled) },
+        )
     private var playbackInfoAtStartGeneration = 0L
     private var playbackInfoAtStartIntent: Boolean? = null
     private var failedPlaybackInfoAtStart: Boolean? = null
@@ -81,14 +98,8 @@ class TvSettingsPresenter(
     private var retryLoadJob: Job? = null
 
     init {
-        scope.launch {
-            rememberLastLibraryView.collect { enabled ->
-                if (rememberLastLibraryViewIntent == null || rememberLastLibraryViewIntent == enabled) {
-                    rememberLastLibraryViewIntent = null
-                    _state.update { current -> current.copy(rememberLastLibraryView = enabled) }
-                }
-            }
-        }
+        rememberLastLibraryViewToggle.start()
+        playerClockToggle.start()
         scope.launch {
             getLogCollectionState().collect { enabled ->
                 _state.update { current -> current.copy(diagnosticCollectionEnabled = enabled) }
@@ -136,40 +147,6 @@ class TvSettingsPresenter(
                         }
                         load()
                         _state.update { current -> current.copy(saveError = true) }
-                    }
-                }
-            }
-        }
-        scope.launch {
-            for (enabled in pendingRememberWrites) {
-                try {
-                    withContext(workDispatcher) { setRememberLastLibraryView(enabled) }
-                    if (rememberLastLibraryViewIntent == enabled) {
-                        rememberLastLibraryViewIntent = null
-                        _state.update { current ->
-                            current.copy(rememberLastLibraryView = rememberLastLibraryView.value)
-                        }
-                    }
-                } catch (exception: CancellationException) {
-                    throw exception
-                } catch (exception: Throwable) {
-                    diagnosticLogger(DiagnosticTag.TvSettingsPresenter).w {
-                        formatSafeFailureDiagnostic(
-                            stage = "settings",
-                            event = "remember-library-view-failed",
-                            operation = DiagnosticOperation.SetRememberLastLibraryView,
-                            throwable = exception,
-                        )
-                    }
-                    while (pendingRememberWrites.tryReceive().isSuccess) {
-                        // Keep the store's last successful value after a failed write.
-                    }
-                    rememberLastLibraryViewIntent = null
-                    _state.update { current ->
-                        current.copy(
-                            rememberLastLibraryView = rememberLastLibraryView.value,
-                            saveError = true,
-                        )
                     }
                 }
             }
@@ -253,12 +230,11 @@ class TvSettingsPresenter(
     }
 
     fun setRememberLastLibraryViewEnabled(enabled: Boolean) {
-        if (state.value.isLoading || state.value.rememberLastLibraryView == enabled) {
-            return
-        }
-        rememberLastLibraryViewIntent = enabled
-        _state.update { current -> current.copy(rememberLastLibraryView = enabled, saveError = false) }
-        pendingRememberWrites.trySend(enabled)
+        rememberLastLibraryViewToggle.set(enabled, current = state.value.rememberLastLibraryView)
+    }
+
+    fun setPlayerClockEnabled(enabled: Boolean) {
+        playerClockToggle.set(enabled, current = state.value.playerClockEnabled)
     }
 
     fun setSegmentPolicy(
@@ -477,6 +453,68 @@ class TvSettingsPresenter(
                     )
                 }
             }
+        }
+    }
+
+    // Device-wide switch: optimistic intent, serialized latest-value writes, store truth on failure.
+    private inner class DeviceToggle(
+        private val stored: StateFlow<Boolean>,
+        private val write: suspend (Boolean) -> Unit,
+        private val operation: DiagnosticOperation,
+        private val failureEvent: String,
+        private val publish: (TvSettingsState, Boolean) -> TvSettingsState,
+    ) {
+        private val pendingWrites = Channel<Boolean>(Channel.CONFLATED)
+        private var intent: Boolean? = null
+
+        fun start() {
+            scope.launch {
+                stored.collect { enabled ->
+                    if (intent == null || intent == enabled) {
+                        intent = null
+                        _state.update { current -> publish(current, enabled) }
+                    }
+                }
+            }
+            scope.launch {
+                for (enabled in pendingWrites) {
+                    try {
+                        withContext(workDispatcher) { write(enabled) }
+                        if (intent == enabled) {
+                            intent = null
+                            _state.update { current -> publish(current, stored.value) }
+                        }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (exception: Throwable) {
+                        diagnosticLogger(DiagnosticTag.TvSettingsPresenter).w {
+                            formatSafeFailureDiagnostic(
+                                stage = "settings",
+                                event = failureEvent,
+                                operation = operation,
+                                throwable = exception,
+                            )
+                        }
+                        while (pendingWrites.tryReceive().isSuccess) {
+                            // Keep the store's last successful value after a failed write.
+                        }
+                        intent = null
+                        _state.update { current -> publish(current, stored.value).copy(saveError = true) }
+                    }
+                }
+            }
+        }
+
+        fun set(
+            enabled: Boolean,
+            current: Boolean,
+        ) {
+            if (state.value.isLoading || current == enabled) {
+                return
+            }
+            intent = enabled
+            _state.update { state -> publish(state, enabled).copy(saveError = false) }
+            pendingWrites.trySend(enabled)
         }
     }
 }

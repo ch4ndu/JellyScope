@@ -52,7 +52,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Icon
-import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.jellyscope.core.domain.model.DownloadId
@@ -88,6 +87,7 @@ import com.jellyscope.ui.component.DetailSecondaryStyle as TvSecondaryStyle
 import com.jellyscope.ui.component.DetailText as TvText
 import com.jellyscope.ui.component.DetailTitleStyle as TvTitleStyle
 import com.jellyscope.ui.component.FocusableBox as TvFocusableBox
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 internal fun tvDownloadDetailFocusKey(
     downloadId: DownloadId,

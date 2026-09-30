@@ -133,6 +133,7 @@ internal fun settingsTileIcon(id: TvSettingsTileId): ImageVector =
         TvSettingsTileId.Logout -> SettingsIcons.SignOut
         TvSettingsTileId.Theme -> SettingsIcons.Theme
         TvSettingsTileId.TileSize -> SettingsIcons.TileSize
+        TvSettingsTileId.ImageQuality -> SettingsIcons.VideoFormats
         TvSettingsTileId.FocusedCardZoom -> SettingsIcons.FocusedCardZoom
         TvSettingsTileId.RememberLastLibrary -> SettingsIcons.RememberLibrary
         TvSettingsTileId.LibraryGridHero -> SettingsIcons.LibraryGridHero
@@ -141,6 +142,7 @@ internal fun settingsTileIcon(id: TvSettingsTileId): ImageVector =
         TvSettingsTileId.MaxBitrate -> SettingsIcons.MaxBitrate
         TvSettingsTileId.StillWatching -> SettingsIcons.ResumeBehavior
         TvSettingsTileId.PlaybackWarnings -> SettingsIcons.ResumeBehavior
+        TvSettingsTileId.PlayerClock -> SettingsIcons.ResumeBehavior
         TvSettingsTileId.AudioOutput -> SettingsIcons.AudioOutput
         TvSettingsTileId.PlayerBackend,
         TvSettingsTileId.MpvVideoOutput,

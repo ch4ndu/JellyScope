@@ -3,6 +3,7 @@
 package com.jellyscope.core.data.local
 
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.LibrarySortBy
 import com.jellyscope.core.domain.model.LibrarySortOrder
@@ -44,6 +45,20 @@ internal class AppleUserDefaultsTileSizeStore(
     }
 }
 
+internal class AppleUserDefaultsImageQualityStore(
+    private val defaults: NSUserDefaults = NSUserDefaults.standardUserDefaults,
+) : ImageQualityStore {
+    private val _imageQuality = MutableStateFlow(defaults.readImageQuality())
+
+    override val imageQuality: StateFlow<ImageQuality> = _imageQuality.asStateFlow()
+
+    override suspend fun setImageQuality(imageQuality: ImageQuality) {
+        defaults.setObject(imageQuality.name, forKey = IMAGE_QUALITY_KEY)
+        defaults.synchronize()
+        _imageQuality.value = imageQuality
+    }
+}
+
 internal class AppleUserDefaultsPictureInPictureStore(
     private val defaults: NSUserDefaults = NSUserDefaults.standardUserDefaults,
 ) : PictureInPictureStore {
@@ -53,6 +68,20 @@ internal class AppleUserDefaultsPictureInPictureStore(
 
     override suspend fun setEnabled(enabled: Boolean) {
         defaults.setObject(enabled.toString(), forKey = PICTURE_IN_PICTURE_ENABLED_KEY)
+        defaults.synchronize()
+        _enabled.value = enabled
+    }
+}
+
+internal class AppleUserDefaultsPlayerClockStore(
+    private val defaults: NSUserDefaults = NSUserDefaults.standardUserDefaults,
+) : PlayerClockStore {
+    private val _enabled = MutableStateFlow(defaults.readPlayerClockEnabled())
+
+    override val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
+
+    override suspend fun setEnabled(enabled: Boolean) {
+        defaults.setObject(enabled.toString(), forKey = PLAYER_CLOCK_ENABLED_KEY)
         defaults.synchronize()
         _enabled.value = enabled
     }
@@ -244,6 +273,8 @@ private fun NSUserDefaults.readTileSize(): TileSizeId = stringForKey(TILE_SIZE_K
 private fun NSUserDefaults.readPictureInPictureEnabled(): Boolean =
     stringForKey(PICTURE_IN_PICTURE_ENABLED_KEY)?.toBooleanStrictOrNull() ?: true
 
+private fun NSUserDefaults.readPlayerClockEnabled(): Boolean = stringForKey(PLAYER_CLOCK_ENABLED_KEY)?.toBooleanStrictOrNull() ?: true
+
 private fun NSUserDefaults.readRememberLastLibraryView(): Boolean =
     stringForKey(REMEMBER_LAST_LIBRARY_VIEW_KEY)?.toBooleanStrictOrNull() ?: true
 
@@ -280,6 +311,7 @@ private fun String.toTileSizeId(): TileSizeId = toTolerantEnumOrNull<TileSizeId>
 private const val APP_THEME_KEY = "com.jellyscope.app-theme.color"
 private const val TILE_SIZE_KEY = "com.jellyscope.tile-size"
 private const val PICTURE_IN_PICTURE_ENABLED_KEY = "com.jellyscope.picture-in-picture.enabled"
+private const val PLAYER_CLOCK_ENABLED_KEY = "com.jellyscope.player-clock.enabled"
 private const val LOG_COLLECTION_ENABLED_KEY = "com.jellyscope.log-collection.enabled"
 private const val VERBOSE_LOGCAT_ENABLED_KEY = "com.jellyscope.log-collection.verbose-logcat-enabled"
 private const val PLAYBACK_INFO_AT_START_ENABLED_KEY = "com.jellyscope.log-collection.playback-info-at-start-enabled"
@@ -288,3 +320,8 @@ private const val GRID_SORT_KEY = "com.jellyscope.grid-sort"
 private const val REMEMBER_LAST_LIBRARY_VIEW_KEY = "com.jellyscope.library-view.remember"
 private const val LIBRARY_VIEW_KEY = "com.jellyscope.library-view.saved"
 private const val LAST_LIBRARY_KEY = "com.jellyscope.library-view.last-library"
+
+private const val IMAGE_QUALITY_KEY = "com.jellyscope.image-quality"
+
+private fun NSUserDefaults.readImageQuality(): ImageQuality =
+    stringForKey(IMAGE_QUALITY_KEY)?.toTolerantEnumOrNull<ImageQuality>() ?: ImageQuality.High

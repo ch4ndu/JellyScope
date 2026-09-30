@@ -25,7 +25,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.LocalWindowWidthTier
 import com.jellyscope.ui.adaptive.WindowWidthTier
@@ -40,6 +39,7 @@ import com.jellyscope.ui.generated.resources.person_title
 import com.jellyscope.ui.generated.resources.tv_overview_fallback
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 internal enum class PersonHeaderLayout {
     StackedBackdrop,

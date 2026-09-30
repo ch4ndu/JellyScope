@@ -14,11 +14,13 @@ import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.action.SessionRemovalError
 import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.action.SetAppThemeAction
+import com.jellyscope.core.domain.action.SetImageQualityAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
 import com.jellyscope.core.domain.action.SetOpenSubtitleResultPreferenceAction
 import com.jellyscope.core.domain.action.SetOpenSubtitlesApiKeyAction
 import com.jellyscope.core.domain.action.SetPictureInPictureEnabledAction
 import com.jellyscope.core.domain.action.SetPlaybackInfoAtStartEnabledAction
+import com.jellyscope.core.domain.action.SetPlayerClockEnabledAction
 import com.jellyscope.core.domain.action.SetRememberLastLibraryViewAction
 import com.jellyscope.core.domain.action.SetTileSizeAction
 import com.jellyscope.core.domain.action.SetVerboseLogcatEnabledAction
@@ -27,6 +29,7 @@ import com.jellyscope.core.domain.model.AppColorThemeId
 import com.jellyscope.core.domain.model.DownloadRemovalPreview
 import com.jellyscope.core.domain.model.DownloadSettings
 import com.jellyscope.core.domain.model.DownloadUsage
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.OpenSubtitleResultPreference
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
@@ -60,7 +63,9 @@ import com.jellyscope.core.domain.usecase.GetPlayerDevicePolicyUseCase
 import com.jellyscope.core.domain.usecase.GetVerboseLogcatStateUseCase
 import com.jellyscope.core.domain.usecase.ObserveAccountsUseCase
 import com.jellyscope.core.domain.usecase.ObserveAppThemeUseCase
+import com.jellyscope.core.domain.usecase.ObserveImageQualityUseCase
 import com.jellyscope.core.domain.usecase.ObservePictureInPictureEnabledUseCase
+import com.jellyscope.core.domain.usecase.ObservePlayerClockEnabledUseCase
 import com.jellyscope.core.domain.usecase.ObservePlayerDeviceSettingsUseCase
 import com.jellyscope.core.domain.usecase.ObserveRememberLastLibraryViewUseCase
 import com.jellyscope.core.domain.usecase.ObserveTileSizeUseCase
@@ -105,7 +110,9 @@ data class SettingsUiState(
     val isLoadingDownloadUsage: Boolean = false,
     val appTheme: AppColorThemeId = AppColorThemeId.Ember,
     val tileSize: TileSizeId = TileSizeId.Medium,
+    val imageQuality: ImageQuality = ImageQuality.High,
     val pictureInPictureEnabled: Boolean = true,
+    val playerClockEnabled: Boolean = true,
     val rememberLastLibraryView: Boolean = true,
     val playbackPreferences: PlaybackPreferences = PlaybackPreferences(),
     val isLoadingPlaybackPreferences: Boolean = false,
@@ -161,9 +168,13 @@ class SettingsViewModel(
     private val setAppThemeAction: SetAppThemeAction,
     observePictureInPictureEnabledUseCase: ObservePictureInPictureEnabledUseCase,
     private val setPictureInPictureEnabledAction: SetPictureInPictureEnabledAction,
+    observePlayerClockEnabledUseCase: ObservePlayerClockEnabledUseCase,
+    private val setPlayerClockEnabledAction: SetPlayerClockEnabledAction,
     observeRememberLastLibraryViewUseCase: ObserveRememberLastLibraryViewUseCase,
     private val setRememberLastLibraryViewAction: SetRememberLastLibraryViewAction,
     observeTileSizeUseCase: ObserveTileSizeUseCase,
+    observeImageQualityUseCase: ObserveImageQualityUseCase,
+    private val setImageQualityAction: SetImageQualityAction,
     private val setTileSizeAction: SetTileSizeAction,
     observePlayerDeviceSettingsUseCase: ObservePlayerDeviceSettingsUseCase,
     private val savePlayerDeviceSettingsAction: SavePlayerDeviceSettingsAction,
@@ -188,7 +199,9 @@ class SettingsViewModel(
 ) : ViewModel() {
     private val appTheme = observeAppThemeUseCase()
     private val tileSize = observeTileSizeUseCase()
+    private val imageQuality = observeImageQualityUseCase()
     private val pictureInPictureEnabled = observePictureInPictureEnabledUseCase()
+    private val playerClockEnabled = observePlayerClockEnabledUseCase()
     private val rememberLastLibraryView = observeRememberLastLibraryViewUseCase()
     private val playerDeviceSettings = observePlayerDeviceSettingsUseCase()
     private val logCollectionState = getLogCollectionStateUseCase?.invoke()
@@ -212,7 +225,9 @@ class SettingsViewModel(
                     ),
                 appTheme = appTheme.value,
                 tileSize = tileSize.value,
+                imageQuality = imageQuality.value,
                 pictureInPictureEnabled = pictureInPictureEnabled.value,
+                playerClockEnabled = playerClockEnabled.value,
                 rememberLastLibraryView = rememberLastLibraryView.value,
                 playerDeviceSettings = playerDeviceSettings.value,
                 playerDevicePolicy = null,
@@ -244,12 +259,26 @@ class SettingsViewModel(
             write = setPictureInPictureEnabledAction::invoke,
             operation = DiagnosticOperation.SetPictureInPictureEnabled,
         )
+    private val playerClockWriter =
+        LatestValueWriter(
+            scope = viewModelScope,
+            dispatcher = workDispatcher,
+            write = setPlayerClockEnabledAction::invoke,
+            operation = DiagnosticOperation.SetPlayerClockEnabled,
+        )
     private val tileSizeWriter =
         LatestValueWriter(
             scope = viewModelScope,
             dispatcher = workDispatcher,
             write = setTileSizeAction::invoke,
             operation = DiagnosticOperation.SetTileSize,
+        )
+    private val imageQualityWriter =
+        LatestValueWriter(
+            scope = viewModelScope,
+            dispatcher = workDispatcher,
+            write = setImageQualityAction::invoke,
+            operation = DiagnosticOperation.SetImageQuality,
         )
     private val rememberLastLibraryViewWriter =
         LatestValueWriter(
@@ -287,7 +316,9 @@ class SettingsViewModel(
     init {
         observeAppTheme()
         observeTileSize()
+        observeImageQuality()
         observePictureInPicture()
+        observePlayerClock()
         observeRememberLastLibraryView()
         observePlayerDeviceSettings()
         observeLogCollection()
@@ -686,8 +717,16 @@ class SettingsViewModel(
         tileSizeWriter.submit(tileSize)
     }
 
+    fun setImageQuality(imageQuality: ImageQuality) {
+        imageQualityWriter.submit(imageQuality)
+    }
+
     fun setPictureInPictureEnabled(enabled: Boolean) {
         pictureInPictureWriter.submit(enabled)
+    }
+
+    fun setPlayerClockEnabled(enabled: Boolean) {
+        playerClockWriter.submit(enabled)
     }
 
     fun setRememberLastLibraryView(enabled: Boolean) {
@@ -1003,10 +1042,26 @@ class SettingsViewModel(
         }
     }
 
+    private fun observeImageQuality() {
+        viewModelScope.launch {
+            imageQuality.collect { value ->
+                _state.update { current -> current.copy(imageQuality = value) }
+            }
+        }
+    }
+
     private fun observePictureInPicture() {
         viewModelScope.launch {
             pictureInPictureEnabled.collect { enabled ->
                 _state.update { current -> current.copy(pictureInPictureEnabled = enabled) }
+            }
+        }
+    }
+
+    private fun observePlayerClock() {
+        viewModelScope.launch {
+            playerClockEnabled.collect { enabled ->
+                _state.update { current -> current.copy(playerClockEnabled = enabled) }
             }
         }
     }

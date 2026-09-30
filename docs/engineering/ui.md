@@ -313,7 +313,11 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   controls and PiP supply zero extra clearance. iOS/JVM accept this surface
   input without changing their native subtitle placement.
 - The player top bar shows title and year plus series/episode metadata; codec and
-  media-version facts stay in debug UI.
+  media-version facts stay in debug UI. When the device-wide player clock is on
+  (default), the bar ends with the wall-clock time from
+  `rememberPlayerClockText()`, a leaf that refreshes at minute boundaries in the
+  platform short time style. Desktop follows the JVM locale, so macOS's separate
+  24-hour toggle may not be reflected. Kids controls have no clock.
 - The debug card uses 60% by 60% on desktop. Compact removes the 320 dp cap and
   fills player width. Values wrap without ellipsis; bitrate uses Mbps.
 - <a name="player-overlay-layers"></a>Shared Compose and TV players use
@@ -388,6 +392,20 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
 - Card images decode near draw size from scaled tile tokens and density,
   quantized to shared buckets and capped at the canonical maximum. Card image
   descriptors keep request and decode geometry aligned.
+- Image quality is an app-wide appearance preference on all supported apps.
+  High is the default and preserves the original request/decode targets,
+  including canonical 1280×720 hero artwork. Medium uses 75% of measured layout
+  bounds in each dimension; Low uses 60% (20% below Medium). Each reduced
+  dimension is capped at High's target, so on large screens Medium or Low can
+  equal High but never exceed it. Reduced targets also apply to downloaded
+  artwork. Compose uses `MeasuredAsyncImage` (one request per image; the size
+  resolver awaits layout); native tvOS uses measured pixels and ImageIO
+  downsampling. An existing Jellyfin `maxWidth` is lowered to the reduced decode
+  width, never raised. Cache variants retain account
+  identity and separate reduced targets from original artwork. Android TV Home
+  backdrop prefetch uses the same quality and measured hero bounds. Trickplay
+  sprite sheets preserve their geometry. Visual/performance acceptance remains
+  a physical-device check.
 - Collect state at the lowest practical scope. Use narrow `LaunchedEffect`
   keys, `snapshotFlow` for hot state, and `derivedStateOf` around composition
   reads of `layoutInfo`.
@@ -466,3 +484,7 @@ See [native tvOS UI](tvos-ui.md#native-tvos-screens).
 - Player hot state is read at leaves because parent reads recompose unrelated
   controls and previews. Handler-local coalescing and cached draw geometry bound
   work without changing semantic state.
+
+- Measured artwork targets avoid applying a full backdrop preset to smaller
+  boxes. Reduced quality trades sharpness for fewer decoded pixels; High keeps
+  the original behavior available without requiring a reset.

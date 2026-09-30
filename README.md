@@ -35,7 +35,7 @@ is **0.1.0-alpha94**.
   Original and converted downloads; earlier iOS versions require the app to
   remain active. See [download limits](docs/user/downloads.md).
 - HDR handling, Android TV refresh-rate matching, Picture-in-Picture, Fire TV
-  Watch Next, Apple media controls, themes, tile sizes, and adaptive layouts
+  Watch Next, Apple media controls, themes, tile sizes, selectable image quality, and adaptive layouts
 - Account-qualified [Android TV playback links](docs/engineering/tv-ux-behaviors.md#playback-links)
   that open an item directly with the current playback settings
 

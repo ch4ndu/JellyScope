@@ -34,7 +34,6 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import coil3.Image
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.ui.component.DetailBodyStyle
@@ -57,6 +56,7 @@ import com.jellyscope.ui.generated.resources.tv_remove_favorite
 import com.jellyscope.ui.generated.resources.tv_restart
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import org.jetbrains.compose.resources.stringResource
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 internal fun DetailBackdrop(

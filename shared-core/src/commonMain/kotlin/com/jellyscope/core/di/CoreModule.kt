@@ -73,6 +73,7 @@ import com.jellyscope.core.domain.action.SaveSubtitleSelectionAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
 import com.jellyscope.core.domain.action.SetAppThemeAction
 import com.jellyscope.core.domain.action.SetGridSortAction
+import com.jellyscope.core.domain.action.SetImageQualityAction
 import com.jellyscope.core.domain.action.SetItemFavoriteAction
 import com.jellyscope.core.domain.action.SetItemPlayedAction
 import com.jellyscope.core.domain.action.SetLastLibraryIdAction
@@ -82,6 +83,7 @@ import com.jellyscope.core.domain.action.SetOpenSubtitleResultPreferenceAction
 import com.jellyscope.core.domain.action.SetOpenSubtitlesApiKeyAction
 import com.jellyscope.core.domain.action.SetPictureInPictureEnabledAction
 import com.jellyscope.core.domain.action.SetPlaybackInfoAtStartEnabledAction
+import com.jellyscope.core.domain.action.SetPlayerClockEnabledAction
 import com.jellyscope.core.domain.action.SetRememberLastLibraryViewAction
 import com.jellyscope.core.domain.action.SetSavedLibraryViewAction
 import com.jellyscope.core.domain.action.SetTileSizeAction
@@ -150,9 +152,11 @@ import com.jellyscope.core.domain.usecase.GetUserLibrariesUseCase
 import com.jellyscope.core.domain.usecase.GetVerboseLogcatStateUseCase
 import com.jellyscope.core.domain.usecase.ObserveAccountsUseCase
 import com.jellyscope.core.domain.usecase.ObserveAppThemeUseCase
+import com.jellyscope.core.domain.usecase.ObserveImageQualityUseCase
 import com.jellyscope.core.domain.usecase.ObserveLocalSubtitleAssetsUseCase
 import com.jellyscope.core.domain.usecase.ObservePictureInPictureEnabledUseCase
 import com.jellyscope.core.domain.usecase.ObservePlaybackStopSettlementUseCase
+import com.jellyscope.core.domain.usecase.ObservePlayerClockEnabledUseCase
 import com.jellyscope.core.domain.usecase.ObservePlayerDeviceSettingsUseCase
 import com.jellyscope.core.domain.usecase.ObserveRememberLastLibraryViewUseCase
 import com.jellyscope.core.domain.usecase.ObserveSessionStateUseCase
@@ -405,10 +409,12 @@ val coreModule =
         single { GetVerboseLogcatStateUseCase(preferenceStore = get()) }
         single { GetPlaybackInfoAtStartStateUseCase(preferenceStore = get()) }
         single { ObserveTileSizeUseCase(tileSizeStore = get()) }
+        single { ObserveImageQualityUseCase(imageQualityStore = get()) }
         single { ObserveRememberLastLibraryViewUseCase(store = get()) }
         single { GetSavedLibraryViewUseCase(store = get()) }
         single { GetLastLibraryIdUseCase(store = get()) }
         single { ObservePictureInPictureEnabledUseCase(pictureInPictureStore = get()) }
+        single { ObservePlayerClockEnabledUseCase(playerClockStore = get()) }
         single { ObservePlayerDeviceSettingsUseCase(playerDeviceSettingsStore = get()) }
         single {
             GetPlayerDevicePolicyUseCase(
@@ -452,10 +458,12 @@ val coreModule =
         single { LogoutAction(authRepository = get()) }
         single { SetAppThemeAction(appThemeStore = get()) }
         single { SetTileSizeAction(tileSizeStore = get()) }
+        single { SetImageQualityAction(imageQualityStore = get()) }
         single { SetRememberLastLibraryViewAction(store = get()) }
         single { SetSavedLibraryViewAction(store = get()) }
         single { SetLastLibraryIdAction(store = get()) }
         single { SetPictureInPictureEnabledAction(pictureInPictureStore = get()) }
+        single { SetPlayerClockEnabledAction(playerClockStore = get()) }
         single { SavePlayerDeviceSettingsAction(playerDeviceSettingsStore = get()) }
         single { SavePlaybackPreferencesAction(playbackPreferencesStore = get()) }
         single {

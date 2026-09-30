@@ -55,6 +55,7 @@ fun InstallJellyfinImageLoader(
                     ImageLoader
                         .Builder(context)
                         .components {
+                            add(MeasuredImageInterceptor())
                             add(KtorNetworkFetcherFactory(httpClient))
                         }.memoryCache {
                             MemoryCache

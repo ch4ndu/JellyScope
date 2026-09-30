@@ -37,7 +37,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.tv.material3.Icon
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
 import com.jellyscope.ui.adaptive.tileScaled
@@ -55,6 +54,7 @@ import com.jellyscope.ui.theme.LocalJellyfinPalette
 import com.jellyscope.ui.component.DetailSecondaryStyle as TvSecondaryStyle
 import com.jellyscope.ui.component.DetailText as TvText
 import com.jellyscope.ui.component.FocusableBox as TvFocusableBox
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 internal fun TvUpNextCard(

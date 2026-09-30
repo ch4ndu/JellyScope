@@ -140,6 +140,7 @@ import com.jellyscope.core.domain.usecase.GetPlaybackLaunchContextUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackTimingOffsetUseCase
 import com.jellyscope.core.domain.usecase.GetPlayerBackendOverrideUseCase
 import com.jellyscope.core.domain.usecase.ObserveLocalSubtitleAssetsUseCase
+import com.jellyscope.core.domain.usecase.ObservePlayerClockEnabledUseCase
 import com.jellyscope.core.domain.usecase.ObservePlayerDeviceSettingsUseCase
 import com.jellyscope.core.playback.PlaybackDiagnosticsContext
 import com.jellyscope.core.playback.PlaybackReportingCoordinator
@@ -206,6 +207,7 @@ class PlayerViewModel(
     private val playbackDiagnosticsContext: PlaybackDiagnosticsContext? = null,
     private val getPlayerBackendOverrideUseCase: GetPlayerBackendOverrideUseCase? = null,
     getPlaybackInfoAtStartStateUseCase: GetPlaybackInfoAtStartStateUseCase? = null,
+    observePlayerClockEnabledUseCase: ObservePlayerClockEnabledUseCase? = null,
     private val monotonicTimeMs: () -> Long = ::playerMonotonicTimeMs,
     private val playbackHealthGuidancePolicy: PlaybackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Actionable,
     offlineDownloadId: DownloadId? = null,
@@ -216,6 +218,8 @@ class PlayerViewModel(
     /** Diagnostics preference captured once per playback start. */
     val startWithPlaybackInfoOverlay: Boolean =
         getPlaybackInfoAtStartStateUseCase?.invoke()?.value ?: false
+    val playerClockEnabled: StateFlow<Boolean> =
+        observePlayerClockEnabledUseCase?.invoke() ?: MutableStateFlow(true).asStateFlow()
     private var playerController: PlayerController by mutableStateOf(playerController)
     private var backend =
         playerController.activeBackend

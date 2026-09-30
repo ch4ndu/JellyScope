@@ -105,6 +105,7 @@ import kotlin.math.roundToInt
 @Composable
 internal fun PlayerTopBar(
     content: PlayerUiState.Content,
+    showClock: Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -141,7 +142,20 @@ internal fun PlayerTopBar(
                 )
             }
         }
+        if (showClock) {
+            PlayerClock()
+        }
     }
+}
+
+@Composable
+private fun PlayerClock() {
+    Text(
+        text = rememberPlayerClockText(),
+        color = MaterialTheme.colorScheme.onSurface,
+        style = MaterialTheme.typography.titleMedium,
+        maxLines = 1,
+    )
 }
 
 @Composable

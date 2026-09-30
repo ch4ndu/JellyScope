@@ -4,15 +4,18 @@ package com.jellyscope.core.domain.action
 
 import com.jellyscope.core.data.local.AppThemeStore
 import com.jellyscope.core.data.local.GridSortStore
+import com.jellyscope.core.data.local.ImageQualityStore
 import com.jellyscope.core.data.local.LibrarySortStore
 import com.jellyscope.core.data.local.LibraryViewPreferencesStore
 import com.jellyscope.core.data.local.PictureInPictureStore
 import com.jellyscope.core.data.local.PlaybackPreferencesStore
+import com.jellyscope.core.data.local.PlayerClockStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.RecentSearchStore
 import com.jellyscope.core.data.local.TileSizeStore
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.LibrarySortBy
 import com.jellyscope.core.domain.model.LibrarySortOrder
@@ -30,6 +33,12 @@ class SetTileSizeAction(
     private val tileSizeStore: TileSizeStore,
 ) {
     suspend operator fun invoke(tileSize: TileSizeId) = tileSizeStore.setTileSize(tileSize)
+}
+
+class SetImageQualityAction(
+    private val imageQualityStore: ImageQualityStore,
+) {
+    suspend operator fun invoke(imageQuality: ImageQuality) = imageQualityStore.setImageQuality(imageQuality)
 }
 
 class SetRememberLastLibraryViewAction(
@@ -62,6 +71,12 @@ class SetPictureInPictureEnabledAction(
     private val pictureInPictureStore: PictureInPictureStore,
 ) {
     suspend operator fun invoke(enabled: Boolean) = pictureInPictureStore.setEnabled(enabled)
+}
+
+class SetPlayerClockEnabledAction(
+    private val playerClockStore: PlayerClockStore,
+) {
+    suspend operator fun invoke(enabled: Boolean) = playerClockStore.setEnabled(enabled)
 }
 
 class SavePlayerDeviceSettingsAction(

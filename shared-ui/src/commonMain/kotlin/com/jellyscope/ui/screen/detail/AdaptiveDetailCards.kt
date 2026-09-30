@@ -21,7 +21,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.MediaPersonType
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.tileScaled
@@ -49,6 +48,7 @@ import com.jellyscope.ui.generated.resources.tv_unsupported
 import com.jellyscope.ui.generated.resources.tv_watched
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import org.jetbrains.compose.resources.stringResource
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 internal fun AdaptiveMediaCard(

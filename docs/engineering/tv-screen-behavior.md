@@ -103,6 +103,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   a shallow pointer that narrows near edges. Item changes dispose old preview.
 - Play/Pause and overlay controls use translucent dark circles at rest and white
   with dark glyphs when focused.
+- With the player clock on, the overlay title row ends with the wall-clock time.
+  While that row shows, segment Skip is offset below it rather than reparented,
+  so a focused Skip keeps its focus node.
 - Debug toggles a persistent, non-modal, non-focusable top band. It has no scrim,
   close row, or Back behavior and stays above transport controls. It renders only
   shared `playerDebugSections` in two columns, including transcode reasons and
@@ -298,10 +301,11 @@ Transfer and storage semantics belong to
   TV has no per-account Sign out.
 - `TvSettingsTileId` defines seven rows: Account; Appearance; Playback; Skip
   segments; **Advanced playback**; Services & About; Diagnostics. Rows are fully
-  composed horizontal lists inside one vertical scroller. Playback may extend
-  for backend/autoplay; Advanced playback has a sixth tile for mpv video output.
-  Account is Server, Signed in user, Switch Users, Add
-  account, and Logout. Standard rows have five tiles. Diagnostics contains
+  composed horizontal lists inside one vertical scroller. Standard rows have
+  five tiles. Appearance has a sixth tile for Image quality; Playback extends
+  to eleven for backend, autoplay, and the device-wide Player clock; Advanced
+  playback has a sixth tile for mpv video output. Account is Server, Signed in
+  user, Switch Users, Add account, and Logout. Diagnostics contains
   Collect diagnostic logs, Send
   diagnostics to server, Verbose system logging, and Show playback info at start.
   Every tile, including read-only detail, is focusable.

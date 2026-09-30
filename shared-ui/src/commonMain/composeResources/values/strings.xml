@@ -494,6 +494,8 @@
     <string name="settings_still_watching">Still watching</string>
     <string name="settings_still_watching_description">Ask before continuing after several automatic advances.</string>
     <string name="settings_playback_warnings">Playback warnings (beta)</string>
+    <string name="settings_player_clock">Player clock</string>
+    <string name="settings_player_clock_description">Shows the current time in the player's top controls.</string>
     <string name="settings_playback_warnings_description">Shows advisory playback-health banners and recovery notices during playback. Automatic recovery still runs silently when off, and fatal errors are always shown.</string>
     <string name="settings_allow_insecure_desktop_tls">Allow insecure certificates</string>
     <string name="settings_allow_insecure_desktop_tls_warning">Disables certificate verification for newly started desktop mpv playback. Enable this only for a server you trust: an attacker could intercept your connection.</string>
@@ -800,4 +802,9 @@
     <string name="player_software_recovery_stop">Stop playback</string>
     <string name="player_software_recovery_failed">Could not switch with the current playback settings. You can try again, keep playing with mpv if it is available, or stop playback.</string>
     <string name="player_software_recovery_unavailable">Switching players is unavailable for this playback.</string>
+    <string name="settings_image_quality">Image quality</string>
+    <string name="settings_image_quality_low">Low</string>
+    <string name="settings_image_quality_medium">Medium</string>
+    <string name="settings_image_quality_high">High</string>
+    <string name="settings_picker_image_quality_subtitle">Choose artwork sharpness and memory use. Video quality is unchanged.</string>
 </resources>

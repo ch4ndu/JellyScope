@@ -61,6 +61,8 @@ import com.jellyscope.ui.generated.resources.settings_player_backend_title
 import com.jellyscope.ui.generated.resources.settings_player_backend_unavailable
 import com.jellyscope.ui.generated.resources.settings_player_backend_vlckit
 import com.jellyscope.ui.generated.resources.settings_player_backend_vlckit_warning
+import com.jellyscope.ui.generated.resources.settings_player_clock
+import com.jellyscope.ui.generated.resources.settings_player_clock_description
 import com.jellyscope.ui.generated.resources.settings_player_detected_summary
 import com.jellyscope.ui.generated.resources.settings_player_hdr_desktop_notice
 import com.jellyscope.ui.generated.resources.settings_player_policy_error
@@ -94,6 +96,7 @@ internal fun PlaybackSettingsSection(
     onSetAutoPlayNext: (Boolean) -> Unit,
     onSetStillWatchingPrompt: (Boolean) -> Unit,
     onSetPlaybackWarningsEnabled: (Boolean) -> Unit,
+    onSetPlayerClockEnabled: (Boolean) -> Unit,
     onSetAllowInsecureDesktopTls: (Boolean) -> Unit,
     onSetAutoPlayNextDelaySeconds: (Int) -> Unit,
     openRow: SettingsRowId?,
@@ -240,6 +243,20 @@ internal fun PlaybackSettingsSection(
                         SettingsRowTrailing.Switch(
                             checked = preferences.playbackWarningsEnabled,
                             onCheckedChange = onSetPlaybackWarningsEnabled,
+                        ),
+                )
+            }
+            add {
+                SettingsRow(
+                    icon = SettingsRowId.PlayerClock.icon(),
+                    iconRole = SettingsRowId.PlayerClock.iconRole(),
+                    title = stringResource(Res.string.settings_player_clock),
+                    value = settingsBooleanValue(state.playerClockEnabled),
+                    description = stringResource(Res.string.settings_player_clock_description),
+                    trailing =
+                        SettingsRowTrailing.Switch(
+                            checked = state.playerClockEnabled,
+                            onCheckedChange = onSetPlayerClockEnabled,
                         ),
                 )
             }

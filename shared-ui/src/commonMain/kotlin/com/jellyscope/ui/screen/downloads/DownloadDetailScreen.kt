@@ -48,7 +48,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.jellyscope.core.domain.model.DownloadFailure
@@ -128,6 +127,7 @@ import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 /** Full local-only detail page for one account-qualified download. */
 @Composable

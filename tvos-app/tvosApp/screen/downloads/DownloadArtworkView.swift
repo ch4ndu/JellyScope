@@ -40,6 +40,9 @@ private struct DownloadArtworkContent: View {
     let contentMode: ContentMode
     let fallbackTitle: String?
     let role: OfflineArtworkRole
+    @EnvironmentObject private var appearanceModel: TvAppearanceModel
+    @Environment(\.displayScale) private var displayScale
+    @State private var bounds: CGSize = .zero
     @StateObject private var model: DownloadArtworkModel
 
     init(
@@ -53,6 +56,10 @@ private struct DownloadArtworkContent: View {
         self.fallbackTitle = fallbackTitle
         self.role = role
         _model = StateObject(wrappedValue: DownloadArtworkModel(session: session, row: row, role: role))
+    }
+
+    private var pixelSize: CGSize? {
+        artworkPixelSize(bounds: bounds, displayScale: displayScale, decodeScale: CGFloat(appearanceModel.state.imageQuality.decodeScale))
     }
 
     var body: some View {
@@ -81,6 +88,8 @@ private struct DownloadArtworkContent: View {
                 .clipped()
             }
         }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { bounds = $0 }
+        .onChange(of: pixelSize, initial: true) { _, size in model.setPixelSize(size) }
         .onAppear(perform: model.activate)
         .onDisappear(perform: model.deactivate)
     }

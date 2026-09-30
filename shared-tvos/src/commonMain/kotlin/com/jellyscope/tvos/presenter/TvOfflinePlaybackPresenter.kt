@@ -50,6 +50,7 @@ import kotlin.math.abs
 class TvOfflinePlaybackPresenter(
     private val request: TvOfflinePlaybackRequest,
     val startWithPlaybackInfoOverlay: Boolean,
+    val showsClock: Boolean = true,
     private val getOfflinePlaybackPlan: GetOfflinePlaybackPlanUseCase,
     private val updateDownloadedPlayback: UpdateDownloadedPlaybackAction,
     private val deviceProfileProvider: com.jellyscope.core.domain.playback.DeviceProfileProvider,

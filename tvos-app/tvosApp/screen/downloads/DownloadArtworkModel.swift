@@ -15,6 +15,8 @@ final class DownloadArtworkModel: ObservableObject {
     private var latestReadGeneration: Int64 = -1
     private var closed = false
     private var active = true
+    private var pixelSize: CGSize?
+    private var latestState: TvDownloadArtworkState?
 
     init(session: Session, row: TvDownloadRow, role: OfflineArtworkRole) {
         identity = "\(row.id)|\(row.attemptGeneration)|\(role.name)|\(row.state.name)|\(row.presentationBytes)"
@@ -30,6 +32,12 @@ final class DownloadArtworkModel: ObservableObject {
         }
     }
 
+    func setPixelSize(_ size: CGSize?) {
+        guard size != pixelSize else { return }
+        pixelSize = size
+        if let latestState { consume(latestState) }
+    }
+
     func activate() {
         guard !closed, !active else { return }
         active = true
@@ -42,6 +50,7 @@ final class DownloadArtworkModel: ObservableObject {
         decodeTask?.cancel()
         decodeTask = nil
         image = nil
+        latestState = nil
         presenter.cancel()
     }
 
@@ -56,6 +65,8 @@ final class DownloadArtworkModel: ObservableObject {
 
     private func consume(_ state: TvDownloadArtworkState) {
         guard active, !closed else { return }
+        latestState = state
+        let pixelSize = pixelSize
         let readGeneration = state.readGeneration
         latestReadGeneration = readGeneration
         decodeTask?.cancel()
@@ -64,7 +75,7 @@ final class DownloadArtworkModel: ObservableObject {
         let identity = identity
         decodeTask = Task { [weak self] in
             let decoded = await Task.detached(priority: .userInitiated) {
-                UIImage(data: Self.data(from: bytes))
+                decodeArtwork(Self.data(from: bytes), pixelSize: pixelSize)
             }.value
             guard !Task.isCancelled,
                   let self,

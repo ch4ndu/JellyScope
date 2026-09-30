@@ -7,6 +7,7 @@ import co.touchlab.kermit.LogWriter
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.jellyscope.core.data.local.AppThemeStore
+import com.jellyscope.core.data.local.ImageQualityStore
 import com.jellyscope.core.data.local.LibraryViewPreferencesStore
 import com.jellyscope.core.data.local.LocalSubtitleAssetStore
 import com.jellyscope.core.data.local.LocalSubtitleFileStore
@@ -14,6 +15,7 @@ import com.jellyscope.core.data.local.LogCollectionPreferenceStore
 import com.jellyscope.core.data.local.OpenSubtitlesSettingsStore
 import com.jellyscope.core.data.local.PictureInPictureStore
 import com.jellyscope.core.data.local.PlaybackPreferencesStore
+import com.jellyscope.core.data.local.PlayerClockStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.SecureStore
 import com.jellyscope.core.data.local.SubtitleSelectionStore
@@ -31,11 +33,13 @@ import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.action.SessionRemovalError
 import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.action.SetAppThemeAction
+import com.jellyscope.core.domain.action.SetImageQualityAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
 import com.jellyscope.core.domain.action.SetOpenSubtitleResultPreferenceAction
 import com.jellyscope.core.domain.action.SetOpenSubtitlesApiKeyAction
 import com.jellyscope.core.domain.action.SetPictureInPictureEnabledAction
 import com.jellyscope.core.domain.action.SetPlaybackInfoAtStartEnabledAction
+import com.jellyscope.core.domain.action.SetPlayerClockEnabledAction
 import com.jellyscope.core.domain.action.SetRememberLastLibraryViewAction
 import com.jellyscope.core.domain.action.SetTileSizeAction
 import com.jellyscope.core.domain.action.SetVerboseLogcatEnabledAction
@@ -53,6 +57,7 @@ import com.jellyscope.core.domain.model.DownloadSettings
 import com.jellyscope.core.domain.model.DownloadUsage
 import com.jellyscope.core.domain.model.FindQuery
 import com.jellyscope.core.domain.model.FindResults
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.Library
 import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.LocalSubtitleAsset
@@ -98,7 +103,9 @@ import com.jellyscope.core.domain.usecase.GetPlaybackPreferencesUseCase
 import com.jellyscope.core.domain.usecase.GetPlayerDevicePolicyUseCase
 import com.jellyscope.core.domain.usecase.GetVerboseLogcatStateUseCase
 import com.jellyscope.core.domain.usecase.ObserveAppThemeUseCase
+import com.jellyscope.core.domain.usecase.ObserveImageQualityUseCase
 import com.jellyscope.core.domain.usecase.ObservePictureInPictureEnabledUseCase
+import com.jellyscope.core.domain.usecase.ObservePlayerClockEnabledUseCase
 import com.jellyscope.core.domain.usecase.ObservePlayerDeviceSettingsUseCase
 import com.jellyscope.core.domain.usecase.ObserveRememberLastLibraryViewUseCase
 import com.jellyscope.core.domain.usecase.ObserveTileSizeUseCase
@@ -1758,6 +1765,16 @@ private class FakePictureInPictureStore(
     }
 }
 
+private class FakePlayerClockStore : PlayerClockStore {
+    private val enabledFlow = MutableStateFlow(true)
+
+    override val enabled: StateFlow<Boolean> = enabledFlow.asStateFlow()
+
+    override suspend fun setEnabled(enabled: Boolean) {
+        enabledFlow.value = enabled
+    }
+}
+
 private class FakeTileSizeStore(
     initialTileSize: TileSizeId = TileSizeId.Medium,
 ) : TileSizeStore {
@@ -1767,6 +1784,18 @@ private class FakeTileSizeStore(
 
     override suspend fun setTileSize(tileSize: TileSizeId) {
         tileSizeFlow.value = tileSize
+    }
+}
+
+private class FakeImageQualityStore(
+    initialImageQuality: ImageQuality = ImageQuality.High,
+) : ImageQualityStore {
+    private val imageQualityFlow = MutableStateFlow(initialImageQuality)
+
+    override val imageQuality: StateFlow<ImageQuality> = imageQualityFlow.asStateFlow()
+
+    override suspend fun setImageQuality(imageQuality: ImageQuality) {
+        imageQualityFlow.value = imageQuality
     }
 }
 
@@ -2028,6 +2057,7 @@ private fun settingsViewModel(
     appThemeStore: AppThemeStore = FakeAppThemeStore(),
     tileSizeStore: TileSizeStore = FakeTileSizeStore(),
     pictureInPictureStore: PictureInPictureStore = FakePictureInPictureStore(),
+    playerClockStore: PlayerClockStore = FakePlayerClockStore(),
     playbackPreferencesStore: PlaybackPreferencesStore? = null,
     playerBackendPolicy: PlayerBackendPolicy = androidPlayerBackendPolicy(),
     getAvailablePlayerBackendsUseCase: GetAvailablePlayerBackendsUseCase? = null,
@@ -2045,6 +2075,7 @@ private fun settingsViewModel(
     workDispatcher: kotlinx.coroutines.CoroutineDispatcher,
 ): SettingsViewModel {
     val libraryViewStore = FakeLibraryViewPreferencesStore()
+    val imageQualityStore = FakeImageQualityStore()
     val resolvedPlaybackPreferencesStore = playbackPreferencesStore ?: FakePlaybackPreferencesStore(PlaybackPreferences())
     val resolvedPlayerDeviceSettingsStore = playerDeviceSettingsStore ?: FakePlayerDeviceSettingsStore()
     return SettingsViewModel(
@@ -2061,8 +2092,12 @@ private fun settingsViewModel(
         setAppThemeAction = SetAppThemeAction(appThemeStore),
         observeTileSizeUseCase = ObserveTileSizeUseCase(tileSizeStore),
         setTileSizeAction = SetTileSizeAction(tileSizeStore),
+        observeImageQualityUseCase = ObserveImageQualityUseCase(imageQualityStore),
+        setImageQualityAction = SetImageQualityAction(imageQualityStore),
         observePictureInPictureEnabledUseCase = ObservePictureInPictureEnabledUseCase(pictureInPictureStore),
         setPictureInPictureEnabledAction = SetPictureInPictureEnabledAction(pictureInPictureStore),
+        observePlayerClockEnabledUseCase = ObservePlayerClockEnabledUseCase(playerClockStore),
+        setPlayerClockEnabledAction = SetPlayerClockEnabledAction(playerClockStore),
         observeRememberLastLibraryViewUseCase = ObserveRememberLastLibraryViewUseCase(libraryViewStore),
         setRememberLastLibraryViewAction = SetRememberLastLibraryViewAction(libraryViewStore),
         observePlayerDeviceSettingsUseCase = ObservePlayerDeviceSettingsUseCase(resolvedPlayerDeviceSettingsStore),

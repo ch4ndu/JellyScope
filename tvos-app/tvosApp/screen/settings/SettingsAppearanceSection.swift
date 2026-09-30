@@ -7,6 +7,7 @@ struct SettingsAppearanceSection: View {
     @EnvironmentObject private var model: TvAppearanceModel
 
     private let themes: [AppColorThemeId] = [.ocean, .midnight, .ember]
+    private let imageQualities: [ImageQuality] = [.low, .medium, .high]
     private let tileSizes: [TileSizeId] = [.small, .medium, .large]
 
     var body: some View {
@@ -29,7 +30,18 @@ struct SettingsAppearanceSection: View {
             }
             .pickerStyle(.navigationLink)
 
-            if model.state.isSavingAppTheme || model.state.isSavingTileSize {
+            Picker(String(localized: "Image quality"), selection: imageQualityBinding) {
+                ForEach(imageQualities, id: \.name) { quality in
+                    Text(imageQualityLabel(quality)).tag(quality.name)
+                }
+            }
+            .pickerStyle(.navigationLink)
+
+            if model.state.imageQualitySaveError {
+                saveError(String(localized: "Image quality could not be saved."), retry: model.retryImageQuality)
+            }
+
+            if model.state.isSavingAppTheme || model.state.isSavingTileSize || model.state.isSavingImageQuality {
                 ProgressView(String(localized: "Saving…"))
             }
 
@@ -46,6 +58,24 @@ struct SettingsAppearanceSection: View {
                     retry: model.retryTileSize
                 )
             }
+        }
+    }
+
+    private var imageQualityBinding: Binding<String> {
+        Binding(
+            get: { model.state.imageQuality.name },
+            set: { name in
+                guard let quality = imageQualities.first(where: { $0.name == name }) else { return }
+                model.setImageQuality(quality)
+            }
+        )
+    }
+
+    private func imageQualityLabel(_ quality: ImageQuality) -> String {
+        switch quality.name {
+        case "Low": String(localized: "Low")
+        case "Medium": String(localized: "Medium")
+        default: String(localized: "High")
         }
     }
 

@@ -159,6 +159,7 @@ fun PlayerScreen(
         }
 
     val selectedTarget by viewModel.selectedPlaybackTarget.collectAsStateWithLifecycle()
+    val playerClockEnabled by viewModel.playerClockEnabled.collectAsStateWithLifecycle()
     val selectedOfflineDownloadId = selectedTarget.offlineDownloadId
     val playerError = state as? PlayerUiState.Error
     val onKidsPlay =
@@ -264,6 +265,7 @@ fun PlayerScreen(
             runtimeDiagnosticsFlow = viewModel.runtimeDiagnostics,
             playbackItemId = onPlaybackItemId,
             startWithPlaybackInfoOverlay = viewModel.startWithPlaybackInfoOverlay,
+            playerClockEnabled = playerClockEnabled,
             onBack = onBackAction,
             onPlay = viewModel::play,
             onPause = viewModel::pause,

@@ -43,6 +43,14 @@ final class TvAppearanceModel: ObservableObject {
         presenter.setTileSize(tileSize: tileSize)
     }
 
+    func setImageQuality(_ imageQuality: ImageQuality) {
+        presenter.setImageQuality(imageQuality: imageQuality)
+    }
+
+    func retryImageQuality() {
+        presenter.retryImageQuality()
+    }
+
     func retryAppTheme() {
         presenter.retryAppTheme()
     }

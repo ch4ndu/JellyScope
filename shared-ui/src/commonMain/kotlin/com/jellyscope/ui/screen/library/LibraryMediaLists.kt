@@ -36,7 +36,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.CardImageAspect
@@ -56,6 +55,7 @@ import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items as lazyItems
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 internal fun LibraryGrid(

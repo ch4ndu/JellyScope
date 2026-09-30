@@ -43,7 +43,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
@@ -70,6 +69,7 @@ import com.jellyscope.ui.generated.resources.series_error
 import com.jellyscope.ui.generated.resources.series_no_episodes
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 internal fun LazyListScope.episodes(
     session: Session,

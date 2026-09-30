@@ -4,17 +4,20 @@ package com.jellyscope.core.domain.usecase
 
 import com.jellyscope.core.data.local.AppThemeStore
 import com.jellyscope.core.data.local.GridSortStore
+import com.jellyscope.core.data.local.ImageQualityStore
 import com.jellyscope.core.data.local.LibrarySortStore
 import com.jellyscope.core.data.local.LibraryViewPreferencesStore
 import com.jellyscope.core.data.local.PictureInPictureStore
 import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlayerBackendOverrideStore
+import com.jellyscope.core.data.local.PlayerClockStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.RecentSearchStore
 import com.jellyscope.core.data.local.SavedLibrarySort
 import com.jellyscope.core.data.local.TileSizeStore
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.TileSizeId
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
@@ -34,6 +37,12 @@ class ObserveTileSizeUseCase(
     private val tileSizeStore: TileSizeStore,
 ) {
     operator fun invoke(): StateFlow<TileSizeId> = tileSizeStore.tileSize
+}
+
+class ObserveImageQualityUseCase(
+    private val imageQualityStore: ImageQualityStore,
+) {
+    operator fun invoke(): StateFlow<ImageQuality> = imageQualityStore.imageQuality
 }
 
 class ObserveRememberLastLibraryViewUseCase(
@@ -58,6 +67,12 @@ class ObservePictureInPictureEnabledUseCase(
     private val pictureInPictureStore: PictureInPictureStore,
 ) {
     operator fun invoke(): StateFlow<Boolean> = pictureInPictureStore.enabled
+}
+
+class ObservePlayerClockEnabledUseCase(
+    private val playerClockStore: PlayerClockStore,
+) {
+    operator fun invoke(): StateFlow<Boolean> = playerClockStore.enabled
 }
 
 class ObservePlayerDeviceSettingsUseCase(

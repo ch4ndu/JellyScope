@@ -47,7 +47,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.DesktopScrollOrientation
@@ -63,6 +62,7 @@ import com.jellyscope.ui.generated.resources.tv_seasons
 import com.jellyscope.ui.theme.Dimensions
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import org.jetbrains.compose.resources.stringResource
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 internal fun SeasonsShelf(

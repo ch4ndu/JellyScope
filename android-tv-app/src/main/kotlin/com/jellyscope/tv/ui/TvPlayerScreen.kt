@@ -66,6 +66,7 @@ fun TvPlayerScreen(
     val softwareRecovery by viewModel.softwarePlaybackRecovery.collectAsStateWithLifecycle()
     val presentationState = if (softwareRecovery?.switching == true) PlayerUiState.Loading else state
     val matchDisplayRefreshRate by viewModel.matchDisplayRefreshRate.collectAsStateWithLifecycle()
+    val playerClockEnabled by viewModel.playerClockEnabled.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val controllerScope = rememberCoroutineScope()
     val activity = remember(context) { context.findActivity() }
@@ -175,6 +176,7 @@ fun TvPlayerScreen(
         runtimeDiagnosticsFlow = viewModel.runtimeDiagnostics,
         playbackItemId = onPlaybackItemId,
         startWithPlaybackInfoOverlay = viewModel.startWithPlaybackInfoOverlay,
+        playerClockEnabled = playerClockEnabled,
         onTogglePlayPause = onTogglePlayPause,
         onPlay = viewModel::play,
         onPause = viewModel::pause,

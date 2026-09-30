@@ -37,7 +37,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import coil3.PlatformContext
-import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
@@ -69,6 +68,7 @@ import com.jellyscope.ui.theme.LocalJellyfinPalette
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import kotlin.math.roundToInt
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Immutable
 data class MediaCardUi(
@@ -388,9 +388,9 @@ private const val MEDIA_CARD_PROGRESS_TRACK_ALPHA = 0.24f
 
 /**
  * Decode dimensions for an image request. EXACT precision means a given URL
- * decodes to exactly this bitmap, and the cache key carries the size, so two
- * surfaces asking for the same size share one entry. Aspects must match the
- * content or EXACT squashes it.
+ * requests this bounding size, and the cache key carries the size so matching
+ * surfaces can share an entry. Coil preserves source aspect ratio, so a cropped
+ * bitmap can have dimensions different from the requested bounds.
  *
  * Detail and hero surfaces use these canonical sizes; list and grid cards derive
  * a bounded size from their resolved tile token via [cardImageDecode].

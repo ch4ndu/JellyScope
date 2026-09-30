@@ -13,15 +13,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.SingletonImageLoader
 import coil3.compose.LocalPlatformContext
 import com.jellyscope.core.data.remote.ImageAuthHeaderProvider
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.component.ImageDecode
+import com.jellyscope.ui.component.LocalImageDecodeScale
+import com.jellyscope.ui.component.MeasuredImageRequestKey
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.component.buildAuthenticatedImageRequest
+import com.jellyscope.ui.component.limitedTo
+import com.jellyscope.ui.component.scaledImageSize
 import com.jellyscope.ui.screen.home.HomeRow
 import com.jellyscope.ui.screen.home.HomeViewModel
 import com.jellyscope.ui.screen.home.RowState
@@ -65,13 +70,18 @@ internal fun TvHomeScreen(
         onDispose { onAmbientPresentationChanged(TvHeroAmbientPresentation.Empty) }
     }
 
+    var heroSize by remember { mutableStateOf(IntSize.Zero) }
+    val imageDecodeScale = LocalImageDecodeScale.current
+
     // Debounce backdrop prefetch so fast focus movement does no decode work.
     val platformContext = LocalPlatformContext.current
     val imageAuthHeaderProvider = koinInject<ImageAuthHeaderProvider>()
-    LaunchedEffect(focusedItem) {
+    val reducedHeroSize = if (imageDecodeScale < 1f) heroSize else null
+    LaunchedEffect(focusedItem, reducedHeroSize, imageDecodeScale) {
+        if (reducedHeroSize == IntSize.Zero) return@LaunchedEffect
         val backdropUrl = focusedItem?.backdropUrl ?: return@LaunchedEffect
         delay(BACKDROP_PREFETCH_DEBOUNCE_MS)
-        val request =
+        val highRequest =
             buildAuthenticatedImageRequest(
                 context = platformContext,
                 imageUrl = backdropUrl,
@@ -79,6 +89,17 @@ internal fun TvHomeScreen(
                 imageAuthHeaderProvider = imageAuthHeaderProvider,
                 decode = ImageDecode.Backdrop,
             )
+        val request =
+            if (reducedHeroSize == null) {
+                highRequest
+            } else {
+                val reducedSize = scaledImageSize(reducedHeroSize, imageDecodeScale).limitedTo(highRequest.sizeResolver.size())
+                highRequest
+                    .newBuilder()
+                    .size(reducedSize)
+                    .apply { extras[MeasuredImageRequestKey] = true }
+                    .build()
+            }
         SingletonImageLoader.get(platformContext).enqueue(request)
     }
 
@@ -147,6 +168,7 @@ internal fun TvHomeScreen(
         onItemPlayDirect = onItemPlayDirect,
         onViewAllSelected = onViewAllSelected,
         focusRescueTick = focusRescueTick,
+        onHeroSizeChanged = { heroSize = it },
         modifier = modifier,
     )
 }

@@ -67,6 +67,10 @@ return and tab changes. Recent queries are account-scoped and recorded on
 submit, recent selection, or person selection; filter edits never add blank
 recents. Failed searches retain useful results with Retry.
 
+Image quality is available in Appearance and follows the shared High/Medium/Low
+policy in [UI](ui.md); remote and downloaded artwork use measured bounds for
+reduced quality.
+
 Settings uses native forms and navigation-link pickers for supported playback,
 language, segment, browsing, appearance, subtitles, diagnostics, and account
 controls. A failed playback-preference load shows Retry and keeps only playback,
@@ -95,6 +99,8 @@ still-watching semantics are owned by
 [native tvOS playback](apple-playback.md#tvos-native-player). Modal precedence is
 action/error, still-watching, a user-opened panel, then next-up. Back closes the
 topmost panel and returns focus to its invoker; unobscured Back closes playback.
+The top-right launcher ends with a minute-updating wall clock while the
+device-wide Player Clock setting (read at playback start) is on.
 Progress updates do not steal focus or rebuild AVKit menus. Controls expose
 speed, supported subtitle style, AVKit video sizing and sanitized diagnostics.
 Timing and VLC video sizing are explicitly unavailable.

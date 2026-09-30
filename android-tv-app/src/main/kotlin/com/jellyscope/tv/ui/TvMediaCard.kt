@@ -31,7 +31,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
-import coil3.compose.AsyncImage
 import coil3.toBitmap
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
@@ -48,6 +47,7 @@ import com.jellyscope.ui.component.AdaptiveProgressBar as TvProgressBar
 import com.jellyscope.ui.component.DetailSecondaryStyle as TvSecondaryStyle
 import com.jellyscope.ui.component.DetailText as TvText
 import com.jellyscope.ui.component.FocusableBox as TvFocusableBox
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 internal fun TvMediaCard(

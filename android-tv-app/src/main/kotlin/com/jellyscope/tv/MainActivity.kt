@@ -32,6 +32,7 @@ import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.usecase.ObserveAppThemeUseCase
+import com.jellyscope.core.domain.usecase.ObserveImageQualityUseCase
 import com.jellyscope.core.domain.usecase.ObserveSessionStateUseCase
 import com.jellyscope.core.domain.usecase.ObserveTileSizeUseCase
 import com.jellyscope.core.util.DiagnosticTag
@@ -44,6 +45,7 @@ import com.jellyscope.tv.watchnext.WatchNextContract
 import com.jellyscope.tv.watchnext.WatchNextScheduler
 import com.jellyscope.ui.adaptive.LocalTileScale
 import com.jellyscope.ui.adaptive.tvTileScaleFor
+import com.jellyscope.ui.component.LocalImageDecodeScale
 import com.jellyscope.ui.component.launch.AmbientLaunchScaffold
 import com.jellyscope.ui.image.InstallJellyfinImageLoader
 import com.jellyscope.ui.platform.LocalDownloadNotificationPermissionRequester
@@ -75,6 +77,7 @@ class MainActivity : ComponentActivity() {
         val observeSessionStateUseCase = get<ObserveSessionStateUseCase>()
         val observeAppThemeUseCase = get<ObserveAppThemeUseCase>()
         val observeTileSizeUseCase = get<ObserveTileSizeUseCase>()
+        val observeImageQualityUseCase = get<ObserveImageQualityUseCase>()
         val tvUiPreferencesStore = get<TvUiPreferencesStore>()
 
         setContent {
@@ -113,11 +116,13 @@ class MainActivity : ComponentActivity() {
             }
             val appTheme by observeAppThemeUseCase().collectAsStateWithLifecycle()
             val tileSize by observeTileSizeUseCase().collectAsStateWithLifecycle()
+            val imageQuality by observeImageQualityUseCase().collectAsStateWithLifecycle()
             val focusZoomEnabled by tvUiPreferencesStore.focusedCardZoomEnabled.collectAsStateWithLifecycle()
 
             JellyScopeTheme(theme = appTheme.toAppColorTheme()) {
                 CompositionLocalProvider(
                     LocalTileScale provides tvTileScaleFor(tileSize),
+                    LocalImageDecodeScale provides imageQuality.decodeScale,
                     LocalTvFocusZoomEnabled provides focusZoomEnabled,
                     LocalDetailFocusZoomEnabled provides focusZoomEnabled,
                     LocalDetailInteractionMode provides DetailInteractionMode.Dpad,

@@ -26,6 +26,7 @@ internal enum class SettingsRowId {
     SignOut,
     Theme,
     TileSize,
+    ImageQuality,
     RememberLastLibrary,
     AudioLanguage,
     SubtitleLanguage,
@@ -34,6 +35,7 @@ internal enum class SettingsRowId {
     AutoPlayNext,
     StillWatching,
     PlaybackWarnings,
+    PlayerClock,
     AllowInsecureDesktopTls,
     AutoPlayNextDelay,
     PlayerBackend,
@@ -85,6 +87,7 @@ internal fun SettingsRowId.section(): SettingsSectionId =
         -> SettingsSectionId.Account
         SettingsRowId.Theme,
         SettingsRowId.TileSize,
+        SettingsRowId.ImageQuality,
         SettingsRowId.RememberLastLibrary,
         -> SettingsSectionId.Appearance
         SettingsRowId.AudioLanguage,
@@ -94,6 +97,7 @@ internal fun SettingsRowId.section(): SettingsSectionId =
         SettingsRowId.AutoPlayNext,
         SettingsRowId.StillWatching,
         SettingsRowId.PlaybackWarnings,
+        SettingsRowId.PlayerClock,
         SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.AutoPlayNextDelay,
         SettingsRowId.PlayerBackend,
@@ -135,6 +139,7 @@ internal fun SettingsRowId.trailingKind(): SettingsRowTrailingKind =
         SettingsRowId.SignOut,
         SettingsRowId.Theme,
         SettingsRowId.TileSize,
+        SettingsRowId.ImageQuality,
         SettingsRowId.AudioLanguage,
         SettingsRowId.SubtitleLanguage,
         SettingsRowId.MaxBitrate,
@@ -159,6 +164,7 @@ internal fun SettingsRowId.trailingKind(): SettingsRowTrailingKind =
         SettingsRowId.AutoPlayNext,
         SettingsRowId.StillWatching,
         SettingsRowId.PlaybackWarnings,
+        SettingsRowId.PlayerClock,
         SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.PictureInPicture,
         SettingsRowId.CollectLogs,
@@ -194,6 +200,7 @@ internal fun SettingsRowId.iconRole(): SettingsRowIconRole =
         SettingsRowId.AddAccount,
         SettingsRowId.Theme,
         SettingsRowId.TileSize,
+        SettingsRowId.ImageQuality,
         SettingsRowId.RememberLastLibrary,
         SettingsRowId.AudioLanguage,
         SettingsRowId.SubtitleLanguage,
@@ -202,6 +209,7 @@ internal fun SettingsRowId.iconRole(): SettingsRowIconRole =
         SettingsRowId.AutoPlayNext,
         SettingsRowId.StillWatching,
         SettingsRowId.PlaybackWarnings,
+        SettingsRowId.PlayerClock,
         SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.AutoPlayNextDelay,
         SettingsRowId.PlayerBackend,
@@ -233,6 +241,7 @@ internal fun SettingsRowId.icon(): ImageVector =
         SettingsRowId.SignOut -> SettingsIcons.SignOut
         SettingsRowId.Theme -> SettingsIcons.Theme
         SettingsRowId.TileSize -> SettingsIcons.TileSize
+        SettingsRowId.ImageQuality -> SettingsIcons.VideoFormats
         SettingsRowId.RememberLastLibrary -> SettingsIcons.RememberLibrary
         SettingsRowId.AudioLanguage -> SettingsIcons.AudioLanguage
         SettingsRowId.SubtitleLanguage -> SettingsIcons.SubtitleLanguage
@@ -241,6 +250,7 @@ internal fun SettingsRowId.icon(): ImageVector =
         SettingsRowId.AutoPlayNext,
         SettingsRowId.StillWatching,
         SettingsRowId.PlaybackWarnings,
+        SettingsRowId.PlayerClock,
         SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.AutoPlayNextDelay,
         -> SettingsIcons.ResumeBehavior

@@ -134,6 +134,7 @@ import kotlin.time.TimeSource
 class TvPlaybackSessionPresenter(
     private val session: Session,
     val startWithPlaybackInfoOverlay: Boolean,
+    val showsClock: Boolean = true,
     initialItemId: String,
     private val requestedMediaSourceId: String?,
     private val initialStartPositionTicks: Long,

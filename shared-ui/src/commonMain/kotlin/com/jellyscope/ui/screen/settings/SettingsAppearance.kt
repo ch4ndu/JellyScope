@@ -16,9 +16,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.TileSizeId
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.settings_appearance
+import com.jellyscope.ui.generated.resources.settings_image_quality
+import com.jellyscope.ui.generated.resources.settings_image_quality_high
+import com.jellyscope.ui.generated.resources.settings_image_quality_low
+import com.jellyscope.ui.generated.resources.settings_image_quality_medium
+import com.jellyscope.ui.generated.resources.settings_picker_image_quality_subtitle
 import com.jellyscope.ui.generated.resources.settings_picker_theme_subtitle
 import com.jellyscope.ui.generated.resources.settings_picker_tile_size_subtitle
 import com.jellyscope.ui.generated.resources.settings_remember_library_view
@@ -40,6 +46,8 @@ internal fun AppearanceSettingsSection(
     onSetAppTheme: (AppColorThemeId) -> Unit,
     selectedTileSize: TileSizeId,
     onSetTileSize: (TileSizeId) -> Unit,
+    selectedImageQuality: ImageQuality,
+    onSetImageQuality: (ImageQuality) -> Unit,
     rememberLastLibraryView: Boolean,
     onRememberLastLibraryViewChange: (Boolean) -> Unit,
     openRow: SettingsRowId?,
@@ -88,6 +96,16 @@ internal fun AppearanceSettingsSection(
                 },
                 {
                     SettingsRow(
+                        icon = SettingsRowId.ImageQuality.icon(),
+                        iconRole = SettingsRowId.ImageQuality.iconRole(),
+                        title = stringResource(Res.string.settings_image_quality),
+                        value = imageQualityLabel(selectedImageQuality),
+                        trailing = SettingsRowTrailing.Chevron,
+                        onClick = { onOpenRow(SettingsRowId.ImageQuality) },
+                    )
+                },
+                {
+                    SettingsRow(
                         icon = SettingsRowId.RememberLastLibrary.icon(),
                         iconRole = SettingsRowId.RememberLastLibrary.iconRole(),
                         title = stringResource(Res.string.settings_remember_library_view),
@@ -119,6 +137,16 @@ internal fun AppearanceSettingsSection(
             options = tileSizeOptions,
             selectedValue = selectedTileSize,
             onOptionSelected = onSetTileSize,
+            onDismiss = onDismiss,
+        )
+    }
+    if (openRow == SettingsRowId.ImageQuality) {
+        SettingsOptionPicker(
+            title = stringResource(Res.string.settings_image_quality),
+            subtitle = stringResource(Res.string.settings_picker_image_quality_subtitle),
+            options = ImageQuality.entries.map { SettingsPickerOption(it, imageQualityLabel(it)) },
+            selectedValue = selectedImageQuality,
+            onOptionSelected = onSetImageQuality,
             onDismiss = onDismiss,
         )
     }
@@ -171,3 +199,11 @@ private fun ThemeSwatchDot(color: Color) {
                 ),
     )
 }
+
+@Composable
+internal fun imageQualityLabel(quality: ImageQuality): String =
+    when (quality) {
+        ImageQuality.Low -> stringResource(Res.string.settings_image_quality_low)
+        ImageQuality.Medium -> stringResource(Res.string.settings_image_quality_medium)
+        ImageQuality.High -> stringResource(Res.string.settings_image_quality_high)
+    }

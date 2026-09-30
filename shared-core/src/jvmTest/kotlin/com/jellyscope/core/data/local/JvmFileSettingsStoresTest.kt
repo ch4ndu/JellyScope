@@ -34,23 +34,27 @@ class JvmFileSettingsStoresTest {
     }
 
     @Test
-    fun themeAndPictureInPicturePersistAcrossStoreInstances() =
+    fun themePictureInPictureAndPlayerClockPersistAcrossStoreInstances() =
         runTest {
             val file = tempDir.resolve("preferences.json").toFile()
             val preferences = JvmFilePreferencesStore(file)
 
             val themeStore = JvmFileAppThemeStore(preferences)
             val pipStore = JvmFilePictureInPictureStore(preferences)
+            val clockStore = JvmFilePlayerClockStore(preferences)
 
             assertEquals(AppColorThemeId.Ember, themeStore.theme.value)
             assertTrue(pipStore.enabled.value)
+            assertTrue(clockStore.enabled.value)
 
             themeStore.setTheme(AppColorThemeId.Midnight)
             pipStore.setEnabled(false)
+            clockStore.setEnabled(false)
 
             val restoredPreferences = JvmFilePreferencesStore(file)
             assertEquals(AppColorThemeId.Midnight, JvmFileAppThemeStore(restoredPreferences).theme.value)
             assertFalse(JvmFilePictureInPictureStore(restoredPreferences).enabled.value)
+            assertFalse(JvmFilePlayerClockStore(restoredPreferences).enabled.value)
         }
 
     @Test

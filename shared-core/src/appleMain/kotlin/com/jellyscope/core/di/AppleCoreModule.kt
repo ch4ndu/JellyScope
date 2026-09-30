@@ -8,13 +8,16 @@ import com.jellyscope.core.data.local.ApplePlaintextSecureStore
 import com.jellyscope.core.data.local.ApplePreviousRunFailureStore
 import com.jellyscope.core.data.local.AppleUserDefaultsAppThemeStore
 import com.jellyscope.core.data.local.AppleUserDefaultsGridSortStore
+import com.jellyscope.core.data.local.AppleUserDefaultsImageQualityStore
 import com.jellyscope.core.data.local.AppleUserDefaultsLibrarySortStore
 import com.jellyscope.core.data.local.AppleUserDefaultsLibraryViewPreferencesStore
 import com.jellyscope.core.data.local.AppleUserDefaultsLogCollectionPreferenceStore
 import com.jellyscope.core.data.local.AppleUserDefaultsPictureInPictureStore
+import com.jellyscope.core.data.local.AppleUserDefaultsPlayerClockStore
 import com.jellyscope.core.data.local.AppleUserDefaultsTileSizeStore
 import com.jellyscope.core.data.local.DiagnosticBreadcrumbStore
 import com.jellyscope.core.data.local.GridSortStore
+import com.jellyscope.core.data.local.ImageQualityStore
 import com.jellyscope.core.data.local.JellyfinStoreDatabase
 import com.jellyscope.core.data.local.LibrarySortStore
 import com.jellyscope.core.data.local.LibraryViewPreferencesStore
@@ -26,6 +29,7 @@ import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlaybackSelectionStore
 import com.jellyscope.core.data.local.PlaybackTimingStore
 import com.jellyscope.core.data.local.PlayerBackendOverrideStore
+import com.jellyscope.core.data.local.PlayerClockStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.PreviousRunFailureStore
 import com.jellyscope.core.data.local.RecentSearchStore
@@ -122,7 +126,9 @@ fun appleCoreModule(
     single<CoroutineScope> { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     single<AppThemeStore> { AppleUserDefaultsAppThemeStore() }
     single<TileSizeStore> { AppleUserDefaultsTileSizeStore() }
+    single<ImageQualityStore> { AppleUserDefaultsImageQualityStore() }
     single<PictureInPictureStore> { AppleUserDefaultsPictureInPictureStore() }
+    single<PlayerClockStore> { AppleUserDefaultsPlayerClockStore() }
     single<LogCollectionPreferenceStore> { AppleUserDefaultsLogCollectionPreferenceStore() }
     single<DiagnosticBreadcrumbStore> { createDiagnosticBreadcrumbStore() }
     single<PreviousRunFailureStore> { ApplePreviousRunFailureStore() }

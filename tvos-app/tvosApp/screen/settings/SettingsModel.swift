@@ -49,6 +49,10 @@ final class SettingsModel: ObservableObject {
         presenter.setAutoPlayNextDelaySeconds(seconds: Int32(seconds))
     }
 
+    func setPlayerClockEnabled(_ enabled: Bool) {
+        presenter.setPlayerClockEnabled(enabled: enabled)
+    }
+
     func setRememberLastLibraryView(_ enabled: Bool) {
         presenter.setRememberLastLibraryViewEnabled(enabled: enabled)
     }

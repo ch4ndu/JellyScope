@@ -3,10 +3,13 @@
 package com.jellyscope.tvos.presenter
 
 import com.jellyscope.core.domain.action.SetAppThemeAction
+import com.jellyscope.core.domain.action.SetImageQualityAction
 import com.jellyscope.core.domain.action.SetTileSizeAction
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.TileSizeId
 import com.jellyscope.core.domain.usecase.ObserveAppThemeUseCase
+import com.jellyscope.core.domain.usecase.ObserveImageQualityUseCase
 import com.jellyscope.core.domain.usecase.ObserveTileSizeUseCase
 import com.jellyscope.core.util.DiagnosticOperation
 import com.jellyscope.core.util.DiagnosticTag
@@ -28,27 +31,35 @@ class TvAppearancePresenter(
     private val setAppThemeAction: SetAppThemeAction,
     observeTileSize: ObserveTileSizeUseCase,
     private val setTileSizeAction: SetTileSizeAction,
+    observeImageQuality: ObserveImageQualityUseCase,
+    private val setImageQualityAction: SetImageQualityAction,
     dispatchers: TvosDispatchers,
 ) : TvPresenter(dispatchers) {
     private val observedAppTheme = observeAppTheme()
     private val observedTileSize = observeTileSize()
+    private val observedImageQuality = observeImageQuality()
     private val _state =
         MutableStateFlow(
             TvAppearanceState(
                 appTheme = observedAppTheme.value,
                 tileSize = observedTileSize.value,
+                imageQuality = observedImageQuality.value,
             ),
         )
     val state: StateFlow<TvAppearanceState> = _state.asStateFlow()
 
     private val appThemeWrites = Channel<AppThemeWrite>(Channel.CONFLATED)
     private val tileSizeWrites = Channel<TileSizeWrite>(Channel.CONFLATED)
+    private val imageQualityWrites = Channel<ImageQualityWrite>(Channel.CONFLATED)
     private var appThemeGeneration = 0L
     private var tileSizeGeneration = 0L
+    private var imageQualityGeneration = 0L
     private var appThemeIntent: AppColorThemeId? = null
     private var tileSizeIntent: TileSizeId? = null
+    private var imageQualityIntent: ImageQuality? = null
     private var failedAppTheme: AppColorThemeId? = null
     private var failedTileSize: TileSizeId? = null
+    private var failedImageQuality: ImageQuality? = null
 
     init {
         scope.launch {
@@ -66,6 +77,13 @@ class TvAppearancePresenter(
             }
         }
         scope.launch {
+            observedImageQuality.collect { imageQuality ->
+                if (imageQualityIntent == null || imageQualityIntent == imageQuality) {
+                    _state.update { current -> current.copy(imageQuality = imageQuality) }
+                }
+            }
+        }
+        scope.launch {
             for (request in appThemeWrites) {
                 writeAppTheme(request)
             }
@@ -73,6 +91,11 @@ class TvAppearancePresenter(
         scope.launch {
             for (request in tileSizeWrites) {
                 writeTileSize(request)
+            }
+        }
+        scope.launch {
+            for (request in imageQualityWrites) {
+                writeImageQuality(request)
             }
         }
     }
@@ -107,12 +130,30 @@ class TvAppearancePresenter(
         tileSizeWrites.trySend(TileSizeWrite(tileSize, tileSizeGeneration))
     }
 
+    fun setImageQuality(imageQuality: ImageQuality) {
+        if (!state.value.isSavingImageQuality && imageQuality == state.value.imageQuality) return
+        imageQualityGeneration += 1
+        imageQualityIntent = imageQuality
+        failedImageQuality = null
+        _state.update { current ->
+            current.copy(
+                isSavingImageQuality = true,
+                imageQualitySaveError = false,
+            )
+        }
+        imageQualityWrites.trySend(ImageQualityWrite(imageQuality, imageQualityGeneration))
+    }
+
     fun retryAppTheme() {
         failedAppTheme?.let(::setAppTheme)
     }
 
     fun retryTileSize() {
         failedTileSize?.let(::setTileSize)
+    }
+
+    fun retryImageQuality() {
+        failedImageQuality?.let(::setImageQuality)
     }
 
     private suspend fun writeAppTheme(request: AppThemeWrite) {
@@ -198,6 +239,48 @@ class TvAppearancePresenter(
             }
         }
     }
+
+    private suspend fun writeImageQuality(request: ImageQualityWrite) {
+        try {
+            withContext(workDispatcher) { setImageQualityAction(request.value) }
+            if (request.generation == imageQualityGeneration) {
+                imageQualityIntent = null
+                failedImageQuality = null
+                _state.update { current ->
+                    current.copy(
+                        imageQuality = observedImageQuality.value,
+                        isSavingImageQuality = false,
+                        imageQualitySaveError = false,
+                    )
+                }
+            }
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Throwable) {
+            appearanceLogger.w {
+                formatSafeFailureDiagnostic(
+                    stage = "appearance-write",
+                    event = "failed",
+                    operation = DiagnosticOperation.SetImageQuality,
+                    throwable = exception,
+                )
+            }
+            if (request.generation == imageQualityGeneration) {
+                while (imageQualityWrites.tryReceive().isSuccess) {
+                    // Recover from the observed store value before accepting another intent.
+                }
+                imageQualityIntent = null
+                failedImageQuality = request.value
+                _state.update { current ->
+                    current.copy(
+                        imageQuality = observedImageQuality.value,
+                        isSavingImageQuality = false,
+                        imageQualitySaveError = true,
+                    )
+                }
+            }
+        }
+    }
 }
 
 private data class AppThemeWrite(
@@ -207,6 +290,11 @@ private data class AppThemeWrite(
 
 private data class TileSizeWrite(
     val value: TileSizeId,
+    val generation: Long,
+)
+
+private data class ImageQualityWrite(
+    val value: ImageQuality,
     val generation: Long,
 )
 

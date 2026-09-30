@@ -29,8 +29,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
-import coil3.compose.AsyncImage
+import androidx.compose.ui.unit.IntSize
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
 import com.jellyscope.ui.component.ImageDecode
@@ -42,12 +43,14 @@ import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import com.jellyscope.ui.component.DetailText as TvText
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 internal fun TvHeroBackdrop(
     session: Session,
     item: MediaCardUi?,
     modifier: Modifier = Modifier,
+    onSizeChanged: (IntSize) -> Unit = {},
 ) {
     Crossfade(
         targetState = item?.backdropUrl,
@@ -57,6 +60,7 @@ internal fun TvHeroBackdrop(
             modifier
                 .fillMaxWidth(TvDimens.heroBackdropWidthFraction)
                 .height(TvDimens.heroBackdropHeight)
+                .onSizeChanged(onSizeChanged)
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithCache {
                     val horizontalMask =

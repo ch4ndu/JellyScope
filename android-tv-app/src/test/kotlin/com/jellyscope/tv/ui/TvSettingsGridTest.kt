@@ -34,7 +34,7 @@ class TvSettingsGridTest {
         assertTrue(tvSettingsGridRows.dropLast(1).all { row -> row.size >= TV_SETTINGS_GRID_COLUMNS })
         assertEquals(4, tvSettingsGridRows.last().size)
         assertEquals(TvSettingsTileId.entries.toSet(), tvSettingsGridRows.flatten().toSet())
-        assertEquals(40, TvSettingsTileId.entries.size)
+        assertEquals(42, TvSettingsTileId.entries.size)
         assertEquals(
             listOf(
                 listOf(
@@ -50,6 +50,7 @@ class TvSettingsGridTest {
                     TvSettingsTileId.FocusedCardZoom,
                     TvSettingsTileId.RememberLastLibrary,
                     TvSettingsTileId.LibraryGridHero,
+                    TvSettingsTileId.ImageQuality,
                 ),
                 listOf(
                     TvSettingsTileId.AudioLanguage,
@@ -62,6 +63,7 @@ class TvSettingsGridTest {
                     TvSettingsTileId.AutoPlayNext,
                     TvSettingsTileId.AutoPlayNextDelay,
                     TvSettingsTileId.VlcTranscodeLimit,
+                    TvSettingsTileId.PlayerClock,
                 ),
                 listOf(
                     TvSettingsTileId.Intros,
@@ -109,6 +111,7 @@ class TvSettingsGridTest {
                 TvSettingsTileId.Logout to TvSettingsTileAction.Logout,
                 TvSettingsTileId.Theme to TvSettingsTileAction.Theme,
                 TvSettingsTileId.TileSize to TvSettingsTileAction.TileSize,
+                TvSettingsTileId.ImageQuality to TvSettingsTileAction.ImageQuality,
                 TvSettingsTileId.FocusedCardZoom to TvSettingsTileAction.FocusedCardZoom,
                 TvSettingsTileId.RememberLastLibrary to TvSettingsTileAction.RememberLastLibrary,
                 TvSettingsTileId.LibraryGridHero to TvSettingsTileAction.LibraryGridHero,
@@ -122,6 +125,7 @@ class TvSettingsGridTest {
                 TvSettingsTileId.AutoPlayNext to TvSettingsTileAction.AutoPlayNext,
                 TvSettingsTileId.AutoPlayNextDelay to TvSettingsTileAction.AutoPlayNextDelay,
                 TvSettingsTileId.VlcTranscodeLimit to TvSettingsTileAction.VlcTranscodeLimit,
+                TvSettingsTileId.PlayerClock to TvSettingsTileAction.PlayerClock,
                 TvSettingsTileId.Intros to TvSettingsTileAction.SegmentPolicy,
                 TvSettingsTileId.Credits to TvSettingsTileAction.SegmentPolicy,
                 TvSettingsTileId.Recaps to TvSettingsTileAction.SegmentPolicy,
@@ -180,6 +184,7 @@ class TvSettingsGridTest {
                 TvSettingsTileId.Logout to SettingsIcons.SignOut,
                 TvSettingsTileId.Theme to SettingsIcons.Theme,
                 TvSettingsTileId.TileSize to SettingsIcons.TileSize,
+                TvSettingsTileId.ImageQuality to SettingsIcons.VideoFormats,
                 TvSettingsTileId.FocusedCardZoom to SettingsIcons.FocusedCardZoom,
                 TvSettingsTileId.RememberLastLibrary to SettingsIcons.RememberLibrary,
                 TvSettingsTileId.LibraryGridHero to SettingsIcons.LibraryGridHero,
@@ -188,6 +193,7 @@ class TvSettingsGridTest {
                 TvSettingsTileId.MaxBitrate to SettingsIcons.MaxBitrate,
                 TvSettingsTileId.StillWatching to SettingsIcons.ResumeBehavior,
                 TvSettingsTileId.PlaybackWarnings to SettingsIcons.ResumeBehavior,
+                TvSettingsTileId.PlayerClock to SettingsIcons.ResumeBehavior,
                 TvSettingsTileId.AudioOutput to SettingsIcons.AudioOutput,
                 TvSettingsTileId.PlayerBackend to SettingsIcons.VideoFormats,
                 TvSettingsTileId.AutoPlayNext to SettingsIcons.ResumeBehavior,

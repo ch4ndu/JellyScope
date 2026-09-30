@@ -17,6 +17,7 @@ final class PlaybackModel: ObservableObject {
     let session: Session
     let isOffline: Bool
     let startWithPlaybackInfoOverlay: Bool
+    let showsClock: Bool
 
     private let onlinePresenter: TvPlaybackSessionPresenter?
     private let offlinePresenter: TvOfflinePlaybackPresenter?
@@ -40,6 +41,7 @@ final class PlaybackModel: ObservableObject {
         self.onlinePresenter = presenter
         self.offlinePresenter = nil
         self.startWithPlaybackInfoOverlay = presenter.startWithPlaybackInfoOverlay
+        self.showsClock = presenter.showsClock
         self.onlineState = presenter.state.value as? TvPlaybackUiState
         self.offlineState = nil
         self.handle = presenter.watchState { [weak self] state in
@@ -61,6 +63,7 @@ final class PlaybackModel: ObservableObject {
         self.onlinePresenter = nil
         self.offlinePresenter = presenter
         self.startWithPlaybackInfoOverlay = presenter.startWithPlaybackInfoOverlay
+        self.showsClock = presenter.showsClock
         self.onlineState = nil
         self.offlineState = presenter.state.value as? TvOfflinePlaybackUiState
         self.handle = presenter.watchState { [weak self] state in

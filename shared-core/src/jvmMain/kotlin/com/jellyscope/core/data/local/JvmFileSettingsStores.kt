@@ -3,6 +3,7 @@
 package com.jellyscope.core.data.local
 
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.LibrarySortBy
 import com.jellyscope.core.domain.model.LibrarySortOrder
@@ -143,6 +144,19 @@ internal class JvmFileTileSizeStore(
     }
 }
 
+internal class JvmFileImageQualityStore(
+    private val preferences: JvmFilePreferencesStore,
+) : ImageQualityStore {
+    private val _imageQuality = MutableStateFlow(preferences.readImageQuality())
+
+    override val imageQuality: StateFlow<ImageQuality> = _imageQuality.asStateFlow()
+
+    override suspend fun setImageQuality(imageQuality: ImageQuality) {
+        preferences.writeString(IMAGE_QUALITY_KEY, imageQuality.name)
+        _imageQuality.value = imageQuality
+    }
+}
+
 internal class JvmFilePictureInPictureStore(
     private val preferences: JvmFilePreferencesStore,
 ) : PictureInPictureStore {
@@ -152,6 +166,19 @@ internal class JvmFilePictureInPictureStore(
 
     override suspend fun setEnabled(enabled: Boolean) {
         preferences.writeString(PICTURE_IN_PICTURE_ENABLED_KEY, enabled.toString())
+        _enabled.value = enabled
+    }
+}
+
+internal class JvmFilePlayerClockStore(
+    private val preferences: JvmFilePreferencesStore,
+) : PlayerClockStore {
+    private val _enabled = MutableStateFlow(preferences.readPlayerClockEnabled())
+
+    override val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
+
+    override suspend fun setEnabled(enabled: Boolean) {
+        preferences.writeString(PLAYER_CLOCK_ENABLED_KEY, enabled.toString())
         _enabled.value = enabled
     }
 }
@@ -284,6 +311,9 @@ private fun JvmFilePreferencesStore.readTileSize(): TileSizeId = readString(TILE
 private fun JvmFilePreferencesStore.readPictureInPictureEnabled(): Boolean =
     readString(PICTURE_IN_PICTURE_ENABLED_KEY)?.toBooleanStrictOrNull() ?: true
 
+private fun JvmFilePreferencesStore.readPlayerClockEnabled(): Boolean =
+    readString(PLAYER_CLOCK_ENABLED_KEY)?.toBooleanStrictOrNull() ?: true
+
 private fun JvmFilePreferencesStore.readLogCollectionEnabled(): Boolean =
     readString(LOG_COLLECTION_ENABLED_KEY)?.toBooleanStrictOrNull() ?: false
 
@@ -305,6 +335,7 @@ private fun String.toTileSizeId(): TileSizeId = toTolerantEnumOrNull<TileSizeId>
 private const val APP_THEME_KEY = "app_theme.color"
 private const val TILE_SIZE_KEY = "tile_size.value"
 private const val PICTURE_IN_PICTURE_ENABLED_KEY = "picture_in_picture.enabled"
+private const val PLAYER_CLOCK_ENABLED_KEY = "player_clock.enabled"
 private const val LOG_COLLECTION_ENABLED_KEY = "log_collection.enabled"
 private const val VERBOSE_LOGCAT_ENABLED_KEY = "log_collection.verbose_logcat_enabled"
 private const val PLAYBACK_INFO_AT_START_ENABLED_KEY = "log_collection.playback_info_at_start_enabled"
@@ -313,3 +344,8 @@ private const val GRID_SORT_KEY_PREFIX = "grid_sort."
 private const val REMEMBER_LAST_LIBRARY_VIEW_KEY = "library_view.remember"
 private const val LIBRARY_VIEW_KEY_PREFIX = "library_view.saved."
 private const val LAST_LIBRARY_KEY_PREFIX = "library_view.last_library."
+
+private const val IMAGE_QUALITY_KEY = "image_quality"
+
+private fun JvmFilePreferencesStore.readImageQuality(): ImageQuality =
+    readString(IMAGE_QUALITY_KEY)?.toTolerantEnumOrNull<ImageQuality>() ?: ImageQuality.High

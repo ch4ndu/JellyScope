@@ -4,10 +4,12 @@ package com.jellyscope.tvos.presenter
 
 import com.jellyscope.core.data.local.LibraryViewPreferencesStore
 import com.jellyscope.core.data.local.LogCollectionPreferenceStore
+import com.jellyscope.core.data.local.PlayerClockStore
 import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
 import com.jellyscope.core.domain.action.SetPlaybackInfoAtStartEnabledAction
+import com.jellyscope.core.domain.action.SetPlayerClockEnabledAction
 import com.jellyscope.core.domain.action.SetRememberLastLibraryViewAction
 import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.PlaybackPreferences
@@ -22,6 +24,7 @@ import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.usecase.GetLogCollectionStateUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackInfoAtStartStateUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackPreferencesUseCase
+import com.jellyscope.core.domain.usecase.ObservePlayerClockEnabledUseCase
 import com.jellyscope.core.domain.usecase.ObserveRememberLastLibraryViewUseCase
 import com.jellyscope.core.playback.PlaybackDiagnosticsContext
 import com.jellyscope.core.util.LogBufferStore
@@ -36,9 +39,31 @@ import kotlinx.coroutines.test.runTest
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TvSettingsPresenterTest {
+    @Test
+    fun playerClockToggleWritesThroughAndRestoresStoreTruthOnFailure() =
+        runTest {
+            val clockStore = TestPlayerClockStore()
+            val presenter = presenter(FakePlaybackPreferencesStore(), playerClockStore = clockStore)
+            runCurrent()
+
+            presenter.setPlayerClockEnabled(false)
+            assertFalse(presenter.state.value.playerClockEnabled)
+            runCurrent()
+            assertFalse(clockStore.enabled.value)
+
+            clockStore.failNextWrite = true
+            presenter.setPlayerClockEnabled(true)
+            runCurrent()
+
+            assertFalse(presenter.state.value.playerClockEnabled)
+            assertTrue(presenter.state.value.saveError)
+            presenter.close()
+        }
+
     @Test
     fun diagnosticToggleAndSendExposeSafeCollectionState() =
         runTest {
@@ -222,6 +247,7 @@ class TvSettingsPresenterTest {
         store: FakePlaybackPreferencesStore,
         repository: FakeTvMediaRepository = FakeTvMediaRepository(),
         preferenceStore: TestLogCollectionPreferenceStore = TestLogCollectionPreferenceStore(),
+        playerClockStore: TestPlayerClockStore = TestPlayerClockStore(),
     ): TvSettingsPresenter =
         run {
             val mainDispatcher = StandardTestDispatcher(testScheduler)
@@ -263,6 +289,8 @@ class TvSettingsPresenterTest {
                 savePlaybackPreferences = SavePlaybackPreferencesAction(store),
                 observeRememberLastLibraryView = ObserveRememberLastLibraryViewUseCase(libraryViewStore),
                 setRememberLastLibraryView = SetRememberLastLibraryViewAction(libraryViewStore),
+                observePlayerClockEnabled = ObservePlayerClockEnabledUseCase(playerClockStore),
+                setPlayerClockEnabled = SetPlayerClockEnabledAction(playerClockStore),
                 getLogCollectionState = GetLogCollectionStateUseCase(preferenceStore, logBufferStore),
                 setLogCollectionEnabled = SetLogCollectionEnabledAction(preferenceStore, logBufferStore),
                 getPlaybackInfoAtStartState = GetPlaybackInfoAtStartStateUseCase(preferenceStore),
@@ -278,6 +306,19 @@ class TvSettingsPresenterTest {
                 dispatchers = TvosDispatchers(main = mainDispatcher, work = workDispatcher),
             )
         }
+}
+
+private class TestPlayerClockStore : PlayerClockStore {
+    override val enabled = MutableStateFlow(true)
+    var failNextWrite = false
+
+    override suspend fun setEnabled(enabled: Boolean) {
+        if (failNextWrite) {
+            failNextWrite = false
+            error("player clock write failed")
+        }
+        this.enabled.value = enabled
+    }
 }
 
 private class TestLogCollectionPreferenceStore : LogCollectionPreferenceStore {

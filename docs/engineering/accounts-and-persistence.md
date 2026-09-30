@@ -28,6 +28,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   settings and deliberately does not participate in effective device policy,
   device profiles, PlaybackInfo requests, or stream-mode selection.
 
+- Image quality is a device/app preference, independent of account and video
+  quality. Android uses SharedPreferences, Apple apps use NSUserDefaults, and
+  desktop uses the existing file preferences store. Missing or unknown values
+  resolve to High; settings writes use the existing serialized preference path.
+
 ## Persistence and account isolation
 
 - Session persistence flows through the project `SecureStore` boundary. Android
@@ -59,9 +64,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 - For non-credential settings, RAM-only storage is not acceptable for a working
   feature. Every current user-visible setting must use normal persistent app
   storage on every platform where that feature exists, even when credential
-  hardening remains deferred. App theme, Picture-in-Picture, library sort, and
-  grid sort currently persist through Android SharedPreferences, iOS
-  `NSUserDefaults`, and JVM desktop JSON preferences under `~/.jellyscope`.
+  hardening remains deferred. App theme, Picture-in-Picture, player clock,
+  library sort, and grid sort currently persist through Android
+  SharedPreferences, Apple `NSUserDefaults`, and JVM desktop JSON preferences
+  under `~/.jellyscope`.
 - Apple targets must not use in-memory session storage for login restore. The
   shared Apple plaintext UserDefaults store keeps session credentials across
   relaunches on iOS and tvOS; macOS uses its plaintext JSON store.

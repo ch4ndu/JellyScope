@@ -18,6 +18,7 @@ data class TvSettingsState(
     val bitrateChoices: List<TvQualityChoice> = emptyList(),
     val languageChoices: List<TvLanguageChoice> = LANGUAGE_CHOICES,
     val rememberLastLibraryView: Boolean = true,
+    val playerClockEnabled: Boolean = true,
     val stillWatchingPrompt: Boolean = true,
     val autoPlayNextDelaySeconds: Int = com.jellyscope.core.domain.model.DEFAULT_AUTOPLAY_NEXT_DELAY_SECONDS,
     val saveError: Boolean = false,

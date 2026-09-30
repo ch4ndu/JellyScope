@@ -54,7 +54,6 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
 import com.jellyscope.ui.adaptive.tileScaled
@@ -86,6 +85,7 @@ import com.jellyscope.ui.component.DetailBodyStyle as TvBodyStyle
 import com.jellyscope.ui.component.DetailHeadlineStyle as TvHeadlineStyle
 import com.jellyscope.ui.component.DetailText as TvText
 import com.jellyscope.ui.component.DetailTitleStyle as TvTitleStyle
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 fun TvPersonScreen(

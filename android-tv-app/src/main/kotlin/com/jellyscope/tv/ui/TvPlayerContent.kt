@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,6 +40,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.PlaybackAction
@@ -125,6 +129,7 @@ internal fun TvPlayerContent(
     // Synchronous identity prevents held seeks from crossing queue switches.
     playbackItemId: () -> String?,
     startWithPlaybackInfoOverlay: Boolean = false,
+    playerClockEnabled: Boolean = false,
     onTogglePlayPause: () -> Unit,
     onPlay: () -> Unit = {},
     onPause: () -> Unit = {},
@@ -215,6 +220,7 @@ internal fun TvPlayerContent(
         content?.upNext != null &&
             dismissedUpNextIdentity != upNextIdentity &&
             !modalOpen
+    var metadataRowHeightPx by remember { mutableIntStateOf(0) }
     val visibleSkipAction =
         content
             ?.skipPromptSegment
@@ -834,10 +840,12 @@ internal fun TvPlayerContent(
                 if (overlayShown) {
                     OverlayMetadataRow(
                         metadata = state.metadata,
+                        showClock = playerClockEnabled,
                         modifier =
                             Modifier
                                 .align(Alignment.TopStart)
                                 .fillMaxWidth()
+                                .onSizeChanged { size -> metadataRowHeightPx = size.height }
                                 .zIndex(PlayerOverlayLayer.CHROME)
                                 .background(
                                     Brush.verticalGradient(
@@ -859,7 +867,10 @@ internal fun TvPlayerContent(
                             Modifier
                                 .align(Alignment.TopEnd)
                                 .zIndex(PlayerOverlayLayer.CHROME)
-                                .padding(
+                                // Offset instead of reparenting keeps the focused skip button's node stable.
+                                .offset {
+                                    IntOffset(0, if (overlayShown && playerClockEnabled) metadataRowHeightPx else 0)
+                                }.padding(
                                     end = TvDimens.playerOverlayHorizontalPadding,
                                     top = TvDimens.playerOverlayVerticalPadding,
                                 ),

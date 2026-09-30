@@ -27,6 +27,7 @@ internal enum class TvSettingsTileId(
     FocusedCardZoom(1, 2),
     RememberLastLibrary(1, 3),
     LibraryGridHero(1, 4),
+    ImageQuality(1, 5),
     AudioLanguage(2, 0),
     SubtitleLanguage(2, 1),
     MaxBitrate(2, 2),
@@ -37,6 +38,7 @@ internal enum class TvSettingsTileId(
     AutoPlayNext(2, 7),
     AutoPlayNextDelay(2, 8),
     VlcTranscodeLimit(2, 9),
+    PlayerClock(2, 10),
     Intros(3, 0),
     Credits(3, 1),
     Recaps(3, 2),
@@ -78,6 +80,7 @@ internal enum class TvSettingsTileAction {
     Logout,
     Theme,
     TileSize,
+    ImageQuality,
     FocusedCardZoom,
     RememberLastLibrary,
     LibraryGridHero,
@@ -92,6 +95,7 @@ internal enum class TvSettingsTileAction {
     AutoPlayNext,
     AutoPlayNextDelay,
     VlcTranscodeLimit,
+    PlayerClock,
     SegmentPolicy,
     HdrHandling,
     MatchRefreshRate,
@@ -119,6 +123,7 @@ internal fun TvSettingsTileId.action(): TvSettingsTileAction =
         TvSettingsTileId.Logout -> TvSettingsTileAction.Logout
         TvSettingsTileId.Theme -> TvSettingsTileAction.Theme
         TvSettingsTileId.TileSize -> TvSettingsTileAction.TileSize
+        TvSettingsTileId.ImageQuality -> TvSettingsTileAction.ImageQuality
         TvSettingsTileId.FocusedCardZoom -> TvSettingsTileAction.FocusedCardZoom
         TvSettingsTileId.RememberLastLibrary -> TvSettingsTileAction.RememberLastLibrary
         TvSettingsTileId.LibraryGridHero -> TvSettingsTileAction.LibraryGridHero
@@ -133,6 +138,7 @@ internal fun TvSettingsTileId.action(): TvSettingsTileAction =
         TvSettingsTileId.AutoPlayNext -> TvSettingsTileAction.AutoPlayNext
         TvSettingsTileId.AutoPlayNextDelay -> TvSettingsTileAction.AutoPlayNextDelay
         TvSettingsTileId.VlcTranscodeLimit -> TvSettingsTileAction.VlcTranscodeLimit
+        TvSettingsTileId.PlayerClock -> TvSettingsTileAction.PlayerClock
         TvSettingsTileId.Intros,
         TvSettingsTileId.Credits,
         TvSettingsTileId.Recaps,

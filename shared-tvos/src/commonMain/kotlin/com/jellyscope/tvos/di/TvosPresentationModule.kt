@@ -8,6 +8,7 @@ import com.jellyscope.core.domain.playback.PlaybackHealthGuidancePolicy
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.domain.usecase.GetPlaybackInfoAtStartStateUseCase
+import com.jellyscope.core.domain.usecase.ObservePlayerClockEnabledUseCase
 import com.jellyscope.core.playback.PlaybackDiagnosticsContext
 import com.jellyscope.core.playback.PlaybackReportingQueue
 import com.jellyscope.tvos.presenter.TvAccountsPresenter
@@ -79,6 +80,8 @@ val tvosPresentationModule =
                 observeAppTheme = get(),
                 setAppThemeAction = get(),
                 observeTileSize = get(),
+                observeImageQuality = get(),
+                setImageQualityAction = get(),
                 setTileSizeAction = get(),
                 dispatchers = get(),
             )
@@ -155,6 +158,8 @@ val tvosPresentationModule =
                 savePlaybackPreferences = get(),
                 observeRememberLastLibraryView = get(),
                 setRememberLastLibraryView = get(),
+                observePlayerClockEnabled = get(),
+                setPlayerClockEnabled = get(),
                 getLogCollectionState = get(),
                 setLogCollectionEnabled = get(),
                 getPlaybackInfoAtStartState = get(),
@@ -273,6 +278,7 @@ val tvosPresentationModule =
             TvOfflinePlaybackPresenter(
                 request = request,
                 startWithPlaybackInfoOverlay = get<GetPlaybackInfoAtStartStateUseCase>()().value,
+                showsClock = get<ObservePlayerClockEnabledUseCase>()().value,
                 getOfflinePlaybackPlan = get(),
                 updateDownloadedPlayback = get(),
                 deviceProfileProvider = get(),
@@ -286,6 +292,7 @@ val tvosPresentationModule =
             TvPlaybackSessionPresenter(
                 session = request.session,
                 startWithPlaybackInfoOverlay = get<GetPlaybackInfoAtStartStateUseCase>()().value,
+                showsClock = get<ObservePlayerClockEnabledUseCase>()().value,
                 initialItemId = request.itemId,
                 requestedMediaSourceId = request.mediaSourceId,
                 initialStartPositionTicks = request.startPositionTicks,

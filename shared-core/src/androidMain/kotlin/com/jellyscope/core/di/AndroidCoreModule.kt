@@ -16,6 +16,7 @@ import com.jellyscope.core.data.local.DiagnosticBreadcrumbStore
 import com.jellyscope.core.data.local.DownloadArtifactStore
 import com.jellyscope.core.data.local.DownloadDatabaseFactory
 import com.jellyscope.core.data.local.GridSortStore
+import com.jellyscope.core.data.local.ImageQualityStore
 import com.jellyscope.core.data.local.LibrarySortStore
 import com.jellyscope.core.data.local.LibraryViewPreferencesStore
 import com.jellyscope.core.data.local.LocalSubtitleAssetStore
@@ -26,6 +27,7 @@ import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlaybackSelectionStore
 import com.jellyscope.core.data.local.PlaybackTimingStore
 import com.jellyscope.core.data.local.PlayerBackendOverrideStore
+import com.jellyscope.core.data.local.PlayerClockStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.PreviousRunFailureStore
 import com.jellyscope.core.data.local.RecentSearchStore
@@ -40,10 +42,12 @@ import com.jellyscope.core.data.local.RoomWatchNextSyncStore
 import com.jellyscope.core.data.local.SecureStore
 import com.jellyscope.core.data.local.SharedPreferencesAppThemeStore
 import com.jellyscope.core.data.local.SharedPreferencesGridSortStore
+import com.jellyscope.core.data.local.SharedPreferencesImageQualityStore
 import com.jellyscope.core.data.local.SharedPreferencesLibrarySortStore
 import com.jellyscope.core.data.local.SharedPreferencesLibraryViewPreferencesStore
 import com.jellyscope.core.data.local.SharedPreferencesLogCollectionPreferenceStore
 import com.jellyscope.core.data.local.SharedPreferencesPictureInPictureStore
+import com.jellyscope.core.data.local.SharedPreferencesPlayerClockStore
 import com.jellyscope.core.data.local.SharedPreferencesPlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.SharedPreferencesTileSizeStore
 import com.jellyscope.core.data.local.SubtitleSelectionStore
@@ -93,7 +97,9 @@ fun androidCoreModule(
     single<CoroutineScope> { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     single<AppThemeStore> { SharedPreferencesAppThemeStore(context = androidContext()) }
     single<TileSizeStore> { SharedPreferencesTileSizeStore(context = androidContext()) }
+    single<ImageQualityStore> { SharedPreferencesImageQualityStore(context = androidContext()) }
     single<PictureInPictureStore> { SharedPreferencesPictureInPictureStore(context = androidContext()) }
+    single<PlayerClockStore> { SharedPreferencesPlayerClockStore(context = androidContext()) }
     single<LogCollectionPreferenceStore> { SharedPreferencesLogCollectionPreferenceStore(context = androidContext()) }
     single<DiagnosticBreadcrumbStore> { createDiagnosticBreadcrumbStore(androidContext()) }
     single<PreviousRunFailureStore> { AndroidPreviousRunFailureStore(androidContext()) }

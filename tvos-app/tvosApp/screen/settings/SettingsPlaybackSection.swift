@@ -32,6 +32,9 @@ struct SettingsPlaybackSection: View {
 
             Toggle(String(localized: "Playback Warnings"), isOn: playbackWarningsBinding)
                 .disabled(model.state.isLoading)
+
+            Toggle(String(localized: "Player Clock"), isOn: playerClockBinding)
+                .disabled(model.state.isLoading)
         }
     }
 
@@ -63,6 +66,13 @@ struct SettingsPlaybackSection: View {
         Binding(
             get: { model.state.preferences.playbackWarningsEnabled },
             set: model.setPlaybackWarningsEnabled
+        )
+    }
+
+    private var playerClockBinding: Binding<Bool> {
+        Binding(
+            get: { model.state.playerClockEnabled },
+            set: model.setPlayerClockEnabled
         )
     }
 

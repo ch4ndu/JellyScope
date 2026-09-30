@@ -40,7 +40,6 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.adaptiveHomeHeroAspectRatio
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
@@ -57,6 +56,7 @@ import com.jellyscope.ui.generated.resources.home_featured_play
 import com.jellyscope.ui.generated.resources.home_featured_play_cd
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)

@@ -45,6 +45,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.IntSize
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
 import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
@@ -118,6 +119,7 @@ internal fun TvHomeContent(
     onViewAllSelected: (HomeRow) -> Unit,
     modifier: Modifier = Modifier,
     focusRescueTick: Int = 0,
+    onHeroSizeChanged: (IntSize) -> Unit = {},
 ) {
     val continueWatchingTitle = stringResource(R.string.tv_continue_watching)
     val favoritesTitle = stringResource(R.string.tv_favorites)
@@ -384,6 +386,7 @@ internal fun TvHomeContent(
             session = session,
             item = focusedItem,
             modifier = Modifier.align(Alignment.TopEnd),
+            onSizeChanged = onHeroSizeChanged,
         )
         TvClock(
             modifier =

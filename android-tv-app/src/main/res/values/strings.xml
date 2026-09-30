@@ -75,6 +75,8 @@
     <string name="tv_settings_verbose_logcat">Verbose system logging</string>
     <string name="tv_settings_verbose_logcat_description">Writes UNSANITIZED logs to the system log. Use only while reproducing a bug on a release build.</string>
     <string name="tv_settings_playback_info_at_start">Playback info at start</string>
+    <string name="tv_settings_player_clock">Player clock</string>
+    <string name="tv_settings_player_clock_description">Shows the current time at the top right of the player controls.</string>
     <string name="tv_settings_playback_info_at_start_description">Opens the playback info overlay automatically when playback begins. The player\u2019s Debug control still toggles it.</string>
     <string name="tv_settings_send_logs">Send diagnostics to server</string>
     <string name="tv_settings_device_capabilities_only">Snapshot only</string>
@@ -535,4 +537,9 @@
     <string name="tv_settings_mpv_output_gpu_description">Supports subtitles and Fit, Fill, and Zoom controls with hardware or software decoding.</string>
     <string name="tv_settings_mpv_output_direct_description">Sends hardware-decoded video directly to the display. Separate subtitle tracks and video sizing controls are unavailable.</string>
     <string name="tv_mpv_direct_sizing_unavailable">Video sizing is unavailable with Direct MediaCodec. Select GPU in Settings → Advanced playback → mpv video output, then restart playback.</string>
+    <string name="tv_settings_image_quality">Image quality</string>
+    <string name="tv_settings_image_quality_description">Choose artwork sharpness and memory use. Video quality is unchanged.</string>
+    <string name="tv_image_quality_low">Low</string>
+    <string name="tv_image_quality_medium">Medium</string>
+    <string name="tv_image_quality_high">High</string>
 </resources>

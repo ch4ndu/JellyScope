@@ -39,7 +39,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
-import coil3.compose.AsyncImage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
 import com.jellyscope.tv.ui.focus.LocalTvFocusCoordinator
@@ -60,6 +59,7 @@ import com.jellyscope.ui.screen.discover.DiscoverUiState
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import com.jellyscope.ui.component.DetailText as TvText
 import com.jellyscope.ui.component.FocusableBox as TvFocusableBox
+import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
 @Composable
 internal fun TvDiscoverSectionBody(

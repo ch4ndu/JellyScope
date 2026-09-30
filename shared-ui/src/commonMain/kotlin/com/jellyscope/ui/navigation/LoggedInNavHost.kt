@@ -32,11 +32,13 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.usecase.ObserveImageQualityUseCase
 import com.jellyscope.core.domain.usecase.ObserveTileSizeUseCase
 import com.jellyscope.ui.adaptive.LocalTileScale
 import com.jellyscope.ui.adaptive.LocalWindowWidthTier
 import com.jellyscope.ui.adaptive.WindowWidthTier
 import com.jellyscope.ui.adaptive.tileScaleFor
+import com.jellyscope.ui.component.LocalImageDecodeScale
 import com.jellyscope.ui.component.dismissKeyboardOnTap
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.library_tab_cd
@@ -119,12 +121,15 @@ fun LoggedInNavHost(
     onInitialDetailEventConsumed: (Long) -> Unit = {},
 ) {
     val observeTileSizeUseCase = koinInject<ObserveTileSizeUseCase>()
+    val observeImageQualityUseCase = koinInject<ObserveImageQualityUseCase>()
+    val imageQuality by observeImageQualityUseCase().collectAsStateWithLifecycle()
     val tileSize by observeTileSizeUseCase().collectAsStateWithLifecycle()
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val windowWidthTier = WindowWidthTier.fromAvailableWidth(maxWidth)
         CompositionLocalProvider(
             LocalWindowWidthTier provides windowWidthTier,
             LocalTileScale provides tileScaleFor(windowWidthTier, tileSize),
+            LocalImageDecodeScale provides imageQuality.decodeScale,
         ) {
             LoggedInNavHostContent(
                 session = session,

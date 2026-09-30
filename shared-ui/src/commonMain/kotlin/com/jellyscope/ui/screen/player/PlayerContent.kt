@@ -91,6 +91,7 @@ fun PlayerContent(
     // Synchronous identity prevents a seek commit from crossing a queue switch.
     playbackItemId: () -> String?,
     startWithPlaybackInfoOverlay: Boolean = false,
+    playerClockEnabled: Boolean = false,
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onPause: () -> Unit,
@@ -805,6 +806,7 @@ fun PlayerContent(
                     ) {
                         PlayerTopBar(
                             content = playerContent,
+                            showClock = playerClockEnabled,
                             onBack = {
                                 keepControlsAlive()
                                 onBack()

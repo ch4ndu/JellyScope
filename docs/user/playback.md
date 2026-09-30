@@ -49,6 +49,12 @@ quality**, **Choose lower quality**, **Try higher**, or **Playback settings**.
 The switch hides optional prompts, not decisions already allowed by the quality
 mode or fatal errors.
 
+**Player clock** is on by default: the top player controls show the current time
+at the right, in the device's 12- or 24-hour style (macOS follows the region
+format and may ignore its separate 24-hour switch). Turn it off in **Settings →
+Playback → Player clock** on each device; Apple TV applies the change from the
+next playback.
+
 ## Queue, chapters, skipping, and autoplay
 
 - On shared layouts and Android TV, **Shuffle All** in a movie library creates a
