@@ -14,6 +14,7 @@ data class PlatformCapabilities(
     val desktopResizeModes: Boolean = false,
     val desktopPlayerControls: Boolean = false,
     val playerFullscreenControl: Boolean = false,
+    val softKeyboardDismissal: Boolean = false,
     /** Null hides the iOS-only Downloads continuation note on other platforms. */
     val backgroundDownloadsAvailable: Boolean? = null,
 ) {
@@ -25,6 +26,7 @@ data class PlatformCapabilities(
                 supportsKidsPlayback = true,
                 playerOrientationAnimation = true,
                 playerKeyboardShortcuts = true,
+                softKeyboardDismissal = true,
             )
 
         val Desktop =

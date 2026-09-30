@@ -30,6 +30,9 @@ import com.jellyscope.core.domain.model.WatchedFilter
 import com.jellyscope.ui.component.ClearGlyph
 import com.jellyscope.ui.component.SearchGlyph
 import com.jellyscope.ui.component.TooltipIconButton
+import com.jellyscope.ui.component.clearFocusOnEscape
+import com.jellyscope.ui.component.keepKeyboardOnTap
+import com.jellyscope.ui.component.rememberSoftKeyboardDismissal
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.find_anything
 import com.jellyscope.ui.generated.resources.find_chip_cd
@@ -72,6 +75,7 @@ internal fun FindSearchHeader(
     ) {
         val clearContentDescription = stringResource(Res.string.find_clear_cd)
         val searchContentDescription = stringResource(Res.string.find_search_cd)
+        val dismissKeyboard = rememberSoftKeyboardDismissal()
         TextField(
             value = state.queryText,
             onValueChange = onQueryTextChanged,
@@ -79,6 +83,8 @@ internal fun FindSearchHeader(
                 Modifier
                     .widthIn(max = Dimensions.formControlMaxWidth)
                     .fillMaxWidth()
+                    .keepKeyboardOnTap()
+                    .clearFocusOnEscape()
                     .semantics { contentDescription = searchContentDescription },
             label = { Text(stringResource(Res.string.find_search_label)) },
             leadingIcon = {
@@ -99,7 +105,13 @@ internal fun FindSearchHeader(
             },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearchSubmit() }),
+            keyboardActions =
+                KeyboardActions(
+                    onSearch = {
+                        dismissKeyboard()
+                        onSearchSubmit()
+                    },
+                ),
             shape = MaterialTheme.shapes.medium,
             colors =
                 TextFieldDefaults.colors(

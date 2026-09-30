@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
@@ -43,6 +45,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -56,6 +60,7 @@ import com.jellyscope.ui.component.launch.AmbientPrimaryButton
 import com.jellyscope.ui.component.launch.AmbientTextField
 import com.jellyscope.ui.component.launch.JellyScopeBrandMark
 import com.jellyscope.ui.component.launch.LaunchIcons
+import com.jellyscope.ui.component.rememberSoftKeyboardDismissal
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.login_back_button
 import com.jellyscope.ui.generated.resources.login_button
@@ -318,6 +323,7 @@ private fun SignInColumn(
     onSubmit: () -> Unit,
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
+    val dismissKeyboard = rememberSoftKeyboardDismissal()
     val showPassword = stringResource(Res.string.login_show_password)
     val hidePassword = stringResource(Res.string.login_hide_password)
 
@@ -328,6 +334,7 @@ private fun SignInColumn(
         label = stringResource(Res.string.login_username_label),
         enabled = !state.isSubmitting,
         contentDescription = stringResource(Res.string.login_username_label),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
     )
     AmbientTextField(
         value = state.password,
@@ -338,6 +345,14 @@ private fun SignInColumn(
         contentDescription = stringResource(Res.string.login_password_label),
         visualTransformation =
             if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
+        keyboardActions =
+            KeyboardActions(
+                onGo = {
+                    dismissKeyboard()
+                    onSubmit()
+                },
+            ),
         trailingContent = {
             Icon(
                 imageVector = if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,

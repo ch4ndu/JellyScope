@@ -320,13 +320,17 @@ Transfer and storage semantics belong to
   exact opener. Unavailable capability choices remain focusable with explanation;
   missing capability is Unknown. Text-only dialogs focus their content fallback.
 - Switch Users lists accounts and marks active, or instructs adding an account.
-  Add account opens credentials; Logout is the only sign-out surface. Account,
-  clear-subtitle, and refresh actions gate duplicates and keep progress/error in
-  their dialog.
+  Add account opens credentials with the first account's server URL prefilled;
+  Logout is the only sign-out surface. Account, clear-subtitle, and refresh
+  actions gate duplicates and keep progress/error in their dialog.
 - All TV text fields use click-to-edit: focus highlights a non-editable display;
   Select mounts `BasicTextField` and opens IME; Done/Search/Next/Go or Back returns
-  to display and hides IME. The device-global OpenSubtitles key is masked and
-  survives Jellyfin logout. Clear downloaded subtitles is separate from watch state.
+  to display and hides IME. In login, server entry, and Add account, Next moves
+  display focus to the following field without opening its IME; the last
+  field's Go focuses the submit action, then submits. Password fields use the
+  password keyboard; server URLs use the URL keyboard.
+- The device-global OpenSubtitles key is masked and survives Jellyfin logout.
+  Clear downloaded subtitles is separate from watch state.
 - Dialogs expose persisted option sets: Ocean/Midnight/Ember; Small/Medium/Large;
   On/Off; shared eight quality rungs plus Auto, Original, and exact Fixed Custom;
   ExoPlayer/mpv/LibVLC (beta); optional VLC default quality; autoplay

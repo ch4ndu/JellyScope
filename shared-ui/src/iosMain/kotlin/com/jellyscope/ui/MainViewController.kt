@@ -102,6 +102,7 @@ fun MainViewController(onPlayerFullscreenChanged: (Boolean) -> Unit): UIViewCont
                 PlatformCapabilities.Default.copy(
                     supportsKidsPlayback = true,
                     playerOrientationAnimation = true,
+                    softKeyboardDismissal = true,
                     backgroundDownloadsAvailable =
                         NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion(
                             kotlinx.cinterop.cValue<platform.Foundation.NSOperatingSystemVersion> {

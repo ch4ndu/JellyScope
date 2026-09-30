@@ -30,6 +30,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -115,6 +117,7 @@ internal fun TvLoginContent(
     modifier: Modifier = Modifier,
 ) {
     val loginRequester = remember { FocusRequester() }
+    val passwordRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
         loginRequester.requestFocusSafely()
@@ -153,6 +156,8 @@ internal fun TvLoginContent(
                         onValueChange = onUsernameChange,
                         label = stringResource(R.string.tv_username_label),
                         enabled = !state.isSubmitting,
+                        imeAction = ImeAction.Next,
+                        onImeAction = { passwordRequester.requestFocusSafely() },
                         modifier = Modifier.fillMaxWidth(),
                         colors = AmbientTvInputFieldColors,
                         textStyle = AmbientTvBodyTextStyle,
@@ -165,7 +170,13 @@ internal fun TvLoginContent(
                         label = stringResource(R.string.tv_password_label),
                         enabled = !state.isSubmitting,
                         visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
+                        imeAction = ImeAction.Go,
+                        keyboardType = KeyboardType.Password,
+                        onImeAction = {
+                            loginRequester.requestFocusSafely()
+                            onSubmit()
+                        },
+                        modifier = Modifier.fillMaxWidth().focusRequester(passwordRequester),
                         colors = AmbientTvInputFieldColors,
                         textStyle = AmbientTvBodyTextStyle,
                         glowColor = AmbientTvFocusGlowColor,

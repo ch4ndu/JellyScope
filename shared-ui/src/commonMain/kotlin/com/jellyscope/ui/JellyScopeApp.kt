@@ -10,6 +10,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.domain.action.RefreshParentalRatingAction
@@ -19,6 +20,7 @@ import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.usecase.ObserveAppThemeUseCase
 import com.jellyscope.core.domain.usecase.ObserveSessionStateUseCase
 import com.jellyscope.ui.component.SafeAreaContent
+import com.jellyscope.ui.component.dismissKeyboardOnTap
 import com.jellyscope.ui.component.launch.AmbientLaunchScaffold
 import com.jellyscope.ui.image.InstallJellyfinImageLoader
 import com.jellyscope.ui.navigation.InitialDetailNavigationEvent
@@ -71,7 +73,7 @@ fun JellyScopeApp(
             is SessionState.LoggedOut -> {
                 SideEffect { onDetailNavigationBoundaryChanged(null, null) }
                 val serverInfo = validatedServerInfo
-                AmbientLaunchScaffold {
+                AmbientLaunchScaffold(modifier = Modifier.dismissKeyboardOnTap()) {
                     if (serverInfo == null) {
                         ServerEntryScreen(
                             initialServerUrl = state.serverUrl ?: initialServerUrl,

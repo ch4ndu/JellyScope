@@ -98,6 +98,19 @@ brush and scrims without resetting Settings scroll or focus.
   SwiftUI status-bar/home-indicator bridge and clears it on disposal. Loading,
   errors, and visible controls never decide fullscreen; system gestures retain
   native behavior.
+- Soft-keyboard platforms (`softKeyboardDismissal`: Android mobile, iOS) must
+  offer keyboard dismissal; iPhone keyboards have no hide key. In Find, the
+  logged-out forms and Add account, earlier fields use IME Next and the last
+  field's Go/Search submits after `rememberSoftKeyboardDismissal()`. Add account
+  Go does nothing until every field is filled, and its server URL prefills from
+  the first account (else the current server).
+- The logged-in shell, the logged-out scaffold and the Add account dialog apply
+  `dismissKeyboardOnTap()`. While a `keepKeyboardOnTap()` field is focused, any
+  tap outside it clears focus, including buttons and the navigation rail, but
+  drags and cancelled touches do not. Unmarked fields opt out and keep focus.
+- Desktop keeps click focus unchanged, and Enter runs the IME action. Find and
+  logged-out fields apply `clearFocusOnEscape()`; on desktop the first Escape
+  leaves the field and only the next one navigates back.
 - Text must fit across phone, TV, and desktop. Mobile controls require content
   descriptions, screen-reader labels, scalable text, contrast, and suitable
   touch targets. Avoid tiny and hover-only controls.

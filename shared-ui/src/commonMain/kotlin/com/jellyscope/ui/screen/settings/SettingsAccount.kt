@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -30,9 +32,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.jellyscope.core.domain.model.AccountSession
 import com.jellyscope.core.domain.model.DownloadRemovalPreview
+import com.jellyscope.ui.component.dismissKeyboardOnTap
+import com.jellyscope.ui.component.keepKeyboardOnTap
+import com.jellyscope.ui.component.rememberSoftKeyboardDismissal
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.login_password_label
 import com.jellyscope.ui.generated.resources.login_username_label
@@ -207,6 +214,7 @@ internal fun AccountSettingsSection(
     if (openRow == SettingsRowId.AddAccount) {
         AddAccountDialog(
             state = accountState,
+            initialServerUrl = accountState.accounts.firstOrNull()?.serverUrl ?: state.serverUrl,
             showError = addDialogSubmitted,
             onAddAccount = { serverUrl, username, password ->
                 addDialogSubmitted = true
@@ -357,15 +365,18 @@ private fun AccountDialogEntry(
 @Composable
 private fun AddAccountDialog(
     state: AccountUiState,
+    initialServerUrl: String,
     showError: Boolean,
     onAddAccount: (String, String, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.dismissKeyboardOnTap(),
         title = { Text(stringResource(Res.string.settings_account_add_title)) },
         text = {
             AddAccountForm(
+                initialServerUrl = initialServerUrl,
                 isAddingAccount = state.isAddingAccount,
                 error = if (showError) state.error else null,
                 onAddAccount = onAddAccount,
@@ -440,16 +451,23 @@ private fun AccountRemovalConfirmationDialog(
 
 @Composable
 private fun AddAccountForm(
+    initialServerUrl: String,
     isAddingAccount: Boolean,
     error: AccountUiError?,
     onAddAccount: (String, String, String) -> Unit,
 ) {
-    var serverUrl by remember { mutableStateOf("") }
+    var serverUrl by remember { mutableStateOf(initialServerUrl) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val serverContentDescription = stringResource(Res.string.settings_account_add_server_cd)
     val usernameContentDescription = stringResource(Res.string.settings_account_add_username_cd)
     val passwordContentDescription = stringResource(Res.string.settings_account_add_password_cd)
+    val dismissKeyboard = rememberSoftKeyboardDismissal()
+    val canSubmit =
+        !isAddingAccount &&
+            serverUrl.isNotBlank() &&
+            username.isNotBlank() &&
+            password.isNotBlank()
 
     Column(
         modifier = Modifier.widthIn(max = Dimensions.formControlMaxWidth),
@@ -468,10 +486,12 @@ private fun AddAccountForm(
             modifier =
                 Modifier
                     .fillMaxWidth()
+                    .keepKeyboardOnTap()
                     .semantics { contentDescription = serverContentDescription },
             enabled = !isAddingAccount,
             singleLine = true,
             label = { Text(stringResource(Res.string.server_entry_url_label)) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
         )
         OutlinedTextField(
             value = username,
@@ -479,10 +499,12 @@ private fun AddAccountForm(
             modifier =
                 Modifier
                     .fillMaxWidth()
+                    .keepKeyboardOnTap()
                     .semantics { contentDescription = usernameContentDescription },
             enabled = !isAddingAccount,
             singleLine = true,
             label = { Text(stringResource(Res.string.login_username_label)) },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         )
         OutlinedTextField(
             value = password,
@@ -490,19 +512,26 @@ private fun AddAccountForm(
             modifier =
                 Modifier
                     .fillMaxWidth()
+                    .keepKeyboardOnTap()
                     .semantics { contentDescription = passwordContentDescription },
             enabled = !isAddingAccount,
             singleLine = true,
             label = { Text(stringResource(Res.string.login_password_label)) },
             visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
+            keyboardActions =
+                KeyboardActions(
+                    onGo = {
+                        if (canSubmit) {
+                            dismissKeyboard()
+                            onAddAccount(serverUrl, username, password)
+                        }
+                    },
+                ),
         )
         Button(
             onClick = { onAddAccount(serverUrl, username, password) },
-            enabled =
-                !isAddingAccount &&
-                    serverUrl.isNotBlank() &&
-                    username.isNotBlank() &&
-                    password.isNotBlank(),
+            enabled = canSubmit,
             modifier = Modifier.fillMaxWidth().heightIn(min = Dimensions.minTouchTarget),
         ) {
             if (isAddingAccount) {

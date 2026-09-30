@@ -37,6 +37,7 @@ import com.jellyscope.ui.adaptive.LocalTileScale
 import com.jellyscope.ui.adaptive.LocalWindowWidthTier
 import com.jellyscope.ui.adaptive.WindowWidthTier
 import com.jellyscope.ui.adaptive.tileScaleFor
+import com.jellyscope.ui.component.dismissKeyboardOnTap
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.library_tab_cd
 import com.jellyscope.ui.generated.resources.library_tab_label
@@ -220,7 +221,7 @@ private fun LoggedInNavHostContent(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().dismissKeyboardOnTap()) {
         AdaptiveRailScaffold(
             railWidth = currentRailWidth,
             rail = {

@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Link
@@ -32,6 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.ServerInfo
@@ -43,6 +47,7 @@ import com.jellyscope.ui.component.launch.AmbientPrimaryButton
 import com.jellyscope.ui.component.launch.AmbientTextField
 import com.jellyscope.ui.component.launch.DiscoveredServerCard
 import com.jellyscope.ui.component.launch.JellyScopeBrandMark
+import com.jellyscope.ui.component.rememberSoftKeyboardDismissal
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.server_entry_action_cd
 import com.jellyscope.ui.generated.resources.server_entry_button
@@ -185,6 +190,7 @@ private fun CompactServerEntryContent(
                 ServerUrlField(
                     state = state,
                     onValueChange = onServerUrlChange,
+                    onSubmit = onSubmit,
                 )
                 ServerEntryErrorText(state.error)
                 ValidateServerButton(
@@ -277,6 +283,7 @@ private fun ExpandedServerEntryContent(
                 ServerUrlField(
                     state = state,
                     onValueChange = onServerUrlChange,
+                    onSubmit = onSubmit,
                     modifier = Modifier.widthIn(max = Dimensions.formControlMaxWidth),
                 )
                 ValidateServerButton(
@@ -303,8 +310,10 @@ private fun ExpandedServerEntryContent(
 private fun ServerUrlField(
     state: ServerEntryUiState,
     onValueChange: (String) -> Unit,
+    onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val dismissKeyboard = rememberSoftKeyboardDismissal()
     AmbientTextField(
         value = state.input,
         onValueChange = onValueChange,
@@ -314,6 +323,14 @@ private fun ServerUrlField(
         enabled = !state.isValidating,
         isError = state.error != null,
         contentDescription = stringResource(Res.string.server_entry_url_label),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
+        keyboardActions =
+            KeyboardActions(
+                onGo = {
+                    dismissKeyboard()
+                    onSubmit()
+                },
+            ),
     )
 }
 

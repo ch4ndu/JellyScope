@@ -35,6 +35,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.VisualTransformation
+import com.jellyscope.ui.component.clearFocusOnEscape
+import com.jellyscope.ui.component.keepKeyboardOnTap
 import com.jellyscope.ui.theme.AmbientLaunchDimens
 import com.jellyscope.ui.theme.AmbientLaunchTokens
 
@@ -89,6 +91,8 @@ fun AmbientTextField(
                         .clip(shape)
                         .background(AmbientLaunchTokens.glassFill)
                         .border(AmbientLaunchDimens.controlBorder, borderColor, shape)
+                        .keepKeyboardOnTap()
+                        .clearFocusOnEscape()
                         .semantics {
                             this.contentDescription = contentDescription ?: label
                         },

@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
@@ -186,6 +188,12 @@ internal fun TvServerEntryContent(
                 onValueChange = onServerUrlChange,
                 label = stringResource(R.string.tv_server_url_label),
                 enabled = !state.isValidating,
+                imeAction = ImeAction.Go,
+                keyboardType = KeyboardType.Uri,
+                onImeAction = {
+                    validateRequester.requestFocusSafely()
+                    onSubmit()
+                },
                 modifier =
                     Modifier
                         .requiredWidthIn(max = 320.dp)

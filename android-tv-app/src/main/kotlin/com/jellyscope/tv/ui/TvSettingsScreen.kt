@@ -38,6 +38,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -1767,15 +1769,25 @@ private fun TvAddAccountDialog(
     onAdd: (String, String, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var serverUrl by rememberSaveable { mutableStateOf(session.serverUrl) }
+    var serverUrl by rememberSaveable {
+        mutableStateOf(state.accounts.firstOrNull()?.serverUrl ?: session.serverUrl)
+    }
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var editing by remember { mutableStateOf(false) }
     var exitEditingRequests by remember { mutableIntStateOf(0) }
     val serverRequester = remember { FocusRequester() }
+    val usernameRequester = remember { FocusRequester() }
+    val passwordRequester = remember { FocusRequester() }
     val addRequester = remember { FocusRequester() }
     var submitted by remember { mutableStateOf(false) }
     var observedRunning by remember { mutableStateOf(false) }
+    val submitAddAccount = {
+        if (!submitted) {
+            submitted = true
+            onAdd(serverUrl, username, password)
+        }
+    }
     LaunchedEffect(serverRequester) { requestTvFocusWithRetry { serverRequester.requestFocusSafely() } }
     LaunchedEffect(state.isAddingAccount, state.error) {
         if (submitted && state.isAddingAccount) observedRunning = true
@@ -1803,6 +1815,9 @@ private fun TvAddAccountDialog(
             onValueChange = { serverUrl = it },
             label = stringResource(R.string.tv_settings_server_url_label),
             modifier = Modifier.focusRequester(serverRequester),
+            imeAction = ImeAction.Next,
+            keyboardType = KeyboardType.Uri,
+            onImeAction = { usernameRequester.requestFocusSafely() },
             onEditingChange = { editing = it },
             exitEditingRequests = exitEditingRequests,
         )
@@ -1810,6 +1825,9 @@ private fun TvAddAccountDialog(
             value = username,
             onValueChange = { username = it },
             label = stringResource(R.string.tv_username_label),
+            modifier = Modifier.focusRequester(usernameRequester),
+            imeAction = ImeAction.Next,
+            onImeAction = { passwordRequester.requestFocusSafely() },
             onEditingChange = { editing = it },
             exitEditingRequests = exitEditingRequests,
         )
@@ -1818,6 +1836,13 @@ private fun TvAddAccountDialog(
             onValueChange = { password = it },
             label = stringResource(R.string.tv_password_label),
             visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.focusRequester(passwordRequester),
+            imeAction = ImeAction.Go,
+            keyboardType = KeyboardType.Password,
+            onImeAction = {
+                addRequester.requestFocusSafely()
+                submitAddAccount()
+            },
             onEditingChange = { editing = it },
             exitEditingRequests = exitEditingRequests,
         )
@@ -1833,10 +1858,7 @@ private fun TvAddAccountDialog(
             text = stringResource(if (submitted) R.string.tv_settings_adding_account else R.string.tv_settings_add_account),
             focusRequester = addRequester,
             enabled = !submitted,
-            onClick = {
-                submitted = true
-                onAdd(serverUrl, username, password)
-            },
+            onClick = submitAddAccount,
         )
     }
 }
