@@ -241,56 +241,69 @@ fun FocusableBox(
     )
     val interactionSource = remember { MutableInteractionSource() }
 
+    val visualModifier =
+        Modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }.chromeFocusGlow(
+                color = if (dpad && focused) focusGlowColor else null,
+                elevation = focusGlowElevation,
+                shape = shape,
+            ).clip(shape)
+            .background(if (dpad && focused) focusedBackgroundColor else backgroundColor)
+            .then(
+                if (dpad) {
+                    Modifier.border(
+                        width = if (focused) ChromeDimens.focusBorder else 1.dp,
+                        color = if (focused) focusedBorderColor else unfocusedBorderColor,
+                        shape = shape,
+                    )
+                } else {
+                    Modifier
+                },
+            )
+    val interactionModifier =
+        Modifier
+            .then(
+                if (dpad) {
+                    Modifier.onFocusChanged { state -> focused = state.isFocused }
+                } else {
+                    Modifier
+                },
+            ).clickable(
+                interactionSource = interactionSource,
+                indication = if (dpad) null else LocalIndication.current,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick,
+            ).then(
+                if (dpad) {
+                    Modifier.focusable(enabled = enabled || focusableWhenDisabled)
+                } else {
+                    Modifier
+                },
+            ).then(
+                if (contentDescription != null) {
+                    Modifier.semantics {
+                        this.contentDescription = contentDescription
+                        role = Role.Button
+                    }
+                } else {
+                    Modifier
+                },
+            )
+
+    // D-pad relocation must see stable focus bounds outside the animated layer.
+    // Keep pointer indication inside the shape clip on touch/desktop.
+    val chromeModifier =
+        if (dpad) {
+            interactionModifier.then(visualModifier)
+        } else {
+            visualModifier.then(interactionModifier)
+        }
     Box(
-        modifier =
-            modifier
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }.chromeFocusGlow(
-                    color = if (dpad && focused) focusGlowColor else null,
-                    elevation = focusGlowElevation,
-                    shape = shape,
-                ).clip(shape)
-                .background(if (dpad && focused) focusedBackgroundColor else backgroundColor)
-                .then(
-                    if (dpad) {
-                        Modifier.border(
-                            width = if (focused) ChromeDimens.focusBorder else 1.dp,
-                            color = if (focused) focusedBorderColor else unfocusedBorderColor,
-                            shape = shape,
-                        )
-                    } else {
-                        Modifier
-                    },
-                ).then(
-                    if (dpad) {
-                        Modifier.onFocusChanged { state -> focused = state.isFocused }
-                    } else {
-                        Modifier
-                    },
-                ).clickable(
-                    interactionSource = interactionSource,
-                    indication = if (dpad) null else LocalIndication.current,
-                    enabled = enabled,
-                    role = Role.Button,
-                    onClick = onClick,
-                ).then(
-                    if (dpad) {
-                        Modifier.focusable(enabled = enabled || focusableWhenDisabled)
-                    } else {
-                        Modifier
-                    },
-                ).then(
-                    if (contentDescription != null) {
-                        Modifier.semantics {
-                            this.contentDescription = contentDescription
-                            role = Role.Button
-                        }
-                    } else {
-                        Modifier
-                    },
-                ).padding(contentPadding),
+        modifier = modifier.then(chromeModifier).padding(contentPadding),
         contentAlignment = contentAlignment,
     ) {
         content(dpad && focused)

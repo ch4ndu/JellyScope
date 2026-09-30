@@ -9,6 +9,14 @@ and rest inside it. An outer `Modifier.padding()` clips the scrolling viewport
 and is prohibited for this purpose. Non-scrolling content may use matching
 padding.
 
+## Focus Geometry
+
+In D-pad `FocusableBox`, interaction, focus and semantics precede the animated
+visual layer. Relocation uses stable unscaled bounds while artwork, border and
+glow zoom together. Accessibility highlights and pointer hit regions on D-pad
+surfaces follow the logical control bounds, which can be smaller than the zoomed
+visual. Touch/desktop keep their indication inside the shape clip.
+
 ## Theme And Resources
 
 - The app is dark-only with Ocean, Midnight, and Ember palettes. Full-screen
@@ -453,6 +461,9 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
 See [native tvOS UI](tvos-ui.md#native-tvos-screens).
 
 ## Why
+
+- Focus zoom changes drawing, not relocation geometry; a moving focus rectangle
+  can retarget a ribbon or grid scroll during the same animation.
 
 - Subtitle bases belong to each renderer so native defaults and user preferences
   change independently. Mobile Media3 uses sp so clearance does not resize text.

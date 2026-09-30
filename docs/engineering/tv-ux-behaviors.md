@@ -234,6 +234,10 @@ download, settings, and recovery focus behavior.
 
 - Focus uses a cyan border and optional 1.1x scale; disabling zoom retains the
   other focus treatment. Do not add drop shadow.
+- Shared ribbon and grid cards keep unscaled focus/semantics bounds outside the
+  animated visual layer. Zoom must not retarget bring-into-view. Preserve each
+  screen's existing reveal, dead-zone and restoration ownership; verify zoomed
+  artwork visibility at viewport edges separately from logical visibility.
 - Home row identity owns card shape. Next Up, placeholders, and View All are wide
   even for an anomalous non-episode response. Continue Watching, Recently Added,
   and Favorites are 2:3 posters. Use shape-specific lazy content types. Library
@@ -246,6 +250,10 @@ download, settings, and recovery focus behavior.
   [privacy policy](diagnostics.md#diagnostics-logging-and-privacy).
 
 ## Why
+
+- Stable card focus bounds prevent zoom from shifting scroll targets on either
+  axis without adding another reveal owner. Visual overhang still needs edge
+  clearance; stable bounds alone do not prove that clearance.
 
 - Find separates scroll axes so horizontal focus movement cannot shift the page.
 
