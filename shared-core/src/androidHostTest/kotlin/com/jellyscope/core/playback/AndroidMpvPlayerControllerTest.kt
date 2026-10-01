@@ -8,6 +8,7 @@ import android.view.Surface
 import androidx.test.core.app.ApplicationProvider
 import com.jellyscope.core.domain.model.PlaybackTimingKind
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.playback.AndroidTvMpvVideoOutput
 import com.jellyscope.core.domain.playback.AudioActivationState
 import com.jellyscope.core.domain.playback.AudioActivationTarget
 import com.jellyscope.core.domain.playback.EmbeddedAudioSelection
@@ -1163,6 +1164,40 @@ class AndroidMpvPlayerControllerTest {
             thirdSurface.release()
         }
 
+    @Test
+    fun mediaCodecReleaseAndLateViewCallbacksKeepActiveOutputSurfaceValidUntilDestroy() =
+        runTest {
+            val engine = FakeAndroidMpvEngine()
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val controller =
+                controller(
+                    engine,
+                    dispatcher,
+                    enginePolicy =
+                        androidMpvEnginePolicy(
+                            AndroidMpvDeviceFacts(isTelevision = true, isEmulator = false),
+                            AndroidTvMpvVideoOutput.DirectMediaCodec,
+                        ),
+                )
+            val surface = Surface(SurfaceTexture(5))
+            controller.simulateSurfaceCreatedForTest(surface)
+            controller.prepare(plan(0L), null)
+            runCurrent()
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.FILE_LOADED))
+            runCurrent()
+            engine.videoOutputOwnsSurface = true
+
+            controller.release()
+            controller.detachSurface()
+            controller.simulateSurfaceDestroyedForTest()
+            runCurrent()
+
+            assertTrue(engine.destroyed)
+            assertEquals(false, engine.invalidatedActiveOutputSurface)
+            assertEquals(null, engine.attachedSurface)
+            surface.release()
+        }
+
     private fun controller(
         engine: FakeAndroidMpvEngine,
         dispatcher: CoroutineDispatcher,
@@ -1252,6 +1287,8 @@ private class FakeAndroidMpvEngine(
     var requestedLogLevel: AndroidMpvLogRequestLevel? = null
     val callOrder = mutableListOf<String>()
     var throwOnForceWindowDisable = false
+    var videoOutputOwnsSurface = false
+    var invalidatedActiveOutputSurface = false
     private val observers = mutableListOf<AndroidMpvEngineObserver>()
 
     override fun setOptionString(
@@ -1279,6 +1316,8 @@ private class FakeAndroidMpvEngine(
 
     override fun destroy() {
         destroyed = true
+        videoOutputOwnsSurface = false
+        attachedSurface = null
     }
 
     override fun command(arguments: Array<String>) {
@@ -1330,8 +1369,18 @@ private class FakeAndroidMpvEngine(
     }
 
     override fun detachSurface() {
+        if (videoOutputOwnsSurface) invalidatedActiveOutputSurface = true
         attachedSurface = null
         detachSurfaceCount += 1
+    }
+
+    override fun detachSurfaceAfterStop(isReleased: () -> Boolean): Int {
+        if (isReleased()) return 1
+        command(arrayOf("stop"))
+        emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.END_FILE))
+        videoOutputOwnsSurface = false
+        detachSurface()
+        return 0
     }
 
     override fun addObserver(observer: AndroidMpvEngineObserver) {

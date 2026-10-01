@@ -80,6 +80,17 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   video output and block before command dispatch. The sanitized
   `SurfaceAlreadyAttached` milestone distinguishes the intentional reuse from
   a missing surface callback without exposing a handle.
+- Embedded MediaCodec final release keeps its JNI Surface reference until
+  `mpv_terminate_destroy` completes. Temporary detach first stops playback with
+  `force-window=no`, then requires native idle state, zero tracks and unavailable
+  file path before changing `wid`. It confirms the VO is gone before releasing
+  the reference and drains old events through a private INT64 user-data marker
+  before resetting playback-end accounting. Failed probes/timeouts retire the
+  engine and publish the current generation's failure; they never waive these
+  checks. Active owner replacement, logical view release and physical Surface
+  loss arm the same bounded TV recovery, which loads only after a valid new
+  Surface. Initial embedded loads also wait for that Surface. GPU output keeps
+  its existing bounded physical-disconnect barrier.
 - Android mpv seek confirmation tracks both the pending origin and the latest
   requested target. It keeps publishing the target while current-generation
   native `time-pos` remains short of that target in the seek direction; a
@@ -619,6 +630,11 @@ their own Advisory bindings.
 - LibVLC uses the [shared terminal evidence policy](playback-runtime.md#vlc-terminal-policy).
 
 ## Why
+
+- Embedded output must retire before its window handle disappears: changing
+  `wid` rebuilds output while a selected video track still exists. Native idle
+  alone precedes teardown; completed file teardown plus a tagged event drain
+  protects both reference lifetime and the next prepare's playback-end state.
 
 - **Android TV wakefulness follows the mounted player route.** Activity-window
   ownership spans backend replacement and loading/picker states without a

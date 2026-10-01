@@ -34,7 +34,7 @@ manifest_version="$(require_manifest_value manifest-version)"
     || die "APK manifest does not identify the project-owned android-libmpv module"
 [[ "$(require_manifest_value wrapper-build)" == "android-libmpv/build.gradle.kts" ]] \
     || die "APK manifest does not identify the project wrapper build"
-[[ "$(require_manifest_value wrapper-patches)" == "typed-log-request,no-raw-logcat,idempotent-destroy" ]] \
+[[ "$(require_manifest_value wrapper-patches)" == "typed-log-request,no-raw-logcat,idempotent-destroy,stopped-surface-detach" ]] \
     || die "APK manifest wrapper patch list differs from the reviewed source"
 [[ "$(require_manifest_value wrapper-upstream-commit)" == "$(require_manifest_value provider-source-commit)" ]] \
     || die "Wrapper and provider source commits differ"

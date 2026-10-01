@@ -167,10 +167,11 @@ brush and scrims without resetting Settings scroll or focus.
   name/overview from Medium upward, aligned to adaptive horizontal padding.
 - Shared UI reads explicit platform capability locals for input, fullscreen,
   resize, and transport behavior; common composables do not infer the platform
-  through OS checks. Android mobile and iOS enable video viewport animation for
-  normal playback orientation changes: the same native view smoothly resizes and
-  stays centered over 500 ms while controls adopt the new safe layout. PiP and
-  TV/desktop geometry remain direct, and the selected resize mode is preserved.
+  through OS checks. Normal Android mobile playback sizes the native video
+  viewport directly from current bounds, without an app-added resize animation.
+  iOS keeps its centered 500 ms viewport animation while controls adopt the new
+  safe layout. PiP and TV/desktop geometry remain direct, and the selected resize
+  mode is preserved.
   Kids playback is explicitly enabled on Android mobile and
   iOS, with a watch-page-only fullscreen control. Other iOS defaults and normal
   mobile/desktop controls retain their existing policy.
@@ -461,6 +462,10 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
 See [native tvOS UI](tvos-ui.md#native-tvos-screens).
 
 ## Why
+
+- Normal Android rotation uses direct native bounds because animating intermediate
+  Surface sizes can jitter, particularly while paused. System rotation behavior
+  remains platform-owned; iOS and Kids keep their separate animation policy.
 
 - Focus zoom changes drawing, not relocation geometry; a moving focus rectangle
   can retarget a ribbon or grid scroll during the same animation.

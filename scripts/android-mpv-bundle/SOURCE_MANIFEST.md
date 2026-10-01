@@ -54,3 +54,9 @@ projects retain their own build instructions. If a recorded source route
 disappears or a pinned artifact changes,
 refresh the source record before publishing. A Maven POM alone is not a native
 corresponding-source notice.
+
+The project wrapper additionally carries `stopped-surface-detach`: native
+status-preserving Surface retirement, output-destruction confirmation and an
+INT64 event-drain marker. Its corresponding source is the project's
+`android-libmpv/src/main` tree at the candidate revision. Pinned mpv/FFmpeg
+libraries and upstream source revisions are unchanged.

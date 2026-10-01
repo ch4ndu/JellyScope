@@ -89,6 +89,25 @@ class MPVLib private constructor(nativePtr: Long) {
     }
     private external fun nativeDetachSurface(instance: Long)
 
+    fun beginSurfaceDetach(): Int {
+        checkCreated()
+        return nativeBeginSurfaceDetach(nativeInstance)
+    }
+    private external fun nativeBeginSurfaceDetach(instance: Long): Int
+
+    /** Zero means detached, one means still terminating, negative means native failure. */
+    fun tryDetachStoppedSurface(): Int {
+        checkCreated()
+        return nativeTryDetachStoppedSurface(nativeInstance)
+    }
+    private external fun nativeTryDetachStoppedSurface(instance: Long): Int
+
+    fun setSurfaceDetachFence(sequence: Long): Int {
+        checkCreated()
+        return nativeSetSurfaceDetachFence(nativeInstance, sequence)
+    }
+    private external fun nativeSetSurfaceDetachFence(instance: Long, sequence: Long): Int
+
     fun command(cmd: Array<String>) {
         checkCreated()
         nativeCommand(nativeInstance, cmd)

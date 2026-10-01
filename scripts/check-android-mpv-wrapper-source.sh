@@ -63,7 +63,7 @@ require_absent "$events" 'ALOGV("event: %s'
     || die "manifest native toolchain pin changed"
 [[ "$(manifest_value wrapper-libraries)" == "libplayer.so" ]] \
     || die "manifest wrapper library is not libplayer.so"
-[[ "$(manifest_value wrapper-patches)" == "typed-log-request,no-raw-logcat,idempotent-destroy" ]] \
+[[ "$(manifest_value wrapper-patches)" == "typed-log-request,no-raw-logcat,idempotent-destroy,stopped-surface-detach" ]] \
     || die "manifest wrapper patch list changed"
 case ",$(manifest_value mpv-libraries)," in
     *,libplayer.so,*) die "original bridge remains in the unchanged mpv library set" ;;

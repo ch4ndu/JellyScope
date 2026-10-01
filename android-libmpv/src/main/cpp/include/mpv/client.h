@@ -20,6 +20,8 @@ typedef enum mpv_error {
     MPV_ERROR_SUCCESS = 0,
     MPV_ERROR_EVENT_QUEUE_FULL = -1,
     MPV_ERROR_NOMEM = -2,
+    MPV_ERROR_PROPERTY_UNAVAILABLE = -10,
+    MPV_ERROR_GENERIC = -20,
     MPV_ERROR_UNINITIALIZED = -3,
 } mpv_error;
 

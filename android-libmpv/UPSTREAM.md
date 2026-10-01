@@ -7,7 +7,7 @@ build input: `extractPinnedMpvNative` copies its `jni/` payload into
 the module build directory, excludes the upstream `libplayer.so` and `x86`,
 and CMake links the remaining native libraries without rebuilding them.
 
-The committed wrapper contains exactly three deliberate changes to the pinned
+The committed wrapper contains four deliberate changes to the pinned
 wrapper:
 
 1. The Kotlin API adds typed `LogRequestLevel` values, defaults new instances
@@ -20,6 +20,11 @@ wrapper:
 3. The Kotlin `destroy()` implementation carries upstream main's `bf5e0d8`
    idempotence correction: a missing native instance is already destroyed and
    a second call is a no-op.
+
+4. Embedded MediaCodec detachment uses a status-preserving stopped-state probe,
+   a synchronous output-destruction post-check and an INT64 user-data event
+   fence. Surface attachment rejects overwriting a retained global reference.
+   Final engine destruction retains the reference until mpv terminates.
 
 The native input is `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.1`,
 [published separately](https://github.com/ch4ndu/jellyscope-mpv-android/releases/tag/v0.41.0-jellyscope.1). It replaces only ARM32
@@ -41,10 +46,12 @@ Do not float this module to upstream main. To refresh it deliberately:
    source/notice assets and ABI scope. Keep the provider and bundle commits
    distinct in the manifest. If the wrapper changes, pin its tag/commit and
    compare its source with the current bridge.
-2. Rebase the three wrapper patches onto the exact upstream Kotlin/JNI source.
+2. Rebase the four wrapper patches onto the exact upstream Kotlin/JNI source.
    Confirm that default log requests remain disabled, only the requested Error
    level is selected by JellyScope, raw message/event logcat writes remain
-   absent, and `destroy()` remains idempotent.
+   absent, and `destroy()` remains idempotent. Preserve stopped Surface retirement and
+   the INT64 event-drain fence; unavailable property status must not be confused
+   with other native errors.
 3. Rebuild `arm64-v8a`, `armeabi-v7a`, and `x86_64` with Android API 36, NDK
    `29.0.14206865`, CMake `4.1.2`, and the repository's pinned ABI filters.
    Keep `x86` excluded and keep the extracted NDK-29 `libc++_shared.so` as the

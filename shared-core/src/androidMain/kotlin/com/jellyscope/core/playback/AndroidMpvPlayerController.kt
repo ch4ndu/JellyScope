@@ -264,6 +264,7 @@ internal class AndroidMpvPlayerController(
     private var initialAudioGate = false
     private var tvSurfaceLossGeneration: Long? = null
     private var tvSurfaceReloadAttemptedGeneration: Long? = null
+    private val awaitingEmbeddedSurface = AtomicBoolean(false)
     private var playbackFacts = PlaybackFacts()
     private var outputDropBaseline: Long? = null
     private var decoderDropBaseline: Long? = null
@@ -400,6 +401,7 @@ internal class AndroidMpvPlayerController(
         )
 
     override fun attachSurface(view: View) {
+        if (releasedFlag.get()) return
         val mpvView = view as? AndroidMpvSurfaceView ?: return
         if (surfaceView !== mpvView) {
             val replacingActiveHost = surfaceView != null
@@ -407,7 +409,10 @@ internal class AndroidMpvPlayerController(
             attachedSurface = null
             surfaceWidth = 0
             surfaceHeight = 0
-            if (replacingActiveHost) enqueueNativeSurfaceDetach()
+            if (replacingActiveHost) {
+                armEmbeddedSurfaceRecovery()
+                enqueueNativeSurfaceDetach()
+            }
         }
         val currentSurface = mpvView.currentSurface()
         if (currentSurface != null && attachedSurface !== currentSurface) {
@@ -425,11 +430,13 @@ internal class AndroidMpvPlayerController(
     }
 
     override fun detachSurface() {
+        if (releasedFlag.get()) return
         surfaceView = null
         detachActiveSurface()
     }
 
     override fun detachSurface(view: View) {
+        if (releasedFlag.get()) return
         val mpvView = view as? AndroidMpvSurfaceView ?: return
         if (surfaceView !== mpvView) {
             logNativeMilestone(PlaybackNativePlayerMilestone.StaleSurfaceReleaseIgnored)
@@ -441,9 +448,27 @@ internal class AndroidMpvPlayerController(
 
     private fun detachActiveSurface() {
         attachedSurface = null
-        tvSurfaceLossGeneration = null
+        if (enginePolicy.videoOutput == "mediacodec_embed") {
+            armEmbeddedSurfaceRecovery()
+        } else {
+            tvSurfaceLossGeneration = null
+        }
         enqueueNativeSurfaceDetach()
-        logNativeMilestone(PlaybackNativePlayerMilestone.SurfaceDetached)
+        if (enginePolicy.videoOutput != "mediacodec_embed") {
+            logNativeMilestone(PlaybackNativePlayerMilestone.SurfaceDetached)
+        }
+    }
+
+    private fun armEmbeddedSurfaceRecovery() {
+        if (enginePolicy.videoOutput != "mediacodec_embed" || releasedFlag.get()) return
+        if (lifecycle.state.outcome == AndroidMpvLifecycleOutcome.Active && lastPlan != null) {
+            tvSurfaceLossGeneration = generation
+            nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
+            invalidateHotSamples()
+            nativeReady = false
+            startupWatchdog?.cancel()
+            startupWatchdog = null
+        }
     }
 
     override fun updatePresentation(presentation: AndroidSurfacePresentation) {
@@ -499,7 +524,7 @@ internal class AndroidMpvPlayerController(
             enginePolicy.deviceClass == AndroidMpvDeviceClass.Television &&
                 tvSurfaceLossGeneration == generation &&
                 tvSurfaceReloadAttemptedGeneration != generation &&
-                lifecycle.state.loaded &&
+                (lifecycle.state.loaded || enginePolicy.videoOutput == "mediacodec_embed") &&
                 lifecycle.state.outcome == AndroidMpvLifecycleOutcome.Active &&
                 lastPlan != null
         attachedSurface = surface
@@ -515,6 +540,11 @@ internal class AndroidMpvPlayerController(
             }
         if (reloadGeneration != null) {
             enqueueNativeSurfaceReload(reloadGeneration)
+        } else if (awaitingEmbeddedSurface.compareAndSet(true, false)) {
+            lastPlan?.let { plan ->
+                val requestGeneration = generation
+                nativeScope.launch { prepareNative(requestGeneration, plan, lastSubtitleAsset) }
+            }
         }
         tryStartIfReady()
         publishDerivedState()
@@ -547,8 +577,8 @@ internal class AndroidMpvPlayerController(
             // inside the GL driver against the main thread's buffer teardown (Shield
             // ANR). Hold the callback until the queue has drained past any pending
             // surface work — but only while such work exists or the engine still
-            // holds a surface; after release() the teardown detaches it, and blocking
-            // behind mpv destroy() would stall player close.
+            // holds a surface. Released MediaCodec controllers retain the reference
+            // through native destruction; never wait behind full destroy on Main.
             if (!releasedFlag.get() && surfaceWorkPending()) {
                 awaitNativeQueueBounded(nativeScope.launch { nativeMutex.withLock {} })
             }
@@ -560,6 +590,8 @@ internal class AndroidMpvPlayerController(
     private fun surfaceWorkPending(): Boolean = outstandingSurfaceOps.get() > 0 || engineAttachedSurface != null
 
     private fun handleActiveSurfaceDestroyed() {
+        if (releasedFlag.get()) return
+        armEmbeddedSurfaceRecovery()
         if (
             enginePolicy.deviceClass == AndroidMpvDeviceClass.Television &&
             lifecycle.state.loaded &&
@@ -574,7 +606,9 @@ internal class AndroidMpvPlayerController(
         val workPending = surfaceWorkPending()
         val detach = enqueueNativeSurfaceDetach()
         if (workPending) awaitNativeQueueBounded(detach)
-        logNativeMilestone(PlaybackNativePlayerMilestone.SurfaceDetached)
+        if (enginePolicy.videoOutput != "mediacodec_embed") {
+            logNativeMilestone(PlaybackNativePlayerMilestone.SurfaceDetached)
+        }
     }
 
     private fun awaitNativeQueueBounded(job: Job) {
@@ -589,7 +623,12 @@ internal class AndroidMpvPlayerController(
     private fun beginTvSurfaceReload(): Long? {
         if (releasedFlag.get() || enginePolicy.deviceClass != AndroidMpvDeviceClass.Television) return null
         val plan = lastPlan ?: return null
-        if (lifecycle.state.outcome != AndroidMpvLifecycleOutcome.Active || !lifecycle.state.loaded) return null
+        if (
+            lifecycle.state.outcome != AndroidMpvLifecycleOutcome.Active ||
+            (!lifecycle.state.loaded && enginePolicy.videoOutput != "mediacodec_embed")
+        ) {
+            return null
+        }
 
         val outgoingGeneration = generation
         val reloadGeneration = outgoingGeneration + 1L
@@ -627,9 +666,21 @@ internal class AndroidMpvPlayerController(
 
     private fun enqueueNativeSurfaceReload(requestGeneration: Long) {
         val plan = lastPlan ?: return
+        if (enginePolicy.videoOutput == "mediacodec_embed" && networkRequest == null) {
+            nativeScope.launch {
+                prepareNative(requestGeneration, plan.copy(startPositionMs = playbackFacts.positionMs), lastSubtitleAsset)
+            }
+            return
+        }
         nativeScope.launch {
             nativeMutex.withLock {
-                if (releasedFlag.get() || requestGeneration != generation) return@withLock
+                if (releasedFlag.get() || lifecycle.state.stopped || requestGeneration != generation) return@withLock
+                if (
+                    enginePolicy.videoOutput == "mediacodec_embed" &&
+                    (attachedSurface?.isValid != true || tvSurfaceLossGeneration == generation)
+                ) {
+                    return@withLock
+                }
                 val native = engine ?: return@withLock
                 val request =
                     networkRequest ?: run {
@@ -721,6 +772,7 @@ internal class AndroidMpvPlayerController(
         externalSubtitleCommandAccepted = false
         externalSubtitleTrackTitle = null
         tvSurfaceLossGeneration = null
+        awaitingEmbeddedSurface.set(false)
         tvSurfaceReloadAttemptedGeneration = null
         playbackFacts = PlaybackFacts(positionMs = plan.startPositionMs.coerceAtLeast(0L))
         outputDropBaseline = null
@@ -900,6 +952,7 @@ internal class AndroidMpvPlayerController(
     }
 
     override fun stop() {
+        awaitingEmbeddedSurface.set(false)
         if (releasedFlag.get()) return warnReleased(PlayerOperation.Stop)
         playIntent = false
         resumeConfirmationFromPositionMs = null
@@ -974,6 +1027,7 @@ internal class AndroidMpvPlayerController(
 
     override fun release() {
         if (!releasedFlag.compareAndSet(false, true)) return
+        awaitingEmbeddedSurface.set(false)
         startupWatchdog?.cancel()
         startupWatchdog = null
         diagnosticLogWatchdog?.cancel()
@@ -999,7 +1053,7 @@ internal class AndroidMpvPlayerController(
         nativeScope.launch {
             nativeMutex.withLock {
                 runCatching { engine?.setPropertyString("http-header-fields", "") }
-                engine?.let { native ->
+                engine?.takeIf { enginePolicy.videoOutput != "mediacodec_embed" }?.let { native ->
                     runCatching {
                         logRuntimeSurfaceOptionResult(
                             nativeCode = native.setOptionString("force-window", "no"),
@@ -1007,9 +1061,10 @@ internal class AndroidMpvPlayerController(
                     }
                     runCatching { native.detachSurface() }
                 }
-                engineAttachedSurface = null
                 runCatching { engine?.removeObserver(observer) }
-                runCatching { engine?.destroy() }
+                val destroyed = runCatching { engine?.destroy() }.isSuccess
+                engineAttachedSurface = null
+                if (destroyed) logNativeMilestone(PlaybackNativePlayerMilestone.SurfaceEngineDestroyed)
                 engine = null
                 detachedOfflineLease?.release()
                 pendingNativeLeases.forEach(OfflineArtifactLease::release)
@@ -1034,7 +1089,14 @@ internal class AndroidMpvPlayerController(
         subtitleAsset: SubtitleAsset?,
     ) {
         nativeMutex.withLock {
-            if (releasedFlag.get() || requestGeneration != generation) return
+            if (releasedFlag.get() || lifecycle.state.stopped || requestGeneration != generation) return
+            if (
+                enginePolicy.videoOutput == "mediacodec_embed" &&
+                (attachedSurface?.isValid != true || tvSurfaceLossGeneration == generation)
+            ) {
+                awaitingEmbeddedSurface.set(true)
+                return
+            }
             // Explicitly end the previous native item before a new loadfile. The deferred lease
             // is released only after this native stop command has been submitted under the same
             // mutex, never when stop() merely enqueues work from Main.
@@ -1793,7 +1855,8 @@ internal class AndroidMpvPlayerController(
             releasedFlag.get() ||
             lifecycle.state.stopped ||
             eventGeneration == NO_NATIVE_EVENT_GENERATION ||
-            eventGeneration != generation
+            eventGeneration != generation ||
+            (enginePolicy.videoOutput == "mediacodec_embed" && tvSurfaceLossGeneration == generation)
         ) {
             return
         }
@@ -2573,6 +2636,7 @@ internal class AndroidMpvPlayerController(
         milestone: PlaybackNativePlayerMilestone,
         commandShape: PlaybackNativeCommandShape? = null,
         warning: Boolean = false,
+        nativeCode: Int? = null,
     ) {
         val diagnostic =
             formatPlaybackDiagnostic(
@@ -2584,6 +2648,7 @@ internal class AndroidMpvPlayerController(
                     prepareSequence = generation.takeIf { value -> value > 0L },
                     nativePlayerMilestone = milestone,
                     nativeCommandShape = commandShape,
+                    nativeCode = nativeCode?.toLong(),
                     nativeReady = nativeReady,
                     nativeLoadOutstanding = nativeLoadOutstanding.get(),
                     nativeStartObserved = nativeStartObserved,
@@ -2725,7 +2790,9 @@ internal class AndroidMpvPlayerController(
     private fun enqueueNativeSurfaceAttach(surface: Surface): Job =
         trackSurfaceOp(
             enqueueNative { native ->
-                ensureNativeSurfaceAttached(native, surface)
+                if (attachedSurface === surface && surface.isValid) {
+                    ensureNativeSurfaceAttached(native, surface)
+                }
             },
         )
 
@@ -2792,11 +2859,41 @@ internal class AndroidMpvPlayerController(
         trackSurfaceOp(
             enqueueNative { native ->
                 if (engineAttachedSurface != null) {
-                    logRuntimeSurfaceOptionResult(
-                        nativeCode = native.setOptionString("force-window", "no"),
-                    )
-                    native.detachSurface()
-                    engineAttachedSurface = null
+                    if (enginePolicy.videoOutput == "mediacodec_embed") {
+                        nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
+                        logNativeMilestone(PlaybackNativePlayerMilestone.SurfaceDetachRequested)
+                        val result =
+                            runCatching { native.detachSurfaceAfterStop(releasedFlag::get) }
+                                .getOrDefault(-20)
+                        if (releasedFlag.get()) return@enqueueNative
+                        if (result == 0) {
+                            nativeLoadOutstanding.set(false)
+                            expectedReplacementEndFiles.set(0)
+                            engineAttachedSurface = null
+                            logNativeMilestone(PlaybackNativePlayerMilestone.SurfaceDetached)
+                        } else {
+                            logNativeMilestone(
+                                PlaybackNativePlayerMilestone.SurfaceDetachFailed,
+                                warning = true,
+                                nativeCode = result,
+                            )
+                            // Failed probes/timeouts retain the reference. Destroy,
+                            // rather than weakening the predicate to clear wid.
+                            runCatching { native.removeObserver(engineObserver) }
+                            runCatching { native.destroy() }
+                            engine = null
+                            engineAttachedSurface = null
+                            nativeLoadOutstanding.set(false)
+                            expectedReplacementEndFiles.set(0)
+                            postLifecycleFailure(generation, PlaybackError.Unknown)
+                        }
+                    } else {
+                        logRuntimeSurfaceOptionResult(
+                            nativeCode = native.setOptionString("force-window", "no"),
+                        )
+                        native.detachSurface()
+                        engineAttachedSurface = null
+                    }
                 }
             },
         )

@@ -24,7 +24,6 @@ data class PlatformCapabilities(
         val Mobile =
             PlatformCapabilities(
                 supportsKidsPlayback = true,
-                playerOrientationAnimation = true,
                 playerKeyboardShortcuts = true,
                 softKeyboardDismissal = true,
             )

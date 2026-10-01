@@ -9,6 +9,7 @@ import com.jellyscope.core.domain.playback.PlaybackNativeVideoFormat
 import dev.jdtech.mpv.MPVLib
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Project-owned events emitted by the libmpv adapter. */
 internal sealed interface AndroidMpvEvent {
@@ -129,6 +130,9 @@ internal interface AndroidMpvEngine {
 
     fun detachSurface()
 
+    /** Stop embedded output, detach only after native retirement, then drain old events. */
+    fun detachSurfaceAfterStop(isReleased: () -> Boolean): Int
+
     fun addObserver(observer: AndroidMpvEngineObserver)
 
     fun removeObserver(observer: AndroidMpvEngineObserver)
@@ -167,6 +171,8 @@ private class AndroidMpvLibEngine(
 ) : AndroidMpvEngine {
     private val observers = CopyOnWriteArrayList<AndroidMpvEngineObserver>()
     private val videoFormatCapture = AtomicBoolean(false)
+    private var surfaceDetachSequence = 0L
+    private val observedSurfaceDetachSequence = AtomicLong(0L)
 
     private val eventObserver =
         object : MPVLib.EventObserver {
@@ -178,6 +184,10 @@ private class AndroidMpvLibEngine(
                 property: String,
                 value: Long,
             ) {
+                if (property == SURFACE_DETACH_FENCE) {
+                    observedSurfaceDetachSequence.set(value)
+                    return
+                }
                 dispatch(AndroidMpvEvent.PropertyLong(property, value))
             }
 
@@ -307,6 +317,33 @@ private class AndroidMpvLibEngine(
 
     override fun detachSurface() = library.detachSurface()
 
+    override fun detachSurfaceAfterStop(isReleased: () -> Boolean): Int {
+        val deadline = System.nanoTime() + SURFACE_DETACH_TIMEOUT_NS
+        val start = library.beginSurfaceDetach()
+        if (start < 0) return start
+        // Events are not shutdown evidence. JNI checks stopped state and destroys
+        // any retained VO synchronously before releasing its Surface reference.
+        while (true) {
+            if (isReleased()) return 1
+            val result = library.tryDetachStoppedSurface()
+            if (result < 0) return result
+            if (result == 0) break
+            if (System.nanoTime() >= deadline) return NATIVE_DETACH_FAILED
+            Thread.sleep(SURFACE_DETACH_POLL_MS)
+        }
+        val sequence = ++surfaceDetachSequence
+        val marker = library.setSurfaceDetachFence(sequence)
+        if (marker < 0) return marker
+        // This exact property value follows all old queued END_FILE events.
+        // The event thread signals it without Main or the controller native mutex.
+        while (observedSurfaceDetachSequence.get() != sequence) {
+            if (isReleased()) return 1
+            if (System.nanoTime() >= deadline) return NATIVE_DETACH_FAILED
+            Thread.sleep(SURFACE_DETACH_POLL_MS)
+        }
+        return 0
+    }
+
     override fun addObserver(observer: AndroidMpvEngineObserver) {
         observers.addIfAbsent(observer)
     }
@@ -317,6 +354,13 @@ private class AndroidMpvLibEngine(
 
     private fun dispatch(event: AndroidMpvEvent) {
         observers.forEach { observer -> observer.onEvent(event) }
+    }
+
+    private companion object {
+        const val SURFACE_DETACH_FENCE = "user-data/jellyscope-surface-detach"
+        const val SURFACE_DETACH_POLL_MS = 10L
+        const val SURFACE_DETACH_TIMEOUT_NS = 3_000_000_000L
+        const val NATIVE_DETACH_FAILED = -20
     }
 }
 

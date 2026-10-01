@@ -55,6 +55,10 @@ LibVLC; that packaging rule is not allowed to mask a duplicate inside the
 project module. The manifest records the selected C++ runtime, every required
 mpv/FFmpeg and LibVLC library, and the project bridge.
 
+The project wrapper also owns stopped Surface retirement and its INT64 event
+fence; see [wrapper provenance](../../android-libmpv/UPSTREAM.md). This rebuilds
+`libplayer.so` only and does not replace the pinned mpv/FFmpeg payload.
+
 ## License and corresponding source
 
 The wrapper base is MIT-licensed, but the project-owned bridge and the native

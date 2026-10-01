@@ -20,6 +20,25 @@ extern "C" {
     jni_func(void, nativeSetPropertyString, jlong instance, jstring jproperty, jstring jvalue);
 
     jni_func(void, nativeObserveProperty, jlong instance, jstring jproperty, jint jformat);
+    jni_func(jint, nativeBeginSurfaceDetach, jlong instance);
+    jni_func(jint, nativeSetSurfaceDetachFence, jlong instance, jlong sequence);
+}
+
+jni_func(jint, nativeBeginSurfaceDetach, jlong instance) {
+    auto mpv_instance = reinterpret_cast<MPVInstance*>(instance);
+    int result = mpv_set_option_string(mpv_instance->mpv, "force-window", "no");
+    if (result < 0) return result;
+    const char *args[] = { "stop", nullptr };
+    return mpv_command(mpv_instance->mpv, args);
+}
+
+jni_func(jint, nativeSetSurfaceDetachFence, jlong instance, jlong sequence) {
+    auto mpv_instance = reinterpret_cast<MPVInstance*>(instance);
+    const char *property = "user-data/jellyscope-surface-detach";
+    int result = mpv_observe_property(mpv_instance->mpv, 0, property, MPV_FORMAT_INT64);
+    if (result < 0) return result;
+    int64_t value = sequence;
+    return mpv_set_property(mpv_instance->mpv, property, MPV_FORMAT_INT64, &value);
 }
 
 jni_func(jint, nativeSetOptionString, jlong instance, jstring joption, jstring jvalue) {

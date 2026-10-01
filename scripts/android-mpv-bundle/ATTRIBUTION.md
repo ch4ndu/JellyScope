@@ -53,3 +53,7 @@ The combined Android application is distributed under GPL-3.0 terms. Its
 JellyScope-owned files remain available under MPL-2.0 and are additionally
 distributed under GPL-3.0 for this Larger Work through MPL-2.0 Section 3.3.
 This notice does not replace the license texts or `SOURCE_MANIFEST.md`.
+
+Project wrapper patch `stopped-surface-detach` is recorded in
+[wrapper provenance](../../android-libmpv/UPSTREAM.md); it changes the project
+JNI bridge and Kotlin adapter, not the pinned native dependency graph.
