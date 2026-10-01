@@ -21,6 +21,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -55,6 +56,9 @@ internal fun rememberTvGridFocusNav(
     LaunchedEffect(nav.pendingFocusIndex, totalItemsCount) {
         nav.focusPendingIfReady()
     }
+    DisposableEffect(nav) {
+        onDispose { nav.cancelNavigation() }
+    }
 
     return nav
 }
@@ -75,6 +79,9 @@ internal class TvGridFocusNav(
     private var revealComposedTargets: Boolean = false
     private var onLoadMore: () -> Unit = {}
     private var lastNavAtMs = 0L
+    private var revealJob: Job? = null
+    private var revealIndex: Int? = null
+    private var navigationGeneration = 0L
 
     internal fun update(
         itemCount: Int,
@@ -83,6 +90,12 @@ internal class TvGridFocusNav(
         revealComposedTargets: Boolean,
         onLoadMore: () -> Unit,
     ) {
+        if (itemCount < this.itemCount ||
+            columnCount != this.columnCount ||
+            revealComposedTargets != this.revealComposedTargets
+        ) {
+            cancelNavigation()
+        }
         this.itemCount = itemCount
         this.columnCount = columnCount.coerceAtLeast(1)
         this.hasMore = hasMore
@@ -103,6 +116,7 @@ internal class TvGridFocusNav(
             return false
         }
         if (event.key != Key.DirectionDown && event.key != Key.DirectionUp) {
+            cancelNavigation()
             return false
         }
 
@@ -117,13 +131,14 @@ internal class TvGridFocusNav(
                 direction = direction,
                 eventTimeMs = event.nativeKeyEvent.eventTime,
                 lastAcceptedAtMs = lastNavAtMs,
-                focusedIndex = focusedIndex,
+                focusedIndex = pendingFocusIndex ?: focusedIndex,
                 itemCount = itemCount,
                 columnCount = columnCount,
                 hasMore = hasMore,
             )
         decision.acceptedAtMs?.let { acceptedAt -> lastNavAtMs = acceptedAt }
         decision.targetIndex?.let(::focusTarget)
+        if (!decision.consumed) cancelNavigation()
         if (decision.loadMore) onLoadMore()
         return decision.consumed
     }
@@ -148,6 +163,11 @@ internal class TvGridFocusNav(
     }
 
     internal fun onItemFocused(index: Int) {
+        if (pendingFocusIndex?.let { it != index } == true ||
+            revealIndex?.let { it / columnCount != index / columnCount } == true
+        ) {
+            cancelNavigation()
+        }
         focusedIndex = index
         if (pendingFocusIndex == index) {
             pendingFocusIndex = null
@@ -167,60 +187,88 @@ internal class TvGridFocusNav(
         }
         val target = index.coerceIn(0, itemCount - 1)
         val requester = focusRequesters[target] ?: return false
+        cancelNavigation()
         if (!requestFocus(requester)) {
             return false
         }
         focusedIndex = target
         pendingFocusIndex = null
         if (revealComposedTargets) {
-            scope.launch { revealTowardsCenter(target) }
+            revealTowardsCenter(target)
         }
         return true
     }
 
     internal fun resetFocus() {
+        cancelNavigation()
         focusedIndex = 0
+        lastNavAtMs = 0L
+    }
+
+    internal fun cancelNavigation() {
+        navigationGeneration += 1
+        revealJob?.cancel()
+        revealJob = null
+        revealIndex = null
         pendingFocusIndex = null
     }
 
     internal suspend fun focusPendingIfReady() {
         val pending = pendingFocusIndex ?: return
+        val generation = navigationGeneration
         if (focusRequesters[pending] == null) return
         // Delay one frame; withFrameNanos can stall on an idle frame clock.
         delay(PENDING_FOCUS_DELAY_MS)
         // User input wins over delayed focus restoration.
-        if (pendingFocusIndex != pending) return
+        if (pendingFocusIndex != pending || navigationGeneration != generation) return
         val requester = focusRequesters[pending] ?: return
         if (requestFocus(requester)) {
+            focusedIndex = pending
             pendingFocusIndex = null
         }
     }
 
     private fun focusTarget(index: Int) {
+        cancelNavigation()
         val requester = focusRequesters[index]
         if (requester != null && requestFocus(requester)) {
             // Advance the index only after focus actually moves.
             focusedIndex = index
             pendingFocusIndex = null
             if (revealComposedTargets) {
-                scope.launch { revealTowardsCenter(index) }
+                revealTowardsCenter(index)
             }
         } else {
             // Keep current focus until the pending target is composed.
             pendingFocusIndex = index
-            scope.launch { revealTowardsCenter(index) }
+            revealTowardsCenter(index)
         }
     }
 
-    private suspend fun revealTowardsCenter(index: Int) {
-        val info = gridState.layoutInfo
-        val itemHeight =
-            info.visibleItemsInfo
-                .firstOrNull()
-                ?.size
-                ?.height ?: 0
-        val centerOffset = -((info.viewportSize.height - itemHeight) / 2).coerceAtLeast(0)
-        runCatching { gridState.animateScrollToItem(index, centerOffset) }
+    private fun revealTowardsCenter(index: Int) {
+        val generation = navigationGeneration
+        revealIndex = index
+        revealJob =
+            scope.launch {
+                try {
+                    val info = gridState.layoutInfo
+                    val itemHeight =
+                        (info.visibleItemsInfo.firstOrNull { it.index == index } ?: info.visibleItemsInfo.firstOrNull())
+                            ?.size
+                            ?.height ?: 0
+                    // Indexed offsets use the content origin; hero grids center the
+                    // entire item (including labels) in the physical viewport.
+                    val origin = if (revealComposedTargets) info.beforeContentPadding else 0
+                    val centerOffset = origin - ((info.viewportSize.height - itemHeight) / 2).coerceAtLeast(0)
+                    gridState.animateScrollToItem(index, centerOffset)
+                    focusPendingIfReady()
+                } finally {
+                    if (navigationGeneration == generation) {
+                        revealIndex = null
+                        revealJob = null
+                    }
+                }
+            }
     }
 }
 

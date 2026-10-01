@@ -159,10 +159,6 @@ object TvDimens {
     val viewAllIconSize = 36.dp
     val metadataHeight = 92.dp
 
-    // Title + subtitle extent below a poster's focusable image, including the
-    // focused poster's trailing scale overflow. Library-grid scrolling includes
-    // this so centering the image never clips its labels.
-    val cardMetadataHeight = 60.dp
     val progressHeight = ChromeDimens.progressHeight
     val watchedBadgePadding = 6.dp
     val cardBadgePadding = 8.dp

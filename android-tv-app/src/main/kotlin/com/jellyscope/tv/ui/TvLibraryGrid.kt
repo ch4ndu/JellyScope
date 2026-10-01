@@ -267,6 +267,7 @@ private fun TvLibraryGrid(
             onLoadMore = onLoadMore,
         )
     val requestPageRetryFocus: (Int) -> Boolean = { returnIndex ->
+        focusNav.cancelNavigation()
         pageRetryReturnIndex = returnIndex
         focusScope.launch {
             gridState.animateScrollToItem(state.items.size)
@@ -278,10 +279,8 @@ private fun TvLibraryGrid(
     }
     val gridBringIntoViewSpec =
         if (constrainedByHero) {
-            rememberLibraryGridBringIntoViewSpec(
-                metadataReserve = TvDimens.cardMetadataHeight,
-                sameRowSlack = TvDimens.gridContentTopPadding,
-            )
+            // Indexed row reveals own scrolling, including pending-target focus.
+            rememberNoAutoScrollSpec()
         } else {
             rememberRowAwareMarioBringIntoViewSpec()
         }
@@ -408,8 +407,10 @@ private fun TvLibraryGrid(
                             gridState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
                                 state.items.getOrNull(info.index)?.let { item -> "item:${item.id}" }
                             }
-                        }.onFocusChanged { focusState -> gridHasFocus = focusState.hasFocus }
-                        .onPreviewKeyEvent { event ->
+                        }.onFocusChanged { focusState ->
+                            gridHasFocus = focusState.hasFocus
+                            if (!focusState.hasFocus) focusNav.cancelNavigation()
+                        }.onPreviewKeyEvent { event ->
                             if (
                                 pageRetryHasFocus &&
                                 event.type == KeyEventType.KeyDown &&

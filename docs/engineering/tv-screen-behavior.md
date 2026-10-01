@@ -224,15 +224,17 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   and reserved height without resetting grid focus/scroll. Discover/Favorites
   surfaces never use it.
 - Recommended reserves title-to-card focus room and uses one vertical scroll
-  owner with horizontal Mario rows. Hero-constrained Library scrolling reveals
-  the full poster plus labels; hero-disabled/full-height grids use base
-  poster-centered Mario behavior.
+  owner with horizontal Mario rows. Hero-constrained Library uses one indexed
+  scroll owner to center the full card, including labels, in the viewport;
+  its offset accounts for content padding and automatic focus scrolling is
+  disabled. New navigation cancels the previous reveal and pending focus.
+  Hero-disabled/full-height grids use base poster-centered Mario behavior.
 - Library focus regions are inner tabs, Library-only actions, and grid. Tabs
   restore selected view; actions restore their stable key or leftmost available;
   grid restores stable item or first card. Right from the last tab enters actions;
   Up from actions returns to selected tab; top grid row Up returns to selected
-  tab, never Sort. `TvGridFocusNav` consumes held-repeat overflow. Explicit scroll
-  is only for unattached restore targets; full-screen grids use their row policy.
+  tab, never Sort. `TvGridFocusNav` consumes held-repeat overflow. Full-height
+  grids explicitly reveal unattached targets and otherwise use their row policy.
 - Remember last library view defaults on and restores an available view per
   server/user/library on next entry. Disabling it does not move the active screen.
   Loading/error states retain a route back to always-composed tabs.
@@ -388,6 +390,9 @@ starts planning. Preserve the shared action and failure semantics.
   explicitly opened editor.
 - Library chrome hides only at draw time because its stable footprint, semantics,
   requesters, and focus routes remain active.
+- Hero grids center the complete card through one scroll owner. Combining an
+  indexed reveal with focus-driven scrolling can retarget the same movement;
+  omitting the content-origin offset biases placement toward the bottom.
 - The TV grid hero is a product feature, but palette extraction still uses
   bounded decoding and off-Main work as required by
   [the performance guide](compose-performance-audit.md).

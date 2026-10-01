@@ -19,11 +19,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.launch
 
-// Detail lists scroll only at explicit section boundaries.
+// Used where explicit navigation owns scrolling.
 @Composable
 internal fun rememberNoAutoScrollSpec(): BringIntoViewSpec =
     remember {
@@ -118,55 +116,3 @@ internal fun rememberRowAwareMarioBringIntoViewSpec(): BringIntoViewSpec =
             }
         }
     }
-
-// Library grids reserve metadata space without changing full-screen grids.
-@Composable
-internal fun rememberLibraryGridBringIntoViewSpec(
-    metadataReserve: Dp,
-    sameRowSlack: Dp,
-): BringIntoViewSpec {
-    val density = LocalDensity.current
-    val metadataReservePx = with(density) { metadataReserve.toPx() }
-    val sameRowSlackPx = with(density) { sameRowSlack.toPx() }
-    return remember(metadataReservePx, sameRowSlackPx) {
-        object : BringIntoViewSpec {
-            override val scrollAnimationSpec: AnimationSpec<Float> =
-                spring(
-                    stiffness = Spring.StiffnessMedium,
-                    visibilityThreshold = 0.5f,
-                )
-
-            override fun calculateScrollDistance(
-                offset: Float,
-                size: Float,
-                containerSize: Float,
-            ): Float =
-                libraryGridScrollDistance(
-                    offset = offset,
-                    size = size,
-                    containerSize = containerSize,
-                    metadataReserve = metadataReservePx,
-                    sameRowSlack = sameRowSlackPx,
-                )
-        }
-    }
-}
-
-internal fun libraryGridScrollDistance(
-    offset: Float,
-    size: Float,
-    containerSize: Float,
-    metadataReserve: Float,
-    sameRowSlack: Float,
-): Float {
-    val distance = offset - (containerSize - size) / 2f
-    val deadZone = size / 2f
-    val insideCenterDeadZone = distance > -deadZone && distance < deadZone
-    val trailingOverflow = offset + size + metadataReserve - containerSize
-    if (trailingOverflow > 0f && (!insideCenterDeadZone || trailingOverflow > sameRowSlack)) {
-        return trailingOverflow
-    }
-    if (offset < 0f) return offset
-
-    return if (insideCenterDeadZone) 0f else distance
-}
