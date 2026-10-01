@@ -218,7 +218,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   traps and retain opener focus throughout reload.
 - Recommended uses Home-style hero and shelves. Library grid and library-origin
   collections show the settled focused-item hero only when Show library grid hero
-  is enabled (default). The image and ambient tint occupy Home's effective hero
+  is enabled (default). Both Library views wait for an actual card focus event
+  before selecting the initial hero; loaded data alone never selects the first
+  asset. Home and Library leave an unselected hero title empty, without a
+  loading label. Hero layout space remains reserved while focus restores. The image and
+  ambient tint occupy Home's effective hero
   footprint, extend beneath foreground without adding height, and continue under
   the collapsed rail on top-level Library. Disabling hero removes image, tint,
   and reserved height without resetting grid focus/scroll. Discover/Favorites
@@ -315,10 +319,15 @@ Transfer and storage semantics belong to
   Focused overflow marquees; unfocused text ellipsizes. Border/glow/zoom affect
   only the circle, with fixed reserve so metadata does not move or clip.
 - Rail entry retries the last focused tile, using Server before any tile has
-  received focus. A pure grid resolver moves exactly one column,
-  preserves column vertically, clamps only a shorter adjacent row, sends Left
-  from column zero to rail, and consumes other outer boundaries. Row-aware and
-  horizontal Mario policies own scrolling; geometric search does not.
+  received focus. Each ribbon remembers its last focused tile for the lifetime
+  of the screen. Up/Down restores the adjacent ribbon's remembered tile, or its
+  first tile before any item has received focus there. Memory updates only on
+  actual focus. A pure grid resolver moves exactly one column horizontally,
+  sends Left from column zero to rail, and consumes other outer boundaries.
+  Row-aware and horizontal Mario policies own scrolling; geometric search does not.
+- Preference updates preserve the live Settings scroll position when content
+  height changes, subject to normal bounds clamping. Initial scroll fractions
+  position inspection previews only.
 - One centered window-backed dialog is the only reachable focus tree while open.
   It focuses the current enabled choice or primary action, consumes boundaries,
   applies Select once, and cancels on Back without writing. A non-focusable
@@ -379,6 +388,8 @@ starts planning. Preserve the shared action and failure semantics.
 
 ### Related shelf focus
 
+- Library hero selection follows actual card focus, as on Home. A first-item
+  data fallback would flash unrelated artwork while the saved card is restoring.
 - Shared data/UI own shelf identity, order, and cap; TV owns only focus and
   scrolling. This keeps D-pad presentation aligned with other Detail surfaces.
 - Player backend switching reuses the existing focus-trapping picker contract.
@@ -396,3 +407,11 @@ starts planning. Preserve the shared action and failure semantics.
 - The TV grid hero is a product feature, but palette extraction still uses
   bounded decoding and off-Main work as required by
   [the performance guide](compose-performance-audit.md).
+
+### Settings scroll preservation
+
+- Ribbon-local focus memory keeps a user's place when moving between rows of
+  different lengths, matching Home's remembered-item and first-item fallback.
+- A value label can change the scroll range by a single pixel. Reapplying an
+  initial fraction after that remeasurement resets the user's position, so
+  preview framing stays outside live scrolling.

@@ -191,8 +191,8 @@ internal fun TvLibraryRecommendedContent(
         return
     }
 
-    LaunchedEffect(rows, focusedItem) {
-        val target = focusedItem ?: rows.firstNotNullOfOrNull { row -> row.items.firstOrNull() } ?: return@LaunchedEffect
+    LaunchedEffect(focusedItem) {
+        val target = focusedItem ?: return@LaunchedEffect
         if (heroItem != null && heroItem?.id != target.id) delay(HERO_SETTLE_MS)
         heroItem = target
     }

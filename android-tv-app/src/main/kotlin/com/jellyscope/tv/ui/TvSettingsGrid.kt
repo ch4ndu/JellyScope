@@ -214,6 +214,7 @@ internal fun tvPlayerHdrModeAvailable(
 internal fun tvSettingsGridDestination(
     from: TvSettingsTileId,
     direction: FocusDirection,
+    focusedTileByRow: Map<Int, TvSettingsTileId> = emptyMap(),
 ): TvSettingsGridDestination {
     val currentRow = tvSettingsGridRows[from.row]
     val currentColumn = currentRow.indexOf(from)
@@ -234,13 +235,13 @@ internal fun tvSettingsGridDestination(
             if (from.row == 0) {
                 TvSettingsGridDestination.Consume
             } else {
-                tileInAdjacentRow(from.row - 1, currentColumn)
+                tileInAdjacentRow(from.row - 1, focusedTileByRow)
             }
         FocusDirection.Down ->
             if (from.row == TV_SETTINGS_GRID_ROWS - 1) {
                 TvSettingsGridDestination.Consume
             } else {
-                tileInAdjacentRow(from.row + 1, currentColumn)
+                tileInAdjacentRow(from.row + 1, focusedTileByRow)
             }
         else -> TvSettingsGridDestination.Consume
     }
@@ -272,8 +273,8 @@ internal fun tvSettingsDialogRestoreTarget(opener: TvSettingsTileId): TvSettings
 
 private fun tileInAdjacentRow(
     row: Int,
-    column: Int,
+    focusedTileByRow: Map<Int, TvSettingsTileId>,
 ): TvSettingsGridDestination.Tile {
     val targetRow = tvSettingsGridRows[row]
-    return TvSettingsGridDestination.Tile(targetRow[column.coerceAtMost(targetRow.lastIndex)])
+    return TvSettingsGridDestination.Tile(focusedTileByRow[row] ?: targetRow.first())
 }

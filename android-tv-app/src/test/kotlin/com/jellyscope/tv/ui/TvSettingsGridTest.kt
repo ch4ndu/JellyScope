@@ -252,14 +252,14 @@ class TvSettingsGridTest {
     }
 
     @Test
-    fun verticalMovementKeepsLogicalColumnOrUsesTheAdjacentRowsLastTile() {
+    fun verticalMovementRestoresEachRibbonOrEntersItsFirstTile() {
         TvSettingsTileId.entries.forEach { tile ->
             val up = tvSettingsGridDestination(tile, FocusDirection.Up)
             if (tile.row == 0) {
                 assertEquals(TvSettingsGridDestination.Consume, up)
             } else {
                 assertEquals(
-                    TvSettingsGridDestination.Tile(tileAtOrLastColumn(tile.row - 1, tile.column)),
+                    TvSettingsGridDestination.Tile(tvSettingsGridRows[tile.row - 1].first()),
                     up,
                 )
             }
@@ -268,11 +268,34 @@ class TvSettingsGridTest {
                 assertEquals(TvSettingsGridDestination.Consume, down)
             } else {
                 assertEquals(
-                    TvSettingsGridDestination.Tile(tileAtOrLastColumn(tile.row + 1, tile.column)),
+                    TvSettingsGridDestination.Tile(tvSettingsGridRows[tile.row + 1].first()),
                     down,
                 )
             }
         }
+
+        val focusedTileByRow =
+            mutableMapOf(
+                TvSettingsTileId.ImageQuality.row to TvSettingsTileId.ImageQuality,
+                TvSettingsTileId.PlayerClock.row to TvSettingsTileId.PlayerClock,
+            )
+        assertEquals(
+            TvSettingsGridDestination.Tile(TvSettingsTileId.ImageQuality),
+            tvSettingsGridDestination(TvSettingsTileId.PlayerClock, FocusDirection.Up, focusedTileByRow),
+        )
+        assertEquals(
+            TvSettingsGridDestination.Tile(TvSettingsTileId.PlayerClock),
+            tvSettingsGridDestination(TvSettingsTileId.ImageQuality, FocusDirection.Down, focusedTileByRow),
+        )
+        focusedTileByRow[TvSettingsTileId.AudioOutput.row] = TvSettingsTileId.AudioOutput
+        assertEquals(
+            TvSettingsGridDestination.Tile(TvSettingsTileId.AudioOutput),
+            tvSettingsGridDestination(TvSettingsTileId.Theme, FocusDirection.Down, focusedTileByRow),
+        )
+        assertEquals(
+            TvSettingsGridDestination.Tile(TvSettingsTileId.ImageQuality),
+            tvSettingsGridDestination(TvSettingsTileId.AudioOutput, FocusDirection.Up, focusedTileByRow),
+        )
     }
 
     @Test
@@ -326,11 +349,6 @@ class TvSettingsGridTest {
         assertTrue(tvPlayerHdrModeAvailable(PlayerHdrMode.Auto, supported))
         assertTrue(tvPlayerHdrModeAvailable(PlayerHdrMode.PreferSdr, null))
     }
-
-    private fun tileAtOrLastColumn(
-        row: Int,
-        column: Int,
-    ): TvSettingsTileId = tvSettingsGridRows[row][column.coerceAtMost(tvSettingsGridRows[row].lastIndex)]
 }
 
 private fun capabilities(

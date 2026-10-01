@@ -167,7 +167,7 @@ private fun TvHeroZoneContent(
         // Title may run wider than the description block: ~50% of the screen
         // (0.61 of the content column), wrapping to two lines.
         TvText(
-            text = item?.title ?: stringResource(R.string.tv_loading),
+            text = item?.title.orEmpty(),
             style = TvHeroTitleStyle,
             maxLines = 2,
             modifier = Modifier.fillMaxWidth(TvDimens.heroTitleWidthFraction),

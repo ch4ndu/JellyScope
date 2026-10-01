@@ -36,6 +36,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -232,6 +233,7 @@ internal fun TvSettingsContent(
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
+    val isInspectionMode = LocalInspectionMode.current
     val rowAwareMarioSpec = rememberRowAwareMarioBringIntoViewSpec()
     val horizontalMarioSpec = rememberMarioBringIntoViewSpec()
     val rowScrollStates = tvSettingsGridSections.map { rememberScrollState() }
@@ -241,6 +243,7 @@ internal fun TvSettingsContent(
             TvDimens.settingsGridIndicatorEndPadding
     val tileRequesters = remember { List(TvSettingsTileId.entries.size) { FocusRequester() } }
     var focusedTile by remember { mutableStateOf(tvSettingsEntryTile) }
+    val focusedTileByRow = remember { mutableMapOf<Int, TvSettingsTileId>() }
     var openTile by rememberSaveable { mutableStateOf(initialDialogTile) }
     var restoreTile by remember { mutableStateOf<TvSettingsTileId?>(null) }
     var restoreRequests by remember { mutableIntStateOf(0) }
@@ -270,7 +273,7 @@ internal fun TvSettingsContent(
     }
 
     fun move(direction: FocusDirection): Boolean {
-        when (val destination = tvSettingsGridDestination(focusedTile, direction)) {
+        when (val destination = tvSettingsGridDestination(focusedTile, direction, focusedTileByRow)) {
             TvSettingsGridDestination.Rail -> onRequestRailFocus()
             TvSettingsGridDestination.Consume -> Unit
             is TvSettingsGridDestination.Tile -> {
@@ -306,8 +309,10 @@ internal fun TvSettingsContent(
             )
         if (completed) logoutRemovalDismissRequested = false
     }
-    LaunchedEffect(initialScrollFraction, scrollState.maxValue) {
-        scrollState.scrollTo((scrollState.maxValue * initialScrollFraction.coerceIn(0f, 1f)).toInt())
+    if (isInspectionMode) {
+        LaunchedEffect(initialScrollFraction, scrollState.maxValue) {
+            scrollState.scrollTo((scrollState.maxValue * initialScrollFraction.coerceIn(0f, 1f)).toInt())
+        }
     }
 
     CompositionLocalProvider(LocalBringIntoViewSpec provides rowAwareMarioSpec) {
@@ -369,7 +374,10 @@ internal fun TvSettingsContent(
                                         title = presentation.title,
                                         value = presentation.value,
                                         focusRequester = requesterFor(tile),
-                                        onFocused = { focusedTile = tile },
+                                        onFocused = {
+                                            focusedTile = tile
+                                            focusedTileByRow[tile.row] = tile
+                                        },
                                         onClick = { openDialog(tile) },
                                         modifier = Modifier.width(TvDimens.settingsGridCircleDiameter),
                                     )
