@@ -33,7 +33,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import coil3.Image
+import coil3.SingletonImageLoader
+import coil3.compose.LocalPlatformContext
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.ui.component.DetailBodyStyle
@@ -62,9 +63,10 @@ import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 internal fun DetailBackdrop(
     session: Session,
     detail: DetailUi,
-    onPosterLoaded: (Image) -> Unit,
+    onPosterLoaded: (AmbientImageSource) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val imageLoader = SingletonImageLoader.get(LocalPlatformContext.current)
     Crossfade(
         targetState = detail.backdropUrl ?: detail.posterUrl,
         animationSpec = tween(durationMillis = 500),
@@ -84,9 +86,18 @@ internal fun DetailBackdrop(
             AsyncImage(
                 model = authenticatedImageRequest(imageUrl, session, ImageDecode.Backdrop),
                 contentDescription = null,
+                imageLoader = imageLoader,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                onSuccess = { state -> onPosterLoaded(state.result.image) },
+                onSuccess = { state ->
+                    onPosterLoaded(
+                        AmbientImageSource(
+                            result = state.result,
+                            imageLoader = imageLoader,
+                            originalArtworkUrl = imageUrl,
+                        ),
+                    )
+                },
             )
         }
     }
@@ -109,7 +120,7 @@ internal fun DetailHero(
     ) {
         if (detail.logoUrl != null) {
             AsyncImage(
-                model = authenticatedImageRequest(detail.logoUrl, session, ImageDecode.Backdrop),
+                model = authenticatedImageRequest(detail.logoUrl, session, decode = null),
                 contentDescription = detail.title,
                 contentScale = ContentScale.Fit,
                 alignment = Alignment.CenterStart,

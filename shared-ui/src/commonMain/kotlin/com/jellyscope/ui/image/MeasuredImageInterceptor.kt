@@ -4,10 +4,13 @@ package com.jellyscope.ui.image
 import coil3.intercept.Interceptor
 import coil3.request.ImageResult
 import coil3.size.Dimension
+import com.jellyscope.ui.component.AuthenticatedImageAccountIdentityKey
 import com.jellyscope.ui.component.MeasuredImageRequestKey
+import com.jellyscope.ui.component.authenticatedImageDiskCacheKey
 
-// Preserve the request's authentication and account cache identity while lowering
-// only the existing Jellyfin image-width parameter and measured decode variant.
+// Preserve the request's authentication and size-qualified memory identity while
+// lowering only the existing Jellyfin image-width parameter and measured decode
+// variant. Authenticated disk identity follows the resulting source URL.
 internal class MeasuredImageInterceptor : Interceptor {
     override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
         val request = chain.request
@@ -16,14 +19,24 @@ internal class MeasuredImageInterceptor : Interceptor {
         val height = (chain.size.height as? Dimension.Pixels)?.px
         val data = request.data
         val resizedData = if (data is String && width != null) lowerImageMaxWidth(data, width) else data
+        val account = request.extras[AuthenticatedImageAccountIdentityKey]
         val variant = ":measured:${width ?: "auto"}x${height ?: "auto"}"
         val resized =
             request
                 .newBuilder()
                 .data(resizedData)
                 .apply {
+                    account?.let { extras[AuthenticatedImageAccountIdentityKey] = it }
                     request.memoryCacheKey?.let { memoryCacheKey(it + variant) }
-                    request.diskCacheKey?.let { diskCacheKey(it + variant) }
+                    request.diskCacheKey?.let { diskCacheKey ->
+                        diskCacheKey(
+                            if (account != null && resizedData is String) {
+                                authenticatedImageDiskCacheKey(resizedData, account)
+                            } else {
+                                diskCacheKey + variant
+                            },
+                        )
+                    }
                 }.build()
         return chain.withRequest(resized).proceed()
     }

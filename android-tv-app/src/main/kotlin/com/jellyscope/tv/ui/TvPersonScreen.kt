@@ -60,6 +60,7 @@ import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.LoadMoreOnApproachEnd
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.authenticatedImageRequest
+import com.jellyscope.ui.component.rememberCardImageDecode
 import com.jellyscope.ui.focus.FocusRestoreRequest
 import com.jellyscope.ui.focus.FocusRestoreTarget
 import com.jellyscope.ui.focus.rememberNoAutoScrollSpec
@@ -411,6 +412,11 @@ private fun TvPersonHeader(
     header: PersonHeaderUi?,
     modifier: Modifier = Modifier,
 ) {
+    val imageDecode =
+        rememberCardImageDecode(
+            width = TvDimens.personHeaderPosterWidth.tileScaled(),
+            height = TvDimens.personHeaderPosterHeight.tileScaled(),
+        )
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(TvDimens.rowGap),
@@ -427,7 +433,7 @@ private fun TvPersonHeader(
         ) {
             header?.imageUrl?.let { imageUrl ->
                 AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session),
+                    model = authenticatedImageRequest(imageUrl, session, imageDecode),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

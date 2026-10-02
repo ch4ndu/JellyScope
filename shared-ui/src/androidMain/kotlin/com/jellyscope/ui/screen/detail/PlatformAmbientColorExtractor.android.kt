@@ -8,12 +8,22 @@ import android.util.LruCache
 import androidx.compose.ui.graphics.Color
 import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
-import coil3.Image
-import coil3.toBitmap
+import coil3.BitmapImage
+import coil3.request.CachePolicy
+import coil3.request.ErrorResult
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.size.Precision
+import coil3.size.Scale
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.core.util.formatSafeFailureDiagnostic
+import com.jellyscope.core.util.runCatchingCancellable
+import com.jellyscope.ui.component.MeasuredImageRequestKey
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 private val ambientLogger = diagnosticLogger(DiagnosticTag.AmbientColor)
@@ -24,46 +34,75 @@ private class AndroidAmbientColorExtractor : AmbientColorExtractor {
     private val cache = LruCache<String, Color>(64)
 
     override suspend fun extract(
-        image: Image,
+        source: AmbientImageSource,
         key: String,
     ): Color? {
         cache.get(key)?.let { cached -> return cached }
 
         return withContext(Dispatchers.Default) {
-            runCatching {
-                val maxDim = 96
-                val aspect = if (image.height > 0) image.width.toFloat() / image.height.toFloat() else 1f
-                val targetW = if (aspect >= 1f) maxDim else (maxDim * aspect).toInt().coerceAtLeast(1)
-                val targetH = if (aspect >= 1f) (maxDim / aspect).toInt().coerceAtLeast(1) else maxDim
-                val bitmap = image.toBitmap(width = targetW, height = targetH)
-                val softwareBitmap =
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                        bitmap.config == Bitmap.Config.HARDWARE
-                    ) {
-                        bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                    } else {
-                        bitmap
+            val color =
+                runCatchingCancellable {
+                    currentCoroutineContext().ensureActive()
+                    val result = source.imageLoader.execute(source.ambientSampleRequest())
+                    currentCoroutineContext().ensureActive()
+                    val bitmap =
+                        when (result) {
+                            is SuccessResult ->
+                                (result.image as? BitmapImage)?.bitmap
+                                    ?: return@runCatchingCancellable rejectedAmbientSample("sample-unsupported")
+                            is ErrorResult -> throw result.throwable
+                        }
+                    if (bitmap.width !in 1..AMBIENT_SAMPLE_SIZE || bitmap.height !in 1..AMBIENT_SAMPLE_SIZE) {
+                        return@runCatchingCancellable rejectedAmbientSample("sample-bounds")
                     }
-                Palette
-                    .from(softwareBitmap)
-                    .generate()
-                    .selectAmbientColor()
-                    ?.let { selected -> Color(normalizeForBackdrop(selected)) }
-            }.onFailure { error ->
-                ambientLogger.i {
-                    formatSafeFailureDiagnostic(
-                        stage = "ambient-color",
-                        event = "failed",
-                        throwable = error,
-                    )
-                }
-            }.getOrNull()
-                ?.also { color ->
-                    cache.put(key, color)
-                }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bitmap.config == Bitmap.Config.HARDWARE) {
+                        return@runCatchingCancellable rejectedAmbientSample("sample-hardware")
+                    }
+                    Palette
+                        .from(bitmap)
+                        .generate()
+                        .selectAmbientColor()
+                        ?.let { selected -> Color(normalizeForBackdrop(selected)) }
+                }.onFailure { error ->
+                    ambientLogger.i {
+                        formatSafeFailureDiagnostic(
+                            stage = "ambient-color",
+                            event = "failed",
+                            throwable = error,
+                        )
+                    }
+                }.getOrNull()
+            currentCoroutineContext().ensureActive()
+            color?.also { cache.put(key, it) }
         }
     }
 }
+
+private fun AmbientImageSource.ambientSampleRequest(): ImageRequest =
+    result.request
+        .newBuilder()
+        .target(null)
+        .listener(null)
+        .memoryCachePolicy(CachePolicy.DISABLED)
+        .size(AMBIENT_SAMPLE_SIZE, AMBIENT_SAMPLE_SIZE)
+        .scale(Scale.FIT)
+        .precision(Precision.EXACT)
+        .allowHardware(false)
+        .apply { extras[MeasuredImageRequestKey] = false }
+        .build()
+
+private fun rejectedAmbientSample(event: String): Color? {
+    ambientLogger.i {
+        formatSafeFailureDiagnostic(
+            stage = "ambient-color",
+            event = event,
+            throwable = AmbientSampleRejectedException(),
+        )
+    }
+    return null
+}
+
+private class AmbientSampleRejectedException : IllegalStateException()
 
 private fun Palette.selectAmbientColor(): Int? =
     listOfNotNull(
@@ -85,3 +124,4 @@ private fun normalizeForBackdrop(argb: Int): Int {
 }
 
 private const val NEUTRAL_SATURATION = 0.08f
+private const val AMBIENT_SAMPLE_SIZE = 96

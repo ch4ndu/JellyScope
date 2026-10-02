@@ -28,7 +28,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
-import coil3.Image
+import coil3.SingletonImageLoader
+import coil3.compose.LocalPlatformContext
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.ui.component.DetailBodyStyle
@@ -50,9 +51,10 @@ internal fun SeriesBackdrop(
     session: Session,
     itemId: String,
     imageUrl: String?,
-    onPosterLoaded: (Image) -> Unit,
+    onPosterLoaded: (AmbientImageSource) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val imageLoader = SingletonImageLoader.get(LocalPlatformContext.current)
     Crossfade(
         targetState = imageUrl,
         animationSpec = tween(durationMillis = 500),
@@ -72,9 +74,18 @@ internal fun SeriesBackdrop(
             AsyncImage(
                 model = authenticatedImageRequest(targetUrl, session, ImageDecode.Backdrop),
                 contentDescription = null,
+                imageLoader = imageLoader,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                onSuccess = { state -> onPosterLoaded(state.result.image) },
+                onSuccess = { state ->
+                    onPosterLoaded(
+                        AmbientImageSource(
+                            result = state.result,
+                            imageLoader = imageLoader,
+                            originalArtworkUrl = targetUrl,
+                        ),
+                    )
+                },
             )
         }
     }

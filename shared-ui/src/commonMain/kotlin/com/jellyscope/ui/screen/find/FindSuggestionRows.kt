@@ -40,6 +40,7 @@ import com.jellyscope.ui.adaptive.expandIntoHorizontalContentPadding
 import com.jellyscope.ui.component.DesktopScrollOrientation
 import com.jellyscope.ui.component.authenticatedImageRequest
 import com.jellyscope.ui.component.desktopScrollInput
+import com.jellyscope.ui.component.rememberCardImageDecode
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.find_error
 import com.jellyscope.ui.generated.resources.find_loading
@@ -139,6 +140,11 @@ private fun PersonSuggestion(
     onClick: () -> Unit,
 ) {
     val contentDescription = stringResource(Res.string.find_person_cd, person.name)
+    val imageDecode =
+        rememberCardImageDecode(
+            width = Dimensions.personAvatarSize,
+            height = Dimensions.personAvatarSize,
+        )
     Column(
         modifier =
             Modifier
@@ -159,7 +165,7 @@ private fun PersonSuggestion(
             val imageUrl = person.imageUrl
             if (imageUrl != null) {
                 AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session),
+                    model = authenticatedImageRequest(imageUrl, session, imageDecode),
                     contentDescription = null,
                     modifier =
                         Modifier

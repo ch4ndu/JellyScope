@@ -23,7 +23,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import coil3.Image
+import coil3.SingletonImageLoader
+import coil3.compose.LocalPlatformContext
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
 import com.jellyscope.ui.adaptive.tileScaled
@@ -38,8 +39,9 @@ internal fun Backdrop(
     imageUrl: String?,
     contentDescription: String?,
     modifier: Modifier = Modifier,
-    onImageLoaded: (Image) -> Unit = {},
+    onImageLoaded: (AmbientImageSource) -> Unit = {},
 ) {
+    val imageLoader = SingletonImageLoader.get(LocalPlatformContext.current)
     Surface(
         modifier =
             modifier
@@ -59,9 +61,18 @@ internal fun Backdrop(
                 AsyncImage(
                     model = authenticatedImageRequest(imageUrl, session, ImageDecode.Backdrop),
                     contentDescription = null,
+                    imageLoader = imageLoader,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
-                    onSuccess = { state -> onImageLoaded(state.result.image) },
+                    onSuccess = { state ->
+                        onImageLoaded(
+                            AmbientImageSource(
+                                result = state.result,
+                                imageLoader = imageLoader,
+                                originalArtworkUrl = imageUrl,
+                            ),
+                        )
+                    },
                 )
             }
             Box(

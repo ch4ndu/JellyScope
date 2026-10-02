@@ -27,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
-import coil3.Image
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
@@ -68,7 +67,7 @@ internal fun SeriesBodyCompact(
     onItemSelected: (MediaCardUi) -> Unit,
     onPersonSelected: (String) -> Unit,
     onMediaInfoClick: (EpisodeUi) -> Unit,
-    onBackdropLoaded: (Image) -> Unit,
+    onBackdropLoaded: (AmbientImageSource) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()

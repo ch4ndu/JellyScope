@@ -10,11 +10,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.LocalSubtitleContext
@@ -28,7 +26,6 @@ import com.jellyscope.ui.component.HeroDetailBackButton
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.detail_back
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -265,8 +262,6 @@ private fun DetailBody(
 ) {
     val backContentDescription = stringResource(Res.string.detail_back)
     var mediaInfoVisible by remember { mutableStateOf(false) }
-    var ambientColor by remember(detail.itemId) { mutableStateOf<Color?>(null) }
-    val scope = rememberCoroutineScope()
 
     if (LocalWindowWidthTier.current != WindowWidthTier.Compact) {
         androidx.compose.runtime.CompositionLocalProvider(LocalDetailInteractionMode provides DetailInteractionMode.Touch) {
@@ -292,11 +287,19 @@ private fun DetailBody(
         return
     }
 
+    val ambient =
+        rememberAmbientColor(
+            session = session,
+            itemId = detail.itemId,
+            selectedArtworkUrl = detail.backdropUrl,
+            extractor = ambientColorExtractor,
+        )
+
     AmbientBackground(
-        ambientColor = ambientColor,
+        ambientColor = ambient.color,
         modifier = modifier.fillMaxSize(),
     ) {
-        AmbientLayer(ambientColor = ambientColor)
+        AmbientLayer(ambientColor = ambient.color)
         Box(modifier = Modifier.fillMaxSize()) {
             DetailBodyCompact(
                 session = session,
@@ -313,15 +316,7 @@ private fun DetailBody(
                 downloadFixedAvailable = downloadFixedAvailable,
                 onDownloadClick = onDownloadClick,
                 onMediaInfoClick = { mediaInfoVisible = true },
-                onBackdropLoaded = { image ->
-                    scope.launch {
-                        ambientColor =
-                            ambientColorExtractor.extract(
-                                image,
-                                ambientImageCacheKey(session, detail.itemId, detail.backdropUrl),
-                            )
-                    }
-                },
+                onBackdropLoaded = ambient::onImageLoaded,
             )
             HeroDetailBackButton(
                 contentDescription = backContentDescription,

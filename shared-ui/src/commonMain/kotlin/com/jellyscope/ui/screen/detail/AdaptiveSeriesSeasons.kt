@@ -56,6 +56,7 @@ import com.jellyscope.ui.component.FocusableBox
 import com.jellyscope.ui.component.SmallBadge
 import com.jellyscope.ui.component.authenticatedImageRequest
 import com.jellyscope.ui.component.desktopScrollInput
+import com.jellyscope.ui.component.rememberCardImageDecode
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.tv_open_season
 import com.jellyscope.ui.generated.resources.tv_seasons
@@ -101,6 +102,11 @@ private fun SeasonPosterCard(
     onClick: () -> Unit,
     focusModifier: Modifier = Modifier,
 ) {
+    val imageDecode =
+        rememberCardImageDecode(
+            width = DetailDimens.posterWidth.tileScaled(),
+            height = DetailDimens.posterHeight.tileScaled(),
+        )
     Column(
         modifier = Modifier.width(DetailDimens.posterWidth.tileScaled()),
         verticalArrangement = Arrangement.spacedBy(DetailDimens.seasonEpisodeTextGap),
@@ -118,7 +124,7 @@ private fun SeasonPosterCard(
                 val posterUrl = season.posterUrl
                 if (posterUrl != null) {
                     AsyncImage(
-                        model = authenticatedImageRequest(posterUrl, session),
+                        model = authenticatedImageRequest(posterUrl, session, imageDecode),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,

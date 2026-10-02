@@ -114,8 +114,13 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   repopulate a cache after a transition. Full logout clears runtime stores;
   account transitions clear the retired account and server-wide state only when
   the final account for that server is removed.
-- Coil memory/disk keys include account identity, image URL, and decode size but
-  never authorization headers. The logged-in composition owns the loader
+- Authenticated Coil keys use a length-qualified server/user namespace and never
+  include authorization headers or access tokens. Memory keys also distinguish
+  source URLs and decode variants. Disk keys contain the account namespace and
+  effective image URL after any `maxWidth` lowering, without decode dimensions:
+  identical URLs share encoded bytes across sizes, while different URLs remain
+  isolated. Existing size-qualified disk entries age out through normal eviction.
+  The logged-in composition owns the loader
   installation; the serialized runtime-cache boundary clears and shuts down the
   retired loader on platform I/O before the replacement composition explicitly
   installs a fresh Coil singleton and reuses the single disk-cache owner.
@@ -206,6 +211,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   product decision.
 
 ## Why
+
+- **Encoded and decoded images have different identities.** Decode dimensions
+  change memory requirements, but only a different effective URL changes the
+  requested source bytes. Both caches retain the account boundary.
 
 - **Discovery availability is a platform capability.** iOS omits the multicast
   entitlement required by UDP discovery, so marking discovery unavailable

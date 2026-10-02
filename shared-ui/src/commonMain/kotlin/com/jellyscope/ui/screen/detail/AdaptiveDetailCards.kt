@@ -58,6 +58,18 @@ internal fun AdaptiveMediaCard(
     onClick: () -> Unit,
     focusModifier: Modifier = Modifier,
 ) {
+    val imageDecode =
+        if (wide) {
+            rememberCardImageDecode(
+                width = DetailDimens.seasonEpisodeCardWidth.tileScaled(),
+                aspect = CardImageAspect.Wide,
+            )
+        } else {
+            rememberCardImageDecode(
+                width = DetailDimens.posterWidth.tileScaled(),
+                height = DetailDimens.posterHeight.tileScaled(),
+            )
+        }
     Column(
         modifier = Modifier.width((if (wide) DetailDimens.seasonEpisodeCardWidth else DetailDimens.posterWidth).tileScaled()),
         verticalArrangement = Arrangement.spacedBy(DetailDimens.detailPersonTextGap),
@@ -78,7 +90,7 @@ internal fun AdaptiveMediaCard(
                 val imageUrl = if (wide) item.backdropUrl ?: item.imageUrl else item.imageUrl
                 if (imageUrl != null) {
                     AsyncImage(
-                        model = authenticatedImageRequest(imageUrl, session),
+                        model = authenticatedImageRequest(imageUrl, session, imageDecode),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
@@ -148,6 +160,11 @@ internal fun AdaptivePersonCard(
     focusModifier: Modifier = Modifier,
 ) {
     val contentDescription = stringResource(Res.string.detail_person_cd, person.name)
+    val imageDecode =
+        rememberCardImageDecode(
+            width = DetailDimens.posterWidth.tileScaled(),
+            height = DetailDimens.detailPersonImageHeight.tileScaled(),
+        )
     Column(
         modifier =
             Modifier
@@ -175,7 +192,7 @@ internal fun AdaptivePersonCard(
             val imageUrl = person.imageUrl
             if (imageUrl != null) {
                 AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session),
+                    model = authenticatedImageRequest(imageUrl, session, imageDecode),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

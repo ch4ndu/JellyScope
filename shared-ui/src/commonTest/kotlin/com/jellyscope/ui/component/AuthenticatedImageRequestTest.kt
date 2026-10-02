@@ -3,7 +3,9 @@
 package com.jellyscope.ui.component
 
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.accountIdentity
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 
@@ -17,11 +19,18 @@ class AuthenticatedImageRequestTest {
         val firstPoster = authenticatedImageCacheKey(url, first, ImageDecode.Poster)
         val siblingPoster = authenticatedImageCacheKey(url, sibling, ImageDecode.Poster)
         val firstThumb = authenticatedImageCacheKey(url, first, ImageDecode.Thumb)
+        val firstPosterDisk = authenticatedImageDiskCacheKey(url, first.accountIdentity())
+        val firstThumbDisk = authenticatedImageDiskCacheKey(url, first.accountIdentity())
+        val siblingPosterDisk = authenticatedImageDiskCacheKey(url, sibling.accountIdentity())
 
         assertNotEquals(firstPoster, siblingPoster)
         assertNotEquals(firstPoster, firstThumb)
+        assertEquals(firstPosterDisk, firstThumbDisk)
+        assertNotEquals(firstPosterDisk, siblingPosterDisk)
         assertFalse("secret-token-1" in firstPoster)
         assertFalse("Authorization" in firstPoster)
+        assertFalse("secret-token-1" in firstPosterDisk)
+        assertFalse("Authorization" in firstPosterDisk)
     }
 }
 

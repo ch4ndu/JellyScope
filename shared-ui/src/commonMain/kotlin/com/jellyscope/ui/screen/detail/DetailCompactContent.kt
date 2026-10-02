@@ -33,7 +33,6 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
-import coil3.Image
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
@@ -79,7 +78,7 @@ internal fun DetailBodyCompact(
     downloadFixedAvailable: Boolean,
     onDownloadClick: () -> Unit,
     onMediaInfoClick: () -> Unit,
-    onBackdropLoaded: (Image) -> Unit,
+    onBackdropLoaded: (AmbientImageSource) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()

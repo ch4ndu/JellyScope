@@ -10,7 +10,9 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntSize
 import coil3.Extras
+import coil3.ImageLoader
 import coil3.PlatformContext
+import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
@@ -45,6 +47,7 @@ fun MeasuredAsyncImage(
     contentScale: ContentScale = ContentScale.Fit,
     onSuccess: ((AsyncImagePainter.State.Success) -> Unit)? = null,
     filterQuality: FilterQuality = FilterQuality.Low,
+    imageLoader: ImageLoader = SingletonImageLoader.get(LocalPlatformContext.current),
 ) {
     val scale = LocalImageDecodeScale.current
     val context = LocalPlatformContext.current
@@ -57,6 +60,7 @@ fun MeasuredAsyncImage(
     AsyncImage(
         model = request,
         contentDescription = contentDescription,
+        imageLoader = imageLoader,
         modifier = if (reduced) modifier.then(constraints) else modifier,
         alignment = alignment,
         contentScale = contentScale,

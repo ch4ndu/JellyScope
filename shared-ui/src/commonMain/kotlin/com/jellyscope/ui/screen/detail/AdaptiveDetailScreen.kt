@@ -21,13 +21,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.DownloadRecord
@@ -52,7 +50,6 @@ import com.jellyscope.ui.focus.rememberScrollIntoViewOnFocusModifier
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.detail_back
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -273,13 +270,19 @@ internal fun AdaptiveDetailContent(
         }
     val noAutoScrollSpec = rememberNoAutoScrollSpec()
     val horizontalBringIntoViewSpec = rememberDeadZoneCenterPivotBringIntoViewSpec()
-    var ambientColor by remember { mutableStateOf<Color?>(null) }
+    val selectedArtworkUrl = detail.backdropUrl ?: detail.posterUrl
+    val ambient =
+        rememberAmbientColor(
+            session = session,
+            itemId = detail.itemId,
+            selectedArtworkUrl = selectedArtworkUrl,
+            extractor = ambientColorExtractor,
+        )
     var mediaInfoVisible by remember { mutableStateOf(false) }
     var restoreMediaInfoFocus by remember { mutableStateOf(false) }
     var trackPickerVisible by remember { mutableStateOf<DetailTrackPickerType?>(null) }
     var restoreTrackPickerFocus by remember { mutableStateOf<DetailTrackPickerType?>(null) }
     var openedVersionSourceId by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
     val mediaInfo = detail.mediaInfo?.takeIf { info -> info.hasAnything }
     val versionTrackRequester = remember { FocusRequester() }
     val audioTrackRequester = remember { FocusRequester() }
@@ -392,24 +395,16 @@ internal fun AdaptiveDetailContent(
     }
 
     AmbientBackground(
-        ambientColor = ambientColor,
+        ambientColor = ambient.color,
         modifier =
             modifier
                 .fillMaxSize(),
     ) {
-        AmbientLayer(ambientColor = ambientColor)
+        AmbientLayer(ambientColor = ambient.color)
         DetailBackdrop(
             session = session,
             detail = detail,
-            onPosterLoaded = { image ->
-                scope.launch {
-                    ambientColor =
-                        ambientColorExtractor.extract(
-                            image,
-                            ambientImageCacheKey(session, detail.itemId, detail.backdropUrl),
-                        )
-                }
-            },
+            onPosterLoaded = ambient::onImageLoaded,
             modifier = Modifier.align(Alignment.TopEnd),
         )
         DetailBringIntoViewProvider(noAutoScrollSpec) {

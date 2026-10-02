@@ -81,6 +81,11 @@ internal fun TvUpNextCard(
             tickMs = UP_NEXT_COUNTDOWN_TICK_MS,
             onAutoAdvance = { onPlayNext(true, autoplayPolicy.countdownKey.playbackGeneration) },
         ) ?: 0L
+    val imageDecode =
+        rememberCardImageDecode(
+            width = TvDimens.playerFloatingPanelPosterWidth,
+            height = TvDimens.playerFloatingPanelPosterHeight,
+        )
 
     Row(
         modifier =
@@ -109,7 +114,7 @@ internal fun TvUpNextCard(
             val imageUrl = upNext.imageUrl
             if (imageUrl != null) {
                 AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session),
+                    model = authenticatedImageRequest(imageUrl, session, imageDecode),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

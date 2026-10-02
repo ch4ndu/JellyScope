@@ -12,9 +12,9 @@ import kotlin.math.roundToInt
 /**
  * Which aspect a card's image is, and therefore what shape to decode it at.
  *
- * `Precision.EXACT` forces the decoded bitmap to the requested dimensions, so the
- * aspect has to match the content — a 16:9 backdrop decoded at a 2:3 poster shape
- * is squashed before it ever reaches the card.
+ * `Precision.EXACT` requests these target bounds while Coil preserves the source
+ * aspect ratio. Keeping compatible bounds still avoids decoding excess pixels for
+ * a card that will crop the result.
  */
 enum class CardImageAspect(
     val widthUnits: Int,
@@ -97,5 +97,41 @@ fun rememberCardImageDecode(
             aspect = aspect,
             adaptiveCell = adaptiveCell,
         )
+    }
+}
+
+/**
+ * [rememberCardImageDecode] for a card with explicit resolved token bounds.
+ *
+ * This is for the few noncanonical rectangles and squares whose displayed ratio
+ * does not exactly match [CardImageAspect]. It still buckets the token width and
+ * caps both axes at the canonical poster maximum, rather than measuring each
+ * item independently.
+ */
+@Composable
+fun rememberCardImageDecode(
+    width: Dp,
+    height: Dp,
+): ImageDecode {
+    val density = LocalDensity.current
+    return remember(width, height, density) {
+        val widthPx = with(density) { width.toPx() }
+        val heightPx = with(density) { height.toPx() }
+        if (widthPx <= 0f || heightPx <= 0f) {
+            ImageDecode.Poster
+        } else {
+            val ratio = heightPx / widthPx
+            val maximumWidth =
+                minOf(
+                    ImageDecode.Poster.width.toFloat(),
+                    ImageDecode.Poster.height / ratio,
+                ).toInt().coerceAtLeast(1)
+            val minimumWidth = minOf(MIN_DECODE_WIDTH_PX, maximumWidth)
+            val decodeWidth = bucketUpPx(widthPx).coerceIn(minimumWidth, maximumWidth)
+            ImageDecode(
+                width = decodeWidth,
+                height = (decodeWidth * ratio).roundToInt().coerceIn(1, ImageDecode.Poster.height),
+            )
+        }
     }
 }

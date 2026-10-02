@@ -8,11 +8,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.Session
@@ -24,7 +22,6 @@ import com.jellyscope.ui.component.HeroDetailBackButton
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.detail_back
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -163,8 +160,6 @@ private fun SeriesBody(
 ) {
     val backContentDescription = stringResource(Res.string.detail_back)
     var infoEpisode by remember { mutableStateOf<EpisodeUi?>(null) }
-    var ambientColor by remember(content.series.itemId) { mutableStateOf<Color?>(null) }
-    val scope = rememberCoroutineScope()
 
     if (LocalWindowWidthTier.current != WindowWidthTier.Compact) {
         androidx.compose.runtime.CompositionLocalProvider(LocalDetailInteractionMode provides DetailInteractionMode.Touch) {
@@ -185,11 +180,20 @@ private fun SeriesBody(
         return
     }
 
+    val selectedArtworkUrl = content.series.backdropUrl ?: content.series.posterUrl
+    val ambient =
+        rememberAmbientColor(
+            session = session,
+            itemId = content.series.itemId,
+            selectedArtworkUrl = selectedArtworkUrl,
+            extractor = ambientColorExtractor,
+        )
+
     AmbientBackground(
-        ambientColor = ambientColor,
+        ambientColor = ambient.color,
         modifier = modifier.fillMaxSize(),
     ) {
-        AmbientLayer(ambientColor = ambientColor)
+        AmbientLayer(ambientColor = ambient.color)
         Box(modifier = Modifier.fillMaxSize()) {
             SeriesBodyCompact(
                 session = session,
@@ -205,15 +209,7 @@ private fun SeriesBody(
                 onItemSelected = onItemSelected,
                 onPersonSelected = onPersonSelected,
                 onMediaInfoClick = { episode -> infoEpisode = episode },
-                onBackdropLoaded = { image ->
-                    scope.launch {
-                        ambientColor =
-                            ambientColorExtractor.extract(
-                                image,
-                                ambientImageCacheKey(session, content.series.itemId, content.series.backdropUrl),
-                            )
-                    }
-                },
+                onBackdropLoaded = ambient::onImageLoaded,
             )
             HeroDetailBackButton(
                 contentDescription = backContentDescription,

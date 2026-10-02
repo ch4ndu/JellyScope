@@ -35,9 +35,15 @@ visual. Touch/desktop keep their indication inside the shape clip.
   not wrap the whole TV app in another Material theme or accept stock TV colors.
 - Supported TV browse heroes and detail/series/season surfaces may use an
   artwork-derived ambient gradient. Shared touch/pointer Home keeps the selected
-  theme background and makes no separate ambient-artwork request. Non-Android
-  extraction samples decoded Skia images off Main, caches by item ID, and falls
-  back to the selected theme brush.
+  theme background and makes no separate ambient-artwork request. Shared detail
+  extraction runs off Main and caches colors by account, item, and selected
+  artwork URL, including poster fallback. Android reuses the successful display
+  request and its exact loader for a separate software decode capped at 96 pixels
+  per dimension with `Scale.FIT`; it preserves authentication and encoded-source
+  cache identity without copying the displayed bitmap. Non-Android extraction
+  keeps its decoded Skia sampling. Owner/source replacement cancels extraction,
+  rejects stale callbacks, and uses the selected theme brush until a current
+  color is available; extraction failure also falls back to that brush.
 - A screen does not replace the app's full-bleed background. The player may use
   black, and logged-in Settings may layer `SettingsBackdrop` over the theme
   brush with the active palette and shared launch artwork.
@@ -402,16 +408,19 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   quantized to shared buckets and capped at the canonical maximum. Card image
   descriptors keep request and decode geometry aligned.
 - Image quality is an app-wide appearance preference on all supported apps.
-  High is the default and preserves the original request/decode targets,
-  including canonical 1280×720 hero artwork. Medium uses 75% of measured layout
+  High is the default. Compose small cards and avatars use bounded token-derived
+  decode targets; Detail/Series logos use their constrained layout bounds.
+  Existing explicit poster/wide-card targets and canonical 1280×720 hero artwork
+  remain unchanged. Medium uses 75% of measured layout
   bounds in each dimension; Low uses 60% (20% below Medium). Each reduced
   dimension is capped at High's target, so on large screens Medium or Low can
   equal High but never exceed it. Reduced targets also apply to downloaded
   artwork. Compose uses `MeasuredAsyncImage` (one request per image; the size
   resolver awaits layout); native tvOS uses measured pixels and ImageIO
   downsampling. An existing Jellyfin `maxWidth` is lowered to the reduced decode
-  width, never raised. Cache variants retain account
-  identity and separate reduced targets from original artwork. Android TV Home
+  width, never raised. Decoded memory variants remain size-qualified; encoded
+  disk bytes may be shared for the same account and effective image URL, as
+  defined in [the cache contract](api-and-caching.md#cache). Android TV Home
   backdrop prefetch uses the same quality and measured hero bounds. Trickplay
   sprite sheets preserve their geometry. Visual/performance acceptance remains
   a physical-device check.
@@ -463,6 +472,11 @@ See [native tvOS UI](tvos-ui.md#native-tvos-screens).
 
 ## Why
 
+- Ambient color needs only a small whole-artwork sample. Decoding it separately
+  avoids full-size hardware-bitmap readback; retaining the display request's
+  loader preserves account ownership, while source checks prevent an outgoing
+  Crossfade image from changing the current detail background.
+
 - Normal Android rotation uses direct native bounds because animating intermediate
   Surface sizes can jitter, particularly while paused. System rotation behavior
   remains platform-owned; iOS and Kids keep their separate animation policy.
@@ -501,6 +515,6 @@ See [native tvOS UI](tvos-ui.md#native-tvos-screens).
   controls and previews. Handler-local coalescing and cached draw geometry bound
   work without changing semantic state.
 
-- Measured artwork targets avoid applying a full backdrop preset to smaller
-  boxes. Reduced quality trades sharpness for fewer decoded pixels; High keeps
-  the original behavior available without requiring a reset.
+- Image targets follow their surface: small cards use bounded token geometry,
+  and logos use constrained layout bounds instead of a backdrop preset. Reduced
+  quality trades sharpness for fewer decoded pixels without changing layout.

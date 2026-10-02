@@ -30,9 +30,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
 import com.jellyscope.ui.adaptive.tileScaled
+import com.jellyscope.ui.component.CardImageAspect
 import com.jellyscope.ui.component.DesktopScrollOrientation
 import com.jellyscope.ui.component.authenticatedImageRequest
 import com.jellyscope.ui.component.desktopScrollInput
+import com.jellyscope.ui.component.rememberCardImageDecode
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.detail_cast_crew
 import com.jellyscope.ui.generated.resources.detail_person_cd
@@ -102,10 +104,24 @@ private fun CastAndCrewCard(
     modifier: Modifier = Modifier,
 ) {
     val contentDescription = stringResource(Res.string.detail_person_cd, person.name)
+    val cardWidth = Dimensions.personCardWidth.tileScaled()
+    val imageDecode =
+        when (cardSizing) {
+            CastAndCrewCardSizing.DetailPortrait ->
+                rememberCardImageDecode(
+                    width = cardWidth,
+                    height = Dimensions.personCardImageHeight.tileScaled(),
+                )
+            CastAndCrewCardSizing.SeriesPoster ->
+                rememberCardImageDecode(
+                    width = cardWidth,
+                    aspect = CardImageAspect.Poster,
+                )
+        }
     Column(
         modifier =
             modifier
-                .width(Dimensions.personCardWidth.tileScaled())
+                .width(cardWidth)
                 .heightIn(min = Dimensions.minTouchTarget)
                 .semantics {
                     this.contentDescription = contentDescription
@@ -128,7 +144,7 @@ private fun CastAndCrewCard(
         ) {
             person.imageUrl?.let { imageUrl ->
                 AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session),
+                    model = authenticatedImageRequest(imageUrl, session, imageDecode),
                     contentDescription = null,
                     modifier =
                         Modifier

@@ -19,13 +19,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.semantics.contentDescription
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,7 +39,6 @@ import com.jellyscope.ui.focus.rememberScrollIntoViewOnFocusModifier
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.detail_back
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -63,14 +60,20 @@ internal fun AdaptiveSeasonContent(
     ambientColorExtractor: AmbientColorExtractor,
 ) {
     val dpad = isDetailDpadMode()
-    var ambientColor by remember { mutableStateOf<Color?>(null) }
+    val selectedArtworkUrl = content.series.backdropUrl ?: content.series.posterUrl
+    val ambient =
+        rememberAmbientColor(
+            session = session,
+            itemId = content.series.itemId,
+            selectedArtworkUrl = selectedArtworkUrl,
+            extractor = ambientColorExtractor,
+        )
     var infoEpisode by remember { mutableStateOf<EpisodeUi?>(null) }
     var restoreInfoEpisodeFocus by remember { mutableStateOf(false) }
     var trackPickerVisible by remember { mutableStateOf<DetailTrackPickerType?>(null) }
     var trackPickerEpisode by remember { mutableStateOf<EpisodeUi?>(null) }
     var restoreTrackPickerFocus by remember { mutableStateOf<DetailTrackPickerType?>(null) }
     var openedVersionSourceId by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val defaultFocusedEpisode = content.focusedEpisode
     val currentFocusedEpisodeId by focusedEpisodeId.collectAsStateWithLifecycle()
@@ -194,23 +197,15 @@ internal fun AdaptiveSeasonContent(
     }
 
     AmbientBackground(
-        ambientColor = ambientColor,
+        ambientColor = ambient.color,
         modifier = modifier.fillMaxSize(),
     ) {
-        AmbientLayer(ambientColor = ambientColor)
+        AmbientLayer(ambientColor = ambient.color)
         SeriesBackdrop(
             session = session,
             itemId = content.series.itemId,
             imageUrl = content.series.backdropUrl ?: content.series.posterUrl,
-            onPosterLoaded = { image ->
-                scope.launch {
-                    ambientColor =
-                        ambientColorExtractor.extract(
-                            image,
-                            ambientImageCacheKey(session, content.series.itemId, content.series.backdropUrl),
-                        )
-                }
-            },
+            onPosterLoaded = ambient::onImageLoaded,
             modifier = Modifier.align(Alignment.TopEnd),
         )
         DetailBringIntoViewProvider(noAutoScrollSpec) {

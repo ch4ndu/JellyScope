@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import coil3.Extras
 import coil3.PlatformContext
 import coil3.compose.LocalPlatformContext
 import coil3.network.NetworkHeaders
@@ -43,6 +44,7 @@ import coil3.network.httpHeaders
 import coil3.request.ImageRequest
 import coil3.size.Precision
 import com.jellyscope.core.data.remote.ImageAuthHeaderProvider
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.JellyfinImageType
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
 import com.jellyscope.core.domain.model.LibraryCollectionType
@@ -482,17 +484,19 @@ fun buildAuthenticatedImageRequest(
     session: Session,
     imageAuthHeaderProvider: ImageAuthHeaderProvider,
     decode: ImageDecode? = ImageDecode.Poster,
-): ImageRequest =
-    ImageRequest
+): ImageRequest {
+    val account = session.accountIdentity()
+    return ImageRequest
         .Builder(context)
         .data(imageUrl)
         .memoryCacheKey(authenticatedImageCacheKey(imageUrl, session, decode))
-        .diskCacheKey(authenticatedImageCacheKey(imageUrl, session, decode))
+        .diskCacheKey(authenticatedImageDiskCacheKey(imageUrl, account))
         .apply {
             if (decode != null) {
                 size(decode.width, decode.height)
                 precision(Precision.EXACT)
             }
+            extras[AuthenticatedImageAccountIdentityKey] = account
         }.httpHeaders(
             NetworkHeaders
                 .Builder()
@@ -504,6 +508,9 @@ fun buildAuthenticatedImageRequest(
                     ),
                 ).build(),
         ).build()
+}
+
+internal val AuthenticatedImageAccountIdentityKey = Extras.Key<AccountIdentity?>(default = null)
 
 internal fun authenticatedImageCacheKey(
     imageUrl: String,
@@ -512,9 +519,17 @@ internal fun authenticatedImageCacheKey(
 ): String {
     val account = session.accountIdentity()
     val dimensions = decode?.let { value -> "${value.width}x${value.height}" } ?: "target"
-    return "jellyscope-image:${account.serverId.length}:${account.serverId}:" +
-        "${account.userId.length}:${account.userId}:$dimensions:$imageUrl"
+    return "${authenticatedImageAccountNamespace(account)}:$dimensions:$imageUrl"
 }
+
+internal fun authenticatedImageDiskCacheKey(
+    imageUrl: String,
+    account: AccountIdentity,
+): String = "${authenticatedImageAccountNamespace(account)}:$imageUrl"
+
+private fun authenticatedImageAccountNamespace(account: AccountIdentity): String =
+    "jellyscope-image:${account.serverId.length}:${account.serverId}:" +
+        "${account.userId.length}:${account.userId}"
 
 @Composable
 private fun mediaCardContentDescription(item: MediaCardUi): String =

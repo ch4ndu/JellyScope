@@ -2,7 +2,6 @@
 
 package com.jellyscope.ui.screen.detail
 
-import coil3.Image
 import coil3.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -16,13 +15,13 @@ private class SkiaAmbientColorExtractor : AmbientColorExtractor {
     private val cacheMutex = Mutex()
 
     override suspend fun extract(
-        image: Image,
+        source: AmbientImageSource,
         key: String,
     ): androidx.compose.ui.graphics.Color? {
         cacheMutex.withLock { cache[key] }?.let { cached -> return cached }
         val color =
             withContext(Dispatchers.Default) {
-                val bitmap = image.toBitmap(SAMPLE_SIZE, SAMPLE_SIZE)
+                val bitmap = source.result.image.toBitmap(SAMPLE_SIZE, SAMPLE_SIZE)
                 ambientColorFromArgbSamples(
                     buildList(SAMPLE_COUNT) {
                         repeat(SAMPLE_GRID) { y ->
