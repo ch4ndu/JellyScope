@@ -409,7 +409,7 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   descriptors keep request and decode geometry aligned.
 - Image quality is an app-wide appearance preference on all supported apps.
   High is the default. Compose small cards and avatars use bounded token-derived
-  decode targets; Detail/Series logos use their constrained layout bounds.
+  decode targets; Detail hero logos use their constrained layout bounds.
   Existing explicit poster/wide-card targets and canonical 1280×720 hero artwork
   remain unchanged. Medium uses 75% of measured layout
   bounds in each dimension; Low uses 60% (20% below Medium). Each reduced

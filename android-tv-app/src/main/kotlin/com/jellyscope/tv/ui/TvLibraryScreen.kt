@@ -48,7 +48,6 @@ import com.jellyscope.core.domain.model.LibrarySortOrder
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
 import com.jellyscope.tv.TvUiPreferencesStore
-import com.jellyscope.ui.component.AmbientLayer
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
@@ -631,7 +630,7 @@ internal fun TvLibraryContent(
         modifier =
             modifier
                 .fillMaxSize()
-                .tvHomeAmbientBackground(ambientState.presentation)
+                .tvHomeAmbientBackground(ambientState.presentation, overlay = true)
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown || event.key != Key.Back) {
                         false
@@ -657,11 +656,6 @@ internal fun TvLibraryContent(
                     }
                 },
     ) {
-        AmbientLayer(
-            ambientColor = ambientState.presentation.color,
-            animationOwnerKey = ambientState.presentation.animationOwnerKey,
-            clearWhenColorMissing = ambientState.presentation.clearWhenColorMissing,
-        )
         if (heroVisible) {
             TvHeroBackdrop(
                 session = session,

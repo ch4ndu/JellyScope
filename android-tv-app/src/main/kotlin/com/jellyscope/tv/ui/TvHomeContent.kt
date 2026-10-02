@@ -50,7 +50,6 @@ import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
 import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
 import com.jellyscope.tv.ui.focus.tvFocusScope
-import com.jellyscope.ui.component.AmbientLayer
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.home.HomeRow
@@ -62,8 +61,12 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
-internal fun Modifier.tvHomeAmbientBackground(presentation: TvHeroAmbientPresentation): Modifier {
-    // Read animated color in draw, not composition.
+internal fun Modifier.tvHomeAmbientBackground(
+    presentation: TvHeroAmbientPresentation,
+    overlay: Boolean = false,
+): Modifier {
+    // Read animated color in draw, not composition. Routes enable the
+    // AmbientLayer-equivalent overlay; the shell underlay never had it.
     val fallbackBrush = LocalAppBackgroundBrush.current
     val ambientNavy = LocalJellyfinPalette.current.navy
     val ambientGradientBottom = LocalJellyfinPalette.current.gradientBottom
@@ -93,6 +96,19 @@ internal fun Modifier.tvHomeAmbientBackground(presentation: TvHeroAmbientPresent
                             0f to tint,
                             0.48f to tint.copy(alpha = tint.alpha * 0.44f).compositeOver(ambientNavy),
                             1f to ambientGradientBottom,
+                        ),
+                ),
+            )
+        }
+        if (overlay) {
+            // Unthresholded: Transparent still paints fixed-alpha black shading.
+            drawRect(
+                Brush.verticalGradient(
+                    colorStops =
+                        arrayOf(
+                            0f to tint.copy(alpha = 0.55f),
+                            0.55f to tint.copy(alpha = 0.22f),
+                            1f to tint.copy(alpha = 0.08f),
                         ),
                 ),
             )
@@ -375,13 +391,8 @@ internal fun TvHomeContent(
         modifier =
             modifier
                 .fillMaxSize()
-                .tvHomeAmbientBackground(ambientPresentation),
+                .tvHomeAmbientBackground(ambientPresentation, overlay = true),
     ) {
-        AmbientLayer(
-            ambientColor = ambientPresentation.color,
-            animationOwnerKey = ambientPresentation.animationOwnerKey,
-            clearWhenColorMissing = ambientPresentation.clearWhenColorMissing,
-        )
         TvHeroBackdrop(
             session = session,
             item = focusedItem,

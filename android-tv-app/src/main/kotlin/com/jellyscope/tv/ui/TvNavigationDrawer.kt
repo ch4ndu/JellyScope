@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,25 +39,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.DrawerState
 import androidx.tv.material3.DrawerValue
@@ -68,6 +74,7 @@ import com.jellyscope.tv.isTvDownloadsVisible
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import com.jellyscope.ui.component.DetailBodyStyle as TvBodyStyle
 import com.jellyscope.ui.component.DetailText as TvText
 
@@ -93,6 +100,7 @@ internal fun TvNavigationDrawer(
     selectedItemFocusRequester: FocusRequester? = null,
     contentRightFocusRequester: FocusRequester? = null,
     onExitRight: (() -> Boolean)? = null,
+    underlayClippedToRail: () -> Boolean = { false },
     underlay: @Composable BoxScope.() -> Unit = {},
     content: @Composable () -> Unit,
 ) {
@@ -111,27 +119,51 @@ internal fun TvNavigationDrawer(
         }
 
     val expanded = drawerState.currentValue == DrawerValue.Open
-    val drawerWidth by animateDpAsState(
-        targetValue =
-            if (expanded) {
-                TvDimens.drawerExpandedWidth
-            } else {
-                TvDimens.drawerCollapsedWidth
-            },
-        animationSpec = tween(durationMillis = TV_DRAWER_WIDTH_ANIMATION_MS),
-        label = "tv-drawer-width",
-    )
+    // Width frames are read only in layout and draw, never composition.
+    val drawerWidth =
+        animateDpAsState(
+            targetValue =
+                if (expanded) {
+                    TvDimens.drawerExpandedWidth
+                } else {
+                    TvDimens.drawerCollapsedWidth
+                },
+            animationSpec = tween(durationMillis = TV_DRAWER_WIDTH_ANIMATION_MS),
+            label = "tv-drawer-width",
+        )
 
     BoxWithConstraints(modifier = modifier) {
-        val visibleContentWidth = maxOf(0.dp, maxWidth - drawerWidth)
         val measuredContentWidth = maxOf(0.dp, maxWidth - TvDimens.drawerCollapsedWidth)
-        Box(modifier = Modifier.fillMaxSize(), content = underlay)
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .drawWithContent {
+                        if (underlayClippedToRail()) {
+                            // Clip, not resize, so underlay brushes keep full-host coordinates.
+                            val railWidth = drawerRailWidthPx(drawerWidth, size.width.roundToInt()).toFloat()
+                            val railStart = if (layoutDirection == LayoutDirection.Rtl) size.width - railWidth else 0f
+                            clipRect(left = railStart, right = railStart + railWidth) {
+                                this@drawWithContent.drawContent()
+                            }
+                        } else {
+                            drawContent()
+                        }
+                    },
+            content = underlay,
+        )
         Row(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier =
                     Modifier
-                        .width(drawerWidth)
-                        .fillMaxHeight()
+                        .layout { measurable, constraints ->
+                            val railWidth = drawerRailWidthPx(drawerWidth, constraints.maxWidth)
+                            val placeable =
+                                measurable.measure(constraints.copy(minWidth = railWidth, maxWidth = railWidth))
+                            layout(placeable.width, placeable.height) {
+                                placeable.placeRelative(0, 0)
+                            }
+                        }.fillMaxHeight()
                         .background(
                             if (expanded) {
                                 LocalJellyfinPalette.current.navy
@@ -250,7 +282,6 @@ internal fun TvNavigationDrawer(
                 )
             }
             TvDrawerContentSlot(
-                visibleWidth = visibleContentWidth,
                 measuredWidth = measuredContentWidth,
                 content = content,
             )
@@ -258,17 +289,22 @@ internal fun TvNavigationDrawer(
     }
 }
 
+// Shared by the rail layout and underlay clip so both agree to the pixel.
+private fun Density.drawerRailWidthPx(
+    drawerWidth: State<Dp>,
+    hostWidthPx: Int,
+): Int = drawerWidth.value.roundToPx().coerceIn(0, hostWidthPx)
+
 @Composable
 private fun TvDrawerContentSlot(
-    visibleWidth: Dp,
     measuredWidth: Dp,
     content: @Composable () -> Unit,
 ) {
+    // Visible width is the Row's remaining space after the rail.
     Layout(
         content = content,
         modifier =
             Modifier
-                .width(visibleWidth)
                 .fillMaxHeight()
                 .clipToBounds(),
     ) { measurables, constraints ->

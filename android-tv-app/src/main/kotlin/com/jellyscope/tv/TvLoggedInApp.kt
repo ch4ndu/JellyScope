@@ -14,6 +14,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -610,8 +611,10 @@ internal fun TvLoggedInApp(
                     .fillMaxSize()
                     .background(LocalAppBackgroundBrush.current),
         ) {
-            val routeContent: @Composable () -> Unit = {
-                val routeTransition =
+            // Hoisted so the rail underlay can read settle state in draw. Keyed
+            // by railEnabled to keep the lifetime of routeContent's two call sites.
+            val routeTransition =
+                key(railEnabled) {
                     updateTransition(
                         targetState =
                             TvRouteRenderKey(
@@ -648,6 +651,8 @@ internal fun TvLoggedInApp(
                             ),
                         label = "tv-route",
                     )
+                }
+            val routeContent: @Composable () -> Unit = {
                 LaunchedEffect(
                     routeTransition.targetState,
                     routeTransition.isRunning,
@@ -1233,6 +1238,15 @@ internal fun TvLoggedInApp(
                     selectedItemFocusRequester = railSelectedTabRequester,
                     contentRightFocusRequester = activeContentRightFocusRequester,
                     onExitRight = activeContentRightFocusAction,
+                    // Read in underlay draw only: a settled Home/Library route is
+                    // full-bleed opaque, so the underlay need only fill the rail.
+                    underlayClippedToRail = {
+                        val settledKey = routeTransition.currentState
+                        !routeTransition.isRunning &&
+                            settledKey == routeTransition.targetState &&
+                            settledKey.route == route &&
+                            (route == TvRoute.Home.name || route == TvRoute.Library.name)
+                    },
                     underlay = {
                         when (route) {
                             TvRoute.Home.name,

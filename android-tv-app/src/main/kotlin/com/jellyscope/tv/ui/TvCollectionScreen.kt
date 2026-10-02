@@ -55,7 +55,6 @@ import com.jellyscope.tv.ui.focus.acceptsFocusedChild
 import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
 import com.jellyscope.tv.ui.focus.tvFocusScope
 import com.jellyscope.ui.adaptive.tileScaled
-import com.jellyscope.ui.component.AmbientLayer
 import com.jellyscope.ui.component.LoadMoreOnApproachEnd
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.screen.collection.CollectionUiState
@@ -149,7 +148,7 @@ private fun TvCollectionContent(
         modifier =
             modifier
                 .fillMaxSize()
-                .tvHomeAmbientBackground(ambientState.presentation)
+                .tvHomeAmbientBackground(ambientState.presentation, overlay = true)
                 .onPreviewKeyEvent { event ->
                     event.type == KeyEventType.KeyDown &&
                         event.key == Key.Back &&
@@ -159,11 +158,6 @@ private fun TvCollectionContent(
                         }
                 },
     ) {
-        AmbientLayer(
-            ambientColor = ambientState.presentation.color,
-            animationOwnerKey = ambientState.presentation.animationOwnerKey,
-            clearWhenColorMissing = ambientState.presentation.clearWhenColorMissing,
-        )
         if (heroVisible) {
             TvHeroBackdrop(
                 session = session,

@@ -49,7 +49,6 @@ import com.jellyscope.tv.ui.focus.TvFocusTargetKind
 import com.jellyscope.tv.ui.focus.rememberChildRequester
 import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
 import com.jellyscope.tv.ui.focus.tvFocusScope
-import com.jellyscope.ui.component.AmbientLayer
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.focus.rememberRestoreAwareBringIntoViewSpec
 import com.jellyscope.ui.screen.library.LibraryRecommendationRowState
@@ -221,12 +220,7 @@ internal fun TvLibraryRecommendedContent(
         onDispose { onAmbientPresentationChanged(TvHeroAmbientPresentation.Empty) }
     }
 
-    Box(modifier = modifier.fillMaxSize().tvHomeAmbientBackground(ambientState.presentation)) {
-        AmbientLayer(
-            ambientColor = ambientState.presentation.color,
-            animationOwnerKey = ambientState.presentation.animationOwnerKey,
-            clearWhenColorMissing = ambientState.presentation.clearWhenColorMissing,
-        )
+    Box(modifier = modifier.fillMaxSize().tvHomeAmbientBackground(ambientState.presentation, overlay = true)) {
         TvHeroBackdrop(
             session = session,
             item = heroItem,

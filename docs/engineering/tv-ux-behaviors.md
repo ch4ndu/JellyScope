@@ -121,6 +121,16 @@ This contract applies to Android TV.
   placed after the animated drawer, and clipped at the end while opening; it does
   not reflow, overlay visible content, reserve another spacer, or do local width
   math.
+- Drawer width animation is read in layout and drawing. Rail measurement and
+  the underlay clip share rounded, host-clamped pixel geometry; the content slot
+  uses the Row's remaining width. Settled Home/Library routes clip the shell
+  ambient underlay to the logical-start rail without resizing its brush. During
+  route transitions it draws in full; Settings keeps its full underlay. The
+  exposed strip redraws during the 180 ms width animation.
+- Home, Library, Recommended, and Collection draw their ambient tint and overlay
+  from one 700 ms animation. Preserve both gradients in order, including overlay
+  shading before a color arrives. The shell rail retains its separate tint
+  without that overlay, so its existing tint seam remains.
 - Drawer entry focuses the selected destination. Before the selected Library
   item loads, Home is a focus-only fallback without becoming selected.
 - Focus-dwell navigation occurs after about 500 ms and keeps focus in the drawer.
@@ -250,6 +260,11 @@ download, settings, and recovery focus behavior.
   [privacy policy](diagnostics.md#diagnostics-logging-and-privacy).
 
 ## Why
+
+- Background clipping avoids painting beneath opaque browse content while
+  retaining coverage during transitions. Sharing the route's ambient animation
+  removes duplicate animation work without changing the contributing gradients;
+  reading drawer width during layout avoids per-frame scaffold recomposition.
 
 - Stable card focus bounds prevent zoom from shifting scroll targets on either
   axis without adding another reveal owner. Visual overhang still needs edge
