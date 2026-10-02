@@ -250,8 +250,13 @@ verify_android_release_apk "$android_tv_apk"
 verify_android_release_bundle "$android_tv_bundle"
 release_revision="$(git rev-parse HEAD)"
 jellyscope_source="$macos_dmg_dir/JellyScope-source-$release_revision.tar.gz"
-vlc_source="$macos_dmg_dir/vlc-3.0.23.tar.xz"
 source_manifest="$macos_dmg_dir/SOURCE_MANIFEST.txt"
+vlc_version="$(read_property "$source_manifest" vlc-version)"
+vlc_source="$macos_dmg_dir/$(read_property "$source_manifest" vlc-archive)"
+mpv_source="$macos_dmg_dir/$(read_property "$source_manifest" desktop-mpv-archive)"
+vlc_contrib_source="$macos_dmg_dir/$(read_property "$source_manifest" vlc-contrib-archive)"
+bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-release \
+    "$macos_dmg_dir" "$macos_app/Contents/app/resources"
 [[ -f "$jellyscope_source" ]] \
     || die "macOS revision-named JellyScope source archive was not produced"
 [[ -f "$vlc_source" ]] \
@@ -266,7 +271,9 @@ xcrun stapler validate "$macos_dmg"
 spctl -a -t exec -vv "$macos_app"
 
 release_jellyscope_source_name="JellyScope-$desktop_version_name-source-$release_revision.tar.gz"
-release_vlc_source_name="JellyScope-$desktop_version_name-vlc-3.0.23-source.tar.xz"
+release_vlc_source_name="JellyScope-$desktop_version_name-vlc-$vlc_version-source.tar.xz"
+release_mpv_source_name="JellyScope-$desktop_version_name-desktop-mpv-sources.tar.gz"
+release_vlc_contrib_source_name="JellyScope-$desktop_version_name-vlc-$vlc_version-contrib-sources.tar.gz"
 release_source_manifest_name="JellyScope-$desktop_version_name-source-manifest.txt"
 release_jellyscope_source="$release_output_dir/$release_jellyscope_source_name"
 release_vlc_source="$release_output_dir/$release_vlc_source_name"
@@ -281,14 +288,20 @@ mv -f "$android_tv_bundle" "$release_android_tv_bundle"
 mv -f "$macos_dmg" "$release_macos_dmg"
 mv -f "$jellyscope_source" "$release_jellyscope_source"
 mv -f "$vlc_source" "$release_vlc_source"
+mv -f "$mpv_source" "$release_output_dir/$release_mpv_source_name"
+mv -f "$vlc_contrib_source" "$release_output_dir/$release_vlc_contrib_source_name"
 mv -f "$source_manifest" "$release_source_manifest"
 
 source_manifest_tmp="$release_source_manifest.tmp"
 awk -F= \
     -v jellyscope_archive="$release_jellyscope_source_name" \
+    -v mpv_archive="$release_mpv_source_name" \
+    -v vlc_contrib_archive="$release_vlc_contrib_source_name" \
     -v vlc_archive="$release_vlc_source_name" '
         $1 == "jellyscope-archive" { print "jellyscope-archive=" jellyscope_archive; next }
         $1 == "vlc-archive" { print "vlc-archive=" vlc_archive; next }
+        $1 == "desktop-mpv-archive" { print "desktop-mpv-archive=" mpv_archive; next }
+        $1 == "vlc-contrib-archive" { print "vlc-contrib-archive=" vlc_contrib_archive; next }
         { print }
     ' "$release_source_manifest" > "$source_manifest_tmp"
 mv -f "$source_manifest_tmp" "$release_source_manifest"
@@ -297,6 +310,11 @@ grep -Fx "jellyscope-archive=$release_jellyscope_source_name" "$release_source_m
     || die "Collected source manifest does not name the JellyScope source archive"
 grep -Fx "vlc-archive=$release_vlc_source_name" "$release_source_manifest" >/dev/null \
     || die "Collected source manifest does not name the VLC source archive"
+
+grep -Fx "desktop-mpv-archive=$release_mpv_source_name" "$release_source_manifest" >/dev/null \
+    || die "Collected source manifest does not name the desktop mpv source archive"
+grep -Fx "vlc-contrib-archive=$release_vlc_contrib_source_name" "$release_source_manifest" >/dev/null \
+    || die "Collected source manifest does not name the VLC contrib source archive"
 
 trap - EXIT
 stop_gradle
@@ -311,6 +329,8 @@ echo "  Android TV AAB:              $release_android_tv_bundle"
 echo "  macOS signed/notarized DMG:  $release_macos_dmg"
 echo "  JellyScope source:           $release_jellyscope_source"
 echo "  VLC source:                  $release_vlc_source"
+echo "  mpv source inputs:           $release_output_dir/$release_mpv_source_name"
+echo "  VLC contrib source inputs:   $release_output_dir/$release_vlc_contrib_source_name"
 echo "  Source manifest:             $release_source_manifest"
 echo "  iOS/tvOS:                    build and archive through Xcode"
 echo "  GitHub publication:          not performed"

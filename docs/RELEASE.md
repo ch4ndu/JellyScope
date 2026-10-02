@@ -146,7 +146,10 @@ troubleshooting one stage in isolation.
    ```
 
    [BUILD.md](BUILD.md#desktop-jvm) owns acquisition, cache, and offline
-   behavior. [Licensing and distribution](operations/licensing-and-distribution.md#desktop)
+   behavior, including local app-image verification with
+   `-Pjellyscope.macos.signing.enabled=false`. That switch disables credential
+   loading, Developer ID signing and both notarization routes for the invocation;
+   native ad-hoc signing remains. [Licensing and distribution](operations/licensing-and-distribution.md#desktop)
    owns the accepted provenance and source obligations.
 
 8. Build the signed DMG. The committed `desktop-app/entitlements.plist`
@@ -164,15 +167,28 @@ troubleshooting one stage in isolation.
    the `/Applications` symlink, app, icon, and iconset before signing.
 
    Release-DMG production stages `JellyScope-source-<revision>.tar.gz`,
-   `vlc-3.0.23.tar.xz`, and `SOURCE_MANIFEST.txt` in
+   `vlc-3.0.24.tar.xz`, `desktop-mpv-0.41.0-sources.tar.gz`,
+   `vlc-contrib-3.0.24-sources.tar.gz`, and `SOURCE_MANIFEST.txt` in
    `desktop-app/build/compose/binaries/main-release/dmg/` beside the DMG. The
-   maintained script moves and version-renames them after validation. It builds
-   the JellyScope archive from the exact clean release `HEAD`; a direct dirty-tree
-   package is only a local test artifact. VLC source is checked against
-   `scripts/macos-source-bundle/manifest-macos-arm64.txt` and cached at
-   `~/Library/Caches/JellyScope/release-sources/vlc-3.0.23.tar.xz`. A valid cache
-   works offline; otherwise the source is downloaded and validated. The manifest
-   retains the approved IINA/mpv source routes and builds no extra runtime.
+   maintained script validates, moves and version-renames them. The mpv archive
+   retains all native source inputs, the upstream CoreAudio patch, recipe and
+   actual build records. VLC's source archive supplies its build rules and
+   patches; the contrib archive retains the selected dependency sources and
+   matching notices. Collection validates the packaged runtimes and source
+   records without building another native runtime.
+
+   Source pins live in `scripts/macos-source-bundle/manifest-macos-arm64.txt` and
+   the referenced native manifests. VLC source downloads use
+   `.local/native/macos-sources/`, or `JELLYSCOPE_MACOS_SOURCE_CACHE_ROOT` for a
+   dedicated cache; mpv source archives come from the native build cache. Valid
+   retained inputs work offline. The JellyScope archive always comes from
+   `HEAD`, so a direct dirty-tree package does not prove matching project source.
+
+   To validate a clean source-bound DMG manually, run
+   `./gradlew verifyCleanSourceReleaseBinding` immediately before the packaging
+   command and again after it, as separate sequential commands. Both checks
+   must pass on the same candidate. The maintained release script enforces this
+   sequence; local app-image and DMG tasks still permit uncommitted edits.
 
 9. Notarize and staple the DMG. With an Apple ID app-specific password, use
    Compose Desktop's generated task:
@@ -220,7 +236,9 @@ JellyScope-<version>-android-tv.apk
 JellyScope-<version>-android-tv.aab
 JellyScope-<version>-macos-arm64.dmg
 JellyScope-<version>-source-<revision>.tar.gz
-JellyScope-<version>-vlc-3.0.23-source.tar.xz
+JellyScope-<version>-vlc-3.0.24-source.tar.xz
+JellyScope-<version>-desktop-mpv-sources.tar.gz
+JellyScope-<version>-vlc-3.0.24-contrib-sources.tar.gz
 JellyScope-<version>-source-manifest.txt
 ```
 
@@ -307,6 +325,9 @@ Use the scoped gate for the platform being released:
 Android release, iOS StoreRelease, and macOS DMG tasks run their scoped gate.
 Ordinary local iOS Release checks consistency only. A `review-required` entry
 fails the affected release; clean-source verification remains separate.
+The macOS gate also validates both selected native bundles, their original
+notices and matching source inputs. Generic metadata verification alone does
+not build or approve a native runtime.
 
 The all-target audit remains available:
 

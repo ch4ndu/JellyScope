@@ -1,29 +1,35 @@
-# Bundled VLC (LibVLC) Attribution
+# Bundled VLC (LibVLC) attribution
 
-JellyScope's macOS desktop package bundles a selected subset of the
-official VideoLAN VLC 3.0.23 macOS (arm64) binaries so the optional LibVLC
-player backend works without a separate VLC installation. Staging may rewrite
-Mach-O install names and dependency paths for the application bundle; this
-preparation route does not rebuild VLC from source.
+JellyScope's macOS package includes the 334 files in
+`manifest-3.0.24-arm64.txt` from VideoLAN's official VLC 3.0.24 arm64 DMG:
+<https://download.videolan.org/pub/videolan/vlc/3.0.24/macosx/vlc-3.0.24-arm64.dmg>.
+Its source revision is `3.0.24-rc1-0-g6de05adcba`. Packaging relocates install
+IDs/dependencies and restores signatures; it does not rebuild VLC.
 
-- libvlc / libvlccore: LGPL-2.1-or-later — © VideoLAN and authors.
-- VLC plugins: LGPL-2.1-or-later and GPL-2.0-or-later — © VideoLAN and authors.
-- Full license texts ship beside this file (`GPL-2.0.txt`, `LGPL-2.1.txt`);
-  JellyScope-owned source is MPL-2.0 (repository root `LICENSE`).
+LibVLC/libvlccore and VLC plugins retain their LGPL-2.1-or-later and
+GPL-2.0-or-later terms. `GPL-2.0.txt`, `LGPL-2.1.txt` and `licenses/` preserve
+the original VLC and selected contrib notices. The combined macOS distribution
+uses the accepted GPL-compatible route; JellyScope-owned source remains MPL-2.0.
 
-Excluded from the bundle relative to the upstream distribution:
-`libmacosx_plugin.dylib` (Sparkle dependency), `libosx_notifications_plugin.dylib`
-(Growl dependency), `libdvdread_plugin.dylib`, `libdvdnav_plugin.dylib`
-(statically linked libdvdcss), `liblibbluray_plugin.dylib`,
-`libbluray-*.jar` (disc access), and `plugins.dat` (path-specific cache).
+`sources-3.0.24.tsv` records the exact selected contrib versions, published
+archives, unpack roots, original license members and owning recipes in the VLC
+source tar. It includes static and header dependencies used by the retained
+plugins. VLC's FFmpeg 8.1.2 and other contrib versions are independent of the
+project-built mpv graph. The source collector retains these matching archives
+alongside VLC's source tar, which supplies their build rules and patches:
+<https://download.videolan.org/pub/videolan/vlc/3.0.24/vlc-3.0.24.tar.xz>.
+Missing or mismatched inputs fail native source readiness. Upstream published
+provenance is the basis for this record; rebuilding VLC reproducibly is not
+asserted.
 
-Corresponding source: VLC 3.0.23 sources are published by VideoLAN at
-<https://download.videolan.org/pub/videolan/vlc/3.0.23/vlc-3.0.23.tar.xz>.
-External distributions of this bundle must retain that source archive (or an
-equivalent written offer) alongside the release artifacts to satisfy GPL/LGPL
-source-availability obligations.
+The existing exclusions remain: `libmacosx_plugin` (Sparkle),
+`libosx_notifications_plugin` (Growl), `libdvdread_plugin`, `libdvdnav_plugin`
+(libdvdcss), `liblibbluray_plugin`, Blu-ray Java extras and `plugins.dat`.
+Upstream 3.0.24 removes `libaccess_realrtsp_plugin` and `libschroedinger_plugin`
+from the previous selected graph. `libvout_macosx_plugin` is retained.
 
-The audited input is pinned by `manifest-3.0.23-arm64.txt`; the bundle script
-requires its selected files, expected architecture, and dependency closure.
-Re-run the licensing/dependency audit before regenerating the manifest for a
-different VLC version or architecture.
+This software is based in part on the work of the Independent JPEG Group.
+Portions of this software are copyright © The FreeType Project
+(<https://www.freetype.org/>). All rights reserved. Original Unicode terms are
+retained from <https://www.unicode.org/license.txt>. Source and notice archives
+must remain available alongside external distributions of this runtime.

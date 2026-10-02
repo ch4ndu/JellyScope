@@ -1,307 +1,100 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MPL-2.0
 set -euo pipefail
-
-destination="${1:?Usage: prepare-desktop-vlc-bundle.sh <destination-dir>}"
-
-if [[ "$(uname -s)" != "Darwin" ]]; then
-    echo "ERROR: automatic desktop LibVLC bundling is currently macOS-only." >&2
-    exit 1
-fi
-
-die() {
-    echo "ERROR: $*" >&2
-    exit 1
-}
-
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-manifest="$script_dir/vlc-bundle/manifest-3.0.23-arm64.txt"
-
-# Source order: explicit override, then the pinned fetch
-# (deterministic; immune to /Applications auto-updates), then an installed
-# VLC as the offline fallback. The manifest gate below validates whichever
-# source wins.
-vlc_app="${JELLYSCOPE_VLC_APP:-}"
-if [[ -z "$vlc_app" ]]; then
-    vlc_app="$(bash "$script_dir/fetch-desktop-vlc-runtime.sh" 2>/dev/null || true)"
+mode="${1:?Usage: prepare-desktop-vlc-bundle.sh <destination> | --validate-only <bundle>}"
+[[ "$(uname -s)" == Darwin ]] || { echo 'ERROR: desktop VLC bundling is macOS-only' >&2; exit 1; }
+if [[ "$mode" == --validate-only ]]; then
+    destination="${2:?Missing bundle}"; vlc_app=""
+else
+    destination="$mode"; mode=stage
+    vlc_app="${JELLYSCOPE_VLC_APP:-}"
+    [[ -n "$vlc_app" ]] || vlc_app="$(bash "$script_dir/fetch-desktop-vlc-runtime.sh")"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$vlc_app/Contents/Info.plist")" == 3.0.24 ]] \
+        || { echo 'ERROR: VLC packaging requires exactly 3.0.24' >&2; exit 1; }
 fi
-if [[ -z "$vlc_app" || ! -d "$vlc_app" ]]; then
-    echo "WARNING: pinned VLC runtime fetch unavailable; falling back to /Applications/VLC.app" >&2
-    vlc_app="/Applications/VLC.app"
+python3 - "$script_dir" "$mode" "$vlc_app" "$destination" <<'PY'
+import os, pathlib, re, shutil, subprocess, sys
+scripts, mode, app, dest = sys.argv[1:]
+scripts, dest = pathlib.Path(scripts), pathlib.Path(dest)
+notice = scripts/'vlc-bundle'
+manifest = notice/'manifest-3.0.24-arm64.txt'
+def need(ok, message):
+    if not ok: sys.exit('ERROR: '+message)
+def run(*args): return subprocess.check_output([str(x) for x in args], text=True).strip()
+repo = scripts.parent
+need(dest.is_absolute() and dest == dest.resolve() and len(dest.parts) >= 4, 'Unsafe VLC bundle destination')
+need(not any(x.is_symlink() for x in (dest, *dest.parents)), 'VLC destination traverses a symlink')
+need(dest not in (repo, *repo.parents, pathlib.Path.home()), 'Refusing source/root directory')
+if repo in dest.parents:
+    rel = dest.relative_to(repo).parts
+    need((rel[0] == '.local' and len(rel) >= 3) or ('build' in rel and rel[-1] != 'build'), 'Destination must be generated build output')
+entries = [x[6:] for x in manifest.read_text().splitlines() if x.startswith('file: ')]
+need(len(entries) == len(set(entries)) == 334, 'VLC must have the reviewed 334-file inventory')
+need(all(re.fullmatch(r'(?:lib|plugins)/lib[A-Za-z0-9._+-]+\.dylib', x) for x in entries), 'Unsafe VLC manifest path')
+expected = {dest/x for x in entries}
+if mode == 'stage':
+    need(not dest.exists() or not any(dest.iterdir()) or (dest/'mpv-notices').is_dir() or (dest/'licenses'/manifest.name).is_file() or (dest/'license-metadata/.jellyscope-license-metadata').is_file(), 'Refusing an unowned nonempty VLC destination')
+    runtime = pathlib.Path(app).resolve()/'Contents/MacOS'
+    for name in ['lib','plugins','licenses']:
+        p = dest/name
+        need(not p.is_symlink(), 'Symlink in VLC output')
+        if p.exists(): shutil.rmtree(p)
+        p.mkdir(parents=True)
+    for relative in entries:
+        source = (runtime/relative).resolve(strict=True)
+        need(runtime in source.parents and source.is_file(), 'VLC source escapes selected runtime')
+        shutil.copy2(source, dest/relative)
+        (dest/relative).chmod((dest/relative).stat().st_mode | 0o200)
+    shutil.copytree(notice, dest/'licenses', dirs_exist_ok=True)
+need(expected == {p for name in ['lib','plugins'] for p in (dest/name).rglob('*')}, 'VLC inventory contains missing or unexpected files')
+def commands(p):
+    text = run('otool','-l',p)
+    need(run('lipo','-archs',p) == 'arm64', 'VLC architecture mismatch: '+p.name)
+    need(not re.search(r'/opt/homebrew|/usr/local|/opt/local',text), 'VLC package-manager load command')
+    platforms = re.findall(r'cmd LC_BUILD_VERSION\b(?:(?!Load command).)*?\bplatform ([^\s]+)',text,re.S)
+    need(all(x in ('1','MACOS','macos') for x in platforms), 'VLC target is not macOS')
+    mins = re.findall(r'cmd LC_BUILD_VERSION\b(?:(?!Load command).)*?\bminos ([0-9.]+)',text,re.S)
+    mins += re.findall(r'cmd LC_VERSION_MIN_MACOSX\b(?:(?!Load command).)*?\bversion ([0-9.]+)',text,re.S)
+    need(bool(mins) and all(tuple(map(int,(v+'.0.0').split('.')[:3])) <= (15,0,0) for v in mins), 'VLC minimum OS mismatch: '+p.name)
+    deps = re.findall(r'cmd LC_(?:LOAD|LOAD_WEAK|REEXPORT|LOAD_UPWARD|LAZY_LOAD)_DYLIB\b(?:(?!Load command).)*?\bname (.*?) \(offset',text,re.S)
+    ids = re.findall(r'cmd LC_ID_DYLIB\b(?:(?!Load command).)*?\bname (.*?) \(offset',text,re.S)
+    rpaths = re.findall(r'cmd LC_RPATH\b(?:(?!Load command).)*?\bpath (.*?) \(offset',text,re.S)
+    need(len(ids) == 1, 'VLC library has no unique ID: '+p.name)
+    return ids[0],deps,rpaths
+for p in sorted(expected):
+    need(p.is_file() and not p.is_symlink(), 'VLC requires regular native files')
+    identifier,deps,rpaths = commands(p)
+    for dependency in deps:
+        if dependency.startswith(('/usr/lib/','/System/Library/')) and '..' not in pathlib.PurePosixPath(dependency).parts: continue
+        candidates = []
+        if dependency.startswith('@loader_path/'): candidates = [p.parent/dependency[13:]]
+        elif mode == 'stage' and dependency.startswith('@rpath/'):
+            # VLC.app's selected lib directory supplies its core runtime rpath.
+            bases = [dest/'lib']
+            for rpath in rpaths:
+                need(rpath == '@loader_path' or rpath.startswith('@loader_path/'), 'Unsafe VLC RPATH: '+rpath)
+                bases.append(p.parent if rpath == '@loader_path' else p.parent/rpath[13:])
+            candidates = [b/dependency[7:] for b in bases]
+        else: need(False, 'Unexpected VLC dependency: '+dependency)
+        resolved = {c.resolve() for c in candidates if c.is_file()}
+        need(len(resolved) == 1 and resolved <= expected, 'Missing/ambiguous/escaping VLC target: '+dependency)
+        target = next(iter(resolved))
+        if mode == 'stage': run('install_name_tool','-change',dependency,'@loader_path/'+os.path.relpath(target,p.parent),p)
+    if mode == 'stage':
+        run('install_name_tool','-id','@loader_path/'+p.name,p)
+        for rpath in rpaths: run('install_name_tool','-delete_rpath',rpath,p)
+        run('codesign','--force','--sign','-',p)
+    else: need(identifier == '@loader_path/'+p.name and not rpaths, 'Invalid VLC install ID/RPATH')
+    run('codesign','--verify','--strict',p)
+for name in ['libvlccore.dylib','libvlccore.9.dylib']:
+    core = (dest/'lib'/name).read_bytes().split(b'\0')
+    need(b'3.0.24' in core and b'3.0.24-rc1-0-g6de05adcba' in core, 'Actual VLC version/revision differs from corresponding source')
+need(not any(p.is_symlink() for p in (dest/'licenses').rglob('*')), 'Symlink in VLC notices')
+for p in notice.rglob('*'):
+    if p.is_file(): need((dest/'licenses'/p.relative_to(notice)).read_bytes() == p.read_bytes(), 'VLC notice/source inventory mismatch: '+p.name)
+print('Validated bundled VLC 3.0.24: all 334 arm64/macOS <=15 libraries at '+str(dest),file=sys.stderr)
+PY
+if [[ "$mode" == stage ]]; then
+    bash "$script_dir/prepare-desktop-vlc-bundle.sh" --validate-only "$destination"
 fi
-info_plist="$vlc_app/Contents/Info.plist"
-runtime_root="$vlc_app/Contents/MacOS"
-
-[[ -d "$vlc_app" ]] || die "VLC application not found: $vlc_app"
-[[ -f "$info_plist" ]] || die "VLC Info.plist not found: $info_plist"
-[[ -d "$runtime_root" ]] || die "VLC runtime root not found: $runtime_root"
-[[ -f "$manifest" ]] || die "VLC bundle manifest not found: $manifest"
-
-manifest_value() {
-    local key="$1"
-    awk -F': ' -v key="$key" '$1 == key { print $2; exit }' "$manifest"
-}
-
-manifest_version="$(manifest_value "vlc-version")"
-manifest_arch="$(manifest_value "vlc-arch")"
-[[ "$manifest_version" == "3.0.23" ]] || die "Unexpected manifest VLC version: $manifest_version"
-[[ "$manifest_arch" == "arm64" ]] || die "Unexpected manifest VLC architecture: $manifest_arch"
-
-vlc_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$info_plist" 2>/dev/null)" \
-    || die "Could not read CFBundleShortVersionString from $info_plist"
-[[ "$vlc_version" == 3.* ]] || die "VLC version must be 3.x, found $vlc_version"
-[[ "$vlc_version" == "$manifest_version" ]] || die "VLC version $vlc_version does not match manifest $manifest_version"
-
-mkdir -p "$destination"
-destination="$(cd -- "$destination" && pwd -P)"
-[[ "$destination" != "/" ]] || die "Refusing to use the filesystem root as the bundle destination"
-
-# The prepared resource directory is owned by this task. Remove only the
-# layouts this script creates so stale excluded plugins or plugin caches cannot
-# survive a later run.
-rm -rf "$destination/lib" "$destination/plugins" "$destination/licenses"
-mkdir -p "$destination/lib" "$destination/plugins" "$destination/licenses"
-
-# macOS ships bash 3.2, which has no associative arrays; track seen manifest
-# paths in a temp file exactly like prepare-desktop-mpv-bundle.sh does.
-manifest_seen_file="$(mktemp)"
-trap 'rm -f "$manifest_seen_file"' EXIT
-declare -a manifest_paths=()
-
-while IFS= read -r entry; do
-    case "$entry" in
-        'file: '*) relative_path="${entry#file: }" ;;
-        *) continue ;;
-    esac
-    case "$relative_path" in
-        "" | /* | ../* | */../* | */..) die "Manifest contains an unsafe bundle path: $relative_path" ;;
-    esac
-    case "$relative_path" in
-        plugins/libmacosx_plugin.dylib | \
-        plugins/libosx_notifications_plugin.dylib | \
-        plugins/libdvdread_plugin.dylib | \
-        plugins/libdvdnav_plugin.dylib | \
-        plugins/liblibbluray_plugin.dylib | \
-        plugins/libbluray-*.jar | \
-        plugins/plugins.dat)
-            die "Manifest includes an excluded VLC file: $relative_path"
-            ;;
-        lib/*.dylib | plugins/*.dylib) ;;
-        *) die "Manifest contains an unsupported bundle path: $relative_path" ;;
-    esac
-    if grep -Fxq "$relative_path" "$manifest_seen_file"; then
-        die "Manifest repeats $relative_path"
-    fi
-    echo "$relative_path" >> "$manifest_seen_file"
-    manifest_paths+=("$relative_path")
-
-    source="$runtime_root/$relative_path"
-    [[ -f "$source" ]] || die "Manifest file is missing from VLC.app: $relative_path"
-    actual_arch="$(lipo -archs "$source")"
-    [[ "$actual_arch" == "$manifest_arch" ]] || die "Architecture mismatch for $relative_path: $actual_arch"
-
-    target="$destination/$relative_path"
-    mkdir -p "$(dirname "$target")"
-    cp -f "$source" "$target"
-done < "$manifest"
-
-(( ${#manifest_paths[@]} > 0 )) || die "VLC bundle manifest contains no files"
-
-for required_file in \
-    lib/libvlc.dylib \
-    lib/libvlc.5.dylib \
-    lib/libvlccore.dylib \
-    lib/libvlccore.9.dylib; do
-    grep -Fxq "$required_file" "$manifest_seen_file" \
-        || die "Manifest omits required VLC runtime file: $required_file"
-done
-
-for license_file in ATTRIBUTION.md GPL-2.0.txt LGPL-2.1.txt; do
-    source="$script_dir/vlc-bundle/$license_file"
-    [[ -f "$source" ]] || die "VLC attribution file is missing: $source"
-    cp -f "$source" "$destination/licenses/$license_file"
-done
-
-shopt -s nullglob
-bundled_libraries=("$destination"/lib/*.dylib "$destination"/plugins/*.dylib)
-(( ${#bundled_libraries[@]} > 0 )) || die "No VLC dylibs were copied"
-
-bundle_file_for_basename() {
-    local basename="$1"
-    local candidate
-    for candidate in "$destination/lib/$basename" "$destination/plugins/$basename"; do
-        if [[ -f "$candidate" ]]; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
-    return 1
-}
-
-loader_reference_for_target() {
-    local library="$1"
-    local target="$2"
-    local library_dir target_dir target_basename
-    library_dir="$(dirname "$library")"
-    target_dir="$(dirname "$target")"
-    target_basename="$(basename "$target")"
-
-    if [[ "$library_dir" == "$destination/lib" ]]; then
-        if [[ "$target_dir" == "$destination/lib" ]]; then
-            printf '@loader_path/%s\n' "$target_basename"
-        elif [[ "$target_dir" == "$destination/plugins" ]]; then
-            printf '@loader_path/../plugins/%s\n' "$target_basename"
-        else
-            return 1
-        fi
-    elif [[ "$library_dir" == "$destination/plugins" ]]; then
-        if [[ "$target_dir" == "$destination/plugins" ]]; then
-            printf '@loader_path/%s\n' "$target_basename"
-        elif [[ "$target_dir" == "$destination/lib" ]]; then
-            printf '@loader_path/../lib/%s\n' "$target_basename"
-        else
-            return 1
-        fi
-    else
-        return 1
-    fi
-}
-
-rpaths_for_library() {
-    otool -l "$1" | awk '$1 == "path" { print $2 }'
-}
-
-dependency_resolves_inside_bundle() {
-    local library="$1"
-    local dependency="$2"
-    local candidate rpath rpath_base relative
-
-    case "$dependency" in
-        /usr/lib/* | /System/*)
-            return 0
-            ;;
-        @loader_path/*)
-            candidate="$(dirname "$library")/${dependency#@loader_path/}"
-            [[ -f "$candidate" ]] && return 0
-            ;;
-        @executable_path/*)
-            candidate="$destination/${dependency#@executable_path/}"
-            [[ -f "$candidate" ]] && return 0
-            ;;
-        @rpath/*)
-            relative="${dependency#@rpath/}"
-            while read -r rpath; do
-                [[ -n "${rpath:-}" ]] || continue
-                case "$rpath" in
-                    @loader_path)
-                        rpath_base="$(dirname "$library")"
-                        ;;
-                    @loader_path/*)
-                        rpath_base="$(dirname "$library")/${rpath#@loader_path/}"
-                        ;;
-                    @executable_path)
-                        rpath_base="$destination"
-                        ;;
-                    @executable_path/*)
-                        rpath_base="$destination/${rpath#@executable_path/}"
-                        ;;
-                    /*)
-                        rpath_base="$rpath"
-                        ;;
-                    *)
-                        continue
-                        ;;
-                esac
-                candidate="$rpath_base/$relative"
-                [[ -f "$candidate" ]] && return 0
-            done < <(rpaths_for_library "$library")
-            # VLC's upstream dylibs use @rpath names but carry no private
-            # LC_RPATH. Verify the sibling layout supplies the named file; do
-            # not rewrite a valid upstream @rpath reference speculatively.
-            bundle_file_for_basename "$(basename "$relative")" >/dev/null && return 0
-            ;;
-        /*)
-            ;;
-        *)
-            candidate="$(dirname "$library")/$dependency"
-            [[ -f "$candidate" ]] && return 0
-            ;;
-    esac
-    return 1
-}
-
-rewrite_unresolved_dependency() {
-    local library="$1"
-    local dependency="$2"
-    local target replacement
-    target="$(bundle_file_for_basename "$(basename "$dependency")")" \
-        || die "Dependency outside the bundle: $(basename "$library") -> $dependency"
-    replacement="$(loader_reference_for_target "$library" "$target")" \
-        || die "Cannot express bundle-relative dependency for $dependency"
-    echo "Rewriting $(basename "$library"): $dependency -> $replacement"
-    install_name_tool -change "$dependency" "$replacement" "$library"
-}
-
-rewrite_id_if_needed() {
-    local library="$1"
-    local identifier target replacement
-    identifier="$(
-        {
-            otool -D "$library" 2>/dev/null || true
-        } | sed -n '2p' | sed 's/^[[:space:]]*//'
-    )"
-    [[ -n "$identifier" ]] || return 0
-
-    case "$identifier" in
-        /usr/lib/* | /System/*)
-            return 0
-            ;;
-        @rpath/*)
-            bundle_file_for_basename "$(basename "${identifier#@rpath/}")" >/dev/null \
-                || die "Dylib ID outside the bundle: $(basename "$library") -> $identifier"
-            return 0
-            ;;
-        @loader_path/* | @executable_path/*)
-            dependency_resolves_inside_bundle "$library" "$identifier" && return 0
-            ;;
-    esac
-
-    target="$(bundle_file_for_basename "$(basename "$identifier")")" \
-        || die "Dylib ID outside the bundle: $(basename "$library") -> $identifier"
-    replacement="$(loader_reference_for_target "$library" "$target")" \
-        || die "Cannot express bundle-relative dylib ID for $identifier"
-    echo "Rewriting $(basename "$library") ID: $identifier -> $replacement"
-    install_name_tool -id "$replacement" "$library"
-}
-
-for library in "${bundled_libraries[@]}"; do
-    chmod u+w "$library"
-    rewrite_id_if_needed "$library"
-
-    while read -r dependency; do
-        [[ -n "${dependency:-}" ]] || continue
-        if ! dependency_resolves_inside_bundle "$library" "$dependency"; then
-            case "$dependency" in
-                /usr/lib/* | /System/*)
-                    ;;
-                *)
-                    rewrite_unresolved_dependency "$library" "$dependency"
-                    ;;
-            esac
-        fi
-    done < <(otool -L "$library" | awk 'NR > 2 { print $1 }')
-done
-
-# Every copied Mach-O is checked, so dependencies of plugins and both VLC
-# libraries are covered transitively without relying on the source app's load
-# paths. System libraries/frameworks remain the only allowed external paths.
-for library in "${bundled_libraries[@]}"; do
-    while read -r dependency; do
-        [[ -n "${dependency:-}" ]] || continue
-        if ! dependency_resolves_inside_bundle "$library" "$dependency"; then
-            die "Unresolved dependency in $(basename "$library"): $dependency"
-        fi
-    done < <(otool -L "$library" | awk 'NR > 2 { print $1 }')
-done
-
-echo "Prepared VLC $vlc_version (${#bundled_libraries[@]} dylibs) in $destination"

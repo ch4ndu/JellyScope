@@ -255,6 +255,10 @@ tasks.register<Exec>("verifyMacosArm64BinaryLicenseMetadataReadiness") {
     group = "verification"
     description = "Verifies the macOS arm64 platform dependency inventory."
     dependsOn(":desktop-app:verifyDesktopJvmRuntimeLicenseInventory")
+    dependsOn(":desktop-app:verifyDesktopMpvBundle", ":desktop-app:prepareDesktopVlcBundle")
+    inputs.dir(layout.projectDirectory.dir("scripts/desktop-mpv-bundle"))
+    inputs.dir(layout.projectDirectory.dir("scripts/vlc-bundle"))
+    inputs.file(layout.projectDirectory.file("scripts/prepare-macos-release-sources.sh"))
     dependsOn("prepareReleaseLicenseMetadata")
     commandLine(
         rootProject.layout.projectDirectory

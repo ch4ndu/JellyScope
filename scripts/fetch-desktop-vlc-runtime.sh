@@ -13,9 +13,9 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
     exit 1
 fi
 
-# Pinned to the input recorded in scripts/vlc-bundle/manifest-3.0.23-arm64.txt.
+# Pinned to the input recorded in scripts/vlc-bundle/manifest-3.0.24-arm64.txt.
 # Re-run the dependency and licensing review before changing any of these.
-vlc_version="3.0.23"
+vlc_version="3.0.24"
 vlc_arch="arm64"
 dmg_name="vlc-${vlc_version}-${vlc_arch}.dmg"
 dmg_url="https://download.videolan.org/pub/videolan/vlc/${vlc_version}/macosx/${dmg_name}"

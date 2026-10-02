@@ -55,7 +55,7 @@ Android TV offers GPU output (default) or Direct MediaCodec output; the
 iPhone and iPad require iOS 16 or newer. The Apple TV preview requires tvOS 17
 or newer and is permanently unsupported, with no hardware-validation,
 feature-parity, or ongoing-support commitment. The macOS package requires
-macOS 13 or newer on Apple Silicon;
+macOS 15 or newer on Apple Silicon;
 Intel Macs are unsupported. Windows and Linux have experimental source-build
 paths, with no tested or packaged releases yet.
 

@@ -14,6 +14,6 @@ and notice terms. The source routes in the inventory are the canonical owners
 for the corresponding license and notice text.
 
 The inventory is scoped to the resolved macOS arm64 JVM runtime. It does not
-replace the separate native IINA/mpv and VLC manifests or their notices, and it
+replace the separate native mpv and VLC manifests or their notices, and it
 does not approve an unlisted platform, architecture, component group, module,
 or version.

@@ -162,6 +162,8 @@ cp -R "$repo_root/scripts/android-mpv-bundle/." "$output_dir/platform-notices/an
 cp -R "$repo_root/scripts/vlckit-bundle/." "$output_dir/platform-notices/ios-vlckit/"
 cp "$repo_root/scripts/vlc-bundle/LGPL-2.1.txt" \
     "$output_dir/platform-notices/ios-vlckit/LGPL-2.1.txt"
+cp "$repo_root/scripts/macos-source-bundle/manifest-macos-arm64.txt" "$output_dir/dependency-inputs/macos-source-manifest.txt"
+cp "$repo_root/scripts/build-desktop-mpv-runtime.sh" "$output_dir/dependency-inputs/build-desktop-mpv-runtime.sh"
 cp -R "$repo_root/scripts/desktop-mpv-bundle/." "$output_dir/platform-notices/macos-mpv/"
 cp -R "$repo_root/scripts/vlc-bundle/." "$output_dir/platform-notices/macos-vlc/"
 

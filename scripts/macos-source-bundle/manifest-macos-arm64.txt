@@ -1,8 +1,14 @@
-# Source routes retained beside the macOS arm64 release.
-bundle-id=macos-arm64-vlc-3.0.23
-vlc-version=3.0.23
-vlc-archive=vlc-3.0.23.tar.xz
-vlc-url=https://download.videolan.org/pub/videolan/vlc/3.0.23/vlc-3.0.23.tar.xz
-iina-source-route=https://github.com/iina/iina/tree/v1.4.0
-iina-mpv-build-route=https://github.com/iina/homebrew-mpv-iina
-mpv-source-route=https://github.com/mpv-player/mpv/tree/c0dd2b3
+# Exact native source inputs retained beside the macOS arm64 release.
+bundle-id=macos15-arm64-mpv-0.41.0-vlc-3.0.24
+vlc-version=3.0.24
+vlc-revision=3.0.24-rc1-0-g6de05adcba
+vlc-archive=vlc-3.0.24.tar.xz
+vlc-url=https://download.videolan.org/pub/videolan/vlc/3.0.24/vlc-3.0.24.tar.xz
+vlc-contrib-archive=vlc-contrib-3.0.24-sources.tar.gz
+vlc-contrib-manifest=scripts/vlc-bundle/sources-3.0.24.tsv
+desktop-mpv-archive=desktop-mpv-0.41.0-sources.tar.gz
+desktop-mpv-manifest=scripts/desktop-mpv-bundle/sources-macos-arm64.tsv
+mpv-version=0.41.0
+ffmpeg-version=9.0.2
+dav1d-version=1.5.4
+mpv-coreaudio-patch=c5d391adba7bd024954d0df1e0405f5749f4d4ca

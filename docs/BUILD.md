@@ -22,7 +22,7 @@ versioned publishable output in ignored `release-artifacts/`.
   reports typed unavailability below that.
 - Xcode with the iOS platform, for `ios-app`; additionally the tvOS platform
   (`xcodebuild -downloadPlatform tvOS`) for `tvos-app`.
-- macOS 13 or newer on Apple Silicon for desktop playback and packaging.
+- macOS 15 or newer on Apple Silicon for desktop playback and packaging.
 
 Dependencies are pinned in
 [`gradle/libs.versions.toml`](../gradle/libs.versions.toml); update `media3` and
@@ -119,17 +119,49 @@ Release package (macOS only today):
 This direct command also works with local edits; a dirty package is for testing,
 not publication.
 
-That task produces a DMG and depends on `:desktop-app:verifyDesktopMpvBundle`.
-It fetches or reuses the pinned IINA 1.4.0 arm64 closure under
-`~/Library/Caches/JellyScope/mpv-runtime/`; first use needs network and a valid
-warm cache works offline. Development and packaging use the same runtime and
-never read Homebrew, MacPorts, `/usr/local`, or system `libmpv`.
+Development and packaging use the same project-built mpv runtime. The
+[source recipe](../scripts/build-desktop-mpv-runtime.sh) invokes the upstream
+Meson/Ninja, CMake and configure/Make builds for the pinned sources in
+[`scripts/desktop-mpv-bundle/`](../scripts/desktop-mpv-bundle). Install Xcode's
+macOS SDK, Python 3.10+, Make, CMake, Ninja, pkg-config, autoconf, automake and
+GNU libtool before the first build. The recipe supplies its pinned Meson version;
+it does not install tools. Package managers may supply build tools, but runtime
+libraries must come from the isolated source build.
 
-macOS release packaging also bundles audited VLC **3.0.23 (arm64)**.
+Gradle prepares the runtime when needed, or build it explicitly:
+
+```bash
+bash scripts/build-desktop-mpv-runtime.sh
+```
+
+The first build downloads and compiles the native graph for arm64 and macOS 15.
+It retains sources and the completed runtime in `.local/native/desktop-mpv/`.
+`JELLYSCOPE_MPV_RUNTIME_CACHE_ROOT` may select a dedicated absolute cache path
+without symlinks or whitespace. A matching recipe, manifests and toolchain allow
+reuse after the complete runtime passes validation; a valid warm cache works
+offline. Staging and packaging check the actual versions, architecture, minimum
+OS, dependency closure, required features, notices and signatures. Neither path
+loads an installed Homebrew, MacPorts, `/usr/local`, or system `libmpv`.
+
+macOS packaging also bundles pinned VLC **3.0.24 (arm64)**.
 `scripts/fetch-desktop-vlc-runtime.sh` caches it under
 `~/Library/Caches/JellyScope/vlc-runtime/`; first use needs network unless
-`JELLYSCOPE_VLC_APP` or `/Applications/VLC.app` supplies a runtime matching
-`scripts/vlc-bundle/manifest-3.0.23-arm64.txt`.
+`JELLYSCOPE_VLC_APP` explicitly supplies that version. The stager verifies the
+selected files against `scripts/vlc-bundle/manifest-3.0.24-arm64.txt` and checks
+their architecture, dependency closure and signatures.
+
+To build both local app images without Developer ID signing or notarization:
+
+```bash
+./gradlew -Pjellyscope.macos.signing.enabled=false \
+    :desktop-app:createDistributable :desktop-app:createReleaseDistributable
+```
+
+This invocation skips credential loading and credentialed signing/notarization;
+native ad-hoc signatures remain required. The property defaults to `true` for
+normal release operations. Both images are validated at their own packaged
+resource paths. DMG source artifacts and clean-source publication checks are
+owned by [the release runbook](RELEASE.md#manual-macos-stages).
 
 ## iOS
 
@@ -212,7 +244,7 @@ completion criteria. Broad changes use this baseline:
 ```bash
 ./scripts/verify.sh
 ./gradlew :desktop-app:compileKotlin
-./gradlew :desktop-app:packageReleaseDistributionForCurrentOS # macOS 13+ on Apple Silicon
+./gradlew -Pjellyscope.macos.signing.enabled=false :desktop-app:packageReleaseDistributionForCurrentOS # macOS 15+ on Apple Silicon; local test DMG
 ./gradlew :shared-ui:linkDebugFrameworkIosSimulatorArm64
 ./gradlew :shared-tvos:jvmTest
 ./gradlew :shared-tvos:linkDebugFrameworkTvosSimulatorArm64

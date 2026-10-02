@@ -6,8 +6,9 @@ android	Managed runtime families	current pinned Gradle inputs	Android mobile and
 tvos	VLCKit	4.0.0a23	VLCKit-4.0-20260805-1123.zip	owner-reviewed LGPL-2.1 artifact/source route	scripts/vlckit-bundle/manifest-4.0.0a23.txt
 ios	VLCKit	4.0.0a23	VLCKit-4.0-20260805-1123.zip	owner-reviewed LGPL-2.1 artifact/source route	scripts/vlckit-bundle/manifest-4.0.0a23.txt
 ios	Managed runtime families	current pinned Gradle inputs	iOS arm64 release graph	owner-reviewed published license/source set	distribution/MOBILE_RUNTIME_NOTICES.md
-macos-arm64	VLC runtime	3.0.23	selected VLC.app arm64 files	recorded notice/source set	scripts/vlc-bundle/manifest-3.0.23-arm64.txt
-macos-arm64	mpv and transitive dylibs	IINA 1.4.0; mpv c0dd2b3	IINA 1.4.0 arm64 69-file manifest	recorded GPL artifact/source set	scripts/desktop-mpv-bundle/manifest-iina-1.4.0-arm64.txt
+macos-arm64	VLC runtime	3.0.24	selected VLC.app arm64 files	recorded notice/source set	scripts/vlc-bundle/manifest-3.0.24-arm64.txt
+macos-arm64	mpv and transitive dylibs	mpv 0.41.0; FFmpeg 9.0.2; dav1d 1.5.4	project-built macOS 15 arm64 graph	recorded GPL artifact/source set	scripts/desktop-mpv-bundle/sources-macos-arm64.tsv
 macos-arm64	Desktop JVM runtime families	resolved versions in reviewed family inventory	desktop-app runtimeClasspath	recorded license/source inventory	distribution/DESKTOP_JVM_RUNTIME_LICENSE_INVENTORY.tsv
 tvos	Managed runtime dependency graph	current Gradle inputs	tvOS release graph	review-required	docs/operations/licensing-and-distribution.md
 other-desktop	Runtime and native dependency graphs	unreviewed	Intel macOS, Windows, and Linux artifacts	review-required	docs/operations/licensing-and-distribution.md
+macos-arm64	VLC selected static/header contrib inputs	exact VLC 3.0.24 recipe versions	65 selected contrib archives plus VLC build rules/patches	recorded notice/source set	scripts/vlc-bundle/sources-3.0.24.tsv

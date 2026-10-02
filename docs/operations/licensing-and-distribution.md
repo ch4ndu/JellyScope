@@ -125,32 +125,37 @@ inventory review rather than an automatic catalog-derived approval. Other
 release targets remain blocked in the global inventory until their own runtime
 graphs are reviewed.
 
-The macOS arm64 mpv package consumes IINA's versioned 1.4.0 dylib set. The
-69-file inventory, IINA bundle route, disclosed mpv revision `c0dd2b3`,
-GPL texts, and source routes are owned by
-[`scripts/desktop-mpv-bundle/`](../../scripts/desktop-mpv-bundle). JellyScope
-validates the complete inventory on every cache use and changes only staged install
-names so non-system dependencies resolve through sibling `@loader_path`
-references, then re-signs the staged files. It does not read Homebrew, MacPorts,
-`/usr/local`, or another machine-installed mpv.
+The macOS 15+ arm64 package builds mpv 0.41.0, FFmpeg 9.0.2, dav1d 1.5.4 and
+their complete selected dependency graph from pinned upstream source. The
+same-repository recipe, exact source/patch inputs, library inventory and original
+component notices are owned by
+[`scripts/desktop-mpv-bundle/`](../../scripts/desktop-mpv-bundle). The build records
+its toolchain and actual configuration, including FFmpeg's GPL/version3 options
+and disabled nonfree components. Cache reuse, staging and app packaging validate
+the complete graph. Non-system dependencies resolve inside the bundle through
+`@loader_path`; staged libraries receive ad-hoc signatures before optional
+release signing. Build tools may come from a package manager, but installed
+package-manager runtime libraries are not inputs.
 
-IINA and each upstream component retain their own licenses. Their published
-licensing and source declarations are relied upon but were not independently
-audited. JellyScope-owned files remain MPL-2.0; under MPL-2.0 Section 3.3, the
-combined macOS distribution is made available under GPL-compatible terms while
-preserving the MPL terms for covered files. This provenance and licensing route is accepted without a separate
-legal-review blocker for the pinned mpv runtime. A different IINA release, architecture, file inventory, or
+Each upstream component retains its own license. Published licensing and source
+declarations remain the accepted provenance basis. JellyScope-owned files remain
+MPL-2.0; under Section 3.3, the combined macOS distribution is made available
+under GPL-compatible terms while preserving MPL terms for covered files. This
+is not an LGPL-only runtime. The approved graph and source-build route require
+no separate legal-review blocker; a changed version, architecture, inventory or
 native graph requires a new recorded decision.
 
-Apple Silicon macOS packages additionally carry a pinned VLC 3.0.23 arm64
-subset with GPL/LGPL texts and a corresponding-source route. Its exact files
-and exclusions are owned by
-[`scripts/vlc-bundle/manifest-3.0.23-arm64.txt`](../../scripts/vlc-bundle/manifest-3.0.23-arm64.txt)
-and [`scripts/vlc-bundle/ATTRIBUTION.md`](../../scripts/vlc-bundle/ATTRIBUTION.md).
-Release-DMG production also creates the exact clean JellyScope commit archive
-and retains the VLC 3.0.23 source archive beside the DMG. The
-source manifest preserves the existing IINA 1.4.0, IINA mpv-formula, and mpv
-`c0dd2b3` routes without introducing another native build.
+Apple Silicon macOS packages additionally carry the selected VLC 3.0.24 arm64
+runtime with its GPL/LGPL and component notices. Its exact files, exclusions and
+matching contrib source inputs are owned by
+[`scripts/vlc-bundle/`](../../scripts/vlc-bundle). Release output retains the
+JellyScope commit archive, official VLC source archive, all selected mpv source
+archives and patches with the recipe/build records, and the VLC contrib source
+archives beside the DMG. The source manifest binds these inputs to the packaged
+runtimes. Publishable output requires clean-source checks before and after
+packaging; direct dirty-tree packages remain local test artifacts. Commands and
+artifact names are owned by [the release runbook](../RELEASE.md#manual-macos-stages).
+
 Intel macOS packages are unsupported. Windows and Linux packages, and any future
 architecture, require their own artifact-level audit rather than an inference
 from the macOS manifest.
@@ -232,13 +237,16 @@ external store requirement remains a separate release review.
   platform graph and its licenses.
 - **Pinned native graphs use accepted upstream FOSS provenance.** The project
   records official artifacts, license texts, source routes, and final package
-  contents. Mirroring third-party projects, duplicating their build systems, or
-  maintaining a second checksum database was rejected as unnecessary upkeep.
+  contents. The desktop recipe invokes upstream build systems and retains their
+  source inputs; it does not maintain upstream forks or a second checksum
+  database. Keeping the recipe in this repository coordinates its single
+  consumer, runtime pins and source obligations. The accepted macOS 15 floor
+  allows the current decoder graph without preserving older runtime bundles.
   A changed graph still requires a new recorded decision.
 - **Desktop runtime approval is exact and source artifacts stay beside the
   binary.** A generated dependency report was rejected because it records what
   resolved without recording which families, versions, licenses, and source
   routes were reviewed. The checked-in family inventory gates the resolved
-  classpath, while the clean-commit JellyScope archive and pinned VLC source are
-  retained beside the DMG so source availability does not depend on rebuilding a
-  historical release workstation.
+  classpath. The clean-commit JellyScope archive, complete native source inputs,
+  patches and actual build records stay beside the DMG so source availability
+  does not depend on a historical release workstation.

@@ -30,11 +30,15 @@ required_files=(
     platform-notices/ios-vlckit/LGPL-2.1.txt
     platform-notices/ios-vlckit/manifest-4.0.0a23.txt
     platform-notices/macos-mpv/ATTRIBUTION.md
-    platform-notices/macos-mpv/licenses/GPL-2.0-or-later.txt
-    platform-notices/macos-mpv/licenses/GPL-3.0-only.txt
-    platform-notices/macos-mpv/manifest-iina-1.4.0-arm64.txt
+    platform-notices/macos-mpv/licenses/mpv/LICENSE.GPL
+    platform-notices/macos-mpv/licenses/ffmpeg/COPYING.GPLv3
+    platform-notices/macos-mpv/manifest-mpv-0.41.0-macos15-arm64.txt
+    platform-notices/macos-mpv/sources-macos-arm64.tsv
+    dependency-inputs/macos-source-manifest.txt
+    dependency-inputs/build-desktop-mpv-runtime.sh
+    platform-notices/macos-vlc/sources-3.0.24.tsv
     platform-notices/macos-vlc/ATTRIBUTION.md
-    platform-notices/macos-vlc/manifest-3.0.23-arm64.txt
+    platform-notices/macos-vlc/manifest-3.0.24-arm64.txt
 )
 
 for file in "${required_files[@]}"; do
@@ -84,6 +88,10 @@ diff -qr "$repo_root/scripts/desktop-mpv-bundle" "$metadata_dir/platform-notices
     || die "Packaged macOS mpv notices differ from the repository notice set"
 diff -qr "$repo_root/scripts/vlc-bundle" "$metadata_dir/platform-notices/macos-vlc" >/dev/null \
     || die "Packaged macOS VLC notices differ from the repository notice set"
+cmp -s "$repo_root/scripts/macos-source-bundle/manifest-macos-arm64.txt" "$metadata_dir/dependency-inputs/macos-source-manifest.txt" \
+    || die "Packaged macOS source routes differ from the candidate"
+cmp -s "$repo_root/scripts/build-desktop-mpv-runtime.sh" "$metadata_dir/dependency-inputs/build-desktop-mpv-runtime.sh" \
+    || die "Packaged desktop native recipe differs from the candidate"
 grep -F "JellyScope-owned source is licensed under MPL-2.0" "$metadata_dir/OPEN_SOURCE_NOTICES.md" >/dev/null \
     || die "Open-source notice does not preserve the active MPL-2.0 source status"
 
@@ -115,6 +123,8 @@ elif [[ "$verification_mode" == "--require-ios-ready" ]]; then
     require_platform_ready ios
 elif [[ "$verification_mode" == "--require-macos-arm64-ready" ]]; then
     require_platform_ready macos-arm64
+    bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-native-inputs \
+        "${3:-$repo_root/desktop-app/build/preparedDesktopAppResources/macos-arm64}"
 elif [[ -n "$verification_mode" && "$verification_mode" != "--require-clean" ]]; then
     die "Unknown option: $verification_mode"
 fi

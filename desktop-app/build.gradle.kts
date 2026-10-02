@@ -108,11 +108,18 @@ val generateDesktopDeveloperConfig =
 
 val desktopVersion = providers.gradleProperty("jellyscope.desktop.version").orElse("0.1.0")
 val desktopPackageVersion = providers.gradleProperty("jellyscope.desktop.packageVersion").orElse("1.0.0")
+val macosSigningEnabled =
+    providers
+        .gradleProperty("jellyscope.macos.signing.enabled")
+        .map { value ->
+            value.toBooleanStrictOrNull()
+                ?: throw GradleException("jellyscope.macos.signing.enabled must be true or false")
+        }.orElse(true)
 val macosSigningDirectory = File(System.getProperty("user.home"), "Private/Keystores")
 val macosSigningPropertiesFile = macosSigningDirectory.resolve("macos-signing.properties")
 val macosSigningProperties =
     Properties().apply {
-        if (macosSigningPropertiesFile.isFile) {
+        if (macosSigningEnabled.get() && macosSigningPropertiesFile.isFile) {
             macosSigningPropertiesFile.inputStream().use { load(it) }
         }
     }
@@ -121,8 +128,12 @@ fun macosCredential(
     propertyKey: String,
     environmentKey: String,
 ): String =
-    macosSigningProperties.getProperty(propertyKey)
-        ?: System.getenv(environmentKey).orEmpty()
+    if (macosSigningEnabled.get()) {
+        macosSigningProperties.getProperty(propertyKey)
+            ?: System.getenv(environmentKey).orEmpty()
+    } else {
+        ""
+    }
 
 val macosSigningIdentity = macosCredential("signingIdentity", "APPLE_SIGNING_IDENTITY")
 val macosTeamId = macosCredential("teamId", "APPLE_TEAM_ID")
@@ -133,26 +144,21 @@ val macosNotaryKeyId = macosCredential("notaryKeyId", "APPLE_NOTARY_KEY_ID")
 val macosNotaryIssuerId = macosCredential("notaryIssuerId", "APPLE_NOTARY_ISSUER_ID")
 val macosNotaryPrivateKeyPath =
     macosCredential("notaryPrivateKeyPath", "APPLE_NOTARY_PRIVATE_KEY_PATH")
-val macosSigningConfigured = macosSigningIdentity.isNotBlank()
+val macosSigningConfigured = macosSigningEnabled.get() && macosSigningIdentity.isNotBlank()
 val macosAppPasswordNotarizationConfigured =
-    macosAppleId.isNotBlank() && macosAppSpecificPassword.isNotBlank() && macosTeamId.isNotBlank()
+    macosSigningEnabled.get() &&
+        macosAppleId.isNotBlank() &&
+        macosAppSpecificPassword.isNotBlank() &&
+        macosTeamId.isNotBlank()
 val macosApiKeyNotarizationConfigured =
-    macosNotaryKeyId.isNotBlank() &&
+    macosSigningEnabled.get() &&
+        macosNotaryKeyId.isNotBlank() &&
         macosNotaryIssuerId.isNotBlank() &&
         macosNotaryPrivateKeyPath.isNotBlank()
 val desktopStaticAppResourcesDir = layout.projectDirectory.dir("src/main/desktopResources")
 val preparedDesktopAppResourcesDir = layout.buildDirectory.dir("preparedDesktopAppResources")
 val desktopMpvManifestFile =
-    rootProject.layout.projectDirectory.file("scripts/desktop-mpv-bundle/manifest-iina-1.4.0-arm64.txt")
-val bundledMpvLibraryNames =
-    desktopMpvManifestFile.asFile
-        .readLines()
-        .mapNotNull { line ->
-            Regex("^file=([^\\s]+)$").matchEntire(line)?.groupValues?.get(1)
-        }.toSet()
-require(bundledMpvLibraryNames.size == 69) {
-    "Desktop mpv manifest must parse to 69 pinned library names."
-}
+    rootProject.layout.projectDirectory.file("scripts/desktop-mpv-bundle/manifest-mpv-0.41.0-macos15-arm64.txt")
 val desktopInitialPlaybackItemId =
     providers
         .systemProperty("jellyscope.desktop.initialPlaybackItemId")
@@ -252,12 +258,13 @@ val prepareDesktopAppResources =
 val prepareDesktopMpvBundle =
     tasks.register<Exec>("prepareDesktopMpvBundle") {
         group = "build"
-        description = "Fetches, verifies, and prepares the pinned IINA arm64 libmpv runtime."
+        description = "Builds, verifies, and prepares the pinned macOS 15 arm64 libmpv runtime."
         dependsOn(prepareDesktopAppResources)
         inputs.files(
-            rootProject.layout.projectDirectory.file("scripts/fetch-desktop-mpv-runtime.sh"),
+            rootProject.layout.projectDirectory.file("scripts/build-desktop-mpv-runtime.sh"),
             rootProject.layout.projectDirectory.file("scripts/prepare-desktop-mpv-bundle.sh"),
             desktopMpvManifestFile,
+            rootProject.layout.projectDirectory.file("scripts/desktop-mpv-bundle/sources-macos-arm64.tsv"),
             rootProject.layout.projectDirectory.file("scripts/desktop-mpv-bundle/ATTRIBUTION.md"),
         )
         inputs.dir(rootProject.layout.projectDirectory.dir("scripts/desktop-mpv-bundle/licenses"))
@@ -284,11 +291,13 @@ val prepareDesktopVlcBundle =
         dependsOn(prepareDesktopAppResources)
         inputs.files(
             rootProject.layout.projectDirectory.file("scripts/prepare-desktop-vlc-bundle.sh"),
-            rootProject.layout.projectDirectory.file("scripts/vlc-bundle/manifest-3.0.23-arm64.txt"),
+            rootProject.layout.projectDirectory.file("scripts/fetch-desktop-vlc-runtime.sh"),
+            rootProject.layout.projectDirectory.file("scripts/vlc-bundle/manifest-3.0.24-arm64.txt"),
             rootProject.layout.projectDirectory.file("scripts/vlc-bundle/ATTRIBUTION.md"),
             rootProject.layout.projectDirectory.file("scripts/vlc-bundle/GPL-2.0.txt"),
             rootProject.layout.projectDirectory.file("scripts/vlc-bundle/LGPL-2.1.txt"),
         )
+        inputs.dir(rootProject.layout.projectDirectory.dir("scripts/vlc-bundle"))
         commandLine(
             rootProject.layout.projectDirectory
                 .file("scripts/prepare-desktop-vlc-bundle.sh")
@@ -297,29 +306,32 @@ val prepareDesktopVlcBundle =
             preparedDesktopAppResourcesPlatformDir.get().asFile.absolutePath,
         )
     }
+
+fun validateDesktopNativeBundle(
+    script: String,
+    resources: File,
+) {
+    val exit =
+        ProcessBuilder(
+            "bash",
+            rootProject.file("scripts/$script").absolutePath,
+            "--validate-only",
+            resources.absolutePath,
+        ).inheritIO().start().waitFor()
+    if (exit != 0) throw GradleException("Native bundle validation failed at $resources")
+}
+
 val verifyDesktopMpvBundle =
     tasks.register("verifyDesktopMpvBundle") {
         group = "verification"
-        description = "Checks that desktop app resources contain a bundled libmpv runtime before packaging."
+        description = "Verifies the full native graph, versions, signatures and notices before packaging."
         dependsOn(prepareDesktopMpvBundle)
         inputs.dir(preparedDesktopAppResourcesDir)
-
         doLast {
-            val bundleDir = preparedDesktopAppResourcesPlatformDir.get().asFile
-            val bundled =
-                bundleDir
-                    .listFiles()
-                    ?.filter(File::isFile)
-                    ?.map(File::getName)
-                    ?.toSet()
-                    .orEmpty()
-            val missing = bundledMpvLibraryNames - bundled
-            if (missing.isNotEmpty()) {
-                throw GradleException(
-                    "Desktop release packaging is missing pinned libmpv files in " +
-                        "${bundleDir.relativeTo(projectDir)}: ${missing.sorted().joinToString()}.",
-                )
-            }
+            validateDesktopNativeBundle(
+                "prepare-desktop-mpv-bundle.sh",
+                preparedDesktopAppResourcesPlatformDir.get().asFile,
+            )
         }
     }
 
@@ -347,25 +359,10 @@ fun registerVerifyPackagedDesktopMpvBundle(
             throw GradleException("No packaged .app image found under ${appImageRoot.relativeTo(projectDir)}.")
         }
         appDirs.forEach { appDir ->
-            val entrypoint =
-                appDir
-                    .walkTopDown()
-                    .firstOrNull { file -> file.isFile && file.name == "libmpv.2.dylib" }
-                    ?: throw GradleException("Packaged app ${appDir.name} does not contain libmpv.2.dylib.")
-            val bundled =
-                entrypoint.parentFile
-                    .listFiles()
-                    ?.filter(File::isFile)
-                    ?.map(File::getName)
-                    ?.toSet()
-                    .orEmpty()
-            val missing = bundledMpvLibraryNames - bundled
-            if (missing.isNotEmpty()) {
-                throw GradleException(
-                    "Packaged app ${appDir.name} is missing pinned libmpv files: " +
-                        missing.sorted().joinToString() + ".",
-                )
-            }
+            validateDesktopNativeBundle(
+                "prepare-desktop-mpv-bundle.sh",
+                appDir.resolve("Contents/app/resources"),
+            )
         }
     }
 }
@@ -442,10 +439,7 @@ val verifyPackagedDesktopLicenseMetadataMain =
 val verifyPackagedDesktopLicenseMetadataMainRelease =
     registerVerifyPackagedDesktopLicenseMetadata("verifyPackagedDesktopLicenseMetadataMainRelease", "main-release")
 
-// Same app-image check as libmpv: staging-only verification cannot prove the VLC
-// bundle survived Compose's platform-scoped resource copy. Unlike the libmpv
-// verifier, each variant checks ONLY its own binaries subdirectory — a stale
-// pre-VLC image from the other variant must not fail this build.
+// Each variant validates its own bundled path; installed VLC cannot satisfy this gate.
 fun registerVerifyPackagedDesktopVlcBundle(
     taskName: String,
     binariesSubdir: String,
@@ -469,20 +463,10 @@ fun registerVerifyPackagedDesktopVlcBundle(
             throw GradleException("No packaged .app image found under ${appImageRoot.relativeTo(projectDir)}.")
         }
         appDirs.forEach { appDir ->
-            val bundled =
-                appDir
-                    .walkTopDown()
-                    .filter { file -> file.isFile && file.name in bundledVlcRequiredFileNames }
-                    .map { file -> file.name }
-                    .toSet()
-            if (!bundled.containsAll(bundledVlcRequiredFileNames)) {
-                throw GradleException(
-                    "Packaged app ${appDir.name} is missing bundled VLC files: " +
-                        (bundledVlcRequiredFileNames - bundled).sorted().joinToString() +
-                        ". Compose Desktop only copies the platform-scoped subdirectories of " +
-                        "appResourcesRootDir (common / <os> / <os>-<arch>).",
-                )
-            }
+            validateDesktopNativeBundle(
+                "prepare-desktop-vlc-bundle.sh",
+                appDir.resolve("Contents/app/resources"),
+            )
         }
     }
 }
@@ -505,6 +489,7 @@ val signBundledMpvDylibs =
         // bundle must exist before it runs or its dylibs ship unsigned.
         dependsOn(prepareDesktopVlcBundle)
         onlyIf { macosSigningConfigured }
+        inputs.property("macosSigningEnabled", macosSigningEnabled)
         doLast {
             preparedDesktopAppResourcesDir
                 .get()
@@ -588,7 +573,7 @@ compose.desktop {
             appResourcesRootDir.set(preparedDesktopAppResourcesDir)
             macOS {
                 bundleID = "com.jellyscope.desktop"
-                minimumSystemVersion = "13.0"
+                minimumSystemVersion = "15.0"
                 iconFile.set(project.file("icons/jellyscope.icns"))
                 infoPlist {
                     extraKeysRawXml =
@@ -733,11 +718,13 @@ val ensureMacosDmgLayoutScript =
 val stageMacosReleaseSourceArtifacts =
     tasks.register<Exec>("stageMacosReleaseSourceArtifacts") {
         group = "distribution"
-        description = "Stages the HEAD JellyScope and pinned VLC sources beside the macOS release DMG."
+        description = "Stages JellyScope and matching mpv/VLC corresponding sources beside the macOS release DMG."
         onlyIf { isAppleSiliconMacDesktopBuild }
         inputs.files(
             rootProject.layout.projectDirectory.file("scripts/prepare-macos-release-sources.sh"),
             rootProject.layout.projectDirectory.file("scripts/macos-source-bundle/manifest-macos-arm64.txt"),
+            rootProject.layout.projectDirectory.file("scripts/desktop-mpv-bundle/sources-macos-arm64.tsv"),
+            rootProject.layout.projectDirectory.file("scripts/vlc-bundle/sources-3.0.24.tsv"),
         )
         outputs.upToDateWhen { false }
         doFirst {
@@ -752,6 +739,10 @@ val stageMacosReleaseSourceArtifacts =
                     .asFile
                     .absolutePath,
                 outputDir.absolutePath,
+                layout.buildDirectory
+                    .dir("compose/binaries/main-release/app/JellyScope.app/Contents/app/resources")
+                    .get()
+                    .asFile.absolutePath,
             )
         }
     }
@@ -870,10 +861,18 @@ afterEvaluate {
 }
 
 tasks.configureEach {
+    if (name in desktopPackageTaskNamesRequiringMpv || name.startsWith("notarize") || name.startsWith("sign")) {
+        inputs.property("macosSigningEnabled", macosSigningEnabled)
+    }
     if (name.startsWith("notarize") && name != "notarizeReleaseDmgWithApiKey") {
         onlyIf { macosAppPasswordNotarizationConfigured }
     }
     if (name in desktopPackageTaskNamesRequiringMpv) {
+        // Compose marks appResourcesDir @Internal, so track prepared resources explicitly.
+        inputs
+            .files(tasks.named("prepareAppResources"))
+            .withPropertyName("preparedAppResources")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
         dependsOn(verifyDesktopMpvBundle)
         dependsOn(signBundledMpvDylibs)
         if (isMacOsDesktopBuild) {
@@ -943,15 +942,6 @@ tasks.configureEach {
         dependsOn(signBundledMpvDylibs)
     }
 }
-
-// The minimum set proving the packaged VLC bundle survived the resource copy;
-// the bundle script has already validated the full manifest at staging time.
-private val bundledVlcRequiredFileNames =
-    setOf(
-        "libvlc.dylib",
-        "libvlccore.dylib",
-        "ATTRIBUTION.md",
-    )
 
 private val packagedLicenseMetadataFileNames =
     setOf(

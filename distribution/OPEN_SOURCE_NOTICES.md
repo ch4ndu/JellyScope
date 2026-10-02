@@ -27,16 +27,21 @@ notice, build revision, patch set, and source routes from
 `scripts/vlckit-bundle/`. A compatible framework built with VideoLAN's upstream
 tools can replace the downloaded framework at the documented local path.
 
-Apple Silicon macOS packages include the
-recorded VLC 3.0.23 notice set from `scripts/vlc-bundle/` and the IINA 1.4.0
-arm64 mpv dylib manifest, GPL texts, and source routes from
-`scripts/desktop-mpv-bundle/`. The IINA/upstream declarations were not
-independently audited; the recorded policy accepts that upstream provenance, and the combined macOS package is available under GPL-compatible
-terms through MPL-2.0 Section 3.3. The desktop JVM inventory records the accepted
-macOS arm64 runtime families, resolved versions, published licenses, and source
-routes; release verification rejects any family or version outside that record.
-macOS release output also retains the exact JellyScope commit archive and the
-VLC 3.0.23 source archive beside the DMG.
+Apple Silicon macOS 15+ packages include VLC 3.0.24 and its selected contrib
+notice/source set from `scripts/vlc-bundle/`, plus project-built mpv 0.41.0,
+FFmpeg 9.0.2, dav1d 1.5.4 and the complete pinned source/notice inventory from
+`scripts/desktop-mpv-bundle/`. Original transitive, embedded/header and
+build-input licenses accompany those inventories. The combined macOS package
+uses GPL-compatible terms through MPL-2.0 Section 3.3. Upstream published
+provenance remains the basis for the official VLC binary's source record.
+
+The desktop JVM inventory records accepted runtime families, resolved versions,
+published licenses and source routes; release verification rejects components
+outside that record. macOS release output retains the exact clean JellyScope
+commit archive, every mpv input and actual native build record, VLC's 3.0.24
+source tar, and the matching selected VLC contrib archives beside the DMG.
+Dirty local packages record their dirty state and do not establish clean
+release-source correspondence.
 
 Android and iOS managed runtime families, their published licenses, and their
 upstream source routes are recorded in `MOBILE_RUNTIME_NOTICES.md`. Exact direct
