@@ -551,6 +551,16 @@
     <string name="settings_player_backend_mpv">mpv</string>
     <string name="settings_player_backend_libvlc">LibVLC (beta)</string>
     <string name="settings_player_backend_unavailable">Unavailable on this device</string>
+    <string name="settings_mpv_presentation_title">mpv presentation</string>
+    <string name="settings_mpv_presentation_standard">Standard</string>
+    <string name="settings_mpv_presentation_metal">Metal — Experimental</string>
+    <string name="settings_picker_mpv_presentation_subtitle">Choose how mpv draws video on this Mac. Changes apply after you restart JellyScope.</string>
+    <string name="settings_mpv_presentation_saving">Saving…</string>
+    <string name="settings_mpv_presentation_save_error">Couldn’t save the mpv presentation. The previous choice is kept.</string>
+    <string name="settings_mpv_presentation_restart">Restart JellyScope to apply this choice. This session keeps its current presentation.</string>
+    <string name="settings_mpv_presentation_metal_unavailable">Metal isn’t included in this build. Standard is in use.</string>
+    <string name="settings_mpv_presentation_metal_not_included">Not included in this build</string>
+    <string name="settings_mpv_presentation_launch_override">A launch option sets the presentation for this session, so this setting can’t be changed.</string>
     <string name="settings_section_skip_segments">Skip segments</string>
     <string name="settings_segment_intro">Intros</string>
     <string name="settings_segment_outro">Credits</string>

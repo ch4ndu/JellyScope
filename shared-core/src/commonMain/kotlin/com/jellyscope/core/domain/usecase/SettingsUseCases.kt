@@ -3,6 +3,7 @@
 package com.jellyscope.core.domain.usecase
 
 import com.jellyscope.core.data.local.AppThemeStore
+import com.jellyscope.core.data.local.DesktopMpvPresentationStore
 import com.jellyscope.core.data.local.GridSortStore
 import com.jellyscope.core.data.local.ImageQualityStore
 import com.jellyscope.core.data.local.LibrarySortStore
@@ -17,6 +18,7 @@ import com.jellyscope.core.data.local.SavedLibrarySort
 import com.jellyscope.core.data.local.TileSizeStore
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.DesktopMpvPresentationState
 import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.TileSizeId
@@ -73,6 +75,12 @@ class ObservePlayerClockEnabledUseCase(
     private val playerClockStore: PlayerClockStore,
 ) {
     operator fun invoke(): StateFlow<Boolean> = playerClockStore.enabled
+}
+
+class ObserveDesktopMpvPresentationUseCase(
+    private val store: DesktopMpvPresentationStore,
+) {
+    operator fun invoke(): StateFlow<DesktopMpvPresentationState> = store.state
 }
 
 class ObservePlayerDeviceSettingsUseCase(

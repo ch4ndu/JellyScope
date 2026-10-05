@@ -56,7 +56,9 @@ iPhone and iPad require iOS 16 or newer. The Apple TV preview requires tvOS 17
 or newer and is permanently unsupported, with no hardware-validation,
 feature-parity, or ongoing-support commitment. The macOS package requires
 macOS 15 or newer on Apple Silicon;
-Intel Macs are unsupported. Windows and Linux have experimental source-build
+Intel Macs are unsupported. Local comparison builds can offer restart-required
+[Standard/Metal mpv selection](docs/BUILD.md#macos-metal-experiment); the Metal
+runtime is experimental and not distribution-ready. Windows and Linux have experimental source-build
 paths, with no tested or packaged releases yet.
 
 ## Getting started

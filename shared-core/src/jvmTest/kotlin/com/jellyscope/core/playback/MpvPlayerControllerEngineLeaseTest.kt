@@ -37,6 +37,78 @@ import kotlin.test.assertTrue
  */
 class MpvPlayerControllerEngineLeaseTest {
     @Test
+    fun nativeLayerSurvivesDeferredLeasesAndDestroyWithoutARenderContext() {
+        val lib = LeaseLibMpv()
+        lib.blockTerminate.set(true)
+        val closed = AtomicBoolean(false)
+        val surface =
+            object : MpvNativeMetalSurface {
+                override val generation = 1L
+                override val metalLayerAddress = 3L
+
+                override fun close() {
+                    if (closed.compareAndSet(false, true)) lib.lifecycle += "surface-close"
+                }
+            }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var clock = 0L
+        val controller =
+            MpvPlayerController(
+                session = leaseSession,
+                stateScope = scope,
+                mpv = lib,
+                presentationPreference = MpvPresentationPreference.MacOsNativeMetal,
+                allowInsecureDesktopTls = true,
+                engineLeaseClockNanos = {
+                    clock += TimeUnit.MILLISECONDS.toNanos(100L)
+                    clock
+                },
+                engineLeaseWait = { lib.leaseDrainPolls.incrementAndGet() },
+            )
+        try {
+            controller.attachNativeSurface(surface)
+            waitUntil { controller.presentationState.value is MpvPresentationState.NativeActive }
+            controller.prepare(externalSubtitlePlan(leaseSubtitleTarget), remoteSubtitleAsset)
+            lib.enqueueStart(lib.currentPlaylistEntryId)
+            lib.enqueueFileLoaded()
+            assertTrue(lib.subAddEntered.await(3L, TimeUnit.SECONDS))
+            val detached = CountDownLatch(1)
+            val disposition = AtomicReference<MpvOpenGlDetachDisposition?>(null)
+            controller.detachNativeSurface(
+                1L,
+                MpvOpenGlDetachCallback {
+                    disposition.set(it)
+                    lib.lifecycle += "detach"
+                    detached.countDown()
+                },
+            )
+            waitUntil { lib.leaseDrainPolls.get() > 0 }
+            assertFalse(detached.await(100L, TimeUnit.MILLISECONDS))
+            assertFalse(closed.get())
+            assertEquals(0, lib.terminateCount.get())
+            lib.releaseSubAdd.countDown()
+            assertTrue(lib.terminateEntered.await(3L, TimeUnit.SECONDS))
+            assertFalse(closed.get())
+            assertNull(disposition.get())
+            lib.releaseTerminate.countDown()
+            assertTrue(detached.await(3L, TimeUnit.SECONDS))
+            assertEquals(MpvOpenGlDetachDisposition.Terminated, disposition.get())
+            assertTrue(closed.get())
+            assertEquals(1, lib.terminateCount.get())
+            assertEquals(0, lib.renderContextFreeCount.get())
+            assertFalse(lib.lifecycle.contains("render-create"))
+            assertFalse(lib.lifecycle.contains("render-callback"))
+            assertTrue(lib.lifecycle.indexOf("terminate") < lib.lifecycle.indexOf("surface-close"))
+            assertTrue(lib.lifecycle.indexOf("surface-close") < lib.lifecycle.indexOf("detach"))
+        } finally {
+            lib.releaseSubAdd.countDown()
+            lib.releaseTerminate.countDown()
+            controller.release()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun teardownWaitsForAnInFlightSubtitleCommandInsteadOfFreeingUnderIt() {
         val lib = LeaseLibMpv()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -276,6 +348,7 @@ private class LeaseLibMpv : LibMpv {
         mpv: Pointer,
         params: Array<MpvRenderParam>,
     ): Int {
+        lifecycle += "render-create"
         res.value = renderContext
         return 0
     }
@@ -289,7 +362,9 @@ private class LeaseLibMpv : LibMpv {
         ctx: Pointer,
         callback: LibMpv.MpvRenderUpdateFn?,
         callbackCtx: Pointer?,
-    ) = Unit
+    ) {
+        if (callback != null) lifecycle += "render-callback"
+    }
 
     override fun mpv_render_context_update(ctx: Pointer): Long = 0L
 

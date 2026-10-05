@@ -6,10 +6,21 @@ import kotlinx.coroutines.flow.StateFlow
 
 enum class MpvPresentationPreference {
     MacOsOpenGl,
+    MacOsNativeMetal,
     Software,
 }
 
 sealed interface MpvPresentationState {
+    data object WaitingForNativeSurface : MpvPresentationState
+
+    data class InitializingNative(
+        val surfaceGeneration: Long,
+    ) : MpvPresentationState
+
+    data class NativeActive(
+        val surfaceGeneration: Long,
+    ) : MpvPresentationState
+
     data object WaitingForOpenGlSurface : MpvPresentationState
 
     data class InitializingOpenGl(
@@ -41,6 +52,28 @@ enum class MpvOpenGlSurfaceUnavailableReason {
     OpenGlInitializationFailed,
 }
 
+enum class MpvNativeSurfaceUnavailableReason {
+    HostUnavailable,
+    SurfaceTimeout,
+    OptionRejected,
+    InitializationFailed,
+    OutputFailed,
+    GeometryUpdateFailed,
+}
+
+/** Retained by engine teardown even when there is no Render API context. */
+interface MpvSurfaceLifetime {
+    val generation: Long
+
+    /** Idempotent; core authorizes close only after native destruction completes. */
+    fun close()
+}
+
+/** Caller-owned CAMetalLayer, supplied as wid to the development native VO. */
+interface MpvNativeMetalSurface : MpvSurfaceLifetime {
+    val metalLayerAddress: Long
+}
+
 data class MpvOpenGlFramebuffer(
     val widthPx: Int,
     val heightPx: Int,
@@ -60,9 +93,7 @@ enum class MpvOpenGlSurfaceKind {
  * Implementations serialize resize, context-current, presentation, and close
  * operations. No AppKit address is exposed to libmpv as a window handle.
  */
-interface MpvOpenGlRenderSurface {
-    val generation: Long
-
+interface MpvOpenGlRenderSurface : MpvSurfaceLifetime {
     /**
      * Identifies the native surface implementation without parsing
      * [presentationLabel]. This type remains JVM-only and never enters common
@@ -77,8 +108,6 @@ interface MpvOpenGlRenderSurface {
     fun resolveGlSymbol(name: String): Long
 
     fun withCurrentContext(render: (MpvOpenGlFramebuffer) -> Boolean): Boolean
-
-    fun close()
 }
 
 /** Opaque JVM-only software-render target owned by the desktop mpv surface. */
@@ -112,6 +141,19 @@ class MpvOpenGlDetachCallback(
 /** Implemented by the JVM PlayerController; consumed by PlayerSurface.jvm. */
 interface MpvVideoOutput {
     val presentationState: StateFlow<MpvPresentationState>
+
+    fun attachNativeSurface(surface: MpvNativeMetalSurface)
+
+    fun nativeSurfaceUnavailable(
+        generation: Long,
+        reason: MpvNativeSurfaceUnavailableReason,
+    )
+
+    /** Uses the existing asynchronous teardown acknowledgement for the native VO. */
+    fun detachNativeSurface(
+        generation: Long,
+        onDetached: MpvOpenGlDetachCallback,
+    )
 
     fun attachOpenGlSurface(surface: MpvOpenGlRenderSurface)
 

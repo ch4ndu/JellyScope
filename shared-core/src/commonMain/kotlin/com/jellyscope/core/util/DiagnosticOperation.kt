@@ -61,6 +61,7 @@ enum class DiagnosticOperation(
     SetAppTheme("setAppTheme"),
     SetPictureInPictureEnabled("setPictureInPictureEnabled"),
     SetPlayerClockEnabled("setPlayerClockEnabled"),
+    SetDesktopMpvPresentation("setDesktopMpvPresentation"),
     SetTileSize("setTileSize"),
     SetImageQuality("setImageQuality"),
     SetRememberLastLibraryView("setRememberLastLibraryView"),

@@ -106,6 +106,15 @@ internal class MpvCompletionReadiness {
 
     fun isArmed(generation: Long): Boolean = generation == this.generation && armed
 
+    fun ownsStartedEntry(
+        generation: Long,
+        playlistEntryId: Long,
+    ): Boolean =
+        generation == this.generation &&
+            bound &&
+            matchingStartObserved &&
+            expectedPlaylistEntryId == playlistEntryId
+
     fun invalidate(generation: Long? = null) {
         if (generation != null && generation != this.generation) return
         this.generation = null
@@ -174,6 +183,7 @@ internal enum class MpvHardwareDecodePolicy(
 ) {
     AutoSafe("auto-safe"),
     VideoToolboxCopy("videotoolbox-copy"),
+    Disabled("no"),
 }
 
 /** The shipped default for the macOS mpv IOSurface presentation route. */
@@ -268,6 +278,7 @@ internal const val ENGINE_LEASE_DRAIN_POLL_MS = 5L
 internal const val OPENGL_RENDER_API = "opengl"
 internal const val MPV_PRESENTATION_OPENGL = "OpenGL Render API"
 internal const val MPV_PRESENTATION_SOFTWARE = "Software"
+internal const val MPV_PRESENTATION_NATIVE_METAL = "Metal native gpu-next"
 internal val MPV_COMMON_INIT_OPTIONS =
     listOf(
         "hwdec" to "auto-safe",
@@ -280,6 +291,15 @@ internal val MPV_COMMON_INIT_OPTIONS =
 internal val MPV_VIDEO_OUTPUT_INIT_OPTIONS =
     listOf(
         "vo" to "libmpv",
+    )
+
+internal val MPV_NATIVE_METAL_INIT_OPTIONS =
+    listOf(
+        "config" to "no",
+        "vo" to "gpu-next",
+        "gpu-api" to "vulkan",
+        "gpu-context" to "moltenvk",
+        "hwdec" to "no",
     )
 
 internal val MPV_BEST_EFFORT_OPTIONS =

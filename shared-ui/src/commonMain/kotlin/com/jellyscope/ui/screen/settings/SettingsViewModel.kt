@@ -14,6 +14,7 @@ import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.action.SessionRemovalError
 import com.jellyscope.core.domain.action.SessionRemovalScope
 import com.jellyscope.core.domain.action.SetAppThemeAction
+import com.jellyscope.core.domain.action.SetDesktopMpvPresentationAction
 import com.jellyscope.core.domain.action.SetImageQualityAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
 import com.jellyscope.core.domain.action.SetOpenSubtitleResultPreferenceAction
@@ -26,6 +27,8 @@ import com.jellyscope.core.domain.action.SetTileSizeAction
 import com.jellyscope.core.domain.action.SetVerboseLogcatEnabledAction
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.DesktopMpvPresentation
+import com.jellyscope.core.domain.model.DesktopMpvPresentationState
 import com.jellyscope.core.domain.model.DownloadRemovalPreview
 import com.jellyscope.core.domain.model.DownloadSettings
 import com.jellyscope.core.domain.model.DownloadUsage
@@ -63,6 +66,7 @@ import com.jellyscope.core.domain.usecase.GetPlayerDevicePolicyUseCase
 import com.jellyscope.core.domain.usecase.GetVerboseLogcatStateUseCase
 import com.jellyscope.core.domain.usecase.ObserveAccountsUseCase
 import com.jellyscope.core.domain.usecase.ObserveAppThemeUseCase
+import com.jellyscope.core.domain.usecase.ObserveDesktopMpvPresentationUseCase
 import com.jellyscope.core.domain.usecase.ObserveImageQualityUseCase
 import com.jellyscope.core.domain.usecase.ObservePictureInPictureEnabledUseCase
 import com.jellyscope.core.domain.usecase.ObservePlayerClockEnabledUseCase
@@ -113,6 +117,9 @@ data class SettingsUiState(
     val imageQuality: ImageQuality = ImageQuality.High,
     val pictureInPictureEnabled: Boolean = true,
     val playerClockEnabled: Boolean = true,
+    /** Null where the platform binds no desktop presentation store. */
+    val desktopMpvPresentation: DesktopMpvPresentationState? = null,
+    val desktopMpvPresentationError: Boolean = false,
     val rememberLastLibraryView: Boolean = true,
     val playbackPreferences: PlaybackPreferences = PlaybackPreferences(),
     val isLoadingPlaybackPreferences: Boolean = false,
@@ -170,6 +177,8 @@ class SettingsViewModel(
     private val setPictureInPictureEnabledAction: SetPictureInPictureEnabledAction,
     observePlayerClockEnabledUseCase: ObservePlayerClockEnabledUseCase,
     private val setPlayerClockEnabledAction: SetPlayerClockEnabledAction,
+    observeDesktopMpvPresentationUseCase: ObserveDesktopMpvPresentationUseCase? = null,
+    private val setDesktopMpvPresentationAction: SetDesktopMpvPresentationAction? = null,
     observeRememberLastLibraryViewUseCase: ObserveRememberLastLibraryViewUseCase,
     private val setRememberLastLibraryViewAction: SetRememberLastLibraryViewAction,
     observeTileSizeUseCase: ObserveTileSizeUseCase,
@@ -202,6 +211,7 @@ class SettingsViewModel(
     private val imageQuality = observeImageQualityUseCase()
     private val pictureInPictureEnabled = observePictureInPictureEnabledUseCase()
     private val playerClockEnabled = observePlayerClockEnabledUseCase()
+    private val desktopMpvPresentation = observeDesktopMpvPresentationUseCase?.invoke()
     private val rememberLastLibraryView = observeRememberLastLibraryViewUseCase()
     private val playerDeviceSettings = observePlayerDeviceSettingsUseCase()
     private val logCollectionState = getLogCollectionStateUseCase?.invoke()
@@ -228,6 +238,7 @@ class SettingsViewModel(
                 imageQuality = imageQuality.value,
                 pictureInPictureEnabled = pictureInPictureEnabled.value,
                 playerClockEnabled = playerClockEnabled.value,
+                desktopMpvPresentation = desktopMpvPresentation?.value,
                 rememberLastLibraryView = rememberLastLibraryView.value,
                 playerDeviceSettings = playerDeviceSettings.value,
                 playerDevicePolicy = null,
@@ -319,6 +330,7 @@ class SettingsViewModel(
         observeImageQuality()
         observePictureInPicture()
         observePlayerClock()
+        observeDesktopMpvPresentation()
         observeRememberLastLibraryView()
         observePlayerDeviceSettings()
         observeLogCollection()
@@ -733,6 +745,30 @@ class SettingsViewModel(
         rememberLastLibraryViewWriter.submit(enabled)
     }
 
+    /**
+     * The store publishes the selection only after a durable write; nothing is shown optimistically.
+     * Its pending save outlives this screen and admits no other selection, so a reopened Settings
+     * stays disabled until that save settles.
+     */
+    fun setDesktopMpvPresentation(presentation: DesktopMpvPresentation) {
+        val select = setDesktopMpvPresentationAction ?: return
+        // The store's current value, not this screen's collected copy, so a pending save is never missed.
+        val presentationState = desktopMpvPresentation?.value ?: return
+        if (presentationState.isSaving || !presentationState.isSelectorEnabled) return
+        _state.update { state -> state.copy(desktopMpvPresentationError = false) }
+        if (presentationState.selected == presentation) return
+        viewModelScope.launch {
+            try {
+                withContext(workDispatcher) { select(presentation) }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Throwable) {
+                logSettingsFailure("desktop-mpv-presentation-save", DiagnosticOperation.SetDesktopMpvPresentation, exception)
+                _state.update { state -> state.copy(desktopMpvPresentationError = true) }
+            }
+        }
+    }
+
     fun setOpenSubtitlesApiKey(
         value: String,
         onSuccess: () -> Unit = {},
@@ -1062,6 +1098,15 @@ class SettingsViewModel(
         viewModelScope.launch {
             playerClockEnabled.collect { enabled ->
                 _state.update { current -> current.copy(playerClockEnabled = enabled) }
+            }
+        }
+    }
+
+    private fun observeDesktopMpvPresentation() {
+        val presentation = desktopMpvPresentation ?: return
+        viewModelScope.launch {
+            presentation.collect { value ->
+                _state.update { current -> current.copy(desktopMpvPresentation = value) }
             }
         }
     }

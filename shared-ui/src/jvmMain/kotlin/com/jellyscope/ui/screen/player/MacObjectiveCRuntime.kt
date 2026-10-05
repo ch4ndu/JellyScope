@@ -155,6 +155,22 @@ internal object MacObjectiveCRuntime {
         binding.sendVoidReturnRect(receiver, selector, frame)
     }
 
+    fun sendVoidReturnSize(
+        receiver: Pointer,
+        selector: Pointer,
+        size: NSSize.ByValue,
+    ) {
+        binding.sendVoidReturnSize(receiver, selector, size)
+    }
+
+    fun sendVoidReturnUnsignedNativeLong(
+        receiver: Pointer,
+        selector: Pointer,
+        value: NativeLong,
+    ) {
+        binding.sendVoidReturnUnsignedNativeLong(receiver, selector, value)
+    }
+
     fun sendVoidReturnPointerSignedNativeLongAndNullablePointer(
         receiver: Pointer,
         selector: Pointer,
@@ -288,6 +304,18 @@ private interface MacObjectiveCRuntimeBinding : Library {
         receiver: Pointer,
         selector: Pointer,
         frame: NSRect.ByValue,
+    )
+
+    fun sendVoidReturnSize(
+        receiver: Pointer,
+        selector: Pointer,
+        size: NSSize.ByValue,
+    )
+
+    fun sendVoidReturnUnsignedNativeLong(
+        receiver: Pointer,
+        selector: Pointer,
+        value: NativeLong,
     )
 
     fun sendVoidReturnPointerSignedNativeLongAndNullablePointer(

@@ -1,0 +1,62 @@
+--- a/video/out/vulkan/context_moltenvk.m
++++ b/video/out/vulkan/context_moltenvk.m
+@@ -17,11 +17,13 @@
+ 
+ #include <CoreGraphics/CoreGraphics.h>
+ #include <QuartzCore/CAMetalLayer.h>
+-#include <MoltenVK/mvk_vulkan.h>
++#define VK_USE_PLATFORM_METAL_EXT
++#include <vulkan/vulkan.h>
+ 
+ #include "common.h"
+ #include "context.h"
+ #include "utils.h"
++#include "osdep/timer.h"
+ 
+ struct priv {
+     struct mpvk_ctx vk;
+@@ -77,13 +79,33 @@
+ {
+     struct priv *p = ctx->priv;
+     CGSize s = p->layer.drawableSize;
+-    ra_vk_ctx_resize(ctx, s.width, s.height);
+-    return true;
++    return ra_vk_ctx_resize(ctx, (int)s.width, (int)s.height);
+ }
+ 
+ static int moltenvk_control(struct ra_ctx *ctx, int *events, int request, void *arg)
+ {
+-    return VO_NOTIMPL;
++    if (request != VOCTRL_CHECK_EVENTS)
++        return VO_NOTIMPL;
++
++    struct priv *p = ctx->priv;
++    CGSize size = p->layer.drawableSize;
++    int width = (int)size.width;
++    int height = (int)size.height;
++    if (width > 0 && height > 0 &&
++        (width != ctx->vo->dwidth || height != ctx->vo->dheight)) {
++        if (!ra_vk_ctx_resize(ctx, width, height))
++            return VO_ERROR;
++        *events |= VO_EVENT_RESIZE | VO_EVENT_EXPOSE;
++    }
++    return VO_TRUE;
++}
++
++static void moltenvk_wait_events(struct ra_ctx *ctx, int64_t until_time_ns)
++{
++    // The caller owns the layer, so there are no mpv window events. Bound the
++    // existing VO wait to detect paused resizes without an extra thread or
++    // callbacks whose lifetime could outlive the borrowed layer.
++    vo_wait_default(ctx->vo, MPMIN(until_time_ns, mp_time_ns() + MP_TIME_MS_TO_NS(50)));
+ }
+ 
+ const struct ra_ctx_fns ra_ctx_vulkan_moltenvk = {
+@@ -91,6 +113,7 @@
+     .name           = "moltenvk",
+     .reconfig       = moltenvk_reconfig,
+     .control        = moltenvk_control,
++    .wait_events    = moltenvk_wait_events,
+     .init           = moltenvk_init,
+     .uninit         = moltenvk_uninit,
+ };

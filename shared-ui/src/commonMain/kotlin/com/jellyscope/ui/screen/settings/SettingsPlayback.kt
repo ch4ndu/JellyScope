@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.jellyscope.core.domain.model.DesktopMpvPresentation
+import com.jellyscope.core.domain.model.DesktopMpvPresentationAvailability
+import com.jellyscope.core.domain.model.DesktopMpvPresentationState
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.playback.IosPlaybackCompatibilityMode
@@ -30,9 +33,19 @@ import com.jellyscope.ui.generated.resources.settings_audio_language
 import com.jellyscope.ui.generated.resources.settings_autoplay_delay
 import com.jellyscope.ui.generated.resources.settings_autoplay_next
 import com.jellyscope.ui.generated.resources.settings_max_bitrate
+import com.jellyscope.ui.generated.resources.settings_mpv_presentation_launch_override
+import com.jellyscope.ui.generated.resources.settings_mpv_presentation_metal
+import com.jellyscope.ui.generated.resources.settings_mpv_presentation_metal_not_included
+import com.jellyscope.ui.generated.resources.settings_mpv_presentation_metal_unavailable
+import com.jellyscope.ui.generated.resources.settings_mpv_presentation_restart
+import com.jellyscope.ui.generated.resources.settings_mpv_presentation_save_error
+import com.jellyscope.ui.generated.resources.settings_mpv_presentation_saving
+import com.jellyscope.ui.generated.resources.settings_mpv_presentation_standard
+import com.jellyscope.ui.generated.resources.settings_mpv_presentation_title
 import com.jellyscope.ui.generated.resources.settings_picker_audio_language_subtitle
 import com.jellyscope.ui.generated.resources.settings_picker_autoplay_delay_subtitle
 import com.jellyscope.ui.generated.resources.settings_picker_bitrate_subtitle
+import com.jellyscope.ui.generated.resources.settings_picker_mpv_presentation_subtitle
 import com.jellyscope.ui.generated.resources.settings_picker_player_backend_subtitle
 import com.jellyscope.ui.generated.resources.settings_picker_segment_policy_subtitle
 import com.jellyscope.ui.generated.resources.settings_picker_subtitle_language_subtitle
@@ -102,8 +115,11 @@ internal fun PlaybackSettingsSection(
     openRow: SettingsRowId?,
     onOpenRow: (SettingsRowId) -> Unit,
     onDismiss: () -> Unit,
+    onSetDesktopMpvPresentation: (DesktopMpvPresentation) -> Unit = {},
 ) {
     val preferences = state.playbackPreferences
+    // Domain state decides visibility; there is no platform check here.
+    val mpvPresentation = state.desktopMpvPresentation?.takeIf(DesktopMpvPresentationState::isSelectorVisible)
     val selectedQualityPolicy = preferences.effectiveDefaultQualityPolicy()
     // The ViewModel owns backend order and availability.
     val backendChoices = state.playerBackendChoices
@@ -296,6 +312,25 @@ internal fun PlaybackSettingsSection(
                     onClick = { onOpenRow(SettingsRowId.PlayerBackend) },
                 )
             }
+            if (mpvPresentation != null) {
+                add {
+                    SettingsRow(
+                        icon = SettingsRowId.MpvPresentation.icon(),
+                        iconRole = SettingsRowId.MpvPresentation.iconRole(),
+                        title = stringResource(Res.string.settings_mpv_presentation_title),
+                        value = mpvPresentationLabel(mpvPresentation.selected),
+                        description =
+                            mpvPresentationStatus(
+                                presentation = mpvPresentation,
+                                saving = mpvPresentation.isSaving,
+                                saveFailed = state.desktopMpvPresentationError,
+                            ),
+                        trailing = SettingsRowTrailing.Chevron,
+                        onClick = { onOpenRow(SettingsRowId.MpvPresentation) },
+                        enabled = mpvPresentation.isSelectorEnabled && !mpvPresentation.isSaving,
+                    )
+                }
+            }
         }
 
     SettingsSectionCard(
@@ -368,6 +403,28 @@ internal fun PlaybackSettingsSection(
             selectedValue = selectedBackend,
             onOptionSelected = onSetDefaultPlayerBackend,
             onDismiss = onDismiss,
+        )
+    }
+    if (openRow == SettingsRowId.MpvPresentation && mpvPresentation?.isSelectorEnabled == true) {
+        val metalUnavailableReason = stringResource(Res.string.settings_mpv_presentation_metal_not_included)
+        SettingsOptionPicker(
+            title = stringResource(Res.string.settings_mpv_presentation_title),
+            subtitle = stringResource(Res.string.settings_picker_mpv_presentation_subtitle),
+            options =
+                DesktopMpvPresentation.entries.map { presentation ->
+                    SettingsPickerOption(
+                        value = presentation,
+                        label = mpvPresentationLabel(presentation),
+                        disabledReason =
+                            metalUnavailableReason.takeIf {
+                                presentation == DesktopMpvPresentation.Metal && !mpvPresentation.isMetalSelectable
+                            },
+                    )
+                },
+            selectedValue = mpvPresentation.selected,
+            onOptionSelected = onSetDesktopMpvPresentation,
+            onDismiss = onDismiss,
+            selectionInProgress = mpvPresentation.isSaving,
         )
     }
 }
@@ -680,6 +737,30 @@ private fun playerBackendLabel(backend: PlayerBackend): String =
         PlayerBackend.ExoPlayer -> stringResource(Res.string.settings_player_backend_exoplayer)
         PlayerBackend.Mpv -> stringResource(Res.string.settings_player_backend_mpv)
         PlayerBackend.LibVlc -> stringResource(Res.string.settings_player_backend_libvlc)
+    }
+
+@Composable
+private fun mpvPresentationLabel(presentation: DesktopMpvPresentation): String =
+    when (presentation) {
+        DesktopMpvPresentation.Standard -> stringResource(Res.string.settings_mpv_presentation_standard)
+        DesktopMpvPresentation.Metal -> stringResource(Res.string.settings_mpv_presentation_metal)
+    }
+
+@Composable
+private fun mpvPresentationStatus(
+    presentation: DesktopMpvPresentationState,
+    saving: Boolean,
+    saveFailed: Boolean,
+): String? =
+    when {
+        saving -> stringResource(Res.string.settings_mpv_presentation_saving)
+        saveFailed -> stringResource(Res.string.settings_mpv_presentation_save_error)
+        presentation.availability == DesktopMpvPresentationAvailability.LaunchOverride ->
+            stringResource(Res.string.settings_mpv_presentation_launch_override)
+        presentation.availability == DesktopMpvPresentationAvailability.MetalUnavailable ->
+            stringResource(Res.string.settings_mpv_presentation_metal_unavailable)
+        presentation.isRestartRequired -> stringResource(Res.string.settings_mpv_presentation_restart)
+        else -> null
     }
 
 @Composable

@@ -115,6 +115,13 @@ val macosSigningEnabled =
             value.toBooleanStrictOrNull()
                 ?: throw GradleException("jellyscope.macos.signing.enabled must be true or false")
         }.orElse(true)
+
+// Dual-runtime packaging names the `build-desktop-mpv-runtime.sh --metal` output
+// with this Gradle property; its presence is the only Metal request. It is
+// distinct from the same-named -D development override: it is never baked into
+// the app, which resolves Metal relative to its own resources.
+val desktopMpvMetalRuntimeDir = providers.gradleProperty("jellyscope.desktop.mpvMetalRuntimeDir")
+val desktopMpvMetalPackagingRequested = desktopMpvMetalRuntimeDir.isPresent
 val macosSigningDirectory = File(System.getProperty("user.home"), "Private/Keystores")
 val macosSigningPropertiesFile = macosSigningDirectory.resolve("macos-signing.properties")
 val macosSigningProperties =
@@ -219,6 +226,32 @@ val desktopMacInteropJvmArgs =
 val isMacOsDesktopBuild = composeAppResourcesPlatformDir.startsWith("macos-")
 
 val isAppleSiliconMacDesktopBuild = composeAppResourcesPlatformDir == "macos-arm64"
+// Only run/hotRun consume this pair. Production application/distribution
+// arguments and the pinned bundle preparation remain independent of it.
+val desktopMpvMetalExperimentJvmArgs =
+    providers.provider {
+        val flag = providers.systemProperty("jellyscope.desktop.mpvMetalExperiment").orNull
+        val runtimeDirectory = providers.systemProperty("jellyscope.desktop.mpvMetalRuntimeDir").orNull
+        if (flag == null && runtimeDirectory == null) {
+            emptyList<String>()
+        } else {
+            require(flag == "true" && !runtimeDirectory.isNullOrBlank()) {
+                "Metal experiment requires both explicit launch inputs."
+            }
+            require(isAppleSiliconMacDesktopBuild && (System.getProperty("os.version").substringBefore('.').toIntOrNull() ?: 0) >= 15) {
+                "Metal experiment requires macOS 15 or newer on arm64."
+            }
+            require(!desktopForceMpvOpenGlSurface.get()) { "Metal experiment conflicts with forced OpenGL presentation." }
+            val candidate = File(runtimeDirectory)
+            require(candidate.isAbsolute && candidate.isDirectory && candidate.resolve("libmpv.2.dylib").isFile) {
+                "Metal experiment requires an absolute candidate directory containing libmpv.2.dylib."
+            }
+            listOf(
+                "-Djellyscope.desktop.mpvMetalExperiment=true",
+                "-Djellyscope.desktop.mpvMetalRuntimeDir=${candidate.canonicalPath}",
+            )
+        }
+    }
 val desktopHotReloadJvmArgs =
     buildList {
         add("-Djellyscope.version=${desktopVersion.get()}")
@@ -307,6 +340,48 @@ val prepareDesktopVlcBundle =
         )
     }
 
+// Always runs: with the property it stages the isolated source-built Metal runtime
+// into <platform>/mpv-metal; without it, it removes only marker-owned Metal output
+// so a Standard-only package can never carry stale staging.
+val prepareDesktopMpvMetalBundle =
+    tasks.register<Exec>("prepareDesktopMpvMetalBundle") {
+        group = "build"
+        description = "Stages or removes the isolated source-built Metal mpv runtime beside the Standard graph."
+        dependsOn(prepareDesktopAppResources)
+        mustRunAfter(prepareDesktopMpvBundle, prepareDesktopVlcBundle)
+        inputs.property("mpvMetalRuntimeDir", desktopMpvMetalRuntimeDir.orElse(""))
+        inputs.files(
+            rootProject.layout.projectDirectory.file("scripts/prepare-desktop-mpv-metal-bundle.sh"),
+            rootProject.layout.projectDirectory.file("scripts/prepare-desktop-mpv-bundle.sh"),
+            rootProject.layout.projectDirectory.file("scripts/build-desktop-mpv-runtime.sh"),
+        )
+        inputs.dir(rootProject.layout.projectDirectory.dir("scripts/desktop-mpv-metal"))
+        outputs.upToDateWhen { false }
+        doFirst {
+            val script =
+                rootProject.layout.projectDirectory
+                    .file("scripts/prepare-desktop-mpv-metal-bundle.sh")
+                    .asFile.absolutePath
+            val resources = preparedDesktopAppResourcesPlatformDir.get().asFile.absolutePath
+            val runtimeDir = desktopMpvMetalRuntimeDir.orNull
+            if (runtimeDir == null) {
+                commandLine("bash", script, "--clean", resources)
+            } else {
+                if (!isAppleSiliconMacDesktopBuild) {
+                    throw GradleException("Metal mpv packaging supports macOS arm64 only.")
+                }
+                val candidate = File(runtimeDir.trim())
+                if (!candidate.isAbsolute) {
+                    throw GradleException(
+                        "jellyscope.desktop.mpvMetalRuntimeDir must be the absolute build-desktop-mpv-runtime.sh --metal output path.",
+                    )
+                }
+                // Not canonicalized: the stager itself rejects symlinked candidate paths.
+                commandLine("bash", script, candidate.toPath().normalize().toString(), resources)
+            }
+        }
+    }
+
 fun validateDesktopNativeBundle(
     script: String,
     resources: File,
@@ -332,6 +407,24 @@ val verifyDesktopMpvBundle =
                 "prepare-desktop-mpv-bundle.sh",
                 preparedDesktopAppResourcesPlatformDir.get().asFile,
             )
+        }
+    }
+
+// Mandatory for every Metal-consuming route: requested staging must validate as
+// the source-built graph, and Standard-only resources must carry none.
+val verifyDesktopMpvMetalBundle =
+    tasks.register("verifyDesktopMpvMetalBundle") {
+        group = "verification"
+        description = "Verifies the requested source-built Metal mpv graph, or its absence, in prepared resources."
+        dependsOn(prepareDesktopMpvMetalBundle)
+        inputs.property("mpvMetalRuntimeDir", desktopMpvMetalRuntimeDir.orElse(""))
+        doLast {
+            val resources = preparedDesktopAppResourcesPlatformDir.get().asFile
+            if (desktopMpvMetalPackagingRequested) {
+                validateDesktopNativeBundle("prepare-desktop-mpv-metal-bundle.sh", resources)
+            } else if (resources.resolve("mpv-metal").exists()) {
+                throw GradleException("Standard-only prepared resources unexpectedly contain a Metal runtime.")
+            }
         }
     }
 
@@ -476,6 +569,46 @@ val verifyPackagedDesktopVlcBundleMain =
 val verifyPackagedDesktopVlcBundleMainRelease =
     registerVerifyPackagedDesktopVlcBundle("verifyPackagedDesktopVlcBundleMainRelease", "main-release")
 
+// A requested dual-runtime image must carry the validated source-built Metal
+// graph; a Standard-only image must carry none, whatever an earlier build staged.
+fun registerVerifyPackagedDesktopMpvMetalBundle(
+    taskName: String,
+    binariesSubdir: String,
+) = tasks.register(taskName) {
+    group = "verification"
+    description = "Checks that the packaged $binariesSubdir app image carries exactly the requested Metal runtime state."
+    inputs.property("mpvMetalRuntimeDir", desktopMpvMetalRuntimeDir.orElse(""))
+
+    doLast {
+        val appImageRoot =
+            layout.buildDirectory
+                .dir("compose/binaries/$binariesSubdir")
+                .get()
+                .asFile
+        val appDirs =
+            appImageRoot
+                .walkTopDown()
+                .filter { file -> file.isDirectory && file.name.endsWith(".app") }
+                .toList()
+        if (appDirs.isEmpty()) {
+            throw GradleException("No packaged .app image found under ${appImageRoot.relativeTo(projectDir)}.")
+        }
+        appDirs.forEach { appDir ->
+            val resources = appDir.resolve("Contents/app/resources")
+            if (desktopMpvMetalPackagingRequested) {
+                validateDesktopNativeBundle("prepare-desktop-mpv-metal-bundle.sh", resources)
+            } else if (resources.resolve("mpv-metal").exists()) {
+                throw GradleException("Standard-only app ${appDir.name} unexpectedly contains a Metal runtime.")
+            }
+        }
+    }
+}
+
+val verifyPackagedDesktopMpvMetalBundleMain =
+    registerVerifyPackagedDesktopMpvMetalBundle("verifyPackagedDesktopMpvMetalBundleMain", "main")
+val verifyPackagedDesktopMpvMetalBundleMainRelease =
+    registerVerifyPackagedDesktopMpvMetalBundle("verifyPackagedDesktopMpvMetalBundleMainRelease", "main-release")
+
 // Notarization requires every bundled Mach-O to carry a Developer ID + hardened-runtime
 // signature. Compose signs the app bundle but not the vendored libmpv dylibs, so sign them
 // in the prepared resources (inside-out) before packaging copies them into the .app. Gated on
@@ -488,6 +621,8 @@ val signBundledMpvDylibs =
         // The signing walk covers the whole prepared-resources tree, so the VLC
         // bundle must exist before it runs or its dylibs ship unsigned.
         dependsOn(prepareDesktopVlcBundle)
+        // Metal dylibs are signed only after their source-built staging validates.
+        dependsOn(verifyDesktopMpvMetalBundle)
         onlyIf { macosSigningConfigured }
         inputs.property("macosSigningEnabled", macosSigningEnabled)
         doLast {
@@ -724,8 +859,15 @@ val stageMacosReleaseSourceArtifacts =
             rootProject.layout.projectDirectory.file("scripts/prepare-macos-release-sources.sh"),
             rootProject.layout.projectDirectory.file("scripts/macos-source-bundle/manifest-macos-arm64.txt"),
             rootProject.layout.projectDirectory.file("scripts/desktop-mpv-bundle/sources-macos-arm64.tsv"),
+            rootProject.layout.projectDirectory.file("scripts/desktop-mpv-metal/sources-macos-arm64.tsv"),
             rootProject.layout.projectDirectory.file("scripts/vlc-bundle/sources-3.0.24.tsv"),
         )
+        inputs.property("mpvMetalRuntimeDir", desktopMpvMetalRuntimeDir.orElse(""))
+        if (desktopMpvMetalPackagingRequested) {
+            // Direct invocations carry the packageReleaseDmg gates; the existing app and DMG are still required.
+            dependsOn(verifyDesktopMpvMetalBundle)
+            dependsOn(rootProject.tasks.named("verifyMacosArm64BinaryLicenseMetadataReadiness"))
+        }
         outputs.upToDateWhen { false }
         doFirst {
             val outputDir = macosReleaseDmgOutputDir.get().asFile
@@ -734,15 +876,18 @@ val stageMacosReleaseSourceArtifacts =
                 throw GradleException("No macOS release DMG was found under ${outputDir.relativeTo(projectDir)}.")
             }
             commandLine(
-                rootProject.layout.projectDirectory
-                    .file("scripts/prepare-macos-release-sources.sh")
-                    .asFile
-                    .absolutePath,
-                outputDir.absolutePath,
-                layout.buildDirectory
-                    .dir("compose/binaries/main-release/app/JellyScope.app/Contents/app/resources")
-                    .get()
-                    .asFile.absolutePath,
+                listOfNotNull(
+                    rootProject.layout.projectDirectory
+                        .file("scripts/prepare-macos-release-sources.sh")
+                        .asFile
+                        .absolutePath,
+                    outputDir.absolutePath,
+                    layout.buildDirectory
+                        .dir("compose/binaries/main-release/app/JellyScope.app/Contents/app/resources")
+                        .get()
+                        .asFile.absolutePath,
+                    "--with-mpv-metal".takeIf { desktopMpvMetalPackagingRequested },
+                ),
             )
         }
     }
@@ -813,15 +958,18 @@ afterEvaluate {
         // custom values appear twice there even though this task list is unique.
         if (isMacOsDesktopBuild) {
             dependsOn(prepareDesktopMpvBundle)
+            // Development launches share prepared resources; only verified Metal staging, never stale output.
+            dependsOn(verifyDesktopMpvMetalBundle)
         }
         val launch = this as JavaForkOptions
-        launch.setJvmArgs((launch.jvmArgs.orEmpty() + desktopHotReloadJvmArgs).distinct())
+        launch.setJvmArgs((launch.jvmArgs.orEmpty() + desktopHotReloadJvmArgs + desktopMpvMetalExperimentJvmArgs.get()).distinct())
     }
     tasks.named<JavaExec>("run").configure {
         // Compose Desktop registers and finalizes its run task after the build
         // script, so attach development-only flags immediately before execution.
         if (isMacOsDesktopBuild) {
             dependsOn(prepareDesktopMpvBundle)
+            dependsOn(verifyDesktopMpvMetalBundle)
         }
         doFirst {
             if (isMacOsDesktopBuild) {
@@ -832,6 +980,7 @@ afterEvaluate {
             }
             // The development run task is the debug desktop entry; release launchers omit this flag.
             jvmArgs("-Djellyscope.debug=true")
+            jvmArgs(desktopMpvMetalExperimentJvmArgs.get())
             desktopInitialPlaybackItemId
                 .get()
                 .takeIf { value -> value.isNotBlank() }
@@ -874,9 +1023,14 @@ tasks.configureEach {
             .withPropertyName("preparedAppResources")
             .withPathSensitivity(PathSensitivity.RELATIVE)
         dependsOn(verifyDesktopMpvBundle)
+        dependsOn(verifyDesktopMpvMetalBundle)
         dependsOn(signBundledMpvDylibs)
         if (isMacOsDesktopBuild) {
             dependsOn(prepareDesktopVlcBundle)
+        }
+        if (desktopMpvMetalPackagingRequested) {
+            // Readiness depends only on native, JVM and metadata preparation, never on packaging.
+            dependsOn(rootProject.tasks.named("verifyMacosArm64BinaryLicenseMetadataReadiness"))
         }
     }
     if (name == "packageReleaseDmg") {
@@ -926,20 +1080,44 @@ tasks.configureEach {
         finalizedBy(verifyPackagedDesktopMpvBundleMain)
         finalizedBy(verifyPackagedDesktopLicenseMetadataMain)
         finalizedBy(verifyPackagedDesktopVlcBundleMain)
+        finalizedBy(verifyPackagedDesktopMpvMetalBundleMain)
     }
     if (name == "createReleaseDistributable") {
         finalizedBy(verifyPackagedDesktopMpvBundleMainRelease)
         finalizedBy(verifyPackagedDesktopLicenseMetadataMainRelease)
         finalizedBy(verifyPackagedDesktopVlcBundleMainRelease)
+        finalizedBy(verifyPackagedDesktopMpvMetalBundleMainRelease)
     }
     if (name == "prepareAppResources") {
         dependsOn(prepareDesktopMpvBundle)
         if (isMacOsDesktopBuild) {
             dependsOn(prepareDesktopVlcBundle)
         }
+        // Stage or clean, then verify, Metal before Compose copies the prepared resources.
+        dependsOn(verifyDesktopMpvMetalBundle)
         // Sign the bundled dylibs (when credentialed) before Compose copies the
         // prepared resources into the app image, so the packaged copies are signed.
         dependsOn(signBundledMpvDylibs)
+    }
+}
+
+// A requested Metal graph may take any ordinary run, package, readiness or
+// signing route, but never without its source-built verifier. There is no opt-out.
+gradle.taskGraph.whenReady {
+    if (!desktopMpvMetalPackagingRequested) return@whenReady
+    val consumerNames =
+        desktopPackageTaskNamesRequiringMpv +
+            setOf("run", "hotRun", "prepareAppResources", "signBundledMpvDylibs", "stageMacosReleaseSourceArtifacts")
+    val consumers =
+        allTasks.filter { task ->
+            task.project == project && (task.name in consumerNames || task.name.startsWith("notarize"))
+        }
+    val verified = allTasks.any { task -> task.project == project && task.name == verifyDesktopMpvMetalBundle.name }
+    if (consumers.isNotEmpty() && !verified) {
+        throw GradleException(
+            "Requested Metal mpv packaging requires verifyDesktopMpvMetalBundle; missing for: " +
+                consumers.joinToString { task -> task.path },
+        )
     }
 }
 

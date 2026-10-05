@@ -99,8 +99,12 @@ internal interface LibMpv : Library {
 
         private fun loadLibMpv(): LibMpv {
             val bundledDir = System.getProperty("compose.application.resources.dir")
+            // Fails before any load when startup never froze the runtime.
+            val metalLibrary = DesktopMpvRuntime.active().metalLibrary
             val library =
-                if (
+                if (metalLibrary != null) {
+                    metalLibrary.absolutePath
+                } else if (
                     com.sun.jna.Platform
                         .isMac()
                 ) {

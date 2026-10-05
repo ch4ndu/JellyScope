@@ -139,6 +139,7 @@ mkdir -p \
     "$output_dir/platform-notices/android" \
     "$output_dir/platform-notices/ios-vlckit" \
     "$output_dir/platform-notices/macos-mpv" \
+    "$output_dir/platform-notices/macos-mpv-metal" \
     "$output_dir/platform-notices/macos-vlc"
 touch "$output_dir/.jellyscope-license-metadata"
 
@@ -165,6 +166,8 @@ cp "$repo_root/scripts/vlc-bundle/LGPL-2.1.txt" \
 cp "$repo_root/scripts/macos-source-bundle/manifest-macos-arm64.txt" "$output_dir/dependency-inputs/macos-source-manifest.txt"
 cp "$repo_root/scripts/build-desktop-mpv-runtime.sh" "$output_dir/dependency-inputs/build-desktop-mpv-runtime.sh"
 cp -R "$repo_root/scripts/desktop-mpv-bundle/." "$output_dir/platform-notices/macos-mpv/"
+# Notices for the optional source-built Metal graph; readiness checks them only when requested.
+cp -R "$repo_root/scripts/desktop-mpv-metal/." "$output_dir/platform-notices/macos-mpv-metal/"
 cp -R "$repo_root/scripts/vlc-bundle/." "$output_dir/platform-notices/macos-vlc/"
 
 echo "Prepared release license metadata for $revision (tracked-worktree-dirty=$dirty) at $output_dir"

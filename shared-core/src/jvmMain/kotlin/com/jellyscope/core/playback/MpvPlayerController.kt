@@ -106,7 +106,7 @@ class MpvPlayerController private constructor(
         { LibMpv.INSTANCE },
         localSubtitleFileStore,
         volumeStore,
-        presentationPreference,
+        DesktopMpvRuntime.active().presentationPreference(presentationPreference),
         allowInsecureDesktopTls,
         DesktopMpvNetworkPolicy(),
         engineLeaseClockNanos,
@@ -160,10 +160,10 @@ class MpvPlayerController private constructor(
         videoOutputObservationsChannel.receiveAsFlow()
     private val _presentationState =
         MutableStateFlow<MpvPresentationState>(
-            if (presentationPreference == MpvPresentationPreference.MacOsOpenGl) {
-                MpvPresentationState.WaitingForOpenGlSurface
-            } else {
-                MpvPresentationState.SoftwareActive()
+            when (presentationPreference) {
+                MpvPresentationPreference.MacOsOpenGl -> MpvPresentationState.WaitingForOpenGlSurface
+                MpvPresentationPreference.MacOsNativeMetal -> MpvPresentationState.WaitingForNativeSurface
+                MpvPresentationPreference.Software -> MpvPresentationState.SoftwareActive()
             },
         )
     override val presentationState: StateFlow<MpvPresentationState> = _presentationState.asStateFlow()
@@ -214,7 +214,7 @@ class MpvPlayerController private constructor(
     private val onFrameAvailable = AtomicReference<(() -> Unit)?>(null)
     private val renderLock = Any()
     private val frameFormatMemory = nativeString(SW_FRAME_FORMAT)
-    private val renderUpdateCallback =
+    private val renderUpdateCallback by lazy {
         LibMpv.MpvRenderUpdateFn {
             if (!released.get()) {
                 if (openGlSurface != null) {
@@ -225,6 +225,7 @@ class MpvPlayerController private constructor(
                 }
             }
         }
+    }
 
     @Volatile
     private var mpv: LibMpv? = null
@@ -240,6 +241,9 @@ class MpvPlayerController private constructor(
 
     @Volatile
     private var openGlSurface: MpvOpenGlRenderSurface? = null
+
+    @Volatile
+    private var nativeSurface: MpvNativeMetalSurface? = null
 
     @Volatile
     private var requestedHardwareDecodePolicy = MPV_PRODUCTION_HARDWARE_DECODE_POLICY
@@ -332,6 +336,9 @@ class MpvPlayerController private constructor(
     private var activeOpenGlSurfaceGeneration: Long? = null
 
     @Volatile
+    private var activeNativeSurfaceGeneration: Long? = null
+
+    @Volatile
     private var fallbackReason: MpvOpenGlSurfaceUnavailableReason? = null
     private var fallbackJob: Job? = null
     private var initializationJob: Job? = null
@@ -406,6 +413,7 @@ class MpvPlayerController private constructor(
         val surface: MpvOpenGlRenderSurface?,
         val getProcAddressCallback: LibMpv.MpvOpenGlGetProcAddressFn?,
         val initParams: MpvOpenGlInitParams?,
+        val nativeSurface: MpvNativeMetalSurface? = null,
     )
 
     private class OpenGlRenderScheduler(
@@ -587,6 +595,9 @@ class MpvPlayerController private constructor(
                     return@synchronized true
                 }
                 when (_presentationState.value) {
+                    MpvPresentationState.WaitingForNativeSurface,
+                    is MpvPresentationState.InitializingNative,
+                    -> startNativeSurfaceDeadline()
                     MpvPresentationState.WaitingForOpenGlSurface,
                     is MpvPresentationState.InitializingOpenGl,
                     -> startOpenGlSurfaceFallbackDeadline()
@@ -597,6 +608,7 @@ class MpvPlayerController private constructor(
                     MpvPresentationState.Failed,
                     MpvPresentationState.Released,
                     is MpvPresentationState.OpenGlActive,
+                    is MpvPresentationState.NativeActive,
                     -> Unit
                 }
                 return@synchronized true
@@ -668,6 +680,13 @@ class MpvPlayerController private constructor(
                 var playlistEntryId: Long? = null
                 if (loadResult == 0) {
                     playlistEntryId = currentPlaylistEntryId()
+                    if (presentationPreference == MpvPresentationPreference.MacOsNativeMetal && playlistEntryId == null) {
+                        failNativePresentation(
+                            activeNativeSurfaceGeneration,
+                            MpvNativeSurfaceUnavailableReason.OutputFailed,
+                        )
+                        return@withEngineLease
+                    }
                     completionReadiness.bindPlaylistEntry(generation, playlistEntryId)
                     if (externalAttachment != null) {
                         playlistEntryId?.let { entryId ->
@@ -683,6 +702,14 @@ class MpvPlayerController private constructor(
                     }
                 }
                 if (loadResult != 0) {
+                    if (presentationPreference == MpvPresentationPreference.MacOsNativeMetal) {
+                        failNativePresentation(
+                            activeNativeSurfaceGeneration,
+                            MpvNativeSurfaceUnavailableReason.OutputFailed,
+                            nativeCode = loadResult.toLong(),
+                        )
+                        return@withEngineLease
+                    }
                     val reason =
                         runCatching { active.lib.mpv_error_string(loadResult)?.getString(0) }
                             .getOrNull()
@@ -927,9 +954,18 @@ class MpvPlayerController private constructor(
             pendingReplacedOfflineLease = null
         }
         scheduleOpenGlTeardown(
-            MpvOpenGlDetachCallback {
-                detachedOfflineLease?.release()
-                releasePendingOfflineLeaseReleases()
+            MpvOpenGlDetachCallback { disposition ->
+                if (
+                    disposition == MpvOpenGlDetachDisposition.Terminated ||
+                    presentationPreference != MpvPresentationPreference.MacOsNativeMetal
+                ) {
+                    detachedOfflineLease?.release()
+                    releasePendingOfflineLeaseReleases()
+                } else {
+                    detachedOfflineLease?.let { lease ->
+                        synchronized(engineLock) { pendingOfflineLeaseReleases += lease }
+                    }
+                }
             },
         )
         offlinePath = null
@@ -1080,6 +1116,165 @@ class MpvPlayerController private constructor(
         scheduleOpenGlRender(force = true)
     }
 
+    override fun attachNativeSurface(surface: MpvNativeMetalSurface) {
+        val admission =
+            synchronized(engineLock) {
+                if (
+                    presentationPreference != MpvPresentationPreference.MacOsNativeMetal ||
+                    released.get() ||
+                    openGlTeardownScheduled ||
+                    quarantinedEngine != null ||
+                    engineAwaitingDestroy != null ||
+                    ctx != null ||
+                    nativeSurface != null ||
+                    _presentationState.value != MpvPresentationState.WaitingForNativeSurface
+                ) {
+                    return@synchronized null
+                }
+                nativeSurface = surface
+                activeNativeSurfaceGeneration = surface.generation
+                engineInitializationToken = nextPositiveGeneration(engineInitializationToken)
+                val token = engineInitializationToken
+                _presentationState.value = MpvPresentationState.InitializingNative(surface.generation)
+                val job =
+                    stateScope.launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
+                        val initialized = initializeNativeEngine(surface, token)
+                        val becameActive =
+                            synchronized(engineLock) {
+                                if (
+                                    initialized &&
+                                    !released.get() &&
+                                    token == engineInitializationToken &&
+                                    activeNativeSurfaceGeneration == surface.generation &&
+                                    ctx != null &&
+                                    !openGlTeardownScheduled &&
+                                    quarantinedEngine == null
+                                ) {
+                                    _presentationState.value = MpvPresentationState.NativeActive(surface.generation)
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                        if (becameActive) replayPendingInitializationIntent()
+                    }
+                InitializationAdmission(fallbackJob, initializationJob, job).also {
+                    fallbackJob = null
+                    initializationJob = job
+                }
+            }
+        if (admission == null) {
+            // A duplicate callback must never close an admitted or quarantined layer.
+            val retained =
+                synchronized(engineLock) {
+                    surface.generation == activeNativeSurfaceGeneration ||
+                        surface === nativeSurface ||
+                        surface === engineAwaitingDestroy?.renderState?.nativeSurface ||
+                        surface === quarantinedEngine?.renderState?.nativeSurface
+                }
+            if (!retained) surface.close()
+            return
+        }
+        admission.previousFallbackJob?.cancel()
+        admission.previousInitializationJob?.cancel()
+        admission.job.start()
+    }
+
+    override fun nativeSurfaceUnavailable(
+        generation: Long,
+        reason: MpvNativeSurfaceUnavailableReason,
+    ) {
+        failNativePresentation(generation, reason)
+    }
+
+    override fun detachNativeSurface(
+        generation: Long,
+        onDetached: MpvOpenGlDetachCallback,
+    ) {
+        val ownsSurface =
+            synchronized(engineLock) {
+                (activeNativeSurfaceGeneration == generation).also { matches ->
+                    if (matches) engineInitializationToken = nextPositiveGeneration(engineInitializationToken)
+                }
+            }
+        if (!ownsSurface) {
+            onDetached(
+                if (quarantinedEngine?.renderState?.nativeSurface?.generation == generation) {
+                    MpvOpenGlDetachDisposition.Quarantined
+                } else {
+                    MpvOpenGlDetachDisposition.Terminated
+                },
+            )
+            return
+        }
+        scheduleOpenGlTeardown(
+            MpvOpenGlDetachCallback { disposition ->
+                synchronized(engineLock) {
+                    if (!released.get()) _presentationState.value = MpvPresentationState.Failed
+                }
+                onDetached(disposition)
+            },
+        )
+    }
+
+    private fun failNativePresentation(
+        generation: Long?,
+        reason: MpvNativeSurfaceUnavailableReason,
+        throwable: Throwable? = null,
+        nativeCode: Long? = null,
+    ) {
+        val deadline =
+            synchronized(lifecycleLock) {
+                synchronized(engineLock) {
+                    if (
+                        presentationPreference != MpvPresentationPreference.MacOsNativeMetal ||
+                        released.get() ||
+                        _presentationState.value == MpvPresentationState.Failed ||
+                        (generation != null && activeNativeSurfaceGeneration != null && activeNativeSurfaceGeneration != generation)
+                    ) {
+                        return
+                    }
+                    engineInitializationToken = nextPositiveGeneration(engineInitializationToken)
+                    pendingPrepareAwaitingEngine = false
+                    pendingPrepareGeneration = null
+                    _presentationState.value = MpvPresentationState.Failed
+                    stopping.set(true)
+                    loaded.set(false)
+                    completionReadiness.invalidate()
+                    clearPendingExternalSubtitleAttachmentLocked()
+                    expectedSubtitleTarget = null
+                    playIntent = false
+                    initialAudioGate = false
+                    audioActivationConfirmation.clear()
+                    subtitleActivationConfirmation.clear()
+                    // Presentation failures must not enter the shared network/backend recovery ladder.
+                    _playbackState.update {
+                        it.copy(status = PlaybackStatus.Failed, bufferedPositionMs = 0L, error = PlaybackError.Unknown)
+                    }
+                    fallbackJob.also { fallbackJob = null }
+                }
+            }
+        deadline?.cancel()
+        logMpvDiagnostic(
+            when (reason) {
+                MpvNativeSurfaceUnavailableReason.OptionRejected,
+                MpvNativeSurfaceUnavailableReason.InitializationFailed,
+                -> PlaybackDiagnosticStage.NativePlayer
+                else -> PlaybackDiagnosticStage.Render
+            },
+            when (reason) {
+                MpvNativeSurfaceUnavailableReason.SurfaceTimeout -> PlaybackDiagnosticEvent.Timeout
+                MpvNativeSurfaceUnavailableReason.HostUnavailable,
+                MpvNativeSurfaceUnavailableReason.OptionRejected,
+                -> PlaybackDiagnosticEvent.Rejected
+                else -> PlaybackDiagnosticEvent.Failed
+            },
+            throwable = throwable,
+            nativeCode = nativeCode,
+        )
+        scheduleOpenGlTeardown()
+    }
+
     override fun resize(
         widthPx: Int,
         heightPx: Int,
@@ -1203,6 +1398,105 @@ class MpvPlayerController private constructor(
         onFrameAvailable.set(listener)
     }
 
+    private fun initializeNativeEngine(
+        surface: MpvNativeMetalSurface,
+        token: Long,
+    ): Boolean {
+        var created: ActiveMpv? = null
+        var installed = false
+        try {
+            check(surface.generation > 0L && surface.metalLayerAddress != 0L) { "Invalid native Metal surface" }
+            val lib = loadMpv()
+            val context = checkNotNull(lib.mpv_create()) { "Native mpv context creation failed" }
+            created = ActiveMpv(lib, context)
+            val options =
+                MPV_COMMON_INIT_OPTIONS.filterNot { it.first == "hwdec" } +
+                    MPV_NATIVE_METAL_INIT_OPTIONS + tlsInitializationOptions() +
+                    ("wid" to surface.metalLayerAddress.toString())
+            for ((name, value) in options) {
+                val result = lib.mpv_set_option_string(context, name, value)
+                if (result != 0) {
+                    if (isCurrentInitialization(token)) {
+                        failNativePresentation(
+                            surface.generation,
+                            MpvNativeSurfaceUnavailableReason.OptionRejected,
+                            nativeCode = result.toLong(),
+                        )
+                    }
+                    return false
+                }
+            }
+            MPV_BEST_EFFORT_OPTIONS.forEach { (name, value) -> setBestEffortMpvOption(lib, context, name, value) }
+            val result = lib.mpv_initialize(context)
+            if (result != 0) {
+                if (isCurrentInitialization(token)) {
+                    failNativePresentation(
+                        surface.generation,
+                        MpvNativeSurfaceUnavailableReason.InitializationFailed,
+                        nativeCode = result.toLong(),
+                    )
+                }
+                return false
+            }
+            // Until publication, this initializer owns the engine. Teardown joins it
+            // before closing the layer, including cancellation during native calls.
+            applyTimingOffsets(lib, context)
+            applyFillCrop(lib, context)
+            applyVolumeState(lib, context, _volumeState.value)
+            installed =
+                synchronized(engineLock) {
+                    if (
+                        released.get() ||
+                        token != engineInitializationToken ||
+                        openGlTeardownScheduled ||
+                        activeNativeSurfaceGeneration != surface.generation ||
+                        nativeSurface !== surface ||
+                        ctx != null ||
+                        quarantinedEngine != null ||
+                        engineAwaitingDestroy != null
+                    ) {
+                        false
+                    } else {
+                        mpv = lib
+                        ctx = context
+                        requestedHardwareDecodePolicy = MpvHardwareDecodePolicy.Disabled
+                        true
+                    }
+                }
+            if (!installed) return false
+            startStatePolling(token)
+            return true
+        } catch (throwable: Throwable) {
+            if (isCurrentInitialization(token)) {
+                failNativePresentation(surface.generation, MpvNativeSurfaceUnavailableReason.InitializationFailed, throwable)
+            }
+            return false
+        } finally {
+            if (!installed) {
+                created?.let { active ->
+                    destroyEngine(
+                        PendingEngineDestroy(
+                            active.lib,
+                            active.ctx,
+                            OpenGlRenderState(null, null, null, null, null, null, nativeSurface = surface),
+                            finishesOpenGlTeardown = false,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun tlsInitializationOptions(): List<Pair<String, String>> =
+        if (allowInsecureDesktopTls) {
+            listOf("tls-verify" to "no")
+        } else {
+            listOf(
+                "tls-verify" to "yes",
+                "tls-ca-file" to desktopMpvNetworkPolicy.ensureTrustBundleBlocking().absolutePath,
+            )
+        }
+
     private fun initializeEngine(
         preference: MpvPresentationPreference,
         surface: MpvOpenGlRenderSurface?,
@@ -1233,21 +1527,12 @@ class MpvPlayerController private constructor(
             )
 
         val tlsOptions =
-            if (allowInsecureDesktopTls) {
-                listOf("tls-verify" to "no")
-            } else {
-                val trustBundle =
-                    try {
-                        desktopMpvNetworkPolicy.ensureTrustBundleBlocking()
-                    } catch (throwable: Throwable) {
-                        failEngineInitialization(preference, "mpv initialization failed while preparing TLS verification", throwable)
-                        lib.mpv_terminate_destroy(context)
-                        return false
-                    }
-                listOf(
-                    "tls-verify" to "yes",
-                    "tls-ca-file" to trustBundle.absolutePath,
-                )
+            try {
+                tlsInitializationOptions()
+            } catch (throwable: Throwable) {
+                failEngineInitialization(preference, "mpv initialization failed while preparing TLS verification", throwable)
+                lib.mpv_terminate_destroy(context)
+                return false
             }
 
         val options =
@@ -1260,6 +1545,7 @@ class MpvPlayerController private constructor(
                     MPV_COMMON_INIT_OPTIONS + MPV_VIDEO_OUTPUT_INIT_OPTIONS
                 }
                 MpvPresentationPreference.Software -> MPV_COMMON_INIT_OPTIONS + MPV_VIDEO_OUTPUT_INIT_OPTIONS
+                MpvPresentationPreference.MacOsNativeMetal -> error("Native Metal does not use the Render API")
             }
         val resolvedOptions =
             options.map { (name, value) ->
@@ -1559,6 +1845,38 @@ class MpvPlayerController private constructor(
         }
     }
 
+    private fun startNativeSurfaceDeadline() {
+        val job =
+            synchronized(engineLock) {
+                if (
+                    released.get() ||
+                    openGlTeardownScheduled ||
+                    _presentationState.value != MpvPresentationState.WaitingForNativeSurface ||
+                    fallbackJob?.isCompleted == false
+                ) {
+                    return
+                }
+                stateScope
+                    .launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
+                        delay(OPENGL_SURFACE_FALLBACK_TIMEOUT_MS)
+                        // Check and fail under the same lifecycle/engine lock order as
+                        // prepare: an expired deadline cannot invalidate a new attach.
+                        synchronized(lifecycleLock) {
+                            synchronized(engineLock) {
+                                if (
+                                    fallbackJob === coroutineContext[Job] &&
+                                    pendingPrepareAwaitingEngine &&
+                                    _presentationState.value == MpvPresentationState.WaitingForNativeSurface
+                                ) {
+                                    failNativePresentation(null, MpvNativeSurfaceUnavailableReason.SurfaceTimeout)
+                                }
+                            }
+                        }
+                    }.also { fallbackJob = it }
+            }
+        job.start()
+    }
+
     private fun startOpenGlSurfaceFallbackDeadline() {
         val admission =
             synchronized(engineLock) {
@@ -1780,11 +2098,13 @@ class MpvPlayerController private constructor(
                         surface = openGlSurface,
                         getProcAddressCallback = openGlGetProcAddressCallback,
                         initParams = openGlInitParams,
+                        nativeSurface = nativeSurface,
                     ).also {
                         renderCtx = null
                         renderContextRef = null
                         apiTypeMemory = null
                         openGlSurface = null
+                        nativeSurface = null
                         openGlGetProcAddressCallback = null
                         openGlInitParams = null
                     }
@@ -1800,11 +2120,13 @@ class MpvPlayerController private constructor(
                     surface = openGlSurface,
                     getProcAddressCallback = openGlGetProcAddressCallback,
                     initParams = openGlInitParams,
+                    nativeSurface = nativeSurface,
                 ).also {
                     renderCtx = null
                     renderContextRef = null
                     apiTypeMemory = null
                     openGlSurface = null
+                    nativeSurface = null
                     openGlGetProcAddressCallback = null
                     openGlInitParams = null
                 }
@@ -1833,14 +2155,14 @@ class MpvPlayerController private constructor(
         if (!drainEngineLeasesOrDefer(pending)) {
             // A command is still inside libmpv. Never free under a live caller;
             // the last lease release destroys the engine and only then reports
-            // the detach as terminated. Quarantine stays reserved for a render
-            // executor that never drains.
+            // the detach as terminated. A failed native Metal destroy retains
+            // the layer instead of acknowledging termination.
             logMpvDiagnostic(PlaybackDiagnosticStage.Release, PlaybackDiagnosticEvent.Timeout)
             return EngineTermination.Deferred
         }
-        destroyEngine(pending)
-        releasePendingOfflineLeaseReleases()
-        return EngineTermination.Terminated
+        val termination = destroyEngine(pending)
+        if (termination == EngineTermination.Terminated) releasePendingOfflineLeaseReleases()
+        return termination
     }
 
     /**
@@ -1871,7 +2193,7 @@ class MpvPlayerController private constructor(
         }
     }
 
-    private fun destroyEngine(pending: PendingEngineDestroy) {
+    private fun destroyEngine(pending: PendingEngineDestroy): EngineTermination {
         pending.renderState.renderContext?.let { renderContext ->
             runCatching { pending.lib.mpv_render_context_set_update_callback(renderContext, null, null) }
                 .onFailure { throwable ->
@@ -1896,10 +2218,20 @@ class MpvPlayerController private constructor(
                 logMpvDiagnostic(PlaybackDiagnosticStage.Release, PlaybackDiagnosticEvent.Failed, throwable)
             }
         }
-        runCatching { pending.lib.mpv_terminate_destroy(pending.context) }
-            .onFailure { throwable ->
-                logMpvDiagnostic(PlaybackDiagnosticStage.Release, PlaybackDiagnosticEvent.Failed, throwable)
+        val destroyed =
+            runCatching { pending.lib.mpv_terminate_destroy(pending.context) }
+                .onFailure { throwable ->
+                    logMpvDiagnostic(PlaybackDiagnosticStage.Release, PlaybackDiagnosticEvent.Failed, throwable)
+                }
+        if (destroyed.isFailure && pending.renderState.nativeSurface != null) {
+            // The call's completion is unknown. Never retry destruction or let
+            // the host release a layer that the native swapchain may still use.
+            synchronized(engineLock) {
+                quarantinedEngine = QuarantinedEngine(pending.lib, pending.context, pending.renderState, null)
             }
+            return EngineTermination.Quarantined
+        }
+        return EngineTermination.Terminated
     }
 
     /**
@@ -1913,7 +2245,15 @@ class MpvPlayerController private constructor(
      */
     private fun acquireEngineLease(): ActiveMpv? =
         synchronized(engineLock) {
-            if (released.get() || quarantinedEngine != null || engineAwaitingDestroy != null) {
+            if (
+                released.get() ||
+                quarantinedEngine != null ||
+                engineAwaitingDestroy != null ||
+                (
+                    presentationPreference == MpvPresentationPreference.MacOsNativeMetal &&
+                        _presentationState.value == MpvPresentationState.Failed
+                )
+            ) {
                 return@synchronized null
             }
             val lib = mpv ?: return@synchronized null
@@ -1932,10 +2272,17 @@ class MpvPlayerController private constructor(
                     null
                 }
             } ?: return
-        destroyEngine(pending)
-        releasePendingOfflineLeaseReleases()
+        val termination = destroyEngine(pending)
+        if (termination == EngineTermination.Terminated) releasePendingOfflineLeaseReleases()
         if (pending.finishesOpenGlTeardown) {
-            completeOpenGlTeardown(pending.renderState.surface, MpvOpenGlDetachDisposition.Terminated)
+            completeOpenGlTeardown(
+                pending.renderState.nativeSurface ?: pending.renderState.surface,
+                if (termination == EngineTermination.Terminated) {
+                    MpvOpenGlDetachDisposition.Terminated
+                } else {
+                    MpvOpenGlDetachDisposition.Quarantined
+                },
+            )
         }
     }
 
@@ -2027,7 +2374,7 @@ class MpvPlayerController private constructor(
         openGlTeardownJob =
             openGlLifecycleScope.launch {
                 admission.initializationJob?.join()
-                val surface = openGlSurface
+                val surface = nativeSurface ?: openGlSurface
                 when (terminateInstalledEngine(finishesOpenGlTeardown = true)) {
                     // The destroy is pending on an in-flight native command:
                     // hold the surface open and keep the detach callbacks
@@ -2042,7 +2389,7 @@ class MpvPlayerController private constructor(
     }
 
     private fun completeOpenGlTeardown(
-        surface: MpvOpenGlRenderSurface?,
+        surface: MpvSurfaceLifetime?,
         disposition: MpvOpenGlDetachDisposition,
     ) {
         if (disposition == MpvOpenGlDetachDisposition.Terminated) {
@@ -2054,6 +2401,8 @@ class MpvPlayerController private constructor(
         val callbacks =
             synchronized(engineLock) {
                 activeOpenGlSurfaceGeneration = null
+                activeNativeSurfaceGeneration = null
+                if (disposition == MpvOpenGlDetachDisposition.Terminated) nativeSurface = null
                 initializationJob = null
                 openGlTeardownJob = null
                 openGlTeardownScheduled = false
@@ -2463,19 +2812,32 @@ class MpvPlayerController private constructor(
             currentStartFilePlaylistEntryId = null
         }
 
+        val nativeOutput = presentationPreference == MpvPresentationPreference.MacOsNativeMetal
+        val authoritativeNativeEntry =
+            nativeOutput &&
+                active.ctx === ctx &&
+                completionReadiness.ownsStartedEntry(prepareGeneration.load(), event.playlistEntryId)
         if (
             event.reason == LibMpv.END_FILE_REASON_ERROR &&
             isCurrentEntry &&
-            loaded.get() &&
+            (if (nativeOutput) authoritativeNativeEntry else loaded.get()) &&
             !released.get() &&
             !stopping.get() &&
             _playbackState.value.status != PlaybackStatus.Failed
         ) {
-            failPlayback(
-                message = "mpv playback failed",
-                detail = readMpvErrorString(active.lib, event.nativeError),
-                nativeCode = event.nativeError.toLong(),
-            )
+            if (nativeOutput) {
+                failNativePresentation(
+                    activeNativeSurfaceGeneration,
+                    MpvNativeSurfaceUnavailableReason.OutputFailed,
+                    nativeCode = event.nativeError.toLong(),
+                )
+            } else {
+                failPlayback(
+                    message = "mpv playback failed",
+                    detail = readMpvErrorString(active.lib, event.nativeError),
+                    nativeCode = event.nativeError.toLong(),
+                )
+            }
         }
 
         val pending =
@@ -2709,6 +3071,7 @@ class MpvPlayerController private constructor(
                         is MpvPresentationState.OpenGlActive ->
                             openGlSurface?.presentationLabel ?: MPV_PRESENTATION_OPENGL
                         is MpvPresentationState.SoftwareActive -> MPV_PRESENTATION_SOFTWARE
+                        is MpvPresentationState.NativeActive -> MPV_PRESENTATION_NATIVE_METAL
                         else -> null
                     },
             )
@@ -3117,6 +3480,12 @@ class MpvPlayerController private constructor(
      */
     private fun currentActiveMpv(): ActiveMpv? {
         if (released.get() || quarantinedEngine != null || engineAwaitingDestroy != null) return null
+        if (
+            presentationPreference == MpvPresentationPreference.MacOsNativeMetal &&
+            _presentationState.value == MpvPresentationState.Failed
+        ) {
+            return null
+        }
         val lib = mpv ?: return null
         val context = ctx ?: return null
         return ActiveMpv(lib, context)

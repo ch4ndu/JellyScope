@@ -191,6 +191,9 @@ val sharedUiModule =
                 setPictureInPictureEnabledAction = get(),
                 observePlayerClockEnabledUseCase = get(),
                 setPlayerClockEnabledAction = get(),
+                // Desktop-only; other platforms bind no presentation store.
+                observeDesktopMpvPresentationUseCase = getOrNull(),
+                setDesktopMpvPresentationAction = getOrNull(),
                 observeRememberLastLibraryViewUseCase = get(),
                 setRememberLastLibraryViewAction = get(),
                 observeTileSizeUseCase = get(),

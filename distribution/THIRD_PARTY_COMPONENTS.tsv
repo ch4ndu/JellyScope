@@ -12,3 +12,4 @@ macos-arm64	Desktop JVM runtime families	resolved versions in reviewed family in
 tvos	Managed runtime dependency graph	current Gradle inputs	tvOS release graph	review-required	docs/operations/licensing-and-distribution.md
 other-desktop	Runtime and native dependency graphs	unreviewed	Intel macOS, Windows, and Linux artifacts	review-required	docs/operations/licensing-and-distribution.md
 macos-arm64	VLC selected static/header contrib inputs	exact VLC 3.0.24 recipe versions	65 selected contrib archives plus VLC build rules/patches	recorded notice/source set	scripts/vlc-bundle/sources-3.0.24.tsv
+macos-arm64-mpv-metal	mpv Metal and transitive native graph	mpv 0.41.0; FFmpeg 9.0.2; MoltenVK 1.4.2; pinned static glslang	project-built macOS 15 arm64 graph with embedded/header and declared build inputs	recorded GPL-compatible artifact/source set	scripts/desktop-mpv-metal/sources-macos-arm64.tsv

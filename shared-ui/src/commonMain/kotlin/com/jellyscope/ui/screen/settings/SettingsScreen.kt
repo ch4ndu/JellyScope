@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.DesktopMpvPresentation
 import com.jellyscope.core.domain.model.DownloadRemovalPreview
 import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.OpenSubtitleResultPreference
@@ -118,6 +119,7 @@ fun SettingsScreen(
         onSetPlayerClockEnabled = viewModel::setPlayerClockEnabled,
         onSetAllowInsecureDesktopTls = viewModel::setAllowInsecureDesktopTls,
         onSetAutoPlayNextDelaySeconds = viewModel::setAutoPlayNextDelaySeconds,
+        onSetDesktopMpvPresentation = viewModel::setDesktopMpvPresentation,
         onSetSegmentSkipPolicy = viewModel::setSegmentSkipPolicy,
         onSetPlayerAudioMode = viewModel::setPlayerAudioMode,
         onSetPlayerHdrMode = viewModel::setPlayerHdrMode,
@@ -211,6 +213,7 @@ fun SettingsContent(
     onSetPlayerClockEnabled: (Boolean) -> Unit = {},
     onSetAllowInsecureDesktopTls: (Boolean) -> Unit = {},
     onSetAutoPlayNextDelaySeconds: (Int) -> Unit = {},
+    onSetDesktopMpvPresentation: (DesktopMpvPresentation) -> Unit = {},
     onSetSegmentSkipPolicy: (MediaSegmentType, SegmentSkipPolicy) -> Unit,
     onSetPlayerAudioMode: (PlayerAudioMode) -> Unit,
     onSetPlayerHdrMode: (PlayerHdrMode) -> Unit,
@@ -329,6 +332,7 @@ fun SettingsContent(
                         openRow = openRow,
                         onOpenRow = { openRow = it },
                         onDismiss = onDismiss,
+                        onSetDesktopMpvPresentation = onSetDesktopMpvPresentation,
                     )
                 }
                 item(key = SettingsSectionId.SkipSegments) {

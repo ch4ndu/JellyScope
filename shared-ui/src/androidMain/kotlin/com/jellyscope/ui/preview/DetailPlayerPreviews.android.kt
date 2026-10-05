@@ -2,13 +2,19 @@
 
 package com.jellyscope.ui.preview
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import com.jellyscope.core.domain.playback.PlaybackAction
 import com.jellyscope.core.domain.playback.PlaybackActionNotice
 import com.jellyscope.core.domain.playback.PlaybackActionNoticeReason
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
+import com.jellyscope.core.domain.playback.PlayerVolumeState
 import com.jellyscope.ui.adaptive.WindowWidthTier
+import com.jellyscope.ui.platform.PlatformCapabilities
 import com.jellyscope.ui.screen.detail.AdaptiveDetailContent
 import com.jellyscope.ui.screen.detail.AdaptiveSeriesContent
 import com.jellyscope.ui.screen.detail.AmbientColorExtractor
@@ -18,8 +24,10 @@ import com.jellyscope.ui.screen.detail.SeriesBodyCompact
 import com.jellyscope.ui.screen.player.BufferingIndicator
 import com.jellyscope.ui.screen.player.PlaybackActionNoticeBanner
 import com.jellyscope.ui.screen.player.PlayerContent
+import com.jellyscope.ui.screen.player.PlayerControls
 import com.jellyscope.ui.screen.player.PlayerDebugOverlay
 import com.jellyscope.ui.screen.player.SubtitleUnavailableBanner
+import com.jellyscope.ui.theme.Dimensions
 import kotlinx.coroutines.flow.MutableStateFlow
 
 @JellyScopeCompactPreviews
@@ -126,6 +134,31 @@ private fun PlayerContentPreview() {
             onSetResizeMode = {},
             onPlayQueueItem = {},
             onShuffleQueue = {},
+        )
+    }
+}
+
+@JellyScopeScreenPreviews
+@Preview(name = "Desktop control breakpoint", widthDp = 840, heightDp = 240)
+@Composable
+private fun DesktopPlayerControlsPreview() {
+    JellyScopePreviewSurface(safeArea = false, platformCapabilities = PlatformCapabilities.Desktop) {
+        val playbackStateFlow = remember { MutableStateFlow(PreviewFixtures.playbackState) }
+        PlayerControls(
+            content = PreviewFixtures.playerState.copy(volumeControl = PlayerVolumeState()),
+            playbackStateFlow = playbackStateFlow,
+            session = PreviewFixtures.session,
+            onPlay = {},
+            onPause = {},
+            onSetVolume = {},
+            onToggleMute = {},
+            onSeekTo = {},
+            onShowPicker = {},
+            onKeepControlsAlive = {},
+            onCycleResizeMode = {},
+            debugOverlayVisible = false,
+            onToggleDebugOverlay = {},
+            modifier = Modifier.fillMaxWidth().padding(Dimensions.contentSpacing),
         )
     }
 }

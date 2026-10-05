@@ -346,6 +346,9 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   [focus/transport contract](tv-screen-behavior.md#mandatory-mpv-playback-recovery).
 - Seek and desktop volume sliders retain separate thumb sizes: seek 18/22 dp,
   volume 12/16 dp at rest/active.
+- Desktop player controls reserve the measured width of each group. Play/Pause
+  stays centered where space permits and moves clear of either side when needed;
+  overflow scrolls horizontally without overlapping controls.
 - Shared Compose and TV Favorite/Watched actions share an outlined button with
   coral active icon. Native tvOS owns SwiftUI buttons.
 - Key-input tests assert focus and do not substitute pointer clicks.

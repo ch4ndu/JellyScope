@@ -159,6 +159,7 @@ class SettingsRowPolicyTest {
                 SettingsRowId.AllowInsecureDesktopTls to SettingsIcons.ResumeBehavior,
                 SettingsRowId.AutoPlayNextDelay to SettingsIcons.ResumeBehavior,
                 SettingsRowId.PlayerBackend to SettingsIcons.VideoFormats,
+                SettingsRowId.MpvPresentation to SettingsIcons.VideoFormats,
                 SettingsRowId.Intros to SettingsIcons.Intros,
                 SettingsRowId.Credits to SettingsIcons.Credits,
                 SettingsRowId.Recaps to SettingsIcons.Recaps,

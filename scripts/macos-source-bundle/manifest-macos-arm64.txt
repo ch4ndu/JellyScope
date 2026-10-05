@@ -12,3 +12,12 @@ mpv-version=0.41.0
 ffmpeg-version=9.0.2
 dav1d-version=1.5.4
 mpv-coreaudio-patch=c5d391adba7bd024954d0df1e0405f5749f4d4ca
+# desktop-mpv-metal-* entries are recorded only for an explicitly requested Metal graph.
+desktop-mpv-metal-archive=desktop-mpv-metal-0.41.0-sources.tar.gz
+desktop-mpv-metal-manifest=scripts/desktop-mpv-metal/sources-macos-arm64.tsv
+desktop-mpv-metal-abi-manifest=scripts/desktop-mpv-metal/manifest-mpv-metal-0.41.0-macos15-arm64.txt
+desktop-mpv-metal-moltenvk-version=1.4.2
+desktop-mpv-metal-moltenvk-revision=db66022459ffb663aa2b50f6b018bc2e124f5edf
+desktop-mpv-metal-glslang-revision=7a47e2531cb334982b2a2dd8513dca0a3de4373d
+desktop-mpv-metal-mpvkit-patch-revision=288527dffbc6d3e63cce147fc7b520c64a791603
+desktop-mpv-metal-context-patches=mpvkit-moltenvk.patch,metal-context-resize.patch

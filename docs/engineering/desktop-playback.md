@@ -51,19 +51,25 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   refcounted engine lease taken atomically with the context read; teardown nulls
   the context under the same lock and waits (bounded) for outstanding leases
   before freeing. A lease that outlives the wait defers destruction until the
-  count reaches zero — the OpenGL surface stays open and detach callbacks stay
-  queued until that real destroy completes, then report `Terminated`. Permanent
-  quarantine remains reserved for an undrained render executor. Moving `sub-add`
+  count reaches zero — the native surface stays open and detach callbacks stay
+  queued until that real destroy completes, then report `Terminated`. Render API
+  quarantine handles an undrained render executor; the Metal experiment also
+  retains resources when native destruction throws and its completion is unknown.
+  Moving `sub-add`
   off the lifecycle lock removes the app-side stall; `mpv_command` is still
   serialized inside libmpv, so a slow sidecar fetch can delay a concurrent
   native command.
 - mpv `END_FILE reason=ERROR` for the current playlist entry surfaces as
   `Failed` (handled BEFORE the pending-subtitle early return; stale entries,
-  STOP, and REDIRECT never fail playback). Classification is native-code first —
+  STOP, and REDIRECT never fail playback). Outside the Metal experiment,
+  classification is native-code first —
   `MPV_ERROR_LOADING_FAILED (-13)` → Network (feeds the shared one-shot retry),
   `NOTHING_TO_PLAY (-16)`/`UNKNOWN_FORMAT (-17)`/ `UNSUPPORTED (-18)` →
   UnsupportedMedia — then the keyword classifier over `mpv_error_string`. This
   is what engages the shared recovery ladder and network retry on desktop.
+  The Metal experiment instead projects terminal `Unknown` errors without
+  that recovery, including failure to identify the replacement playlist entry
+  after an accepted load. Its startup error path does not require `FILE_LOADED`.
 - Buffering derivation includes `core-idle` (gated on loaded/not-paused/not-
   completed) alongside `paused-for-cache` and `seeking`.
 - `track-auto-selection=no` is a required init option: mpv never auto-picks
@@ -141,6 +147,36 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   but libmpv's OpenGL-only Render API still has a high-resolution and pointer-
   movement limitation on macOS. Keep this limitation explicit until a replacement
   demonstrates continuous embedded presentation under sustained pointer input.
+- A local Metal comparison mode uses a separate, selected source-built
+  runtime with MPVKit's caller-owned-layer patch and an app-owned `CAMetalLayer`. It supplies that layer as `wid`
+  to the patched `gpu-next`/Vulkan/`moltenvk` output, with `hwdec=no` for the
+  first presentation comparison. It creates no Render API context or OpenGL
+  scheduler. Host, initialization and current output failures are terminal
+  rather than selecting another presentation path.
+  [BUILD.md](../BUILD.md#macos-metal-experiment) owns preparation and launch.
+  The runtime must refresh mpv's cached video/subtitle rectangles and request
+  redraw when the layer's drawable size changes, including while paused. The
+  unmodified MPVKit context omits these resize/expose events; changing only the
+  swapchain size leaves a small or incorrectly cropped picture. The source-build
+  recipe applies a context patch that supplies these events and
+  bounds the existing VO wait to 50 ms for paused resize detection. In-app
+  geometry and subtitle acceptance remain separate from native checks. This
+  experiment does not change the shipped default.
+- Supported macOS builds expose Settings → Playback → mpv presentation.
+  The app-global `desktop_mpv.presentation` preference defaults to Standard;
+  unknown values also resolve to Standard. The eager desktop store freezes one
+  runtime/presentation pair before native access. Saving publishes only after
+  disk replacement succeeds and never changes that process's active pair.
+  The store owns pending-save status across Settings recreation and rejects
+  overlapping selections until that non-cancellable write settles.
+  A restart notice compares the saved and active choices; save failures keep
+  the prior choice. The preference survives account changes.
+  Packaged Metal loads `mpv-metal/libmpv.2.dylib` and its isolated, validated
+  adjacent native graph, including its decoder and MoltenVK runtime.
+  Missing Metal files retain the saved preference but activate Standard and
+  disable the Metal option. Explicit debug overrides never persist and disable
+  the selector; a Metal override conflicting with forced OpenGL fails startup.
+  Standard/IOSurface remains a temporary comparison option pending acceptance.
 - Settings → Playback → Default player exposes independent macOS `mpv` and
   `LibVLC` choices for the next playback session. LibVLC is selectable
   only when the cached file-based runtime check finds a usable VLC layout; the
@@ -231,8 +267,9 @@ ownership left intact.
 
 ## Desktop libmpv boundary
 
-macOS loads only the pinned bundled mpv closure; Linux uses system lookup and
-Windows packages supply `mpv-2.dll`. Apple Silicon packages also bundle the
+Normal macOS launches load the selected bundled mpv graph; the explicit
+development Metal override loads its separate candidate. Linux uses system
+lookup and Windows packages supply `mpv-2.dll`. Apple Silicon packages also bundle the
 audited VLC runtime. Acquisition and offline behavior belong to
 [BUILD](../BUILD.md#desktop-jvm), and signing, provenance, and package checks to
 the [release runbook](../RELEASE.md#manual-macos-stages). Android mpv is a
@@ -247,7 +284,12 @@ IOSurface swapchain; it falls back to app-owned OpenGL, then two-buffer Skia
 software rendering before item load. Core owns libmpv callbacks/context and one
 render executor. Initialization and release serialize under `engineLock`, joins
 stay outside it, and detach completes only after callbacks and context stop. No
-path supplies `wid` or lets mpv create or focus a window.
+default path supplies `wid` or lets mpv create or focus a window. The development
+Metal route uses the patched runtime's caller-owned layer form of `wid`; it
+does not use a window identifier. Its layer and AWT peer survive initialization,
+in-flight command leases and actual native destruction. An unknown destruction
+outcome retains the resources until process exit. Native teardown does not
+depend on a Render API context being present.
 
 Software fallback renders into two UI-owned BGRA buffers off Main, publishes a
 complete front buffer on Main, and waits one frame before reusing the prior
@@ -314,12 +356,19 @@ does not establish real playback behavior.
   presenter; OpenGL and software paths remain explicit fallbacks. Now Playing
   uses exported MediaPlayer key objects because matching string values are not
   framework identity.
+- **Runtime changes require restart.** A launch-frozen
+  runtime and surface selection prevents mixing incompatible native graphs.
+  Software decoding makes the first comparison about presentation; native
+  load or build success cannot establish visible cadence or resize correctness.
+  Keeping the saved choice separate permits comparison without native unloading.
+  Promotion requires those observations and separate runtime distribution work.
 
 ### Desktop playback embedding
 
-- macOS mpv uses IOSurface, app-owned OpenGL, then software fallback; `wid` is
-  rejected because it opens a separate player window. Compose remains the sole
-  controls/input scene.
+- Default macOS mpv uses IOSurface, app-owned OpenGL, then software fallback;
+  its window form of `wid` is rejected because it opens a separate player
+  window. The development Metal experiment uses a patched caller-owned layer
+  contract. Compose remains the sole controls/input scene.
 - Engine-lock and deferred-lifetime discipline keep teardown out of render
   callbacks. Runtime availability is a cheap file check; engine creation still
   validates versions. Pinned packaged inventories prevent machine libraries from

@@ -39,6 +39,7 @@ internal enum class SettingsRowId {
     AllowInsecureDesktopTls,
     AutoPlayNextDelay,
     PlayerBackend,
+    MpvPresentation,
     Intros,
     Credits,
     Recaps,
@@ -101,6 +102,7 @@ internal fun SettingsRowId.section(): SettingsSectionId =
         SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.AutoPlayNextDelay,
         SettingsRowId.PlayerBackend,
+        SettingsRowId.MpvPresentation,
         -> SettingsSectionId.Playback
         SettingsRowId.Intros,
         SettingsRowId.Credits,
@@ -146,6 +148,7 @@ internal fun SettingsRowId.trailingKind(): SettingsRowTrailingKind =
         SettingsRowId.VlcTranscodeLimit,
         SettingsRowId.AutoPlayNextDelay,
         SettingsRowId.PlayerBackend,
+        SettingsRowId.MpvPresentation,
         SettingsRowId.Intros,
         SettingsRowId.Credits,
         SettingsRowId.Recaps,
@@ -213,6 +216,7 @@ internal fun SettingsRowId.iconRole(): SettingsRowIconRole =
         SettingsRowId.AllowInsecureDesktopTls,
         SettingsRowId.AutoPlayNextDelay,
         SettingsRowId.PlayerBackend,
+        SettingsRowId.MpvPresentation,
         SettingsRowId.AudioOutput,
         SettingsRowId.HdrHandling,
         SettingsRowId.MaximumVideoResolution,
@@ -255,6 +259,7 @@ internal fun SettingsRowId.icon(): ImageVector =
         SettingsRowId.AutoPlayNextDelay,
         -> SettingsIcons.ResumeBehavior
         SettingsRowId.PlayerBackend -> SettingsIcons.VideoFormats
+        SettingsRowId.MpvPresentation -> SettingsIcons.VideoFormats
         // Avoid reusing the video-format glyph for picture-in-picture.
         SettingsRowId.PictureInPicture -> SettingsIcons.FocusedCardZoom
         SettingsRowId.Intros -> SettingsIcons.Intros

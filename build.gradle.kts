@@ -251,22 +251,36 @@ tasks.register<Exec>("verifyIosBinaryLicenseMetadataReadiness") {
     )
 }
 
+// The same request source as :desktop-app packaging: presence of the Gradle property.
+val desktopMpvMetalRequested = providers.gradleProperty("jellyscope.desktop.mpvMetalRuntimeDir").isPresent
+
 tasks.register<Exec>("verifyMacosArm64BinaryLicenseMetadataReadiness") {
     group = "verification"
-    description = "Verifies the macOS arm64 platform dependency inventory."
+    description = "Verifies the macOS arm64 platform dependency inventory, including a requested Metal mpv graph."
     dependsOn(":desktop-app:verifyDesktopJvmRuntimeLicenseInventory")
     dependsOn(":desktop-app:verifyDesktopMpvBundle", ":desktop-app:prepareDesktopVlcBundle")
+    // Validates the requested Metal staging, or that Standard-only resources carry none.
+    dependsOn(":desktop-app:verifyDesktopMpvMetalBundle")
     inputs.dir(layout.projectDirectory.dir("scripts/desktop-mpv-bundle"))
+    inputs.dir(layout.projectDirectory.dir("scripts/desktop-mpv-metal"))
     inputs.dir(layout.projectDirectory.dir("scripts/vlc-bundle"))
     inputs.file(layout.projectDirectory.file("scripts/prepare-macos-release-sources.sh"))
+    inputs.property("mpvMetalRequested", desktopMpvMetalRequested)
     dependsOn("prepareReleaseLicenseMetadata")
     commandLine(
-        rootProject.layout.projectDirectory
-            .file("scripts/verify-release-license-metadata.sh")
-            .asFile
-            .absolutePath,
-        releaseLicenseMetadataDir.get().asFile.absolutePath,
-        "--require-macos-arm64-ready",
+        listOfNotNull(
+            rootProject.layout.projectDirectory
+                .file("scripts/verify-release-license-metadata.sh")
+                .asFile
+                .absolutePath,
+            releaseLicenseMetadataDir.get().asFile.absolutePath,
+            "--require-macos-arm64-ready",
+            layout.projectDirectory
+                .dir("desktop-app/build/preparedDesktopAppResources/macos-arm64")
+                .asFile
+                .absolutePath,
+            "--with-mpv-metal".takeIf { desktopMpvMetalRequested },
+        ),
     )
 }
 

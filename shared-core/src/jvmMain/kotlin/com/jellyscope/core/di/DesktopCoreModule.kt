@@ -3,6 +3,7 @@
 package com.jellyscope.core.di
 
 import com.jellyscope.core.data.local.AppThemeStore
+import com.jellyscope.core.data.local.DesktopMpvPresentationStore
 import com.jellyscope.core.data.local.DesktopPlayerVolumeStore
 import com.jellyscope.core.data.local.DiagnosticBreadcrumbStore
 import com.jellyscope.core.data.local.DownloadArtifactStore
@@ -10,6 +11,7 @@ import com.jellyscope.core.data.local.DownloadDatabaseFactory
 import com.jellyscope.core.data.local.GridSortStore
 import com.jellyscope.core.data.local.ImageQualityStore
 import com.jellyscope.core.data.local.JellyfinStoreDatabase
+import com.jellyscope.core.data.local.JvmDesktopMpvPresentationStore
 import com.jellyscope.core.data.local.JvmDownloadArtifactStore
 import com.jellyscope.core.data.local.JvmDownloadDatabaseFactory
 import com.jellyscope.core.data.local.JvmFileAppThemeStore
@@ -56,6 +58,7 @@ import com.jellyscope.core.data.local.WatchNextSyncStore
 import com.jellyscope.core.data.local.createDiagnosticBreadcrumbStore
 import com.jellyscope.core.data.local.createJellyfinStoreDatabase
 import com.jellyscope.core.data.local.jellyscopeDataDirectory
+import com.jellyscope.core.domain.action.SetDesktopMpvPresentationAction
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.platform.DesktopDiagnosticsEnvironment
 import com.jellyscope.core.domain.platform.DeviceInfoProvider
@@ -64,6 +67,7 @@ import com.jellyscope.core.domain.playback.DesktopDeviceProfileProvider
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerController
+import com.jellyscope.core.domain.usecase.ObserveDesktopMpvPresentationUseCase
 import com.jellyscope.core.download.DownloadExecutionHost
 import com.jellyscope.core.download.DownloadExecutionRecovery
 import com.jellyscope.core.download.DownloadLifecycleHost
@@ -98,6 +102,12 @@ fun desktopCoreModule(developerOpenSubtitlesApiKey: String? = null) =
                 file = File(jellyscopeDataDirectory(), DESKTOP_PREFERENCES_FILE_NAME),
             )
         }
+        // Eager: construction freezes the process mpv runtime before any player or native probe.
+        single<DesktopMpvPresentationStore>(createdAtStart = true) {
+            JvmDesktopMpvPresentationStore(preferences = get())
+        }
+        single { ObserveDesktopMpvPresentationUseCase(store = get()) }
+        single { SetDesktopMpvPresentationAction(store = get()) }
         single<DeviceInfoProvider> { DesktopDeviceInfoProvider() }
         single<DiagnosticsEnvironment> { DesktopDiagnosticsEnvironment() }
         single<DeviceProfileProvider> { DesktopDeviceProfileProvider() }

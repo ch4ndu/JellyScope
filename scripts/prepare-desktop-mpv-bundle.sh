@@ -3,18 +3,27 @@
 set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 [[ "$(uname -s)" == Darwin ]] || { echo 'ERROR: desktop mpv bundling is macOS-only' >&2; exit 1; }
-mode="${1:?Usage: prepare-desktop-mpv-bundle.sh <destination> | --validate-only <bundle> | --stage-prefix <prefix> <bundle>}"
+# --metal selects the separate source-built Metal graph; its staging belongs to prepare-desktop-mpv-metal-bundle.sh.
+variant=standard
+if [[ "${1:-}" == --metal ]]; then variant=metal; shift; fi
+mode="${1:?Usage: prepare-desktop-mpv-bundle.sh <destination> | [--metal] --validate-only <bundle> | [--metal] --stage-prefix <prefix> <bundle>}"
 case "$mode" in
     --validate-only) destination="${2:?Missing bundle}"; source_dir="" ;;
     --stage-prefix) source_dir="${2:?Missing prefix}"; destination="${3:?Missing bundle}" ;;
-    *) destination="$mode"; mode=copy; source_dir="$(bash "$script_dir/build-desktop-mpv-runtime.sh")" ;;
+    -*) echo "ERROR: Unknown option: $mode" >&2; exit 2 ;;
+    *) [[ "$variant" == standard ]] || { echo 'ERROR: stage Metal runtimes with prepare-desktop-mpv-metal-bundle.sh' >&2; exit 2; }
+       destination="$mode"; mode=copy; source_dir="$(bash "$script_dir/build-desktop-mpv-runtime.sh")" ;;
 esac
-python3 - "$script_dir" "$mode" "$source_dir" "$destination" <<'PY'
+python3 - "$script_dir" "$mode" "$source_dir" "$destination" "$variant" <<'PY'
 import json, os, pathlib, re, shutil, subprocess, sys
-scripts, mode, source, dest = sys.argv[1:]
+scripts, mode, source, dest, variant = sys.argv[1:]
 scripts, dest = pathlib.Path(scripts), pathlib.Path(dest)
+metal = variant == 'metal'
 notice = scripts/'desktop-mpv-bundle'
-manifest = notice/'manifest-mpv-0.41.0-macos15-arm64.txt'
+metal_notice = scripts/'desktop-mpv-metal'
+manifest = metal_notice/'manifest-mpv-metal-0.41.0-macos15-arm64.txt' if metal else notice/'manifest-mpv-0.41.0-macos15-arm64.txt'
+# Metal-only records retained under mpv-notices/metal and build/identity/metal.
+METAL_RECORDS = ['sources-macos-arm64.tsv', manifest.name, 'mpvkit-moltenvk.patch', 'metal-context-resize.patch', 'ATTRIBUTION.md']
 def need(ok, message):
     if not ok: sys.exit('ERROR: '+message)
 def run(*args):
@@ -148,7 +157,8 @@ record = '\n'.join(evidence)+'\n'
 build = dest/'mpv-notices/build'
 if mode == '--stage-prefix': (build/'versions.txt').write_text(record)
 else:
-    need((build/'COMPLETE').read_text() == 'source-build-validated\n', 'Incomplete native build')
+    complete = 'metal-source-build-validated\n' if metal else 'source-build-validated\n'
+    need((build/'COMPLETE').read_text() == complete, 'Incomplete native build or wrong desktop mpv variant')
     need((build/'versions.txt').read_text() == record, 'Native version evidence mismatch')
 for p in notice.rglob('*'):
     if p.is_file(): need((dest/'mpv-notices'/p.relative_to(notice)).read_bytes() == p.read_bytes(), 'Packaged mpv notice/source inventory differs: '+p.name)
@@ -156,25 +166,43 @@ for name in ['build-desktop-mpv-runtime.sh', 'prepare-desktop-mpv-bundle.sh']:
     need((build/'identity'/name).read_bytes() == (scripts/name).read_bytes(), 'Native recipe differs from the candidate')
 for name in ['sources-macos-arm64.tsv','manifest-mpv-0.41.0-macos15-arm64.txt']:
     need((build/'identity'/name).read_bytes() == (notice/name).read_bytes(), 'Native identity differs from the candidate')
+if metal:
+    for p in [*(metal_notice/'licenses').rglob('*'), *(metal_notice/name for name in METAL_RECORDS)]:
+        if p.is_file(): need((dest/'mpv-notices/metal'/p.relative_to(metal_notice)).read_bytes() == p.read_bytes(), 'Packaged Metal notice/source inventory differs: '+p.name)
+    for name in METAL_RECORDS:
+        need((build/'identity/metal'/name).read_bytes() == (metal_notice/name).read_bytes(), 'Metal native identity differs from the candidate')
+else:
+    need(not (build/'identity/metal').exists(), 'A Metal build cannot satisfy the Standard graph')
 need(not any(p.is_symlink() for p in (dest/'mpv-notices').rglob('*')), 'Symlink in mpv provenance')
 placebo_config = (build/'libplacebo-config.h').read_text()
-for feature in ['OPENGL','LCMS','DOVI']:
+for feature in ['OPENGL','LCMS','DOVI'] + (['VULKAN','VK_PROC_ADDR','GLSLANG'] if metal else []):
     need(re.search(r'^#define PL_HAVE_'+feature+r' 1$',placebo_config,re.M), 'Missing libplacebo feature: '+feature)
 mpv_config = (build/'mpv-config.h').read_text()
-for feature in ['GL','COCOA','SWIFT','GL_COCOA','VIDEOTOOLBOX_GL','COREAUDIO','LIBASS','LCMS2','ZIMG','ZLIB','LIBARCHIVE','UCHARDET','ICONV','MACOS_10_15_4_FEATURES','MACOS_11_FEATURES','MACOS_11_3_FEATURES','MACOS_12_FEATURES']:
+for feature in ['GL','COCOA','SWIFT','GL_COCOA','VIDEOTOOLBOX_GL','COREAUDIO','LIBASS','LCMS2','ZIMG','ZLIB','LIBARCHIVE','UCHARDET','ICONV','MACOS_10_15_4_FEATURES','MACOS_11_FEATURES','MACOS_11_3_FEATURES','MACOS_12_FEATURES'] + (['VULKAN','MOLTENVK'] if metal else []):
     need(re.search(r'^#define HAVE_'+feature+r' 1$', mpv_config, re.M), 'Missing mpv feature: '+feature)
 for feature in ['MACOS_COCOA_CB','MACOS_MEDIA_PLAYER','MACOS_TOUCHBAR']:
     need(re.search(r'^#define HAVE_'+feature+r' 0$', mpv_config, re.M), 'Unexpected mpv standalone feature: '+feature)
 mpv_options = {option['name']: option['value'] for option in json.loads((build/'mpv-options.json').read_text())}
 for option, value in {'cplayer': False, 'plain-gl': 'enabled', 'swift-build': 'enabled', 'swift-flags': '-target arm64-apple-macosx15.0',
-                      'macos-cocoa-cb': 'disabled', 'macos-media-player': 'disabled', 'macos-touchbar': 'disabled'}.items():
+                      'macos-cocoa-cb': 'disabled', 'macos-media-player': 'disabled', 'macos-touchbar': 'disabled',
+                      **({'vulkan': 'enabled', 'moltenvk': 'enabled'} if metal else {})}.items():
     need(mpv_options.get(option) == value, 'Unexpected mpv build option: '+option)
+if metal:
+    # Static glslang is libplacebo's only SPIR-V compiler; MoltenVK supplies the Vulkan symbols.
+    need(re.search(r'^#undef PL_HAVE_SHADERC$', placebo_config, re.M), 'Unexpected libplacebo shaderc backend')
+    placebo_options = {option['name']: option['value'] for option in json.loads((build/'libplacebo-options.json').read_text())}
+    for option, value in {'vulkan': 'enabled', 'vk-proc-addr': 'enabled', 'glslang': 'enabled', 'shaderc': 'disabled'}.items():
+        need(placebo_options.get(option) == value, 'Unexpected libplacebo build option: '+option)
+    need(re.search(r'has symbol "VK_VERSION_1_4"[^\n]*YES', (build/'libplacebo-configure.txt').read_text()),
+         'libplacebo did not confirm the VK_VERSION_1_4 header probe')
 ffmpeg_config = (build/'config.h').read_text()+'\n'+(build/'config_components.h').read_text()
 for feature in ['GPL','VERSION3','SECURETRANSPORT','VIDEOTOOLBOX','NETWORK','HTTP_PROTOCOL','HTTPS_PROTOCOL','FILE_PROTOCOL','LIBDAV1D_DECODER','H264_DECODER','HEVC_DECODER','AV1_DECODER','ASS_FILTER','LIBZIMG','ICONV']:
     need(re.search(r'^#define CONFIG_'+feature+r' 1$', ffmpeg_config, re.M), 'Missing FFmpeg feature: '+feature)
 need(re.search(r'^#define CONFIG_NONFREE 0$',ffmpeg_config,re.M), 'Nonfree FFmpeg configuration')
-for name in ['options.txt','toolchain.txt']:
+metal_records = ['moltenvk-external-settings.txt', 'moltenvk-external-build.log', 'moltenvk-package-settings.txt',
+                 'moltenvk-package-build.log', 'glslang-build.txt', 'glslang-CMakeCache.txt', 'vulkan.pc']
+for name in ['options.txt','toolchain.txt'] + (metal_records if metal else []):
     p = build/('identity/'+name if name == 'toolchain.txt' else name)
     need(p.is_file() and bool(p.read_text().strip()), 'Missing native build record: '+name)
-print('Validated complete mpv arm64/macOS 15 graph and actual versions in '+str(dest), file=sys.stderr)
+print('Validated complete '+variant+' mpv arm64/macOS 15 graph and actual versions in '+str(dest), file=sys.stderr)
 PY

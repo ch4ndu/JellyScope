@@ -3,6 +3,7 @@
 package com.jellyscope.core.domain.action
 
 import com.jellyscope.core.data.local.AppThemeStore
+import com.jellyscope.core.data.local.DesktopMpvPresentationStore
 import com.jellyscope.core.data.local.GridSortStore
 import com.jellyscope.core.data.local.ImageQualityStore
 import com.jellyscope.core.data.local.LibrarySortStore
@@ -15,6 +16,7 @@ import com.jellyscope.core.data.local.RecentSearchStore
 import com.jellyscope.core.data.local.TileSizeStore
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
+import com.jellyscope.core.domain.model.DesktopMpvPresentation
 import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.LibrarySortBy
@@ -77,6 +79,12 @@ class SetPlayerClockEnabledAction(
     private val playerClockStore: PlayerClockStore,
 ) {
     suspend operator fun invoke(enabled: Boolean) = playerClockStore.setEnabled(enabled)
+}
+
+class SetDesktopMpvPresentationAction(
+    private val store: DesktopMpvPresentationStore,
+) {
+    suspend operator fun invoke(presentation: DesktopMpvPresentation) = store.select(presentation)
 }
 
 class SavePlayerDeviceSettingsAction(

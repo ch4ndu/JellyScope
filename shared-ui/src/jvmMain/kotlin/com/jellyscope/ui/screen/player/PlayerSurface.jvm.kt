@@ -104,6 +104,10 @@ actual fun PlayerSurface(
     }
 
     when (presentationState) {
+        MpvPresentationState.WaitingForNativeSurface,
+        is MpvPresentationState.InitializingNative,
+        is MpvPresentationState.NativeActive,
+        -> NativeMetalMpvPlayerSurface(output = output, modifier = modifier)
         MpvPresentationState.WaitingForOpenGlSurface,
         is MpvPresentationState.InitializingOpenGl,
         is MpvPresentationState.OpenGlActive,
@@ -185,6 +189,29 @@ private fun NativeLibVlcPlayerSurface(
             update = {
                 host.setVideoContentSize(widthPt, heightPt)
             },
+            modifier = Modifier.size(NATIVE_ANCHOR_SIZE_DP.dp),
+        )
+    }
+}
+
+@Composable
+private fun NativeMetalMpvPlayerSurface(
+    output: MpvVideoOutput,
+    modifier: Modifier,
+) {
+    val host =
+        remember(output) {
+            MacMpvMetalHost(
+                onSurfaceReady = output::attachNativeSurface,
+                onSurfaceUnavailable = output::nativeSurfaceUnavailable,
+                requestDetach = output::detachNativeSurface,
+            )
+        }
+    NativeSurfaceAnchor(modifier = modifier) { widthPt, heightPt ->
+        SwingPanel(
+            background = Color.Black,
+            factory = { host },
+            update = { host.setVideoContentSize(widthPt, heightPt) },
             modifier = Modifier.size(NATIVE_ANCHOR_SIZE_DP.dp),
         )
     }

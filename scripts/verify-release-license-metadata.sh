@@ -3,13 +3,22 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-metadata_dir="${1:?Usage: verify-release-license-metadata.sh <metadata-dir> [--require-clean|--require-binary-ready|--require-android-ready|--require-ios-ready|--require-macos-arm64-ready]}"
+# The explicit Metal request is always last; remove it before positional parsing.
+with_mpv_metal=false
+if (( $# > 0 )) && [[ "${!#}" == --with-mpv-metal ]]; then
+    with_mpv_metal=true
+    set -- "${@:1:$#-1}"
+fi
+metadata_dir="${1:?Usage: verify-release-license-metadata.sh <metadata-dir> [--require-clean|--require-binary-ready|--require-android-ready|--require-ios-ready|--require-macos-arm64-ready [<resources>] [--with-mpv-metal]]}"
 verification_mode="${2:-}"
 
 die() {
     echo "ERROR: $*" >&2
     exit 1
 }
+
+[[ "$with_mpv_metal" == false || "$verification_mode" == --require-macos-arm64-ready ]] \
+    || die "--with-mpv-metal applies only to --require-macos-arm64-ready"
 
 required_files=(
     SOURCE_REVISION.txt
@@ -34,6 +43,10 @@ required_files=(
     platform-notices/macos-mpv/licenses/ffmpeg/COPYING.GPLv3
     platform-notices/macos-mpv/manifest-mpv-0.41.0-macos15-arm64.txt
     platform-notices/macos-mpv/sources-macos-arm64.tsv
+    platform-notices/macos-mpv-metal/sources-macos-arm64.tsv
+    platform-notices/macos-mpv-metal/manifest-mpv-metal-0.41.0-macos15-arm64.txt
+    platform-notices/macos-mpv-metal/mpvkit-moltenvk.patch
+    platform-notices/macos-mpv-metal/metal-context-resize.patch
     dependency-inputs/macos-source-manifest.txt
     dependency-inputs/build-desktop-mpv-runtime.sh
     platform-notices/macos-vlc/sources-3.0.24.tsv
@@ -86,6 +99,8 @@ cmp -s "$repo_root/scripts/vlc-bundle/LGPL-2.1.txt" \
     || die "Packaged VLCKit LGPL text differs from the repository license text"
 diff -qr "$repo_root/scripts/desktop-mpv-bundle" "$metadata_dir/platform-notices/macos-mpv" >/dev/null \
     || die "Packaged macOS mpv notices differ from the repository notice set"
+diff -qr "$repo_root/scripts/desktop-mpv-metal" "$metadata_dir/platform-notices/macos-mpv-metal" >/dev/null \
+    || die "Packaged macOS Metal mpv notices differ from the repository notice set"
 diff -qr "$repo_root/scripts/vlc-bundle" "$metadata_dir/platform-notices/macos-vlc" >/dev/null \
     || die "Packaged macOS VLC notices differ from the repository notice set"
 cmp -s "$repo_root/scripts/macos-source-bundle/manifest-macos-arm64.txt" "$metadata_dir/dependency-inputs/macos-source-manifest.txt" \
@@ -123,8 +138,14 @@ elif [[ "$verification_mode" == "--require-ios-ready" ]]; then
     require_platform_ready ios
 elif [[ "$verification_mode" == "--require-macos-arm64-ready" ]]; then
     require_platform_ready macos-arm64
-    bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-native-inputs \
-        "${3:-$repo_root/desktop-app/build/preparedDesktopAppResources/macos-arm64}"
+    resources="${3:-$repo_root/desktop-app/build/preparedDesktopAppResources/macos-arm64}"
+    if [[ "$with_mpv_metal" == true ]]; then
+        # Separately scoped rows: Standard readiness never inherits or requires Metal entries.
+        require_platform_ready macos-arm64-mpv-metal
+        bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-native-inputs "$resources" --with-mpv-metal
+    else
+        bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-native-inputs "$resources"
+    fi
 elif [[ -n "$verification_mode" && "$verification_mode" != "--require-clean" ]]; then
     die "Unknown option: $verification_mode"
 fi

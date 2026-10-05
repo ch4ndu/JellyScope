@@ -119,7 +119,7 @@ Release package (macOS only today):
 This direct command also works with local edits; a dirty package is for testing,
 not publication.
 
-Development and packaging use the same project-built mpv runtime. The
+Normal development and packaging use the same project-built mpv runtime. The
 [source recipe](../scripts/build-desktop-mpv-runtime.sh) invokes the upstream
 Meson/Ninja, CMake and configure/Make builds for the pinned sources in
 [`scripts/desktop-mpv-bundle/`](../scripts/desktop-mpv-bundle). Install Xcode's
@@ -162,6 +162,79 @@ native ad-hoc signatures remain required. The property defaults to `true` for
 normal release operations. Both images are validated at their own packaged
 resource paths. DMG source artifacts and clean-source publication checks are
 owned by [the release runbook](RELEASE.md#manual-macos-stages).
+
+### macOS Metal experiment
+
+The source-built Metal path requires Apple Silicon, macOS 15 or newer, Xcode,
+and the [desktop native build prerequisites](#desktop-jvm). It uses the Standard
+source recipe plus pinned MoltenVK and a static glslang compiler, with MPVKit's
+caller-owned `CAMetalLayer` patch and the local resize repair. Build each graph
+in its separate cache:
+
+```bash
+bash scripts/build-desktop-mpv-runtime.sh
+metal_runtime="$(bash scripts/build-desktop-mpv-runtime.sh --metal)"
+./gradlew --no-daemon :desktop-app:run \
+  -Djellyscope.desktop.mpvMetalExperiment=true \
+  "-Djellyscope.desktop.mpvMetalRuntimeDir=$metal_runtime"
+```
+
+The Metal cache defaults to `.local/native/desktop-mpv-metal`; set
+`JELLYSCOPE_MPV_METAL_RUNTIME_CACHE_ROOT` to select another dedicated cache.
+The builder downloads only declared source archives and retains matching source,
+license, patch, configuration and native graph records. Standard and Metal caches
+have separate ownership markers and cannot substitute for each other.
+The Metal recipe also records its exact libplacebo static-glslang lookup
+correction; the original source archive and retained recipe reproduce that edit.
+
+The older `prepare-desktop-mpv-metal-experiment.py` remains a local investigation
+recipe for retained MPVKit binary candidates. Those candidates are not accepted
+by the source-built packaging validator. See the
+[recipe notes](../scripts/desktop-mpv-metal/METAL-EXPERIMENT.md).
+
+Both properties are required and also work with `:desktop-app:hotRun`. Select
+mpv and do not combine them with `jellyscope.desktop.forceMpvOpenGlSurface`.
+Restart without the pair to use the saved Settings choice. Distribution
+arguments and the production runtime preparation do not consume this `-D` pair.
+
+To build a local app with both runtime choices, use the **Gradle** `-P` property:
+
+```bash
+./gradlew :desktop-app:createDistributable \
+  -Pjellyscope.macos.signing.enabled=false \
+  "-Pjellyscope.desktop.mpvMetalRuntimeDir=$metal_runtime"
+```
+
+The app image is under `desktop-app/build/compose/binaries/main/app/`.
+In Settings → Playback → mpv presentation, choose Standard or Metal — Experimental,
+wait for the selection to save, then quit and reopen the app when prompted.
+Standard is the initial default. The choice is app-wide, independent of the
+Jellyfin account and Default player setting. Selecting the running mode again
+clears the restart notice. A build without the Metal runtime disables that option.
+Development launch overrides disable this selector for that process.
+
+`-P` stages the complete validated Metal graph under the app's `mpv-metal`
+resource directory; it never embeds the source cache or forces the active mode.
+The similarly named `-D` pair forces a development launch but does not stage
+libraries. Omitting `-P` removes only owned Metal staging before packaging.
+Requested Metal staging is validated before run, resource preparation, packaging
+and signing. Existing clean-source, license and signing gates still apply.
+
+Metal source collection is explicitly selected with `--with-mpv-metal` in the
+macOS source and license verification scripts; Gradle passes it when the `-P`
+property is set. The matching Metal source sidecar contains the merged source
+archives, notices, patches, build records and recipes. Unselected stale Metal
+resources fail verification. Source-built distribution readiness remains subject
+to the native build, corresponding-source inventory and package checks; this
+work does not authorize signing or publication.
+
+The experiment uses software decoding (`hwdec=no`). Begin with a fixed window
+size and check cadence and audible sync before testing pointer movement.
+Check resize/fullscreen geometry and paused redraw with the source-built runtime.
+Controls, subtitles and close/reopen also need visual checks.
+The [desktop playback guide](engineering/desktop-playback.md#desktop-player-presentation)
+owns the lifetime and failure contracts. The retained prebuilt candidate is for local development and does not establish
+source-built package readiness.
 
 ## iOS
 

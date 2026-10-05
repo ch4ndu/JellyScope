@@ -13,6 +13,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.jellyscope.core.data.local.DesktopMpvPresentationStore
 import com.jellyscope.core.data.local.LogCollectionPreferenceStore
 import com.jellyscope.core.data.local.PreviousRunFailurePlatform
 import com.jellyscope.core.data.local.PreviousRunFailureStore
@@ -23,9 +24,11 @@ import com.jellyscope.core.di.downloadsModule
 import com.jellyscope.core.domain.playback.PlaybackHealthGuidancePolicy
 import com.jellyscope.core.download.DownloadLifecycleHost
 import com.jellyscope.core.playback.DesktopPlaybackProbe
+import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.LogBufferStore
 import com.jellyscope.core.util.configureApplicationLogWriters
 import com.jellyscope.core.util.consumePreviousRunFailure
+import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.core.util.installPreviousRunFailureHandler
 import com.jellyscope.ui.AppInfo
 import com.jellyscope.ui.JellyScopeApp
@@ -238,6 +241,8 @@ private fun ensureKoin() {
             )
         }
         val koin = GlobalContext.get()
+        // Freeze the process mpv runtime from the saved choice before any other startup work.
+        val mpvPresentation = koin.get<DesktopMpvPresentationStore>().state.value
         val preferenceStore = koin.get<LogCollectionPreferenceStore>()
         val applicationScope = koin.get<CoroutineScope>()
         configureApplicationLogWriters(
@@ -246,6 +251,12 @@ private fun ensureKoin() {
             applicationScope = applicationScope,
             isDebugBuild = System.getProperty(DESKTOP_DEBUG_PROPERTY) == "true",
         )
+        diagnosticLogger(DiagnosticTag.MpvPlayerController).i {
+            "stage=nativeplayer event=runtime-selection platform=desktop backend=mpv " +
+                "surface=${mpvPresentation.active.name.lowercase()} " +
+                "state=${mpvPresentation.selected.name.lowercase()} " +
+                "result=${mpvPresentation.availability.name.lowercase()}"
+        }
         consumePreviousRunFailure(
             store = koin.get<PreviousRunFailureStore>(),
             preferenceStore = preferenceStore,

@@ -573,7 +573,7 @@ private interface MpvOpenGlDispatchLib : Library {
     }
 }
 
-private fun nextMacMpvOpenGlSurfaceGeneration(): Long {
+internal fun nextMacMpvOpenGlSurfaceGeneration(): Long {
     while (true) {
         val current = macMpvOpenGlSurfaceGeneration.get()
         val next = nextPositiveGeneration(current)

@@ -62,6 +62,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.MAX_VOLUME_PERCENT
@@ -624,19 +626,21 @@ private fun PlayerControlStrip(
     }
 
     if (useDesktopControlLayout) {
-        Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(controlsScrollState),
+            horizontalArrangement = DesktopPlayerControlArrangement,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Row(
-                modifier = Modifier.align(Alignment.CenterStart),
                 horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 leftButtons()
             }
-            Box(modifier = Modifier.align(Alignment.Center)) {
+            Box {
                 playPauseButton()
             }
             Row(
-                modifier = Modifier.align(Alignment.CenterEnd),
                 horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -655,6 +659,32 @@ private fun PlayerControlStrip(
             playPauseButton()
             leftButtons()
             rightButtons()
+        }
+    }
+}
+
+/** Keep transport centered where it fits, reserving measured space for both sides. */
+private object DesktopPlayerControlArrangement : Arrangement.Horizontal {
+    override val spacing = Dimensions.inlineSpacing
+
+    override fun Density.arrange(
+        totalSize: Int,
+        sizes: IntArray,
+        layoutDirection: LayoutDirection,
+        outPositions: IntArray,
+    ) {
+        val gap = spacing.roundToPx()
+        outPositions[0] = 0
+        outPositions[2] = totalSize - sizes[2]
+        outPositions[1] =
+            ((totalSize - sizes[1]) / 2).coerceIn(
+                sizes[0] + gap,
+                outPositions[2] - gap - sizes[1],
+            )
+        if (layoutDirection == LayoutDirection.Rtl) {
+            for (index in outPositions.indices) {
+                outPositions[index] = totalSize - outPositions[index] - sizes[index]
+            }
         }
     }
 }

@@ -35,6 +35,16 @@ build-input licenses accompany those inventories. The combined macOS package
 uses GPL-compatible terms through MPL-2.0 Section 3.3. Upstream published
 provenance remains the basis for the official VLC binary's source record.
 
+When the optional Metal graph is included, its source-built mpv/FFmpeg graph
+also uses pinned MoltenVK and a static glslang compiler. Its additional source
+and original license records are in `scripts/desktop-mpv-metal/`, including
+MoltenVK's declared embedded/header inputs and glslang's generated-parser
+notice with the Bison exception. The MPVKit caller-owned-layer patch and local
+resize patch retain mpv's upstream license terms. The explicit Metal source
+sidecar retains the merged source inputs, these patches, the build recipes and
+actual build records. Retained prebuilt experimental candidates do not supply
+this source-built graph's distribution evidence.
+
 The desktop JVM inventory records accepted runtime families, resolved versions,
 published licenses and source routes; release verification rejects components
 outside that record. macOS release output retains the exact clean JellyScope
