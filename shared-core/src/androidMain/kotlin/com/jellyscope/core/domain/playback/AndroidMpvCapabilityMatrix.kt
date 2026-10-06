@@ -20,11 +20,13 @@ fun androidMpvCapabilityMatrix(): AndroidMpvCapabilityMatrix = AndroidMpvCapabil
 /**
  * Projects the pinned declaration into the server-facing capability model.
  *
- * mpv always receives decoded PCM in this slice, so route passthrough and
- * display HDR facts are deliberately not consulted here. MediaCodec is only a
- * source of complete coupled bounds for codecs explicitly delegated to it;
- * unknown or incomplete probe facts remain unknown rather than becoming a
- * guessed software ceiling.
+ * Decode support stays the pinned declaration. Encoded passthrough is never
+ * declared: the controller may still use route-eligible encoded output at
+ * runtime, but no physically qualified mpv build backs a server-facing claim,
+ * so stream planning stays on decoded PCM. Display HDR facts are deliberately
+ * not consulted. MediaCodec is only a source of complete coupled bounds for
+ * codecs explicitly delegated to it; unknown or incomplete probe facts remain
+ * unknown rather than becoming a guessed software ceiling.
  */
 fun AndroidMpvCapabilityMatrix.toDeviceDecodingCapabilities(maxAudioChannels: Int = this.maxAudioChannels): DeviceDecodingCapabilities {
     val videoCodecs = supportedVideoCodecs.toList().sorted()
@@ -49,6 +51,7 @@ fun AndroidMpvCapabilityMatrix.toDeviceDecodingCapabilities(maxAudioChannels: In
         videoConstraintsByCodec = videoCodecs.associateWith { VideoCodecConstraints() },
         videoRangeCapabilitiesByCodec = videoCodecs.associateWith { VideoRangeCapabilities() },
         audioPassthroughCodecs = emptyList(),
+        audioPassthroughMaxChannels = null,
         directPlayProfiles =
             listOf(
                 DeviceDirectPlayProfile(

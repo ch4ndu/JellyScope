@@ -2,12 +2,11 @@
 
 package com.jellyscope.core.playback
 
-import android.app.UiModeManager
 import android.content.Context
-import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.os.Build
+import com.jellyscope.core.domain.playback.AndroidMpvAudioRouteOutput
 import com.jellyscope.core.domain.playback.AndroidTvMpvVideoOutput
+import com.jellyscope.core.domain.playback.isAndroidTelevision
 
 internal enum class AndroidMpvDeviceClass {
     Mobile,
@@ -73,16 +72,30 @@ internal data class AndroidMpvEnginePolicy(
         }
 }
 
-internal fun androidMpvDeviceFacts(context: Context): AndroidMpvDeviceFacts {
-    val applicationContext = context.applicationContext
-    val uiModeManager = applicationContext.getSystemService(UiModeManager::class.java)
-    val televisionMode = uiModeManager?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-    val leanback = applicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
-    return AndroidMpvDeviceFacts(
-        isTelevision = televisionMode || leanback,
+/** mpv audio output options; the defaults are mpv's own decoded-PCM defaults. */
+internal data class AndroidMpvAudioOutput(
+    val spdifCodecs: String = "",
+    val channels: String = "auto-safe",
+)
+
+/**
+ * Encoded transport cannot honour software gain or non-1x speed, so it is
+ * enabled only at 1x and unity gain; every other state decodes to PCM.
+ */
+internal fun AndroidMpvAudioRouteOutput.mpvAudioOutput(
+    speed: Float,
+    unityGain: Boolean,
+): AndroidMpvAudioOutput =
+    AndroidMpvAudioOutput(
+        spdifCodecs = if (speed == 1f && unityGain) encodedCodecs.joinToString(",") else "",
+        channels = if (stereoPcm) "stereo" else "auto-safe",
+    )
+
+internal fun androidMpvDeviceFacts(context: Context): AndroidMpvDeviceFacts =
+    AndroidMpvDeviceFacts(
+        isTelevision = isAndroidTelevision(context.applicationContext),
         isEmulator = isAndroidEmulator(),
     )
-}
 
 internal fun androidMpvEnginePolicy(
     facts: AndroidMpvDeviceFacts,

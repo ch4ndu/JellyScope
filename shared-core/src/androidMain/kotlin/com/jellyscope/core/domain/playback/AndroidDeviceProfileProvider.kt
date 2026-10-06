@@ -3,12 +3,7 @@
 package com.jellyscope.core.domain.playback
 
 import android.content.Context
-import android.content.IntentFilter
 import android.hardware.display.DisplayManager
-import android.media.AudioAttributes
-import android.media.AudioDeviceInfo
-import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
@@ -137,7 +132,7 @@ class AndroidDeviceProfileProvider internal constructor(
         val displayHdrTypes = environment.activeDisplayHdrTypes()
         val videoRangeCapabilitiesByCodec = decoderCapabilities.videoRangeCapabilities(displayHdrTypes)
         val supportsDolbyVision = videoRangeCapabilitiesByCodec.values.any { it.supportsDolbyVision }
-        val audioRoute = audioRouteCapabilities(environment.activeAudioSinks())
+        val audioRoute = audioRouteCapabilities(environment.activeAudioRoute().sinks)
 
         deviceProfileLogger.i {
             formatPlaybackDiagnostic(
@@ -186,7 +181,9 @@ class AndroidDeviceProfileProvider internal constructor(
 
     private fun mpvCapabilities(refreshDecoders: Boolean): DeviceDecodingCapabilities {
         val decoderCapabilities = decoderCapabilities(refreshDecoders)
-        val audioRoute = audioRouteCapabilities(environment.activeAudioSinks())
+        // Only the PCM channel ceiling follows the route. mpv's encoded transport
+        // is not physically qualified, so the server is never told it passes through.
+        val audioRoute = audioRouteCapabilities(environment.activeAudioRoute().sinks)
         val matrix = androidMpvCapabilityMatrix()
         val probedCapabilities =
             DeviceDecodingCapabilities(
@@ -233,7 +230,7 @@ internal interface AndroidPlaybackCapabilityEnvironment {
 
     fun supportsMedia3FfmpegEac3(): Boolean
 
-    fun activeAudioSinks(): List<AndroidAudioSinkCapabilities>
+    fun activeAudioRoute(): AndroidAudioRoute
 
     fun activeDisplayHdrTypes(): Set<Int>
 }
@@ -295,15 +292,12 @@ internal data class AndroidDolbyVisionCapabilities(
     val supportsEnhancementLayer: Boolean = false,
 )
 
-internal data class AndroidAudioSinkCapabilities(
-    val encodings: Set<Int>,
-    val maxChannelCount: Int,
-)
-
 @androidx.annotation.OptIn(UnstableApi::class)
 private class SystemAndroidPlaybackCapabilityEnvironment(
     private val appContext: Context,
 ) : AndroidPlaybackCapabilityEnvironment {
+    private val audioRoutes = SystemAndroidAudioRouteSource(appContext)
+
     override fun decoderCapabilities(): AndroidDecoderCapabilities {
         val codecInfos =
             MediaCodecList(MediaCodecList.REGULAR_CODECS)
@@ -388,27 +382,7 @@ private class SystemAndroidPlaybackCapabilityEnvironment(
 
     override fun supportsMedia3FfmpegEac3(): Boolean = cachedMedia3FfmpegEac3Support
 
-    override fun activeAudioSinks(): List<AndroidAudioSinkCapabilities> {
-        val audioManager =
-            appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                ?: return emptyList()
-        val routedDevices =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val mediaAttributes =
-                    AudioAttributes
-                        .Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                        .build()
-                runCatching { audioManager.getAudioDevicesForAttributes(mediaAttributes) }
-                    .getOrDefault(emptyList())
-            } else {
-                emptyList()
-            }
-        return routedDevices
-            .map { device -> device.toAudioSinkCapabilities() }
-            .ifEmpty { legacyHdmiAudioSink()?.let(::listOf).orEmpty() }
-    }
+    override fun activeAudioRoute(): AndroidAudioRoute = audioRoutes.route()
 
     override fun activeDisplayHdrTypes(): Set<Int> {
         val displayManager =
@@ -422,19 +396,6 @@ private class SystemAndroidPlaybackCapabilityEnvironment(
                 ?.toSet()
                 .orEmpty()
         }.getOrDefault(emptySet())
-    }
-
-    private fun legacyHdmiAudioSink(): AndroidAudioSinkCapabilities? {
-        val intent =
-            runCatching {
-                appContext.registerReceiver(null, IntentFilter(AudioManager.ACTION_HDMI_AUDIO_PLUG))
-            }.getOrNull()
-                ?: return null
-        return legacyHdmiAudioSink(
-            plugState = intent.getIntExtra(AudioManager.EXTRA_AUDIO_PLUG_STATE, 0),
-            encodings = intent.getIntArrayExtra(AudioManager.EXTRA_ENCODINGS),
-            maxChannelCount = intent.getIntExtra(AudioManager.EXTRA_MAX_CHANNEL_COUNT, SAFE_STEREO_CHANNEL_COUNT),
-        )
     }
 
     private companion object {
@@ -529,45 +490,6 @@ private fun AndroidDecoderCapabilities.videoRangeCapabilities(displayHdrTypes: S
             )
         }
     }
-
-internal fun legacyHdmiAudioSink(
-    plugState: Int,
-    encodings: IntArray?,
-    maxChannelCount: Int,
-): AndroidAudioSinkCapabilities? =
-    if (plugState == 1) {
-        AndroidAudioSinkCapabilities(
-            encodings = encodings?.toSet().orEmpty(),
-            maxChannelCount = maxChannelCount.takeIf { channels -> channels > 0 } ?: SAFE_STEREO_CHANNEL_COUNT,
-        )
-    } else {
-        null
-    }
-
-internal fun audioRouteCapabilities(sinks: List<AndroidAudioSinkCapabilities>): AudioRouteCapabilities {
-    if (sinks.isEmpty()) {
-        return AudioRouteCapabilities(maxAudioChannels = SAFE_STEREO_CHANNEL_COUNT)
-    }
-    val passthroughCodecs =
-        sinks
-            .map { sink -> sink.encodings.flatMap { encoding -> encoding.toJellyfinPassthroughCodecs() }.toSet() }
-            .reduce { common, codecs -> common intersect codecs }
-            .toList()
-            .sorted()
-    val maxAudioChannels =
-        sinks.minOf { sink -> sink.maxChannelCount.takeIf { channels -> channels > 0 } ?: SAFE_STEREO_CHANNEL_COUNT }
-    return AudioRouteCapabilities(
-        passthroughCodecs = passthroughCodecs,
-        maxAudioChannels = maxAudioChannels,
-        passthroughMaxAudioChannels = maxAudioChannels.takeIf { passthroughCodecs.isNotEmpty() },
-    )
-}
-
-private fun AudioDeviceInfo.toAudioSinkCapabilities(): AndroidAudioSinkCapabilities =
-    AndroidAudioSinkCapabilities(
-        encodings = encodings.toSet(),
-        maxChannelCount = channelCounts.maxOrNull() ?: SAFE_STEREO_CHANNEL_COUNT,
-    )
 
 private fun mappedCodecs(
     mappings: List<CodecMimeMapping>,
@@ -959,23 +881,6 @@ private data class CodecMimeMapping(
     val codecName: String,
 )
 
-internal data class AudioRouteCapabilities(
-    val passthroughCodecs: List<String> = emptyList(),
-    val maxAudioChannels: Int? = null,
-    val passthroughMaxAudioChannels: Int? = null,
-)
-
-private fun Int.toJellyfinPassthroughCodecs(): List<String> =
-    when (this) {
-        AudioFormat.ENCODING_AC3 -> listOf("ac3")
-        AudioFormat.ENCODING_E_AC3 -> listOf("eac3")
-        AudioFormat.ENCODING_DTS,
-        AudioFormat.ENCODING_DTS_HD,
-        -> listOf("dts", "dca")
-        AudioFormat.ENCODING_DOLBY_TRUEHD -> listOf("truehd")
-        else -> emptyList()
-    }
-
 private val videoCodecMappings =
     listOf(
         CodecMimeMapping(mimeType = "video/avc", codecName = "h264"),
@@ -1074,7 +979,6 @@ private val av1Levels =
     )
 
 private val deviceProfileLogger = diagnosticLogger(DiagnosticTag.DeviceProfile)
-private const val SAFE_STEREO_CHANNEL_COUNT = 2
 
 private fun androidSubtitleProfiles(): List<DeviceSubtitleProfile> {
     val parserFactory = DefaultSubtitleParserFactory()

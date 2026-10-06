@@ -10,6 +10,8 @@ import com.jellyscope.core.data.local.LogCollectionPreferenceStore
 import com.jellyscope.core.domain.model.PlaybackTimingKind
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.playback.AndroidAudioRouteSource
+import com.jellyscope.core.domain.playback.AndroidMpvAudioRouteOutput
 import com.jellyscope.core.domain.playback.AudioActivationState
 import com.jellyscope.core.domain.playback.DroppedFrameMeasurement
 import com.jellyscope.core.domain.playback.EmbeddedAudioSelection
@@ -46,10 +48,12 @@ import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
 import com.jellyscope.core.domain.playback.SubtitleAsset
 import com.jellyscope.core.domain.playback.SubtitleStyle
+import com.jellyscope.core.domain.playback.SystemAndroidAudioRouteSource
 import com.jellyscope.core.domain.playback.VideoOutputEvidence
 import com.jellyscope.core.domain.playback.VideoOutputMeasurementCapabilities
 import com.jellyscope.core.domain.playback.formatPlaybackDiagnostic
 import com.jellyscope.core.domain.playback.mpvDroppedFramePoll
+import com.jellyscope.core.domain.playback.mpvOutput
 import com.jellyscope.core.domain.playback.mpvVideoDecodingMode
 import com.jellyscope.core.domain.playback.playbackExceptionType
 import com.jellyscope.core.playback.AndroidMpvLifecycleDecision.Completed
@@ -160,6 +164,8 @@ internal class AndroidMpvPlayerController(
         ),
     private val enginePolicy: AndroidMpvEnginePolicy =
         androidMpvEnginePolicy(androidMpvDeviceFacts(context.applicationContext)),
+    /** The capability provider's route owner; observed for this controller's lifetime. */
+    private val audioRoutes: AndroidAudioRouteSource = SystemAndroidAudioRouteSource(context.applicationContext),
     /**
      * mpv's verbose log-file is written only while diagnostics collection is
      * enabled here; absent (tests, missed wiring) means never write to disk.
@@ -221,8 +227,21 @@ internal class AndroidMpvPlayerController(
     private var pendingSeekTargetPositionMs: Long? = null
     private var pendingSeekWatchdog: Job? = null
     private var resumeAfterTransientFocusLoss = false
+
+    /** Changed on the native queue; release() clears both only as the engine is destroyed. */
     private val isDucked = AtomicBoolean(false)
     private val volumeBeforeDuck = AtomicReference<Double?>(null)
+
+    /** Null when route changes cannot be observed; output then stays decoded PCM. */
+    @Volatile
+    private var audioRouteObservation: AutoCloseable? = null
+
+    /**
+     * Native-queue-owned: the latest route output and the audio options last written to the
+     * current engine. The latter resets to mpv's defaults whenever a fresh engine initializes.
+     */
+    private var audioRouteOutput = AndroidMpvAudioRouteOutput()
+    private var appliedAudioOutput = AndroidMpvAudioOutput()
     private var surfaceView: AndroidMpvSurfaceView? = null
     private var attachedSurface: Surface? = null
     private var surfaceWidth = 0
@@ -370,6 +389,7 @@ internal class AndroidMpvPlayerController(
                 throw throwable
             }
         }
+        audioRouteObservation = audioRoutes.observe(::onAudioRouteChanged)
     }
 
     override fun createSurfaceView(context: Context): View =
@@ -693,7 +713,10 @@ internal class AndroidMpvPlayerController(
                         native.setPropertyString("http-header-fields", "")
                         native.setPropertyString("http-header-fields", request.authorizationHeader.orEmpty())
                         native.setPropertyBoolean("pause", true)
-                        native.setPropertyDouble("speed", _playbackState.value.playbackSpeed.toDouble())
+                        val speed = _playbackState.value.playbackSpeed
+                        native.setPropertyDouble("speed", speed.toDouble())
+                        refreshAudioRoute()
+                        applyAudioOutput(native, desiredAudioOutput(native, speed))
                         applyTimingOffsets(native)
                         applyPresentation(native)
                         attachedSurface?.takeIf(Surface::isValid)?.let { surface ->
@@ -790,8 +813,8 @@ internal class AndroidMpvPlayerController(
         timing.clearForDiscontinuity()
         audioFocusCoordinator?.abandon()
         playbackFocusAdmitted = audioFocusCoordinator == null
-        isDucked.set(false)
-        volumeBeforeDuck.set(null)
+        // Queued ahead of prepareNative, so the replacement loads at the unducked base volume.
+        enqueueNative(action = ::restoreUnduckedVolume)
         audioActivationConfirmation.applyInitial(initialAudioActivationFor(plan))
         subtitleActivationConfirmation.beginForPlan(plan, subtitleAsset)
         initialAudioGate = initialAudioActivationFor(plan) is InitialAudioActivation.AwaitNativeMapping
@@ -885,7 +908,9 @@ internal class AndroidMpvPlayerController(
         if (releasedFlag.get()) return warnReleased(PlayerOperation.SetPlaybackSpeed)
         val normalized = speed.coerceIn(0.1f, 5f)
         _playbackState.update { current -> current.copy(playbackSpeed = normalized) }
-        enqueueNative { native -> native.setPropertyDouble("speed", normalized.toDouble()) }
+        enqueueNative { native ->
+            writeAudioControl(native, normalized) { native.setPropertyDouble("speed", normalized.toDouble()) }
+        }
     }
 
     override fun setSubtitleStyle(style: SubtitleStyle) {
@@ -965,8 +990,6 @@ internal class AndroidMpvPlayerController(
         invalidateHotSamples()
         audioFocusCoordinator?.abandon(generation)
         playbackFocusAdmitted = false
-        isDucked.set(false)
-        volumeBeforeDuck.set(null)
         audioActivationConfirmation.clear()
         subtitleActivationConfirmation.clear()
         val detachedOfflineLease = offlineLeaseHolder.detach()
@@ -975,6 +998,7 @@ internal class AndroidMpvPlayerController(
             action = { native ->
                 native.setPropertyString("http-header-fields", "")
                 native.command(arrayOf("stop"))
+                restoreUnduckedVolume(native)
             },
             onComplete = detachedOfflineLease?.let { lease -> { completeNativeStopLease(lease) } },
         )
@@ -1037,6 +1061,8 @@ internal class AndroidMpvPlayerController(
         nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
         invalidateHotSamples()
         audioFocusCoordinator?.abandon(generation)
+        audioRouteObservation?.close()
+        audioRouteObservation = null
         playbackFocusAdmitted = false
         isDucked.set(false)
         volumeBeforeDuck.set(null)
@@ -1147,7 +1173,10 @@ internal class AndroidMpvPlayerController(
                 runCatching {
                     native.setPropertyString("http-header-fields", "")
                     native.setPropertyBoolean("pause", true)
-                    native.setPropertyDouble("speed", plan.playbackSpeed.coerceIn(0.1f, 5f).toDouble())
+                    val speed = plan.playbackSpeed.coerceIn(0.1f, 5f)
+                    native.setPropertyDouble("speed", speed.toDouble())
+                    refreshAudioRoute()
+                    applyAudioOutput(native, desiredAudioOutput(native, speed))
                     applyTimingOffsets(native)
                     applyPresentation(native)
                     applySubtitleStyle(native)
@@ -1206,7 +1235,10 @@ internal class AndroidMpvPlayerController(
                 native.setPropertyString("http-header-fields", "")
                 native.setPropertyString("http-header-fields", accepted.request.authorizationHeader.orEmpty())
                 native.setPropertyBoolean("pause", true)
-                native.setPropertyDouble("speed", plan.playbackSpeed.coerceIn(0.1f, 5f).toDouble())
+                val speed = plan.playbackSpeed.coerceIn(0.1f, 5f)
+                native.setPropertyDouble("speed", speed.toDouble())
+                refreshAudioRoute()
+                applyAudioOutput(native, desiredAudioOutput(native, speed))
                 applyTimingOffsets(native)
                 applyPresentation(native)
                 applySubtitleStyle(native)
@@ -1399,6 +1431,8 @@ internal class AndroidMpvPlayerController(
                 )
             }
             engine = native
+            // A fresh engine starts at mpv's audio defaults, whatever the destroyed one last held.
+            appliedAudioOutput = AndroidMpvAudioOutput()
             startDiagnosticLogWatchdog()
             observeDiagnosticLogPreference()
         } catch (throwable: Throwable) {
@@ -2436,13 +2470,10 @@ internal class AndroidMpvPlayerController(
         event: AndroidAudioFocusEvent,
     ) {
         if (releasedFlag.get() || eventGeneration != generation) return
+        val initialAdmissionBuffering = playIntent && initialAudioGate && !resumeAfterTransientFocusLoss
         when (event) {
             AndroidAudioFocusEvent.Gained -> {
-                if (isDucked.compareAndSet(true, false)) {
-                    volumeBeforeDuck.getAndSet(null)?.let { volume ->
-                        enqueueNative { native -> native.setPropertyDouble("volume", volume) }
-                    }
-                }
+                enqueueNative(action = ::restoreUnduckedVolume)
                 if (resumeAfterTransientFocusLoss && playIntent) {
                     resumeAfterTransientFocusLoss = false
                     resumeConfirmationFromPositionMs = playbackFacts.positionMs
@@ -2452,10 +2483,15 @@ internal class AndroidMpvPlayerController(
             }
             AndroidAudioFocusEvent.Duck ->
                 enqueueNative { native ->
+                    // A duck queued before stop or a replacement prepare must not attenuate what follows.
+                    if (eventGeneration != generation || lifecycle.state.stopped) return@enqueueNative
+                    // Never save a guessed base volume: the restore would overwrite the user's own.
+                    val volume = native.getPropertyDouble("volume")?.takeIf(Double::isFinite) ?: return@enqueueNative
                     if (isDucked.compareAndSet(false, true)) {
-                        val volume = native.getPropertyDouble("volume") ?: 100.0
                         volumeBeforeDuck.set(volume)
-                        native.setPropertyDouble("volume", volume * 0.2)
+                        writeAudioControl(native, _playbackState.value.playbackSpeed) {
+                            native.setPropertyDouble("volume", volume * 0.2)
+                        }
                     }
                 }
             AndroidAudioFocusEvent.TransientLoss -> {
@@ -2471,15 +2507,87 @@ internal class AndroidMpvPlayerController(
                 playIntent = false
                 resumeConfirmationFromPositionMs = null
                 refreshImmediateClockGeneration()
-                volumeBeforeDuck.getAndSet(null)?.let { volume ->
-                    enqueueNative { native -> native.setPropertyDouble("volume", volume) }
-                }
-                isDucked.set(false)
+                enqueueNative(action = ::restoreUnduckedVolume)
                 enqueueNative { native -> native.setPropertyBoolean("pause", true) }
                 playbackFocusAdmitted = false
                 audioFocusCoordinator?.abandon(eventGeneration)
             }
         }
+        // Native pause is already true during initial audio admission, so no pause callback republishes this.
+        if (initialAudioGate && initialAdmissionBuffering != (playIntent && !resumeAfterTransientFocusLoss)) {
+            publishDerivedState()
+        }
+    }
+
+    private fun onAudioRouteChanged() {
+        if (releasedFlag.get()) return
+        val routeGeneration = generation
+        enqueueNative { native ->
+            // A replacement prepare reads the route itself before loading.
+            if (routeGeneration != generation) return@enqueueNative
+            refreshAudioRoute()
+            applyAudioOutput(native, desiredAudioOutput(native, _playbackState.value.playbackSpeed))
+        }
+    }
+
+    private fun refreshAudioRoute() {
+        audioRouteOutput = audioRouteObservation?.let { audioRoutes.route().mpvOutput() } ?: AndroidMpvAudioRouteOutput()
+    }
+
+    /** Native queue. Unity gain is mpv's actual volume reading exactly 100 while unducked; unknown is PCM. */
+    private fun desiredAudioOutput(
+        native: AndroidMpvEngine,
+        speed: Float,
+    ): AndroidMpvAudioOutput {
+        val volume = runCatching { native.getPropertyDouble("volume") }.getOrNull()
+        val unityGain = !isDucked.get() && volume == 100.0
+        return audioRouteOutput.mpvAudioOutput(speed = speed, unityGain = unityGain)
+    }
+
+    /**
+     * Native queue: puts back the base volume a duck saved, then forgets it. Stop, prepare and
+     * focus gain/loss all queue this, so a duck never carries into the next item.
+     */
+    private fun restoreUnduckedVolume(native: AndroidMpvEngine) {
+        if (!isDucked.getAndSet(false)) return
+        val volume = volumeBeforeDuck.getAndSet(null) ?: return
+        writeAudioControl(native, _playbackState.value.playbackSpeed) { native.setPropertyDouble("volume", volume) }
+    }
+
+    /**
+     * Writes only changed options, so unchanged evaluations never rebuild audio.
+     * `audio-spdif` is an mpv decoder option (UPDATE_AD). Config files are off
+     * (`config=no`), so its change is never coalesced: the synchronous property
+     * write runs the callback before returning, rebuilding the audio chain for
+     * the selected track. The fresh chain keeps pause and delay, clears a sticky
+     * passthrough failure, and opens its output at the current volume, without a
+     * refresh seek; the audible gap of that rebuild is unmeasured on hardware.
+     * `audio-channels` reloads the output with mpv's own refresh seek.
+     */
+    private fun applyAudioOutput(
+        native: AndroidMpvEngine,
+        output: AndroidMpvAudioOutput,
+    ) {
+        if (output.channels != appliedAudioOutput.channels) native.setPropertyString("audio-channels", output.channels)
+        if (output.spdifCodecs != appliedAudioOutput.spdifCodecs) native.setPropertyString("audio-spdif", output.spdifCodecs)
+        appliedAudioOutput = output
+    }
+
+    /**
+     * Speed and gain writes: PCM is selected before a non-1x or non-unity write
+     * so mpv opens its next output with that gain and speed; encoded output is
+     * chosen only from the volume read back after the write, so a restore
+     * enables it after reaching unity, never from the pre-write gain.
+     */
+    private fun writeAudioControl(
+        native: AndroidMpvEngine,
+        speed: Float,
+        write: () -> Unit,
+    ) {
+        val before = desiredAudioOutput(native, speed)
+        if (before.spdifCodecs.isEmpty()) applyAudioOutput(native, before)
+        write()
+        applyAudioOutput(native, desiredAudioOutput(native, speed))
     }
 
     private fun confirmVideoFailure() {
@@ -2986,6 +3094,7 @@ internal class AndroidMpvPlayerController(
                     playbackFacts.seeking ||
                     resumeConfirmationFromPositionMs != null ||
                     (playbackFacts.coreIdle && !playbackFacts.paused && !playbackFacts.idleActive) -> PlaybackStatus.Buffering
+                playIntent && initialAudioGate && !resumeAfterTransientFocusLoss -> PlaybackStatus.Buffering
                 playbackFacts.paused -> PlaybackStatus.Paused
                 playIntent -> PlaybackStatus.Playing
                 else -> PlaybackStatus.Paused

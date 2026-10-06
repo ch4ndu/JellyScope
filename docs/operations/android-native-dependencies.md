@@ -59,6 +59,23 @@ The project wrapper also owns stopped Surface retirement and its INT64 event
 fence; see [wrapper provenance](../../android-libmpv/UPSTREAM.md). This rebuilds
 `libplayer.so` only and does not replace the pinned mpv/FFmpeg payload.
 
+### E-AC-3 encoded-output prerequisites
+
+mpv E-AC-3 output requires FFmpeg's registered `spdif` muxer and an AudioTrack
+backend that preserves the 192 kHz encoded carrier rate. Decoder availability
+alone does not establish either prerequisite. The published bundle disables
+FFmpeg muxers and retains mpv's PCM-rate cap. A missing muxer fails before the
+first audio frame reaches output initialization, so that stage cannot use
+mpv's later audio-output failure fallback to PCM.
+
+The unpublished candidate enables only `--enable-muxer=spdif` at the pinned
+FFmpeg revision and replaces `libavformat.so` alongside the patched `libmpv.so`
+for each shipped ABI. Its build and source records must identify both changes;
+all remaining provider libraries stay unchanged. Verify muxer registration,
+imports against those retained libraries, and exact packaged bytes before the
+physical playback gate. This work does not change the published dependency pin
+or extend the earlier Cube acceptance to rebuilt libraries.
+
 ## License and corresponding source
 
 The wrapper base is MIT-licensed, but the project-owned bridge and the native

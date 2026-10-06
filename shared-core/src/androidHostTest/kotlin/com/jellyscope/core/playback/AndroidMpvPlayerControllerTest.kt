@@ -4,10 +4,15 @@ package com.jellyscope.core.playback
 
 import android.content.Context
 import android.graphics.SurfaceTexture
+import android.media.AudioFormat
 import android.view.Surface
 import androidx.test.core.app.ApplicationProvider
 import com.jellyscope.core.domain.model.PlaybackTimingKind
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.playback.AndroidAudioRoute
+import com.jellyscope.core.domain.playback.AndroidAudioRouteSource
+import com.jellyscope.core.domain.playback.AndroidAudioSinkCapabilities
+import com.jellyscope.core.domain.playback.AndroidAudioSinkType
 import com.jellyscope.core.domain.playback.AndroidTvMpvVideoOutput
 import com.jellyscope.core.domain.playback.AudioActivationState
 import com.jellyscope.core.domain.playback.AudioActivationTarget
@@ -24,6 +29,7 @@ import com.jellyscope.core.domain.playback.SubtitleActivationIdentity
 import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
 import com.jellyscope.core.domain.playback.SubtitleAsset
+import com.jellyscope.core.domain.playback.SystemAndroidAudioRouteSource
 import com.jellyscope.core.util.LogScrubber
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -243,6 +249,25 @@ class AndroidMpvPlayerControllerTest {
             runCurrent()
 
             assertEquals(AudioActivationState.Active(target), controller.playbackState.value.audioActivation)
+            controller.release()
+        }
+
+    @Test
+    fun requestedPlayWaitingOnInitialAudioMappingReportsBufferingNotPaused() =
+        runTest {
+            val engine = FakeAndroidMpvEngine()
+            val dispatcher = UnconfinedTestDispatcher(testScheduler)
+            val controller = controller(engine, dispatcher)
+            val target = AudioActivationTarget(requestId = 3L, itemId = "item", streamIndex = 10)
+
+            controller.prepare(plan(startPositionMs = 0L, audioTarget = target), null)
+            runCurrent()
+            controller.play()
+            engine.emit(AndroidMpvEvent.NativeEvent(AndroidMpvNativeEventIds.FILE_LOADED))
+            runCurrent()
+
+            assertEquals(AudioActivationState.Pending(target), controller.playbackState.value.audioActivation)
+            assertEquals(PlaybackStatus.Buffering, controller.playbackState.value.status)
             controller.release()
         }
 
@@ -1198,6 +1223,31 @@ class AndroidMpvPlayerControllerTest {
             surface.release()
         }
 
+    @Test
+    fun competingOutputOnTelevisionHdmiRouteWithdrawsEncodedAudio() =
+        runTest {
+            val engine = FakeAndroidMpvEngine()
+            val hdmi =
+                AndroidAudioSinkCapabilities(
+                    encodings = setOf(AudioFormat.ENCODING_E_AC3),
+                    maxChannelCount = 8,
+                    type = AndroidAudioSinkType.Hdmi,
+                )
+            val routes = FakeAudioRouteSource(AndroidAudioRoute(listOf(hdmi), television = true, exclusive = true))
+            val controller = controller(engine, UnconfinedTestDispatcher(testScheduler), audioRoutes = routes)
+
+            controller.prepare(plan(0L), null)
+            runCurrent()
+            assertEquals("eac3", engine.stringProperties["audio-spdif"])
+
+            routes.route = AndroidAudioRoute(listOf(hdmi), television = true, exclusive = false)
+            routes.onChanged?.invoke()
+            runCurrent()
+
+            assertEquals("", engine.stringProperties["audio-spdif"])
+            controller.release()
+        }
+
     private fun controller(
         engine: FakeAndroidMpvEngine,
         dispatcher: CoroutineDispatcher,
@@ -1206,6 +1256,7 @@ class AndroidMpvPlayerControllerTest {
         startupTimeout: kotlin.time.Duration = 15.seconds,
         enginePolicy: AndroidMpvEnginePolicy = androidMpvEnginePolicy(AndroidMpvDeviceFacts(isTelevision = false, isEmulator = false)),
         initialCaBundlePath: String? = null,
+        audioRoutes: AndroidAudioRouteSource = SystemAndroidAudioRouteSource(context),
     ) = AndroidMpvPlayerController(
         context = context,
         session = session,
@@ -1231,6 +1282,7 @@ class AndroidMpvPlayerControllerTest {
             },
         startupTimeout = startupTimeout,
         enginePolicy = enginePolicy,
+        audioRoutes = audioRoutes,
         initialCaBundlePath = initialCaBundlePath,
     )
 
@@ -1268,6 +1320,19 @@ class AndroidMpvPlayerControllerTest {
         )
 }
 
+private class FakeAudioRouteSource(
+    var route: AndroidAudioRoute,
+) : AndroidAudioRouteSource {
+    var onChanged: (() -> Unit)? = null
+
+    override fun route(): AndroidAudioRoute = route
+
+    override fun observe(onChanged: () -> Unit): AutoCloseable {
+        this.onChanged = onChanged
+        return AutoCloseable { this.onChanged = null }
+    }
+}
+
 private class FakeAndroidMpvEngine(
     private val initializeFailure: Throwable? = null,
     private val rejectedOption: String? = null,
@@ -1279,6 +1344,9 @@ private class FakeAndroidMpvEngine(
     val booleanProperties = mutableMapOf<String, Boolean>()
     val longProperties = mutableMapOf<String, Long>()
     val stringProperties = mutableMapOf<String, String>()
+
+    /** mpv starts at unity volume. */
+    val doubleProperties = mutableMapOf("volume" to 100.0)
     var destroyed = false
     var initializeCount = 0
     var attachedSurface: Surface? = null
@@ -1328,7 +1396,7 @@ private class FakeAndroidMpvEngine(
 
     override fun getPropertyLong(name: String): Long? = null
 
-    override fun getPropertyDouble(name: String): Double? = null
+    override fun getPropertyDouble(name: String): Double? = doubleProperties[name]
 
     override fun getPropertyString(name: String): String? = null
 
@@ -1349,7 +1417,9 @@ private class FakeAndroidMpvEngine(
     override fun setPropertyDouble(
         name: String,
         value: Double,
-    ) = Unit
+    ) {
+        doubleProperties[name] = value
+    }
 
     override fun setPropertyString(
         name: String,

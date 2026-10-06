@@ -49,6 +49,8 @@ macOS share the browse experience with native playback.
 Android requires Android 7.1 / API 25 or newer, including Fire OS 6. The mpv
 backend requires API 26+; ExoPlayer remains available on API 25. Android builds
 use a pinned [JellyScope mpv bundle](docs/operations/android-native-dependencies.md).
+Android TV mpv E-AC-3 surround output requires a pending native-bundle update
+and device validation; ExoPlayer remains available for the reported surround path.
 Android TV offers GPU output (default) or Direct MediaCodec output; the
 [usage guide](docs/user/playback.md#choose-a-player) describes its limitations.
 

@@ -1015,9 +1015,9 @@ private class FakeAndroidPlaybackCapabilityEnvironment : AndroidPlaybackCapabili
 
     override fun supportsMedia3FfmpegEac3(): Boolean = ffmpegEac3Probe()
 
-    override fun activeAudioSinks(): List<AndroidAudioSinkCapabilities> {
+    override fun activeAudioRoute(): AndroidAudioRoute {
         audioRouteCalls += 1
-        return audioSinks
+        return AndroidAudioRoute(sinks = audioSinks)
     }
 
     override fun activeDisplayHdrTypes(): Set<Int> {

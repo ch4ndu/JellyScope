@@ -121,7 +121,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 - `AndroidMpvCapabilityMatrix` is separate from Media3 and LibVLC. The pinned
   mpv/FFmpeg declaration covers its listed containers, video/audio families,
   text and bitmap subtitle delivery, and up to eight audio channels. It makes
-  no HDR, Dolby Vision, audio-passthrough, or display-derived capability claim.
+  no HDR, Dolby Vision, passthrough, or display-derived capability claim.
+  Encoded runtime eligibility is separate from this conservative projection.
   MediaCodec contributes only complete bounds for the video families explicitly
   delegated to it; unknown or incomplete facts stay unknown rather than becoming
   guessed software ceilings.
@@ -138,6 +139,24 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   uses `mediacodec-copy`, emulators use software decode, and TV uses zero-copy
   `mediacodec` with the `fast` profile in its explicitly selected opt-in
   path.
+- `AndroidAudioOutputPolicy` supplies one route snapshot owner for capability
+  PCM channel ceilings and mpv output. Server-facing mpv passthrough remains
+  empty until native adoption and physical qualification. The controller
+  requests E-AC-3 passthrough only on
+  TV with one exclusive HDMI sink advertising E-AC-3, at 1× speed, while not
+  ducked and with native volume exactly 100. Unknown, competing, mobile and
+  unsupported routes retain decoded PCM; a two-channel HDMI sink requests
+  stereo PCM. Route observers are closed on release. Output changes run on the
+  native queue and are applied only when eligibility changes. Speed changes and
+  focus ducking withdraw encoded audio before software processing; focus gain,
+  stop and item replacement restore the saved volume. Timing and track owners
+  remain unchanged.
+  **Native adoption pending:** encoded output requires the FFmpeg muxer and
+  carrier-rate prerequisites in the [native dependency runbook](../operations/android-native-dependencies.md#e-ac-3-encoded-output-prerequisites).
+  The published bundle lacks these prerequisites; the local candidate and
+  physical surround qualification remain pending. The synchronous `audio-spdif` callback rebuilds
+  the audio chain without a refresh seek; receiver reacquisition and continuity
+  require a Shield comparison before acceptance.
 - Android TV exposes **Settings → Advanced playback → mpv video output** as a
   device-local preference, defaulting to **GPU**. The controller factory snapshots
   it at construction; changes apply to the next playback session. **Direct
@@ -553,7 +572,8 @@ separate from source compatibility and quality decisions.
 
 Android mpv deliberately advertises conservative pinned-engine capabilities:
 up to eight audio channels and supported text/bitmap subtitles, but no HDR,
-Dolby Vision, passthrough, or display-derived ceiling. Mobile uses copy-back,
+Dolby Vision or display-derived ceiling. Route-based encoded-audio eligibility
+and the pending native adoption are owned by the [Android mpv backend](#android-mpv-backend). Mobile uses copy-back,
 emulators use software decode, and TV defaults to classic GPU plus zero-copy
 MediaCodec because supported TV drivers reject the `gpu-next` external-sampler
 path and copy-back cannot guarantee real-time TV presentation. Direct MediaCodec
@@ -596,10 +616,15 @@ their own Advisory bindings.
   single-consumer handoff, and because an event cannot be re-delivered, the
   consumer needs **no novelty inference** of any kind.
 
-- **[Android]** A ready Media3 item held by the initial audio gate remains
-  `Buffering`, not `Paused`, while play intent is active. This prevents the
-  DirectPlay-disabled recovery from mistaking the gate for a user pause; an
-  explicit user pause remains authoritative across the re-plan.
+- **[Android]** Ready Media3 and mpv items held by initial audio admission report
+  `Buffering` while play intent is active. Recovery can then preserve the request
+  to play instead of treating native startup pause as a user pause. mpv excludes
+  transient focus loss from this rule and republishes admission state when focus
+  changes it, even if native pause is unchanged. Explicit user pauses and later
+  native or focus pauses retain their existing behavior. This also applies when Direct
+  MediaCodec subtitle recovery requests a server-rendered replacement.
+  mpv clears its initial gate on successful audio mapping; clearing on mapping
+  failure or timeout remains a follow-up, with shared audio recovery unchanged.
 
 - **[Android]** Media3 degrades to video-only only after AudioTrack retry
   exhaustion. New items retry audio; explicit audio selection re-enables it.

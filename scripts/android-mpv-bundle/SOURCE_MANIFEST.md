@@ -18,8 +18,9 @@ contains component notices. NDK prerequisites and LLVM source/patch routes are
 recorded in the source archive; the NDK distribution is obtained separately.
 The ARM32 changes reduce ImageReader capacity to two and add optional bounded
 crop diagnostics. The inactive FFmpeg VP9 adaptive-max experiment is not applied.
-The consolidated native build procedure has not yet had a clean rebuild; these
-are retained Cube-tested bytes, not a claim of independent reproducibility.
+The consolidated native procedure completed clean ARM32 build verification on
+2026-09-15. The published Cube-tested bytes were not replaced; that check proves
+the source procedure builds, not runtime acceptance of the rebuilt library.
 
 For every published JellyScope Android build, publish these source routes with
 the release metadata. In an Android APK, `assets/license-metadata/SOURCE_URL.txt`
