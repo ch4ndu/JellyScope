@@ -27,7 +27,7 @@ media3 = "1.9.0"
 media3Ffmpeg = "1.9.0+1"
 libvlc = "3.7.5"
 # Android mpv uses a small local JNI bridge build over this pinned AAR input.
-libmpv = "0.41.0-jellyscope.1"
+libmpv = "0.41.0-jellyscope.2"
 tvMaterial = "1.1.0"
 navigationCompose = "2.9.2"
 ktor = "3.5.2"

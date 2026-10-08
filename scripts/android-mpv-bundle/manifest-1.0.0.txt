@@ -2,9 +2,12 @@
 # Audited provenance and package inventory for scripts/verify-android-native-bundle.sh.
 # The libmpv AAR is a build input; android-libmpv compiles the shipped wrapper.
 # Review this record whenever the native graph changes.
+# 0.41.0-jellyscope.2 is a local candidate: its native source commit, tag and
+# release assets are pending, and the routes below are proposed. Release blocks
+# until source-commit is the real native commit and the assets are public.
 manifest-version=2
-artifact-coordinate=io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.1
-artifact-url=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.1/libmpv-native-0.41.0-jellyscope.1.aar
+artifact-coordinate=io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2
+artifact-url=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2.aar
 artifact-role=pinned-build-input-only
 project-module=android-libmpv
 wrapper-build=android-libmpv/build.gradle.kts
@@ -13,16 +16,16 @@ wrapper-upstream-commit=fcf6745703dc1265bca88f12fee8fc355ddf251e
 wrapper-patches=typed-log-request,no-raw-logcat,idempotent-destroy,stopped-surface-detach
 wrapper-libraries=libplayer.so
 source-repository=https://github.com/ch4ndu/jellyscope-mpv-android
-source-tag=v0.41.0-jellyscope.1
-source-commit=8a2e7e75c53c7fb818d86299d4653cbde650a434
-source-archive=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.1/libmpv-native-0.41.0-jellyscope.1-sources.tar.gz
-source-notices=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.1/libmpv-native-0.41.0-jellyscope.1-notices.zip
+source-tag=v0.41.0-jellyscope.2
+source-commit=pending-native-source-commit
+source-archive=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz
+source-notices=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-notices.zip
 provider-artifact-coordinate=dev.jdtech.mpv:libmpv:1.0.0
 provider-source-repository=https://github.com/jarnedemeulemeester/libmpv-android
 provider-source-tag=v1.0.0
 provider-source-commit=fcf6745703dc1265bca88f12fee8fc355ddf251e
-native-modified-entries=jni/armeabi-v7a/libmpv.so
-native-patches=upstream-imagereader-three,cube-imagereader-two,crop-diagnostics
+native-modified-entries=jni/arm64-v8a/libavformat.so,jni/arm64-v8a/libmpv.so,jni/armeabi-v7a/libavformat.so,jni/armeabi-v7a/libmpv.so,jni/x86_64/libavformat.so,jni/x86_64/libmpv.so
+native-patches=upstream-imagereader-three,cube-imagereader-two,crop-diagnostics,encoded-audio-carrier-rate,spdif-muxer
 native-mpv-source-commit=41f6a645068483470267271e1d09966ca3b9f413
 native-patched-api=26
 media3-ffmpeg-artifact-coordinate=org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1

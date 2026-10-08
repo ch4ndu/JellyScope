@@ -14,8 +14,8 @@ checks the release APK package contents.
 
 | Component | Version | License | Corresponding source |
 | --- | --- | --- | --- |
-| mpv | 0.41.0; JellyScope bundle 1, ARM32 patches only | GPL-2.0-or-later graph; modified ImageReader file LGPL-2.1-or-later | [Exact patched source and unchanged-ABI source](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.1/libmpv-native-0.41.0-jellyscope.1-sources.tar.gz) |
-| FFmpeg | 8.1 | LGPL-2.1-or-later; GPL-3.0-or-later code enabled | https://github.com/FFmpeg/FFmpeg/tree/n8.1 |
+| mpv | 0.41.0; JellyScope bundle 2 candidate: AudioTrack encoded-carrier patch on three ABIs, ImageReader patches ARM32 only | GPL-2.0-or-later graph; modified ImageReader file LGPL-2.1-or-later | [Proposed per-ABI patched source, pending publication](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz) |
+| FFmpeg | 8.1; bundle `libavformat.so` adds the SPDIF muxer, source unchanged | LGPL-2.1-or-later; GPL-3.0-or-later code enabled | https://github.com/FFmpeg/FFmpeg/tree/n8.1; build recipe in the proposed bundle source archive |
 | dav1d | 1.5.3 | BSD-2-Clause | https://code.videolan.org/videolan/dav1d/-/tree/1.5.3 |
 | libplacebo | 7.360.1 | LGPL-2.1-or-later | https://github.com/haasn/libplacebo/tree/v7.360.1 |
 | libass | 0.17.4 | ISC | https://github.com/libass/libass/tree/0.17.4 |
@@ -36,17 +36,20 @@ checks the release APK package contents.
 ## License-file coverage
 
 The `licenses/` directory retains the generic license texts and adds
-`MPV-NATIVE-NOTICES.txt`, preserving the published native release's component
-notices and NDK notice text. It also includes Lua's notice and FreeType's FTL
+`MPV-NATIVE-NOTICES.txt`, preserving the published `.1` native release's
+component notices and NDK notice text, which the `.2` candidate inherits
+unchanged. It also includes Lua's notice and FreeType's FTL
 text from the exact source archives; FreeType is distributed using its FTL
 option. The consolidated file labels each original source path and retains its
 text. Build-tool, demo and source-test notices in the release are retained for
 context, not a claim that those files execute in the APK.
 
-The [native release source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.1/libmpv-native-0.41.0-jellyscope.1-sources.tar.gz)
-provides the full source context, dependency revisions and submodule mappings.
-The [published notices](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.1/libmpv-native-0.41.0-jellyscope.1-notices.zip)
-and source files retain their own terms. Package filename checks establish
+The proposed [native release source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz)
+is to provide the full source context, dependency revisions and submodule
+mappings. It and the proposed [notices archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-notices.zip)
+are pending the native source commit and publication, as recorded in
+[SOURCE_MANIFEST.md](SOURCE_MANIFEST.md). Notices and source files retain their
+own terms. Package filename checks establish
 presence and consistency, not a legal-compliance determination.
 
 The combined Android application is distributed under GPL-3.0 terms. Its

@@ -9,34 +9,40 @@ remains the default on API-25 devices.
 
 ## Pinned inputs
 
-The project-owned `:android-libmpv` module uses
-`io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.1` as its only external mpv input.
-Gradle resolves the AAR from the public
-[JellyScope native release](https://github.com/ch4ndu/jellyscope-mpv-android/releases/tag/v0.41.0-jellyscope.1) through an
-artifact-only Ivy repository restricted to that module. No GitHub credentials,
-local AAR override or native source build is needed for a normal clone/build.
+The project-owned `:android-libmpv` module prepares
+`io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2` as its only external mpv input.
+The `.2` source commit, complete source/notice assets and publication are pending;
+its proposed release routes are not ordinary public-resolution evidence. The
+published `.1` remains immutable. Prepublication qualification uses an ignored
+local resolver; final ordinary builds must resolve the new public AAR through
+the existing exclusive artifact-only Ivy repository without that override.
 
-The existing bundle includes both GPU and Direct MediaCodec video-output drivers.
-The [TV output setting](../engineering/android-playback.md#android-mpv-backend) selects
-between them without a native rebuild or an additional release.
+Both GPU and Direct MediaCodec video-output drivers remain in the bundle. The
+[TV output setting](../engineering/android-playback.md#android-mpv-backend) selects
+between them without another native rebuild.
 
-The bundle replaces only `jni/armeabi-v7a/libmpv.so` from the original
-`dev.jdtech.mpv:libmpv:1.0.0` payload. It applies the two-image ImageReader limit
-and bounded crop diagnostics; FFmpeg and other ABIs remain unchanged. ARM64 and
-x86_64 do not receive the patch. The retained ARM32 bytes were manually exercised
-on a Cube with a 1080p display; this does not establish 8K or general device
-support. The consolidated native builder completed a clean ARM32 source build
-and AAR packaging verification without native-source or build-script changes.
-The rebuilt verification artifact is separate from the published, device-tested
-bytes; no app dependency replacement or additional native release was made.
+The prepared `.2` bundle replaces `libmpv.so` and `libavformat.so` for arm64-v8a,
+armeabi-v7a and x86_64: six entries, preserving the other 44 provider entries.
+The common AudioTrack patch preserves encoded carrier rates and FFmpeg enables
+only the SPDIF muxer after the disabled-muxer option. The two-image ImageReader
+limit and numeric crop diagnostics remain ARM32-only. Provider/mpv/FFmpeg pins
+and the remaining provider native graph are unchanged.
+
+The maintained builder completed a fresh three-ABI build. Static checks found
+no unresolved strong imports against the retained provider libraries plus
+API-26 stubs, preserved exports and dependency lists, and registered SPDIF
+muxers. The new AAR/source-config records match those outputs. These checks do
+not establish Android loader behavior or physical surround acceptance. Earlier
+`.1` Cube and local-candidate TiVo acceptance are historical; new Shield/TiVo
+qualification and Cube/x86 physical limits remain separate.
 
 The AAR is extracted into the module build directory. All native libraries
 except the original `libplayer.so` and x86 are retained. The committed project
 bridge compiles against the extracted `libmpv.so`, `libavcodec.so`, and NDK-29 C++
 runtime. Its upstream wrapper remains provider commit
-`fcf6745703dc1265bca88f12fee8fc355ddf251e`; the native bundle is tagged at commit
-`8a2e7e75c53c7fb818d86299d4653cbde650a434`. Both provenance layers and the published
-source/notice archives are recorded in
+`fcf6745703dc1265bca88f12fee8fc355ddf251e`; the real `.2` native source commit
+and tag still await the explicit Git checkpoint. Both provenance layers and
+proposed source/notice routes are recorded in
 [`scripts/android-mpv-bundle/manifest-1.0.0.txt`](../../scripts/android-mpv-bundle/manifest-1.0.0.txt).
 The stable manifest filename remains unchanged for packaged consumers.
 
@@ -63,7 +69,7 @@ fence; see [wrapper provenance](../../android-libmpv/UPSTREAM.md). This rebuilds
 
 mpv E-AC-3 output requires FFmpeg's registered `spdif` muxer and an AudioTrack
 backend that preserves the 192 kHz encoded carrier rate. Decoder availability
-alone does not establish either prerequisite. The published bundle disables
+alone does not establish either prerequisite. The published `.1` bundle disables
 FFmpeg muxers and retains mpv's PCM-rate cap. A missing muxer fails before the
 first audio frame reaches output initialization, so that stage cannot use
 mpv's later audio-output failure fallback to PCM.
@@ -73,8 +79,8 @@ FFmpeg revision and replaces `libavformat.so` alongside the patched `libmpv.so`
 for each shipped ABI. Its build and source records must identify both changes;
 all remaining provider libraries stay unchanged. Verify muxer registration,
 imports against those retained libraries, and exact packaged bytes before the
-physical playback gate. This work does not change the published dependency pin
-or extend the earlier Cube acceptance to rebuilt libraries.
+physical playback gate. The prepared `.2` pin is not yet publicly resolvable
+and does not extend earlier Cube acceptance to these rebuilt libraries.
 
 ## License and corresponding source
 
@@ -174,4 +180,4 @@ disable TLS verification or use a tokenized URL.
   bridge forwarded credential-bearing verbose messages outside the scrubber.
   Compiling the small patched bridge preserves the extracted native graph;
   silencing app loggers would leave the native writer active. The separate
-  ARM32 native patch bundle does not replace this project-owned bridge.
+  native patch bundle does not replace this project-owned bridge.

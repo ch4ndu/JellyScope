@@ -1,10 +1,19 @@
-JellyScope native mpv bundle 0.41.0-jellyscope.1 - component notices
+JellyScope native mpv bundle 0.41.0-jellyscope.2 - component notices
 
-Published notices and exact source materials:
-https://github.com/ch4ndu/jellyscope-mpv-android/releases/tag/v0.41.0-jellyscope.1
+Proposed notices and exact source materials (pending the native source
+commit and publication; not yet accessible):
+https://github.com/ch4ndu/jellyscope-mpv-android/releases/tag/v0.41.0-jellyscope.2
 
-The texts below are preserved from the release notices archive, with Lua's
-notice and FreeType's FTL license from its matching source materials added.
+The 0.41.0-jellyscope.2 candidate replaces six provider entries: libmpv.so
+and libavformat.so for armeabi-v7a, arm64-v8a and x86_64. All three ABIs
+carry the encoded-audio carrier-rate AudioTrack patch and the FFmpeg SPDIF
+muxer; ARM32 additionally carries the ImageReader patches and crop
+diagnostics. Pinned mpv and FFmpeg source revisions and the component set
+are unchanged, so the component notices are inherited unchanged.
+
+The texts below are preserved from the 0.41.0-jellyscope.1 release notices
+archive, with Lua's notice and FreeType's FTL license from its matching source
+materials added.
 Source paths identify provenance; build tools, demos and test-source notices
 are included for context and do not imply those files execute in the APK.
 The NDK notice covers the runtime distribution's broader notice set.

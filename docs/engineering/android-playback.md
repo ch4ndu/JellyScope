@@ -153,7 +153,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   remain unchanged.
   **Native adoption pending:** encoded output requires the FFmpeg muxer and
   carrier-rate prerequisites in the [native dependency runbook](../operations/android-native-dependencies.md#e-ac-3-encoded-output-prerequisites).
-  The published bundle lacks these prerequisites; the local candidate and
+  Published `.1` lacks these prerequisites. The prepared `.2` has passed
+  fresh three-ABI build and static/package checks; source/publication and
   physical surround qualification remain pending. The synchronous `audio-spdif` callback rebuilds
   the audio chain without a refresh seek; receiver reacquisition and continuity
   require a Shield comparison before acceptance.
