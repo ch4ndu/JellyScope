@@ -38,6 +38,8 @@ is **0.1.0-alpha94**.
   Watch Next, Apple media controls, themes, tile sizes, selectable image quality, and adaptive layouts
 - Account-qualified [Android TV playback links](docs/engineering/tv-ux-behaviors.md#playback-links)
   that open an item directly with the current playback settings
+- Sanitized [playback diagnostics](docs/user/troubleshooting.md), in-app timeline
+  export, and renderer-target HDR/SDR reporting where the player supplies evidence
 
 Detailed controls and platform limits are in the [usage guide](docs/USAGE.md).
 

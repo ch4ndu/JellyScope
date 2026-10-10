@@ -57,6 +57,7 @@ class SettingsRowPolicyTest {
                 SettingsRowId.RefreshCapabilities,
                 SettingsRowId.ClearSubtitles,
                 SettingsRowId.SendClientLogs,
+                SettingsRowId.SavePlaybackTimeline,
             )
 
         assertEquals(
@@ -180,6 +181,7 @@ class SettingsRowPolicyTest {
                 SettingsRowId.SystemLogs to SettingsIcons.AboutJellyScope,
                 SettingsRowId.PlaybackInfoAtStart to SettingsIcons.AboutJellyScope,
                 SettingsRowId.SendClientLogs to SettingsIcons.AboutJellyScope,
+                SettingsRowId.SavePlaybackTimeline to SettingsIcons.AboutJellyScope,
                 SettingsRowId.Downloads to SettingsIcons.VideoFormats,
                 SettingsRowId.AppVersion to SettingsIcons.AppVersion,
                 SettingsRowId.License to SettingsIcons.AboutJellyScope,

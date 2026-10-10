@@ -32,9 +32,9 @@ class TvSettingsGridTest {
             tvSettingsGridSections,
         )
         assertTrue(tvSettingsGridRows.dropLast(1).all { row -> row.size >= TV_SETTINGS_GRID_COLUMNS })
-        assertEquals(4, tvSettingsGridRows.last().size)
+        assertEquals(6, tvSettingsGridRows.last().size)
         assertEquals(TvSettingsTileId.entries.toSet(), tvSettingsGridRows.flatten().toSet())
-        assertEquals(42, TvSettingsTileId.entries.size)
+        assertEquals(44, TvSettingsTileId.entries.size)
         assertEquals(
             listOf(
                 listOf(
@@ -92,6 +92,8 @@ class TvSettingsGridTest {
                     TvSettingsTileId.SendClientLogs,
                     TvSettingsTileId.VerboseLogcat,
                     TvSettingsTileId.PlaybackInfoAtStart,
+                    TvSettingsTileId.SavePlaybackTimeline,
+                    TvSettingsTileId.SendPlaybackTimeline,
                 ),
             ),
             tvSettingsGridRows,
@@ -146,6 +148,8 @@ class TvSettingsGridTest {
                 TvSettingsTileId.SendClientLogs to TvSettingsTileAction.SendClientLogs,
                 TvSettingsTileId.VerboseLogcat to TvSettingsTileAction.VerboseLogcat,
                 TvSettingsTileId.PlaybackInfoAtStart to TvSettingsTileAction.PlaybackInfoAtStart,
+                TvSettingsTileId.SavePlaybackTimeline to TvSettingsTileAction.SavePlaybackTimeline,
+                TvSettingsTileId.SendPlaybackTimeline to TvSettingsTileAction.SendPlaybackTimeline,
             )
         assertEquals(expected, TvSettingsTileId.entries.associateWith(TvSettingsTileId::action))
         assertEquals(TvSettingsTileAction.Logout, TvSettingsTileId.Logout.action())
@@ -219,6 +223,8 @@ class TvSettingsGridTest {
                 TvSettingsTileId.SendClientLogs to SettingsIcons.AboutJellyScope,
                 TvSettingsTileId.VerboseLogcat to SettingsIcons.AboutJellyScope,
                 TvSettingsTileId.PlaybackInfoAtStart to SettingsIcons.AboutJellyScope,
+                TvSettingsTileId.SavePlaybackTimeline to SettingsIcons.AboutJellyScope,
+                TvSettingsTileId.SendPlaybackTimeline to SettingsIcons.AboutJellyScope,
             )
 
         assertEquals(TvSettingsTileId.entries.toSet(), expected.keys)

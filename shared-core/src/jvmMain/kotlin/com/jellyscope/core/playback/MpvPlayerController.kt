@@ -28,6 +28,7 @@ import com.jellyscope.core.domain.playback.PlaybackDiagnosticStage
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticTrackKind
 import com.jellyscope.core.domain.playback.PlaybackError
 import com.jellyscope.core.domain.playback.PlaybackHealthMeasurementCapabilities
+import com.jellyscope.core.domain.playback.PlaybackOutputColor
 import com.jellyscope.core.domain.playback.PlaybackPlan
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
@@ -327,6 +328,10 @@ class MpvPlayerController private constructor(
     @Volatile
     private var previousDroppedFrameSampleNanos: Long? = null
 
+    /** Bumped under [lifecycleLock] on VIDEO_RECONFIG; an output-color sample spanning a bump is discarded. */
+    @Volatile
+    private var videoReconfiguration = 0L
+
     private val lifecycleLock = Any()
     private val engineLock = Any()
     private var engineInitializationToken = 0L
@@ -486,6 +491,8 @@ class MpvPlayerController private constructor(
 
         data object FileLoaded : MpvLifecycleEvent
 
+        data object VideoReconfig : MpvLifecycleEvent
+
         data object QueueOverflow : MpvLifecycleEvent
 
         data object Unknown : MpvLifecycleEvent
@@ -516,6 +523,10 @@ class MpvPlayerController private constructor(
             offlinePath = null
             offlineSidecarPath = null
         } else if (offlinePath == null) {
+            synchronized(lifecycleLock) {
+                completionReadiness.invalidate(generation)
+                clearOutputColor()
+            }
             _playbackState.update { current -> current.copy(status = PlaybackStatus.Failed) }
             return
         }
@@ -848,6 +859,7 @@ class MpvPlayerController private constructor(
                     active.lib.mpv_command(active.ctx, arrayOf("stop", null)) == 0
                 }
             loaded.set(false)
+            clearOutputColor()
             playIntent = false
             initialAudioGate = false
             pendingEmbeddedAudioSelection = null
@@ -1240,6 +1252,7 @@ class MpvPlayerController private constructor(
                     _presentationState.value = MpvPresentationState.Failed
                     stopping.set(true)
                     loaded.set(false)
+                    clearOutputColor()
                     completionReadiness.invalidate()
                     clearPendingExternalSubtitleAttachmentLocked()
                     expectedSubtitleTarget = null
@@ -1775,7 +1788,7 @@ class MpvPlayerController private constructor(
                             // iteration's start by the length of a network fetch.
                             withEngineLease(PlayerOperation.EventDrain) { active ->
                                 drainMpvEvents(active)
-                                pollState()
+                                pollState(sampleOutputColor = true)
                             }
                             delay(STATE_POLL_INTERVAL_MS)
                         }
@@ -2705,6 +2718,7 @@ class MpvPlayerController private constructor(
                 )
             }
             LibMpv.EVENT_FILE_LOADED -> MpvLifecycleEvent.FileLoaded
+            LibMpv.EVENT_VIDEO_RECONFIG -> MpvLifecycleEvent.VideoReconfig
             LibMpv.EVENT_QUEUE_OVERFLOW -> MpvLifecycleEvent.QueueOverflow
             else -> MpvLifecycleEvent.Unknown
         }
@@ -2732,6 +2746,10 @@ class MpvPlayerController private constructor(
                 val claimed = claimPendingExternalSubtitleLocked()
                 applyDeferredDefaultTrackSelection(active)
                 return claimed
+            }
+            MpvLifecycleEvent.VideoReconfig -> {
+                videoReconfiguration += 1L
+                clearOutputColor()
             }
             MpvLifecycleEvent.QueueOverflow -> failPendingExternalSubtitleForEventOverflowLocked()
             MpvLifecycleEvent.None,
@@ -2931,7 +2949,8 @@ class MpvPlayerController private constructor(
         )
     }
 
-    private fun pollState() {
+    /** Only the background poll loop passes [sampleOutputColor]; UI-triggered polls never add color reads. */
+    private fun pollState(sampleOutputColor: Boolean = false) {
         if (released.get() || ctx == null || mpv == null) return
         val generation =
             synchronized(lifecycleLock) {
@@ -3020,13 +3039,14 @@ class MpvPlayerController private constructor(
                 }
             }
         if (!committed) return
-        updateRuntimeDiagnosticsIfDue()
+        updateRuntimeDiagnosticsIfDue(sampleOutputColor)
     }
 
-    private fun updateRuntimeDiagnosticsIfDue() {
+    private fun updateRuntimeDiagnosticsIfDue(sampleOutputColor: Boolean) {
         if (!loaded.get()) {
             runtimeDiagnosticsPollTicks.store(0)
             resetDroppedFrameBaseline()
+            clearOutputColor()
             return
         }
         if (_playbackState.value.status != PlaybackStatus.Playing) {
@@ -3046,6 +3066,23 @@ class MpvPlayerController private constructor(
             if (!runtimeDiagnosticsPollTicks.compareAndSet(remainingTicks, RUNTIME_DIAGNOSTICS_POLL_TICKS)) return
             break
         }
+        val sampleGeneration = prepareGeneration.load()
+        val sampleReconfiguration = videoReconfiguration
+        val width = readInt64Property("video-params/w")?.toPositiveIntOrNull()
+        val outputColor =
+            if (sampleOutputColor) {
+                // Renderer target only: video-out-params is the filter output, and configured
+                // target-trc or the presentation path is not evidence of the active target.
+                PlaybackOutputColor.fromMpv(
+                    videoPresent = width != null,
+                    inputTransfer = readStringProperty("video-params/gamma"),
+                    inputPrimaries = readStringProperty("video-params/primaries"),
+                    targetTransfer = readStringProperty("video-target-params/gamma"),
+                    targetPrimaries = readStringProperty("video-target-params/primaries"),
+                )
+            } else {
+                _runtimeDiagnostics.value.outputColor
+            }
         val frameRate = readDoubleProperty("estimated-vf-fps")
         val hardwareDecoder = readStringProperty("hwdec-current")
         val state = _presentationState.value
@@ -3059,7 +3096,7 @@ class MpvPlayerController private constructor(
             mpvRuntimeDiagnostics(
                 videoCodec = readStringProperty("video-codec"),
                 hardwareDecoder = hardwareDecoder,
-                width = readInt64Property("video-params/w")?.toPositiveIntOrNull(),
+                width = width,
                 height = readInt64Property("video-params/h")?.toPositiveIntOrNull(),
                 frameRate = frameRate,
                 droppedFrames = droppedFrames,
@@ -3075,7 +3112,22 @@ class MpvPlayerController private constructor(
                         else -> null
                     },
             )
-        _runtimeDiagnostics.value = diagnostics.copy(prepareEpoch = prepareGeneration.load())
+        synchronized(lifecycleLock) {
+            // Color is published only for the generation and video configuration it was read
+            // under; prepare, stop, terminal failure and VIDEO_RECONFIG change those under the
+            // same lock. Failure invalidates readiness until the next prepare begins.
+            val colorCurrent =
+                sampleGeneration == prepareGeneration.load() &&
+                    completionReadiness.isCurrentGeneration(sampleGeneration) &&
+                    sampleReconfiguration == videoReconfiguration &&
+                    loaded.get() &&
+                    !released.get()
+            _runtimeDiagnostics.value =
+                diagnostics.copy(
+                    prepareEpoch = prepareGeneration.load(),
+                    outputColor = if (colorCurrent) outputColor else PlaybackOutputColor.Unknown,
+                )
+        }
         if (_playbackState.value.status == PlaybackStatus.Playing) {
             val poll =
                 mpvDroppedFramePoll(
@@ -3112,6 +3164,10 @@ class MpvPlayerController private constructor(
                 ),
             )
         }
+    }
+
+    private fun clearOutputColor() {
+        _runtimeDiagnostics.update { current -> current.copy(outputColor = PlaybackOutputColor.Unknown) }
     }
 
     private fun resetDroppedFrameBaseline() {
@@ -3508,6 +3564,7 @@ class MpvPlayerController private constructor(
         presentationMetrics.resetPublicationCadence()
         synchronized(lifecycleLock) {
             completionReadiness.invalidate()
+            clearOutputColor()
         }
         val error = classifyMpvPlaybackError(message = message, detail = detail, nativeCode = nativeCode)
         logMpvDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed, throwable, nativeCode, error = error)

@@ -107,9 +107,9 @@ class MpvPlayerControllerOpenGlPresentationTest {
                     .get(controller) as AtomicBoolean
             loaded.set(true)
             controller.javaClass
-                .getDeclaredMethod("updateRuntimeDiagnosticsIfDue")
+                .getDeclaredMethod("updateRuntimeDiagnosticsIfDue", java.lang.Boolean.TYPE)
                 .apply { isAccessible = true }
-                .invoke(controller)
+                .invoke(controller, false)
             assertEquals("Test IOSurface Render API", controller.runtimeDiagnostics.value.presentationPath)
         }
     }

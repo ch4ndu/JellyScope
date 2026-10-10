@@ -61,6 +61,7 @@ internal enum class SettingsRowId {
     SystemLogs,
     PlaybackInfoAtStart,
     SendClientLogs,
+    SavePlaybackTimeline,
     AppVersion,
     License,
 }
@@ -128,6 +129,7 @@ internal fun SettingsRowId.section(): SettingsSectionId =
         SettingsRowId.SystemLogs,
         SettingsRowId.PlaybackInfoAtStart,
         SettingsRowId.SendClientLogs,
+        SettingsRowId.SavePlaybackTimeline,
         -> SettingsSectionId.Diagnostics
         SettingsRowId.AppVersion,
         SettingsRowId.License,
@@ -177,6 +179,7 @@ internal fun SettingsRowId.trailingKind(): SettingsRowTrailingKind =
         SettingsRowId.RefreshCapabilities,
         SettingsRowId.ClearSubtitles,
         SettingsRowId.SendClientLogs,
+        SettingsRowId.SavePlaybackTimeline,
         -> SettingsRowTrailingKind.Progress
         SettingsRowId.Server,
         SettingsRowId.SignedInUser,
@@ -231,6 +234,7 @@ internal fun SettingsRowId.iconRole(): SettingsRowIconRole =
         SettingsRowId.SystemLogs,
         SettingsRowId.PlaybackInfoAtStart,
         SettingsRowId.SendClientLogs,
+        SettingsRowId.SavePlaybackTimeline,
         SettingsRowId.License,
         SettingsRowId.Downloads,
         -> SettingsRowIconRole.Primary
@@ -283,6 +287,7 @@ internal fun SettingsRowId.icon(): ImageVector =
         SettingsRowId.SystemLogs,
         SettingsRowId.PlaybackInfoAtStart,
         SettingsRowId.SendClientLogs,
+        SettingsRowId.SavePlaybackTimeline,
         -> SettingsIcons.AboutJellyScope
         SettingsRowId.AppVersion -> SettingsIcons.AppVersion
         SettingsRowId.License -> SettingsIcons.AboutJellyScope

@@ -30,12 +30,28 @@ data class TvSettingsState(
     val diagnosticEntryCount: Int = 0,
     val diagnosticByteCount: Int = 0,
     val diagnosticSendResult: TvDiagnosticsSendResult = TvDiagnosticsSendResult.Idle,
+    /** Separate from [diagnosticSendResult]: the timeline upload never acknowledges or clears history. */
+    val playbackTimelineSendResult: TvPlaybackTimelineSendResult = TvPlaybackTimelineSendResult.Idle,
+    /** Server-assigned name of the last uploaded timeline, shown with [TvPlaybackTimelineSendResult.Success]. */
+    val playbackTimelineFilename: String? = null,
 )
 
 enum class TvDiagnosticsSendResult {
     Idle,
     Sending,
     Success,
+    UploadDisallowed,
+    Failure,
+}
+
+enum class TvPlaybackTimelineSendResult {
+    Idle,
+    Preparing,
+    Sending,
+    Success,
+    CollectionDisabled,
+    NoTimedEvents,
+    Expired,
     UploadDisallowed,
     Failure,
 }

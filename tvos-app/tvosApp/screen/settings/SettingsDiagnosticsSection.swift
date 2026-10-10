@@ -62,7 +62,24 @@ struct SettingsDiagnosticsSection: View {
                 .disabled(model.state.isLoading || model.state.diagnosticSendResult == .sending)
 
             diagnosticSendFeedback
+
+            Button(String(localized: "Send Playback Timeline to Server"), action: model.sendPlaybackTimeline)
+                .disabled(
+                    model.state.isLoading || !model.state.diagnosticCollectionEnabled || isPlaybackTimelineBusy
+                )
+
+            Text(
+                String(localized: "Uploads a sanitized JSON trace of collected playback events to your Jellyfin server. Open it in a trace viewer such as Perfetto. Collected logs are kept.")
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+
+            playbackTimelineSendFeedback
         }
+    }
+
+    private var isPlaybackTimelineBusy: Bool {
+        model.state.playbackTimelineSendResult == .preparing || model.state.playbackTimelineSendResult == .sending
     }
 
     private var diagnosticCollectionBinding: Binding<Bool> {
@@ -104,5 +121,45 @@ struct SettingsDiagnosticsSection: View {
         default:
             EmptyView()
         }
+    }
+
+    @ViewBuilder
+    private var playbackTimelineSendFeedback: some View {
+        switch model.state.playbackTimelineSendResult {
+        case .idle:
+            EmptyView()
+        case .preparing:
+            ProgressView(String(localized: "Preparing timeline…"))
+        case .sending:
+            ProgressView(String(localized: "Sending timeline…"))
+        case .success:
+            Label(
+                String(
+                    format: String(localized: "Playback timeline uploaded as %@."),
+                    model.state.playbackTimelineFilename ?? ""
+                ),
+                systemImage: "checkmark.circle"
+            )
+            .foregroundStyle(.green)
+        case .collectiondisabled:
+            timelineWarning(String(localized: "Turn on Collect diagnostic logs, reproduce the playback problem, then try again."))
+        case .notimedevents:
+            timelineWarning(
+                String(localized: "No timed playback events collected. Reproduce the playback problem with collection on, then try again.")
+            )
+        case .expired:
+            timelineWarning(String(localized: "Collected logs changed before the timeline was sent. Try again."))
+        case .uploaddisallowed:
+            timelineWarning(String(localized: "This Jellyfin server does not allow client logs."))
+        case .failure:
+            timelineWarning(String(localized: "The playback timeline could not be sent."))
+        default:
+            EmptyView()
+        }
+    }
+
+    private func timelineWarning(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.triangle")
+            .foregroundStyle(.orange)
     }
 }

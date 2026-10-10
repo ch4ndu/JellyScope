@@ -87,7 +87,7 @@ object LogScrubber {
                 "decodedHeight",
                 "dataSource",
                 "sampled",
-            )
+            ) - reservedCaptureFieldNames
     private val url = Regex("(?i)https?://[^\\s]+")
     private val credential =
         Regex("(?i)\\b(token|access[_-]?token|api[_-]?key|authorization|secret|password)=([^\\s]+)")

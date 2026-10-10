@@ -319,6 +319,7 @@ kotlin {
         }
 
         androidMain.dependencies {
+            implementation(libs.androidx.activity.compose)
             implementation(compose.preview)
             // ui-tooling (ComposeViewAdapter) must be on the module classpath for
             // Android Studio to render @Preview composables defined in this module.

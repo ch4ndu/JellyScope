@@ -110,6 +110,7 @@ class SafeDiagnosticsTest {
                 "TvPlaybackSessionPresenter",
                 "TvDisplayMode",
                 "TvPlaybackLink",
+                "PlaybackTimeline",
                 "JellyScopePlaybackProbe",
             )
 

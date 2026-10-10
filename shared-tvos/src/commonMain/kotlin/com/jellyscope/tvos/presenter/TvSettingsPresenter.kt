@@ -2,8 +2,10 @@
 
 package com.jellyscope.tvos.presenter
 
+import com.jellyscope.core.domain.action.PreparePlaybackTimelineAction
 import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
+import com.jellyscope.core.domain.action.SendPlaybackTimelineAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
 import com.jellyscope.core.domain.action.SetPlaybackInfoAtStartEnabledAction
 import com.jellyscope.core.domain.action.SetPlayerClockEnabledAction
@@ -11,8 +13,10 @@ import com.jellyscope.core.domain.action.SetRememberLastLibraryViewAction
 import com.jellyscope.core.domain.model.MAX_AUTOPLAY_NEXT_DELAY_SECONDS
 import com.jellyscope.core.domain.model.MIN_AUTOPLAY_NEXT_DELAY_SECONDS
 import com.jellyscope.core.domain.model.PlaybackPreferences
+import com.jellyscope.core.domain.model.PreparePlaybackTimelineResult
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.model.SendClientLogsResult
+import com.jellyscope.core.domain.model.SendPlaybackTimelineResult
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.MediaSegmentType
@@ -62,6 +66,8 @@ class TvSettingsPresenter(
     getPlaybackInfoAtStartState: GetPlaybackInfoAtStartStateUseCase,
     setPlaybackInfoAtStartEnabled: SetPlaybackInfoAtStartEnabledAction,
     private val sendClientLogsAction: SendClientLogsAction,
+    private val preparePlaybackTimelineAction: PreparePlaybackTimelineAction,
+    private val sendPlaybackTimelineAction: SendPlaybackTimelineAction,
     dispatchers: TvosDispatchers,
 ) : TvPresenter(dispatchers) {
     private val playbackInfoAtStart = getPlaybackInfoAtStartState()
@@ -97,12 +103,16 @@ class TvSettingsPresenter(
     private var confirmedPreferences: PlaybackPreferences? = null
     private var retryLoadJob: Job? = null
 
+    // The prepared timeline lives only inside this job; close() cancels it with the presenter scope.
+    private var playbackTimelineJob: Job? = null
+
     init {
         rememberLastLibraryViewToggle.start()
         playerClockToggle.start()
         scope.launch {
             getLogCollectionState().collect { enabled ->
                 _state.update { current -> current.copy(diagnosticCollectionEnabled = enabled) }
+                if (!enabled) stopPlaybackTimelineForDisabledCollection()
             }
         }
         scope.launch {
@@ -340,6 +350,95 @@ class TvSettingsPresenter(
                         },
                 )
             }
+        }
+    }
+
+    /** Prepares a timeline, then explicitly uploads it; tvOS has no local document picker. */
+    fun sendPlaybackTimeline() {
+        if (playbackTimelineJob?.isActive == true) return
+        playbackTimelineJob =
+            scope.launch {
+                publishPlaybackTimeline(TvPlaybackTimelineSendResult.Preparing)
+                val prepared =
+                    try {
+                        withContext(workDispatcher) { preparePlaybackTimelineAction() }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (exception: Throwable) {
+                        logPlaybackTimelineFailure("prepare-failed", exception)
+                        PreparePlaybackTimelineResult.Failure
+                    }
+                val timeline =
+                    when (prepared) {
+                        is PreparePlaybackTimelineResult.Ready -> prepared.timeline
+                        PreparePlaybackTimelineResult.CollectionDisabled ->
+                            return@launch finishPlaybackTimeline(TvPlaybackTimelineSendResult.CollectionDisabled, "collection-disabled")
+                        PreparePlaybackTimelineResult.NoTimedEvents ->
+                            return@launch finishPlaybackTimeline(TvPlaybackTimelineSendResult.NoTimedEvents, "no-timed-events")
+                        PreparePlaybackTimelineResult.Failure ->
+                            return@launch finishPlaybackTimeline(TvPlaybackTimelineSendResult.Failure, "prepare-failed")
+                    }
+                publishPlaybackTimeline(TvPlaybackTimelineSendResult.Sending)
+                // The action makes the final collection check immediately before the repository call.
+                val sent =
+                    try {
+                        withContext(workDispatcher) { sendPlaybackTimelineAction(timeline) }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (exception: Throwable) {
+                        logPlaybackTimelineFailure("send-failed", exception)
+                        SendPlaybackTimelineResult.Failure
+                    }
+                when (sent) {
+                    is SendPlaybackTimelineResult.Success ->
+                        finishPlaybackTimeline(TvPlaybackTimelineSendResult.Success, "sent", filename = sent.filename)
+                    SendPlaybackTimelineResult.CollectionDisabled ->
+                        finishPlaybackTimeline(TvPlaybackTimelineSendResult.CollectionDisabled, "collection-disabled")
+                    SendPlaybackTimelineResult.Expired -> finishPlaybackTimeline(TvPlaybackTimelineSendResult.Expired, "expired")
+                    SendPlaybackTimelineResult.UploadDisallowed ->
+                        finishPlaybackTimeline(TvPlaybackTimelineSendResult.UploadDisallowed, "upload-disallowed")
+                    SendPlaybackTimelineResult.Failure -> finishPlaybackTimeline(TvPlaybackTimelineSendResult.Failure, "send-failed")
+                }
+            }
+    }
+
+    /**
+     * Turning collection off drops a timeline that is still being prepared. An upload already
+     * handed to the repository is irreversible and reports its real outcome.
+     */
+    private fun stopPlaybackTimelineForDisabledCollection() {
+        if (state.value.playbackTimelineSendResult != TvPlaybackTimelineSendResult.Preparing) return
+        playbackTimelineJob?.cancel()
+        playbackTimelineJob = null
+        finishPlaybackTimeline(TvPlaybackTimelineSendResult.CollectionDisabled, "collection-disabled")
+    }
+
+    /** One closed-literal record per terminal; never the timeline or the server filename. */
+    private fun finishPlaybackTimeline(
+        result: TvPlaybackTimelineSendResult,
+        diagnosticResult: String,
+        filename: String? = null,
+    ) {
+        diagnosticLogger(DiagnosticTag.PlaybackTimeline).i {
+            "stage=playback-timeline event=send-finished result=$diagnosticResult"
+        }
+        publishPlaybackTimeline(result, filename)
+    }
+
+    private fun publishPlaybackTimeline(
+        result: TvPlaybackTimelineSendResult,
+        filename: String? = null,
+    ) {
+        _state.update { current -> current.copy(playbackTimelineSendResult = result, playbackTimelineFilename = filename) }
+    }
+
+    // Fixed stage/event and sanitized exception type only; never the timeline or a message.
+    private fun logPlaybackTimelineFailure(
+        event: String,
+        exception: Throwable,
+    ) {
+        diagnosticLogger(DiagnosticTag.PlaybackTimeline).w {
+            formatSafeFailureDiagnostic(stage = "playback-timeline", event = event, throwable = exception)
         }
     }
 

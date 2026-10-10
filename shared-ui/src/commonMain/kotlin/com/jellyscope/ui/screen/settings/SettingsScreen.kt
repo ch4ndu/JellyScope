@@ -87,16 +87,20 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val accountState by accountViewModel.state.collectAsStateWithLifecycle()
     var logFeedback by remember { mutableStateOf<SendClientLogsResult?>(null) }
+    var playbackTimelineFeedback by remember { mutableStateOf<PlaybackTimelineFeedback?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val logoutErrorMessage = stringResource(Res.string.settings_logout_error)
+    val playbackTimelineExporter = rememberPlaybackTimelineExporter(viewModel)
 
     OnResumeEffect(viewModel::refreshDownloadUsage)
 
-    LaunchedEffect(viewModel, logoutErrorMessage) {
+    LaunchedEffect(viewModel, logoutErrorMessage, playbackTimelineExporter) {
         viewModel.events.collect { event ->
             when (event) {
                 is SettingsEvent.ClientLogsSent -> logFeedback = event.result
                 SettingsEvent.LogoutFailed -> snackbarHostState.showSnackbar(logoutErrorMessage)
+                is SettingsEvent.SavePlaybackTimeline -> playbackTimelineExporter.launch(event.operationId)
+                is SettingsEvent.PlaybackTimelineDelivered -> playbackTimelineFeedback = event.feedback
             }
         }
     }
@@ -142,6 +146,11 @@ fun SettingsScreen(
         onSetVerboseLogcatEnabled = viewModel::setVerboseLogcatEnabled,
         onSetPlaybackInfoAtStartEnabled = viewModel::setPlaybackInfoAtStartEnabled,
         onSendClientLogs = viewModel::sendClientLogs,
+        playbackTimelineFeedback = playbackTimelineFeedback,
+        onSavePlaybackTimeline = {
+            playbackTimelineFeedback = null
+            viewModel.savePlaybackTimeline()
+        },
         onAddAccount = accountViewModel::addAccount,
         onSwitchAccount = accountViewModel::switchTo,
         onSignOutAccount = accountViewModel::signOut,
@@ -235,6 +244,8 @@ fun SettingsContent(
     onSetVerboseLogcatEnabled: (Boolean) -> Unit = {},
     onSetPlaybackInfoAtStartEnabled: (Boolean) -> Unit = {},
     onSendClientLogs: () -> Unit = {},
+    playbackTimelineFeedback: PlaybackTimelineFeedback? = null,
+    onSavePlaybackTimeline: () -> Unit = {},
     onAddAccount: (String, String, String) -> Unit,
     onSwitchAccount: (String) -> Unit,
     onSignOutAccount: (String) -> Unit,
@@ -406,6 +417,10 @@ fun SettingsContent(
                         onVerboseLogcatChange = onSetVerboseLogcatEnabled,
                         onPlaybackInfoAtStartChange = onSetPlaybackInfoAtStartEnabled,
                         onSendLogs = onSendClientLogs,
+                        playbackTimelineAvailable = state.playbackTimelineAvailable,
+                        playbackTimelineActivity = state.playbackTimelineActivity,
+                        playbackTimelineFeedback = playbackTimelineFeedback,
+                        onSavePlaybackTimeline = onSavePlaybackTimeline,
                     )
                 }
                 item(key = SettingsSectionId.About) {

@@ -73,6 +73,9 @@ class LogBufferStore(
     private val ingressOverflowed = atomic(false)
     private val nextGeneration = atomic(0L)
     private val recordIdPrefix = Random.nextLong().toString(16)
+
+    /** Ephemeral collection boundary; replaced whenever retained history is cleared or purged. */
+    private val captureSegment = atomic(DiagnosticCaptureIdentity.allocateSegment())
     private val _size = MutableStateFlow(LogBufferSize())
     private val entries = ArrayDeque<BufferedEntry>()
     private var byteCount = 0
@@ -86,6 +89,12 @@ class LogBufferStore(
 
     /** Reads the authoritative preference without waiting for the actor. */
     internal fun isCollectionEnabled(): Boolean = preferenceStore.enabled.value
+
+    /**
+     * Current collection boundary for explicit timeline delivery. A payload prepared before a
+     * disable, purge, or clear never matches again, even after collection is re-enabled.
+     */
+    internal fun captureBoundary(): Long = captureSegment.value
 
     val logWriter: LogWriter =
         object : LogWriter() {
@@ -116,7 +125,10 @@ class LogBufferStore(
     ) {
         if (!preferenceStore.enabled.value) return
         val safeMessage = LogScrubber.capture(tag, message) ?: return
-        val line = boundedLine("${severity.name} $tag $safeMessage")
+        // The envelope is stamped only after admission, so producers cannot supply its fields.
+        val segment = captureSegment.value
+        val envelope = DiagnosticCaptureIdentity.envelope(segment, DiagnosticCaptureIdentity.elapsedMs())
+        val line = boundedLine("$envelope${severity.name} $tag $safeMessage")
         val generation = nextGeneration.incrementAndGet()
         val record =
             PendingRecord(
@@ -124,6 +136,7 @@ class LogBufferStore(
                 recordId = "$recordIdPrefix-$generation",
                 line = line,
                 byteCount = line.encodeToByteArray().size,
+                segment = segment,
             )
         if (commands.trySend(Command.Append(record)).isFailure) {
             ingressOverflowed.value = true
@@ -320,6 +333,8 @@ class LogBufferStore(
         }
         disabled = false
         batch.forEach { record ->
+            // A line stamped before a purge belongs to a deleted collection interval.
+            if (record.segment != captureSegment.value) return@forEach
             entries.addLast(
                 BufferedEntry(
                     generation = record.generation,
@@ -482,7 +497,7 @@ class LogBufferStore(
         val text =
             buildString {
                 if (truncationRevision > 0L) {
-                    append(TRUNCATION_MARKER)
+                    append(DIAGNOSTIC_TRUNCATION_MARKER)
                     if (entries.isNotEmpty()) append('\n')
                 }
                 entries.forEachIndexed { index, entry ->
@@ -553,6 +568,7 @@ class LogBufferStore(
 
     private fun clearMemory() {
         historyEpoch += 1L
+        captureSegment.value = DiagnosticCaptureIdentity.allocateSegment()
         entries.clear()
         byteCount = 0
         truncationRevision = 0L
@@ -581,16 +597,16 @@ class LogBufferStore(
     private fun boundedLine(line: String): String {
         val bytes = line.encodeToByteArray()
         if (bytes.size <= MAX_LINE_BYTES) return line
-        val suffix = TRUNCATION_SUFFIX.encodeToByteArray()
+        val suffix = DIAGNOSTIC_LINE_TRUNCATION_SUFFIX.encodeToByteArray()
         var prefixLength = (MAX_LINE_BYTES - suffix.size).coerceAtLeast(0)
         while (prefixLength > 0) {
             val prefix = bytes.copyOf(prefixLength).decodeToString()
             if (!prefix.contains('\uFFFD')) {
-                return prefix + TRUNCATION_SUFFIX
+                return prefix + DIAGNOSTIC_LINE_TRUNCATION_SUFFIX
             }
             prefixLength -= 1
         }
-        return TRUNCATION_SUFFIX.take(MAX_LINE_BYTES)
+        return DIAGNOSTIC_LINE_TRUNCATION_SUFFIX.take(MAX_LINE_BYTES)
     }
 
     private data class PendingRecord(
@@ -598,6 +614,7 @@ class LogBufferStore(
         val recordId: String,
         val line: String,
         val byteCount: Int,
+        val segment: Long,
     )
 
     private data class BufferedEntry(
@@ -653,7 +670,8 @@ class LogBufferStore(
         const val INGRESS_CAPACITY = 512
         const val APPEND_BATCH_SIZE = 64
         const val MAX_LINE_BYTES = 4_096
-        const val TRUNCATION_MARKER = "[earlier diagnostic lines were dropped]"
-        const val TRUNCATION_SUFFIX = " ...[truncated]"
     }
 }
+
+internal const val DIAGNOSTIC_TRUNCATION_MARKER = "[earlier diagnostic lines were dropped]"
+internal const val DIAGNOSTIC_LINE_TRUNCATION_SUFFIX = " ...[truncated]"

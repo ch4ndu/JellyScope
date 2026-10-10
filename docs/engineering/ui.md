@@ -128,10 +128,10 @@ brush and scrims without resetting Settings scroll or focus.
 - Text must fit across phone, TV, and desktop. Mobile controls require content
   descriptions, screen-reader labels, scalable text, contrast, and suitable
   touch targets. Avoid tiny and hover-only controls.
-- Diagnostics-upload consent text must render in full at larger font scales and
+- Diagnostic save/upload consent text must render in full at larger font scales and
   in longer translations. Shared Settings places supporting copy in its owning
   row and merged spoken label; TV places it below the dialog title. Buffer size,
-  preference errors, and upload results remain status. Never expose a stored
+  preference errors, and save/upload results remain status. Never expose a stored
   secret as a row value or accessibility label; show only whether it is stored,
   and keep editing masked.
 - Series hides static Audio text beneath Start Now but retains the picker.
@@ -182,7 +182,8 @@ brush and scrims without resetting Settings scroll or focus.
   iOS, with a watch-page-only fullscreen control. Other iOS defaults and normal
   mobile/desktop controls retain their existing policy.
 - Desktop popups, menus, and dialogs use the merged Compose canvas. Do not
-  restore platform-window layers or per-surface window workarounds.
+  restore platform-window layers or per-surface window workarounds. Explicit
+  document export uses the native OS save picker; it is not a Compose overlay.
 - Shared Settings switch rows omit redundant visible On/Off supporting values,
   retaining explanatory descriptions, the spoken value, and one toggle target.
   Non-switch rows retain their selected/effective values.
@@ -285,9 +286,13 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   emphasis. Playback rows are Backend, Play method, Transcode reasons, optional
   Container, Video, Audio, Subtitle render/styleability, launch/native first
   frame, rebuffers, audio underruns, and Status. Runtime rows are Decoder,
-  Runtime format, dropped frames, buffer policy, target/allocated, buffered
+  Runtime format, Renderer target, dropped frames, buffer policy, target/allocated, buffered
   ahead, and bandwidth estimate. For mpv, replace Decoder/Runtime format with
-  Codec description, Video decoding, and Decoded size. Active decoding is
+  Codec description, Video decoding, and Decoded size, followed by Renderer
+  target. Its localized values are HDR, SDR, SDR (HDR input observed), or Unknown;
+  it does not confirm the physical display. The
+  [diagnostics contract](diagnostics.md#renderer-color-evidence) owns the evidence
+  and unavailable-state rules. Active decoding is
   Hardware, Hardware (copy-back), Software, or Unknown; it is independent of the
   configured hardware preference and presentation renderer. Decoded size is
   native decoder-reported width/height, not the display or render-surface size;
@@ -474,6 +479,10 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
 See [native tvOS UI](tvos-ui.md#native-tvos-screens).
 
 ## Why
+
+- Renderer target separates observed player output from source metadata and
+  physical-display confirmation. Unknown remains visible when the backend
+  cannot supply evidence, so absent data cannot imply SDR or successful HDR.
 
 - Ambient color needs only a small whole-artwork sample. Decoding it separately
   avoids full-size hardware-bitmap readback; retaining the display request's

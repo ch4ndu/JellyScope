@@ -8,7 +8,9 @@ import com.jellyscope.core.data.local.DiagnosticBreadcrumbStorageState
 import com.jellyscope.core.data.local.DiagnosticBreadcrumbStore
 import com.jellyscope.core.data.local.DiagnosticBreadcrumbStoredRecord
 import com.jellyscope.core.data.local.LogCollectionPreferenceStore
+import com.jellyscope.core.domain.action.PreparePlaybackTimelineAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
+import com.jellyscope.core.domain.model.PreparePlaybackTimelineResult
 import com.jellyscope.core.domain.playback.NativeTrackMappingReason
 import com.jellyscope.core.domain.playback.NativeTrackMappingResult
 import com.jellyscope.core.domain.playback.PlaybackBackendAbi
@@ -40,9 +42,16 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -353,7 +362,8 @@ class LogBufferStoreTest {
             runCurrent()
             val snapshot = barrier.await()
 
-            assertEquals(4_000, store.size.value.entryCount)
+            // The capture envelope counts inside the byte bound, so bytes bind before entries here.
+            assertTrue(store.size.value.byteCount <= 500_000)
             assertEquals(1, snapshot.text.lines().count { it == "[earlier diagnostic lines were dropped]" })
             assertFalse(snapshot.text.contains("nativeCode=0"))
             assertTrue(snapshot.text.contains("nativeCode=4000"))
@@ -414,7 +424,10 @@ class LogBufferStoreTest {
             val nativeCodes =
                 records.map { line ->
                     assertTrue(
-                        line.startsWith("Info PlaybackInfoPlanner stage=planner event=resolved nativeCode="),
+                        line.startsWith("[jst1 diagEpoch=") &&
+                            line
+                                .substringAfter("] ")
+                                .startsWith("Info PlaybackInfoPlanner stage=planner event=resolved nativeCode="),
                         "unexpected retained diagnostic line: $line",
                     )
                     line.substringAfter("nativeCode=").toIntOrNull()
@@ -847,6 +860,86 @@ class LogBufferStoreTest {
             assertTrue(line.encodeToByteArray().size <= 4_096)
             assertTrue(line.endsWith(" ...[truncated]"))
             assertFalse(line.contains('\uFFFD'))
+        }
+
+    @Test
+    fun playbackTimelineKeepsCapturesAndSessionsApartAndExportsOnlyClosedArgs() =
+        runTest {
+            val first = PlaybackDiagnosticSessions.allocate()
+            val second = PlaybackDiagnosticSessions.allocate()
+
+            fun prepare(
+                event: PlaybackDiagnosticEvent,
+                session: Long,
+            ): String =
+                formatPlaybackDiagnostic(
+                    PlaybackDiagnostic(
+                        stage = PlaybackDiagnosticStage.Prepare,
+                        event = event,
+                        platform = PlaybackDiagnosticPlatform.Shared,
+                        backend = PlayerBackend.Mpv,
+                        prepareSequence = 1L.takeIf { event == PlaybackDiagnosticEvent.PrepareDispatched },
+                        sessionSequence = session,
+                        exceptionType = "SecretSentinel",
+                    ),
+                )
+            val requested = PlaybackDiagnosticEvent.PrepareRequested
+            val dispatched = PlaybackDiagnosticEvent.PrepareDispatched
+            // A retained line from an earlier process reuses the same session value.
+            val earlierProcess =
+                "[jst1 diagEpoch=${"0".repeat(32)} diagSegment=0 diagElapsedMs=7] Info PlayerViewModel " +
+                    prepare(dispatched, first)
+            val persistence = FakeDiagnosticBreadcrumbStore()
+            persistence.records += DiagnosticBreadcrumbStoredRecord("earlier", earlierProcess, earlierProcess.length, 1L)
+            persistence.records +=
+                DiagnosticBreadcrumbStoredRecord("legacy", "INFO PlaybackInfoPlanner stage=planner event=persisted", 54, 2L)
+            val store = LogBufferStore(FakeLogCollectionPreferenceStore(enabled = true), breadcrumbStore = persistence)
+
+            store.append("PlayerViewModel", Severity.Info, prepare(requested, first))
+            store.append("PlayerViewModel", Severity.Info, prepare(requested, second))
+            store.append("PlayerViewModel", Severity.Info, prepare(dispatched, first))
+            store.append("PlayerViewModel", Severity.Info, prepare(dispatched, second))
+            // Native owner-local values are indistinguishable from sessions and stay uncorrelated.
+            store.append("AndroidMpvPlayerController", Severity.Info, prepare(dispatched, first))
+            store.append("PlayerViewModel", Severity.Info, "stage=prepare event=prepare-requested diagEpoch=forged")
+
+            val result = PreparePlaybackTimelineAction(store)()
+            val json = assertIs<PreparePlaybackTimelineResult.Ready>(result).timeline.json
+            assertTrue(json.encodeToByteArray().size <= 2 * 1024 * 1024)
+            listOf("SecretSentinel", "exceptionType", "diagEpoch", "forged", "0".repeat(32), DiagnosticCaptureIdentity.epoch)
+                .forEach { forbidden -> assertFalse(json.contains(forbidden), forbidden) }
+
+            val root = Json.parseToJsonElement(json).jsonObject
+            val events = root.getValue("traceEvents").jsonArray.map { event -> event.jsonObject }
+
+            fun JsonObject.text(name: String): String? = this[name]?.jsonPrimitive?.content
+
+            fun JsonObject.number(name: String): Int = getValue(name).jsonPrimitive.int
+
+            fun JsonObject.source(): String? = getValue("args").jsonObject.text("source")
+
+            fun ownerLanes(name: String): List<Pair<Int, Int>> =
+                events
+                    .filter { event -> event.text("name") == name && event.source() == "PlayerViewModel" }
+                    .map { event -> event.number("pid") to event.number("tid") }
+            // Requests carry no prepare identity, so none is inferred and both endpoints stay instants.
+            assertTrue(events.none { event -> event.text("ph") == "X" })
+            val requests = ownerLanes("prepare-requested")
+            val livePid = requests.map { (pid, _) -> pid }.toSet().single()
+            assertEquals(2, requests.map { (_, tid) -> tid }.toSet().size)
+            val dispatches = ownerLanes("prepare-dispatched")
+            assertEquals(requests, dispatches.filter { (pid, _) -> pid == livePid })
+            assertEquals(1, dispatches.count { (pid, _) -> pid != livePid })
+            val nativeDispatch =
+                events.single { event ->
+                    event.text("name") == "prepare-dispatched" && event.source() != "PlayerViewModel"
+                }
+            assertEquals(0, nativeDispatch.number("tid"))
+            val otherData = root.getValue("otherData").jsonObject
+            assertEquals("false", otherData.text("historyComplete"))
+            val limitations = otherData.getValue("limitations").jsonArray.map { limitation -> limitation.jsonPrimitive.content }
+            assertTrue("legacy-untimed-lines" in limitations && "uncorrelated-events" in limitations)
+            assertTrue(store.snapshot().text.contains("event=prepare-dispatched"))
         }
 
     private fun enabledStore(): LogBufferStore = LogBufferStore(FakeLogCollectionPreferenceStore(enabled = true))

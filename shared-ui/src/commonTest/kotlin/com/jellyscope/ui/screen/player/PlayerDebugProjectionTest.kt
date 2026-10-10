@@ -25,6 +25,10 @@ class PlayerDebugProjectionTest {
             hardwareCopyBack = "Hardware (copy-back)",
             software = "Software",
             unknown = "Unknown",
+            rendererTarget = "Renderer target",
+            rendererTargetHdr = "HDR",
+            rendererTargetSdr = "SDR",
+            rendererTargetHdrToSdr = "SDR (HDR input observed)",
         )
 
     @Test
@@ -117,6 +121,7 @@ class PlayerDebugProjectionTest {
                 "Codec description",
                 "Video decoding",
                 "Decoded size",
+                "Renderer target",
                 "Dropped frames",
                 "Buffer policy",
                 "Target / allocated",
@@ -183,6 +188,7 @@ class PlayerDebugProjectionTest {
         )
 
         assertTrue(sections.row("Transcode reasons").emphasize)
+        assertEquals("Unknown", sections.row("Renderer target").value)
 
         val sectionsWithoutContainer =
             playerDebugSections(

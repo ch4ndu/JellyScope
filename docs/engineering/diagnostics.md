@@ -23,8 +23,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   preference key is absent or invalid; an explicit persisted value is honored.
   The history is
   capped at 4,000 entries/500,000 UTF-8 bytes with a 4,096-byte line limit,
-  is deleted when collection is turned off, and is uploaded only after the
-  user explicitly presses Send to their Jellyfin server. Android, Android TV,
+  is deleted when collection is turned off, and leaves the app only after an
+  explicit save or send action. Android, Android TV,
   desktop, iOS, and tvOS register the writer and expose bounded collection
   controls through their native settings surfaces. This allowlist-first capture
   boundary remains defense in depth; console-safe failure formatting is required
@@ -33,7 +33,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   planner resolution records the concrete backend, request policy, capability
   conclusion, quality mode/cap origin, and request cap separately from the
   effective transcode cap; player events record backend fallback, process-local
-  session/prepare sequences (including request before the synchronous prepare
+  diagnostic session/prepare sequences (including request before the synchronous prepare
   boundary), first-output availability/observation, qualified health evidence,
   bounded Auto recovery decisions/budgets, persistence read/write outcomes,
   and terminal native outcomes. A cancelled asynchronous persistence write is
@@ -107,6 +107,76 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   logcat output, diagnostics that must be readable on TV use Info or higher;
   keep them low-volume (once per item/session, not per frame).
 
+## Capture timing and playback timelines
+
+`LogBufferStore` adds this envelope only after a line passes the scrubber:
+
+```text
+[jst1 diagEpoch=<32 lower-case hex digits> diagSegment=<nonnegative Long> diagElapsedMs=<nonnegative Long>] <severity> <tag> <safe message>
+```
+
+The epoch is random per process, elapsed time is monotonic, and the segment
+changes at collection clear/disable boundaries. Producers cannot supply these
+reserved fields. Persisted lines keep their original envelope; legacy lines
+remain untimed. Store entry IDs, upload acknowledgements and hydration history
+epochs retain their independent meanings. Diagnostic session allocation is
+process-global and separate from launch/recovery counters used by playback.
+
+Regular text uploads retain the envelope. Its epoch is a process correlation
+token, not an account, device or installation identifier; reports containing
+the same retained lines can carry the same token. Exported timeline JSON replaces
+it with file-local numeric lanes and a capture-local zero. Neither format adds
+wall-clock time, URLs, paths, media/account identity or raw native values.
+
+`PreparePlaybackTimelineAction` encodes only the already-sanitized snapshot,
+off the main thread, into Chrome trace-event JSON. Stages, events and arguments
+use closed allowlists. The 2 MiB limit includes JSON framing; truncation drops
+whole events and preserves valid JSON. Missing, evicted, malformed, legacy or
+uncorrelated records produce explicit coverage limitations. No timed playback
+events produces a visible no-data result, not an empty saved file.
+
+Intervals require explicit matching capture, session, backend and prepare
+identity at both ends. Lost or ambiguous boundaries remain instants. Prepare
+dispatch does not measure startup; seek remains an instant; mpv first-frame
+timing is unavailable; tvOS output without proven prepare identity remains an
+instant. A timeline is bounded diagnostic evidence, not a complete performance
+trace. Preparing, saving and sending it never clear or acknowledge safe history.
+
+### Explicit delivery
+
+| Platform | Settings → Diagnostics action and destination |
+| --- | --- |
+| Android mobile, iOS, desktop | Save playback timeline through the native document/save picker |
+| Android TV | Save through an available document provider, or separately choose Send playback timeline to server |
+| tvOS | Send playback timeline to server; no document picker |
+
+Android uses `CreateDocument(application/json)` without broad storage
+permission. Desktop uses the JDK save dialog entirely on the AWT event thread,
+with file writing on IO. iOS retains its document-picker delegate and serializes
+staging/presentation/cleanup across exporter instances in one bounded private
+directory. Cleanup runs on terminal paths and next entry after interruption;
+a cleanup failure is logged without its path, blocks dirty staging reuse, and
+surfaces a failure even if a user-owned copy was already exported.
+
+TV sending uses the existing `MediaRepository.uploadClientLogs` permission and
+authenticated `/ClientLog/Document` boundary. The body is JSON sent as
+`text/plain`; a server-assigned `.log` filename does not change its contents.
+There is no converter, automatic upload, or automatic network fallback after
+save fails. Missing Android TV document providers produce a visible result.
+
+Only one operation is active per Settings owner. Payloads stay in memory, never
+saved state; collection disable and screen disposal invalidate pending work.
+Live collection/segment checks precede native write or upload handoff. An Android
+picker result restored without its live payload reports interruption and writes
+no bytes; it never regenerates a report or deletes the selected document. A
+provider may already have created an empty file. A failed write may leave an
+incomplete file. Stale callbacks cannot complete a newer operation.
+
+Bytes already handed to the OS or server cannot be recalled. Disabling collection
+deletes retained app history, not user-owned copies, and later cancellation is
+best effort. Outcome diagnostics contain closed stage/event/result tokens only,
+never JSON, destinations, filenames or native error text.
+
 ## PlaybackInfo diagnostic fields
 
 - `PlaybackPlan` also carries `container` and the server's `TranscodeReasons`.
@@ -133,17 +203,17 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   titles, usernames, local file paths, or raw Jellyfin responses to crash
   reporting.
 - No crash or playback diagnostic data is ever uploaded automatically or sent
-  to a third-party service. Diagnostics leave the device only through the
-  explicit, user-triggered Send Client Logs upload.
-- Diagnostics upload is server-upload-only; there is no local export path. The
-  Send Client Logs action posts the structured diagnostics report plus bounded,
+  to a third-party service by JellyScope. Users explicitly choose local timeline
+  export or sending diagnostics to their connected Jellyfin server.
+- The Send Client Logs action posts the structured diagnostics report plus bounded,
   `LogScrubber`-admitted
   `LogBufferStore` history to the connected Jellyfin server's
   `/ClientLog/Document` endpoint. Raw native-player files and free-form excerpts
   never enter this payload; a server that disallows
   client logs surfaces `UploadDisallowed` rather than failing silently. An
   upload proceeds even with an empty safe history, carrying the capability and
-  failure snapshot alone.
+  failure snapshot alone. The separate timeline actions above export only
+  admitted timeline events and require timed history.
 - Playback/API crash context must be reduced to sanitized feature area, stream
   mode, capability flags, HTTP status class, exception type, and app/platform
   version.
@@ -252,6 +322,35 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   identity-bearing facts that remain available to their existing non-overlay
   consumers.
 
+## Renderer color evidence
+
+`PlaybackRuntimeDiagnostics.outputColor` keeps closed source transfer/primaries,
+renderer-target transfer/primaries, renderer range, evidence provenance and
+conversion observation separate. Physical-display confirmation is always
+Unknown. Android and desktop mpv observe `video-params` source properties and
+`video-target-params/gamma` plus primaries through their existing native queue or
+background poll. `video-out-params` alone is not renderer-target evidence.
+
+PQ/HLG targets indicate HDR; recognized SDR curves indicate SDR. Linear,
+unrecognized or absent targets remain Unknown, as do audio-only playback and
+backends without equivalent observations. HDR-input-to-SDR-target is reported
+only when both sides are known in the same valid sample; it identifies a
+conversion relationship, not a tone-mapping algorithm or quality guarantee.
+An unrecognized native target can carry NativeTarget provenance while its
+range remains Unknown. Desktop Render API/Metal property availability remains
+unverified; unavailable evidence must stay Unknown without renderer repair.
+
+Prepare, release, backend changes, terminal failure and native reconfiguration
+clear observations; publication checks current prepare/reconfiguration identity
+and failure state. Failed attempts cannot restore positive color evidence before
+a valid prepare begins. Collection being
+off does not prevent the compact shared Playback info row from updating. Closed
+state changes and selected health/terminal records enter sanitized diagnostics
+and the timeline. Native tvOS diagnostics retain Unknown; there is no new native
+tvOS playback-info screen. These observations never change planning, profiles,
+quality, health, recovery, backend selection or display policy. Compilation and
+mapper tests do not prove native property availability or physical HDR output.
+
 ## Native and execution observations
 
 - Android and desktop mpv runtime diagnostics derive active video decoding from
@@ -303,8 +402,18 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   legacy fallbacks preserve insecure or disabled routes. Broad inbound query
   stripping remains only to sanitize stale URLs.
 - **Diagnostics never leave automatically.** Bounded, sanitized history and
-  typed snapshots upload only through the explicit server action. Raw native
+  typed snapshots leave only through explicit save or server-send actions. Raw native
   files stay local because free-form text cannot be proven identity-free.
+- **Timing preserves uncertainty.** Capture/session identities correlate safe
+  events without media identity. Missing boundaries cannot justify durations;
+  local lane remapping and coverage markers make partial history interpretable.
+- **Native export keeps delivery accessible.** Users need no offline converter.
+  TV offers explicit server delivery where a native destination picker may be
+  absent; failed local saving never silently grants network consent.
+- **Renderer evidence has a defined limit.** Source HDR does not establish
+  renderer HDR, and a renderer target does not establish the physical display's
+  output. Separate observations preserve these distinctions without changing
+  playback policy.
 - **Failure boundaries preserve causal evidence.** Native errors need backend
   and attempt correlation before generic state or recovery hides their origin.
   Download execution can finish after its caller returns, so retained wake,

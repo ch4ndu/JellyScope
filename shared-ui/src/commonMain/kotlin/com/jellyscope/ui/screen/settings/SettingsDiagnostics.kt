@@ -17,8 +17,21 @@ import com.jellyscope.ui.generated.resources.settings_diagnostics_collect_error
 import com.jellyscope.ui.generated.resources.settings_diagnostics_failure
 import com.jellyscope.ui.generated.resources.settings_diagnostics_playback_info_at_start
 import com.jellyscope.ui.generated.resources.settings_diagnostics_playback_info_at_start_detail
+import com.jellyscope.ui.generated.resources.settings_diagnostics_save_timeline
+import com.jellyscope.ui.generated.resources.settings_diagnostics_save_timeline_detail
 import com.jellyscope.ui.generated.resources.settings_diagnostics_send
 import com.jellyscope.ui.generated.resources.settings_diagnostics_send_detail
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_collection_off
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_expired
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_interrupted
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_no_events
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_prepare_failed
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_save_cancelled
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_save_failed
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_save_unavailable
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_saved
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_send_failed
+import com.jellyscope.ui.generated.resources.settings_diagnostics_timeline_sent
 import com.jellyscope.ui.generated.resources.settings_diagnostics_upload_disallowed
 import com.jellyscope.ui.generated.resources.settings_diagnostics_uploaded
 import com.jellyscope.ui.generated.resources.settings_diagnostics_verbose_logcat
@@ -39,11 +52,15 @@ internal fun DiagnosticsSettingsSection(
     onVerboseLogcatChange: (Boolean) -> Unit,
     onPlaybackInfoAtStartChange: (Boolean) -> Unit,
     onSendLogs: () -> Unit,
+    playbackTimelineAvailable: Boolean = false,
+    playbackTimelineActivity: PlaybackTimelineActivity? = null,
+    playbackTimelineFeedback: PlaybackTimelineFeedback? = null,
+    onSavePlaybackTimeline: () -> Unit = {},
 ) {
     SettingsSectionCard(
         title = stringResource(Res.string.settings_diagnostics),
         rows =
-            listOf(
+            listOfNotNull<@Composable () -> Unit>(
                 {
                     SettingsRow(
                         icon = SettingsRowId.CollectLogs.icon(),
@@ -102,9 +119,25 @@ internal fun DiagnosticsSettingsSection(
                         onClick = onSendLogs,
                     )
                 },
+                if (playbackTimelineAvailable) {
+                    {
+                        SettingsRow(
+                            icon = SettingsRowId.SavePlaybackTimeline.icon(),
+                            iconRole = SettingsRowId.SavePlaybackTimeline.iconRole(),
+                            title = stringResource(Res.string.settings_diagnostics_save_timeline),
+                            description = stringResource(Res.string.settings_diagnostics_save_timeline_detail),
+                            trailing = SettingsRowTrailing.Progress(running = playbackTimelineActivity != null),
+                            onClick = onSavePlaybackTimeline,
+                            // The prepare action re-checks collection; this only mirrors the switch.
+                            enabled = collectLogs,
+                        )
+                    }
+                } else {
+                    null
+                },
             ),
         footer =
-            if (logCollectionPreferenceError || feedback != null) {
+            if (logCollectionPreferenceError || feedback != null || playbackTimelineFeedback != null) {
                 {
                     Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
                         if (logCollectionPreferenceError) {
@@ -113,6 +146,9 @@ internal fun DiagnosticsSettingsSection(
                         feedback?.let { result ->
                             Text(text = diagnosticsFeedback(result))
                         }
+                        playbackTimelineFeedback?.let { result ->
+                            Text(text = playbackTimelineFeedbackText(result))
+                        }
                     }
                 }
             } else {
@@ -120,6 +156,23 @@ internal fun DiagnosticsSettingsSection(
             },
     )
 }
+
+@Composable
+internal fun playbackTimelineFeedbackText(feedback: PlaybackTimelineFeedback): String =
+    when (feedback) {
+        PlaybackTimelineFeedback.CollectionDisabled -> stringResource(Res.string.settings_diagnostics_timeline_collection_off)
+        PlaybackTimelineFeedback.NoTimedEvents -> stringResource(Res.string.settings_diagnostics_timeline_no_events)
+        PlaybackTimelineFeedback.PrepareFailed -> stringResource(Res.string.settings_diagnostics_timeline_prepare_failed)
+        PlaybackTimelineFeedback.Saved -> stringResource(Res.string.settings_diagnostics_timeline_saved)
+        PlaybackTimelineFeedback.SaveCancelled -> stringResource(Res.string.settings_diagnostics_timeline_save_cancelled)
+        PlaybackTimelineFeedback.SaveUnavailable -> stringResource(Res.string.settings_diagnostics_timeline_save_unavailable)
+        PlaybackTimelineFeedback.Interrupted -> stringResource(Res.string.settings_diagnostics_timeline_interrupted)
+        PlaybackTimelineFeedback.Expired -> stringResource(Res.string.settings_diagnostics_timeline_expired)
+        PlaybackTimelineFeedback.SaveFailed -> stringResource(Res.string.settings_diagnostics_timeline_save_failed)
+        is PlaybackTimelineFeedback.Sent -> stringResource(Res.string.settings_diagnostics_timeline_sent, feedback.filename)
+        PlaybackTimelineFeedback.UploadDisallowed -> stringResource(Res.string.settings_diagnostics_upload_disallowed)
+        PlaybackTimelineFeedback.SendFailed -> stringResource(Res.string.settings_diagnostics_timeline_send_failed)
+    }
 
 @Composable
 private fun diagnosticsFeedback(result: SendClientLogsResult): String =

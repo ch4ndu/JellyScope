@@ -3,6 +3,7 @@
 package com.jellyscope.core.domain.playback
 
 import com.jellyscope.core.util.DiagnosticOperation
+import com.jellyscope.core.util.reservedCaptureFieldNames
 import com.jellyscope.core.util.safeDiagnosticType
 
 sealed interface DiagnosticReason
@@ -345,6 +346,7 @@ enum class PlaybackDiagnosticEvent {
     TrackState,
     Reporting,
     TvDisplay,
+    OutputColor,
 }
 
 enum class PlaybackPersistenceTarget {
@@ -662,6 +664,8 @@ data class PlaybackDiagnostic(
     val tvDisplayRequestedHeightPx: Int? = null,
     val tvDisplayRequestedRefreshMilliHz: Int? = null,
     val tvDisplaySwitchDurationMs: Long? = null,
+    /** Renderer-target observation; null omits it, Unknown is reported explicitly. */
+    val outputColor: PlaybackOutputColor? = null,
 )
 
 fun formatPlaybackDiagnostic(diagnostic: PlaybackDiagnostic): String =
@@ -1115,6 +1119,16 @@ fun formatPlaybackDiagnostic(diagnostic: PlaybackDiagnostic): String =
             ?.takeIf { it >= 0L }
             ?.coerceAtMost(MAX_HEALTH_DURATION_MS)
             ?.let { appendDiagnosticField(PlaybackDiagnosticField.TvDisplaySwitchDurationMs, it) }
+        diagnostic.outputColor?.let { color ->
+            color.inputTransfer?.let { appendDiagnosticField(PlaybackDiagnosticField.ColorInputTransfer, it.name) }
+            color.inputPrimaries?.let { appendDiagnosticField(PlaybackDiagnosticField.ColorInputPrimaries, it.name) }
+            color.targetTransfer?.let { appendDiagnosticField(PlaybackDiagnosticField.ColorTargetTransfer, it.name) }
+            color.targetPrimaries?.let { appendDiagnosticField(PlaybackDiagnosticField.ColorTargetPrimaries, it.name) }
+            appendDiagnosticField(PlaybackDiagnosticField.ColorRendererRange, color.rendererRange.name)
+            appendDiagnosticField(PlaybackDiagnosticField.ColorEvidence, color.evidence.name)
+            appendDiagnosticField(PlaybackDiagnosticField.ColorConversion, color.conversion.name)
+            appendDiagnosticField(PlaybackDiagnosticField.ColorPhysicalDisplay, color.physicalDisplay.name)
+        }
         diagnostic.nativePrepareToFirstFrameMs?.coerceAtLeast(0L)?.let {
             appendDiagnosticField(PlaybackDiagnosticField.NativePrepareToFirstFrameMs, it)
         }
@@ -1354,6 +1368,14 @@ internal enum class PlaybackDiagnosticField(
     TvDisplayRequestedHeightPx("tvDisplayRequestedHeightPx"),
     TvDisplayRequestedRefreshMilliHz("tvDisplayRequestedRefreshMilliHz"),
     TvDisplaySwitchDurationMs("tvDisplaySwitchDurationMs"),
+    ColorInputTransfer("colorInputTransfer"),
+    ColorInputPrimaries("colorInputPrimaries"),
+    ColorTargetTransfer("colorTargetTransfer"),
+    ColorTargetPrimaries("colorTargetPrimaries"),
+    ColorRendererRange("colorRendererRange"),
+    ColorEvidence("colorEvidence"),
+    ColorConversion("colorConversion"),
+    ColorPhysicalDisplay("colorPhysicalDisplay"),
     NativePrepareToFirstFrameMs("nativePrepareToFirstFrameMs"),
     LaunchToFirstFrameMs("launchToFirstFrameMs"),
     RebufferCount("rebufferCount"),
@@ -1409,10 +1431,18 @@ internal enum class PlaybackDiagnosticField(
     ReportingResult("reportingResult"),
 }
 
+/** Producer-admissible names; the store-owned capture envelope names are never included. */
 internal val playbackDiagnosticFieldNames: Set<String> =
     PlaybackDiagnosticField.entries
         .map(PlaybackDiagnosticField::wireName)
-        .toSet()
+        .toSet() - reservedCaptureFieldNames
+
+/** Closed wire values recognized by the playback timeline encoder. */
+internal val playbackDiagnosticStageNames: Set<String> =
+    PlaybackDiagnosticStage.entries.map { stage -> stage.name.lowercase() }.toSet()
+
+internal val playbackDiagnosticEventNames: Set<String> =
+    PlaybackDiagnosticEvent.entries.map { event -> event.diagnosticName() }.toSet()
 
 private fun MutableList<String>.appendDiagnosticField(
     field: PlaybackDiagnosticField,
@@ -1492,6 +1522,7 @@ private fun PlaybackDiagnosticEvent.diagnosticName(): String =
         PlaybackDiagnosticEvent.TrackState -> "track-state"
         PlaybackDiagnosticEvent.Reporting -> "reporting"
         PlaybackDiagnosticEvent.TvDisplay -> "tv-display"
+        PlaybackDiagnosticEvent.OutputColor -> "output-color"
         else -> name.lowercase()
     }
 

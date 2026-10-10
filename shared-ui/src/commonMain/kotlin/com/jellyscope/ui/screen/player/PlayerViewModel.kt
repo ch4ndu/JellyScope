@@ -148,6 +148,7 @@ import com.jellyscope.core.playback.PlaybackReportingQueue
 import com.jellyscope.core.playback.PlaybackStopSettlementRegistry
 import com.jellyscope.core.playback.resolvePlaybackDurationMs
 import com.jellyscope.core.playback.toDiagnosticsSourceDescriptor
+import com.jellyscope.core.util.PlaybackDiagnosticSessions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -339,6 +340,9 @@ class PlayerViewModel(
     private var backendSwitchJob: Job? = null
     private var qualitySession = PlayerQualitySessionState()
     private var playbackLaunchGeneration = 0L
+
+    /** Process-unique diagnostic correlation for the current launch generation; never compared operationally. */
+    private var playbackDiagnosticSession = 0L
     private var playbackLaunchMarker: PlaybackLaunchMarker? = null
     private var launchToFirstFrameMs: Long? = null
     private var activePlaybackTimelineFacts: ActivePlaybackTimelineFacts? = null
@@ -601,6 +605,7 @@ class PlayerViewModel(
         val sameItemFastRetry = plan?.itemId == currentItemId
         emitPlaybackHealthSummary()
         val retryGeneration = ++playbackLaunchGeneration
+        playbackDiagnosticSession = PlaybackDiagnosticSessions.allocate()
         activePlaybackTimelineFacts =
             if (sameItemFastRetry) {
                 activePlaybackTimelineFacts
@@ -611,7 +616,7 @@ class PlayerViewModel(
             }
         // Retry resets all session health and recovery budgets.
         resetPlaybackHealthSession(retryGeneration)
-        plan = plan?.copy(diagnosticSessionSequence = retryGeneration)
+        plan = plan?.copy(diagnosticSessionSequence = playbackDiagnosticSession)
         pendingRecoveredPlaybackGuidanceItemId = null
         pendingRecoveredAutoQualityBps = null
         pendingPictureInPictureRecoveryTrigger = null
@@ -1059,6 +1064,7 @@ class PlayerViewModel(
             BackendSwitchSnapshot(
                 generation = ++backendSwitchGeneration,
                 launchGeneration = playbackLaunchGeneration,
+                diagnosticSession = playbackDiagnosticSession,
                 itemId = currentItemId,
                 mediaSourceId = currentPlan.mediaSourceId,
                 activePlan = currentPlan,
@@ -1785,6 +1791,8 @@ class PlayerViewModel(
         activePlaybackTimelineFacts = null
         playbackLaunchGeneration += 1L
         val launchGeneration = playbackLaunchGeneration
+        playbackDiagnosticSession = PlaybackDiagnosticSessions.allocate()
+        val launchDiagnosticSession = playbackDiagnosticSession
         if (
             forceStartFromBeginning &&
             pendingRestartFromBeginningTarget == PlayerPlaybackTarget(itemId, currentOfflineDownloadId)
@@ -1826,6 +1834,7 @@ class PlayerViewModel(
                 requestedSubtitleSelection = requestedSubtitleSelection,
                 startPositionTicks = startPositionTicks,
                 launchGeneration = launchGeneration,
+                launchDiagnosticSession = launchDiagnosticSession,
                 resetReporting = resetReporting,
                 retainedOfflineSidecarIdentity = retainedOfflineSidecarIdentity,
             )
@@ -1930,7 +1939,7 @@ class PlayerViewModel(
             )
 
         playerDiagnosticsRecorder.recordPersistence(
-            context = playerDiagnosticContext(sessionSequence = launchGeneration),
+            context = playerDiagnosticContext(sessionSequence = launchDiagnosticSession),
             facts =
                 PlayerPersistenceDiagnosticFacts(
                     event = PlaybackDiagnosticEvent.Read,
@@ -1992,7 +2001,7 @@ class PlayerViewModel(
         val initialRequestPolicy =
             PlaybackInfoRequestPolicy(
                 backend = backend,
-                diagnosticSessionSequence = launchGeneration,
+                diagnosticSessionSequence = launchDiagnosticSession,
             )
         val playbackPlan =
             try {
@@ -2119,6 +2128,7 @@ class PlayerViewModel(
         requestedSubtitleSelection: SubtitleSelectionIntent,
         startPositionTicks: Long,
         launchGeneration: Long,
+        launchDiagnosticSession: Long,
         resetReporting: Boolean,
         retainedOfflineSidecarIdentity: SubtitleActivationIdentity.OfflineSidecar?,
     ): Boolean {
@@ -2272,6 +2282,7 @@ class PlayerViewModel(
                 ).copy(
                     playbackSpeed = playbackSpeed,
                     subtitleStyle = subtitleStyle,
+                    diagnosticSessionSequence = launchDiagnosticSession,
                 )
         if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) return false
         val exactOfflineBackendRequired =
@@ -2879,12 +2890,23 @@ class PlayerViewModel(
         videoOutputObservationsJob?.cancel()
         playbackTransitionObservationsJob?.cancel()
         val controller = playerController
+        val controllerBackend = backend
         _runtimeDiagnostics.value = controller.runtimeDiagnostics.value
         runtimeDiagnosticsJob =
             viewModelScope.launch {
                 controller.runtimeDiagnostics.collect { diagnostics ->
                     _runtimeDiagnostics.value = diagnostics
                     maybeCompletePlaybackLaunch(controller, diagnostics)
+                    // Diagnostics only: renderer-target color never reaches planning, health or recovery.
+                    if (concreteControllerInstalled) {
+                        playerDiagnosticsRecorder.recordOutputColorIfChanged(
+                            playerDiagnosticContext(
+                                backend = controllerBackend,
+                                prepareSequence = diagnostics.prepareEpoch,
+                                runtimeDiagnostics = diagnostics,
+                            ),
+                        )
+                    }
                 }
             }
         droppedFrameMeasurementsJob =
@@ -3441,7 +3463,7 @@ class PlayerViewModel(
         val requestPolicy =
             PlaybackInfoRequestPolicy(
                 backend = requestedBackend,
-                diagnosticSessionSequence = switch.launchGeneration,
+                diagnosticSessionSequence = switch.diagnosticSession,
                 bitrateConstraint =
                     if (switch.recoveryQuality != null) {
                         switch.recoveryBudget
@@ -4150,6 +4172,7 @@ class PlayerViewModel(
 
     private fun endPlaybackHealthSession() {
         playbackLaunchGeneration += 1L
+        playbackDiagnosticSession = PlaybackDiagnosticSessions.allocate()
         playbackHealthCoordinator.end()
     }
 
@@ -4649,6 +4672,7 @@ class PlayerViewModel(
         val sourceContainer = selectedSourceContainer
         val replanItemId = currentItemId
         val replanGeneration = playbackLaunchGeneration
+        val replanDiagnosticSession = playbackDiagnosticSession
         val diagnosticContext = playerDiagnosticContext()
         if (proposedQualitySessionState == null) {
             autoplayGeneration += 1
@@ -4673,7 +4697,7 @@ class PlayerViewModel(
                 }
                 val correlatedRequestPolicy =
                     effectiveRequestPolicy.copy(
-                        diagnosticSessionSequence = replanGeneration,
+                        diagnosticSessionSequence = replanDiagnosticSession,
                     )
 
                 val playbackPlan =
@@ -5399,7 +5423,7 @@ class PlayerViewModel(
     private fun playerDiagnosticContext(
         currentPlan: PlaybackPlan? = plan,
         backend: PlayerBackend = this.backend,
-        sessionSequence: Long = currentPlan?.diagnosticSessionSequence ?: playbackLaunchGeneration,
+        sessionSequence: Long = currentPlan?.diagnosticSessionSequence ?: playbackDiagnosticSession,
         prepareSequence: Long? = playerController.runtimeDiagnostics.value.prepareEpoch,
         runtimeDiagnostics: PlaybackRuntimeDiagnostics = _runtimeDiagnostics.value,
     ): PlayerDiagnosticContext =
@@ -5748,6 +5772,7 @@ private data class PlaybackTerminalRecovery(
 private data class BackendSwitchSnapshot(
     val generation: Long,
     val launchGeneration: Long,
+    val diagnosticSession: Long,
     val itemId: String,
     val mediaSourceId: String,
     val activePlan: PlaybackPlan,

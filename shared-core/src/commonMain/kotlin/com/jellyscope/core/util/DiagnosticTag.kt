@@ -63,6 +63,7 @@ enum class DiagnosticTag(
     TvPlaybackSessionPresenter("TvPlaybackSessionPresenter"),
     TvDisplayMode("TvDisplayMode"),
     TvPlaybackLink("TvPlaybackLink"),
+    PlaybackTimeline("PlaybackTimeline"),
     JellyScopePlaybackProbe("JellyScopePlaybackProbe", DiagnosticTagCapturePolicy.DesktopPlaybackProbe),
 }
 

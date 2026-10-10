@@ -67,9 +67,13 @@ import com.jellyscope.ui.screen.account.AccountUiError
 import com.jellyscope.ui.screen.account.AccountUiState
 import com.jellyscope.ui.screen.account.AccountViewModel
 import com.jellyscope.ui.screen.detail.requestFocusSafely
+import com.jellyscope.ui.screen.settings.PlaybackTimelineActivity
+import com.jellyscope.ui.screen.settings.PlaybackTimelineDelivery
+import com.jellyscope.ui.screen.settings.PlaybackTimelineFeedback
 import com.jellyscope.ui.screen.settings.SettingsUiState
 import com.jellyscope.ui.screen.settings.SettingsViewModel
 import com.jellyscope.ui.screen.settings.autoplayDelayOptions
+import com.jellyscope.ui.screen.settings.rememberPlaybackTimelineExporter
 import com.jellyscope.ui.theme.themeSwatchColors
 import kotlinx.coroutines.flow.collect
 import org.koin.compose.viewmodel.koinViewModel
@@ -91,7 +95,12 @@ fun TvSettingsScreen(
     val focusedCardZoomEnabled by preferenceViewModel.focusedCardZoomEnabled.collectAsStateWithLifecycle()
     val showLibraryGridHero by preferenceViewModel.showLibraryGridHero.collectAsStateWithLifecycle()
     var logFeedback by remember { mutableStateOf<SendClientLogsResult?>(null) }
+    var timelineSaveFeedback by remember { mutableStateOf<PlaybackTimelineFeedback?>(null) }
+    var timelineSendFeedback by remember { mutableStateOf<PlaybackTimelineFeedback?>(null) }
     var logoutFailed by remember { mutableStateOf(false) }
+    // Same shared Storage Access Framework bridge as Android mobile; registered at screen level so
+    // a restored picker result still arrives.
+    val playbackTimelineExporter = rememberPlaybackTimelineExporter(viewModel)
     val hostedRail = LocalTvHostedRailController.current
     val serverRequester = remember { FocusRequester() }
     val contentEntryRequests = remember { mutableIntStateOf(0) }
@@ -115,11 +124,18 @@ fun TvSettingsScreen(
 
     BackHandler(enabled = !hostedRail.railHasFocus) { requestRailFocus() }
 
-    LaunchedEffect(viewModel) {
+    LaunchedEffect(viewModel, playbackTimelineExporter) {
         viewModel.events.collect { event ->
             when (event) {
                 is com.jellyscope.ui.screen.settings.SettingsEvent.ClientLogsSent -> logFeedback = event.result
                 com.jellyscope.ui.screen.settings.SettingsEvent.LogoutFailed -> logoutFailed = true
+                is com.jellyscope.ui.screen.settings.SettingsEvent.SavePlaybackTimeline ->
+                    playbackTimelineExporter.launch(event.operationId)
+                is com.jellyscope.ui.screen.settings.SettingsEvent.PlaybackTimelineDelivered ->
+                    when (event.delivery) {
+                        PlaybackTimelineDelivery.Save -> timelineSaveFeedback = event.feedback
+                        PlaybackTimelineDelivery.Send -> timelineSendFeedback = event.feedback
+                    }
             }
         }
     }
@@ -175,6 +191,16 @@ fun TvSettingsScreen(
         onPlaybackInfoAtStartChange = viewModel::setPlaybackInfoAtStartEnabled,
         onPlayerClockChange = viewModel::setPlayerClockEnabled,
         onSendClientLogs = viewModel::sendClientLogs,
+        timelineSaveFeedback = timelineSaveFeedback,
+        timelineSendFeedback = timelineSendFeedback,
+        onSavePlaybackTimeline = {
+            timelineSaveFeedback = null
+            viewModel.savePlaybackTimeline()
+        },
+        onSendPlaybackTimeline = {
+            timelineSendFeedback = null
+            viewModel.sendPlaybackTimeline()
+        },
         modifier = modifier.fillMaxSize(),
     )
 }
@@ -230,6 +256,10 @@ internal fun TvSettingsContent(
     onPlaybackInfoAtStartChange: (Boolean) -> Unit = {},
     onPlayerClockChange: (Boolean) -> Unit = {},
     onSendClientLogs: () -> Unit = {},
+    timelineSaveFeedback: PlaybackTimelineFeedback? = null,
+    timelineSendFeedback: PlaybackTimelineFeedback? = null,
+    onSavePlaybackTimeline: () -> Unit = {},
+    onSendPlaybackTimeline: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
@@ -449,6 +479,10 @@ internal fun TvSettingsContent(
                 onPlaybackInfoAtStartChange = onPlaybackInfoAtStartChange,
                 onPlayerClockChange = onPlayerClockChange,
                 onSendClientLogs = onSendClientLogs,
+                timelineSaveFeedback = timelineSaveFeedback,
+                timelineSendFeedback = timelineSendFeedback,
+                onSavePlaybackTimeline = onSavePlaybackTimeline,
+                onSendPlaybackTimeline = onSendPlaybackTimeline,
             )
         }
     }
@@ -744,6 +778,16 @@ private fun tvSettingsTilePresentation(
                     stringResource(R.string.tv_settings_player_clock),
                     tvSettingsToggleValue(state.playerClockEnabled),
                 )
+            TvSettingsTileId.SavePlaybackTimeline ->
+                TvSettingsTilePresentation(
+                    stringResource(R.string.tv_settings_save_timeline),
+                    tvPlaybackTimelineTileValue(state, PlaybackTimelineDelivery.Save),
+                )
+            TvSettingsTileId.SendPlaybackTimeline ->
+                TvSettingsTilePresentation(
+                    stringResource(R.string.tv_settings_send_timeline),
+                    tvPlaybackTimelineTileValue(state, PlaybackTimelineDelivery.Send),
+                )
         }
     val playbackStatus =
         when {
@@ -887,6 +931,10 @@ private fun TvSettingsTileDialog(
     onPlayerClockChange: (Boolean) -> Unit,
     onSendClientLogs: () -> Unit,
     logoutFailed: Boolean,
+    timelineSaveFeedback: PlaybackTimelineFeedback?,
+    timelineSendFeedback: PlaybackTimelineFeedback?,
+    onSavePlaybackTimeline: () -> Unit,
+    onSendPlaybackTimeline: () -> Unit,
 ) {
     if (tile.usesPlaybackPreferences() && (state.isLoadingPlaybackPreferences || state.playbackPreferencesError)) {
         TvPlaybackPreferencesStatusDialog(
@@ -1244,8 +1292,132 @@ private fun TvSettingsTileDialog(
                 },
                 onDismiss = onDismiss,
             )
+        TvSettingsTileAction.SavePlaybackTimeline ->
+            TvPlaybackTimelineDialog(
+                delivery = PlaybackTimelineDelivery.Save,
+                state = state,
+                feedback = timelineSaveFeedback,
+                onAction = onSavePlaybackTimeline,
+                onDismiss = onDismiss,
+            )
+        TvSettingsTileAction.SendPlaybackTimeline ->
+            TvPlaybackTimelineDialog(
+                delivery = PlaybackTimelineDelivery.Send,
+                state = state,
+                feedback = timelineSendFeedback,
+                onAction = onSendPlaybackTimeline,
+                onDismiss = onDismiss,
+            )
     }
 }
+
+@Composable
+private fun TvPlaybackTimelineDialog(
+    delivery: PlaybackTimelineDelivery,
+    state: SettingsUiState,
+    feedback: PlaybackTimelineFeedback?,
+    onAction: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val actionRequester = remember { FocusRequester() }
+    val busy = state.playbackTimelineActivity != null
+    val title =
+        stringResource(
+            when (delivery) {
+                PlaybackTimelineDelivery.Save -> R.string.tv_settings_save_timeline
+                PlaybackTimelineDelivery.Send -> R.string.tv_settings_send_timeline
+            },
+        )
+    // Focus the initiating action on entry and again when the native picker or upload returns.
+    LaunchedEffect(actionRequester, busy) {
+        requestTvFocusWithRetry { actionRequester.requestFocusSafely() }
+    }
+    TvSettingsDialogFrame(title = title, onDismiss = onDismiss) {
+        TvText(
+            text = stringResource(R.string.tv_settings_timeline_guidance),
+            color = com.jellyscope.ui.theme.LocalJellyfinPalette.current.textSecondary,
+        )
+        TvText(
+            text =
+                stringResource(
+                    when (delivery) {
+                        PlaybackTimelineDelivery.Save -> R.string.tv_settings_save_timeline_guidance
+                        PlaybackTimelineDelivery.Send -> R.string.tv_settings_send_timeline_guidance
+                    },
+                ),
+            color = com.jellyscope.ui.theme.LocalJellyfinPalette.current.textSecondary,
+        )
+        if (!state.collectLogs) {
+            TvText(
+                text = stringResource(R.string.tv_settings_timeline_requires_collection),
+                color = com.jellyscope.ui.theme.LocalJellyfinPalette.current.error,
+                maxLines = 2,
+            )
+        }
+        if (busy) TvSpinner(size = TvDimens.spinnerSize)
+        feedback?.let { result ->
+            TvText(
+                text = tvPlaybackTimelineFeedback(result),
+                color = com.jellyscope.ui.theme.LocalJellyfinPalette.current.textSecondary,
+                maxLines = 5,
+            )
+        }
+        TvSettingsDialogAction(
+            text = tvPlaybackTimelineProgress(state, delivery) ?: title,
+            focusRequester = actionRequester,
+            onClick = onAction,
+            // The prepare and send actions re-check collection; this mirrors the switch and blocks re-entry.
+            enabled = state.collectLogs && !busy,
+        )
+    }
+}
+
+@Composable
+private fun tvPlaybackTimelineTileValue(
+    state: SettingsUiState,
+    delivery: PlaybackTimelineDelivery,
+): String =
+    tvPlaybackTimelineProgress(state, delivery)
+        ?: if (!state.collectLogs) {
+            stringResource(R.string.tv_settings_timeline_collection_off)
+        } else {
+            stringResource(
+                R.string.tv_settings_log_buffer,
+                state.logBufferSize.entryCount,
+                state.logBufferSize.byteCount / 1_024,
+            )
+        }
+
+@Composable
+private fun tvPlaybackTimelineProgress(
+    state: SettingsUiState,
+    delivery: PlaybackTimelineDelivery,
+): String? =
+    when (state.playbackTimelineActivity) {
+        PlaybackTimelineActivity.Preparing -> stringResource(R.string.tv_settings_timeline_preparing)
+        PlaybackTimelineActivity.Saving ->
+            stringResource(R.string.tv_settings_timeline_saving).takeIf { delivery == PlaybackTimelineDelivery.Save }
+        PlaybackTimelineActivity.Sending ->
+            stringResource(R.string.tv_settings_timeline_sending).takeIf { delivery == PlaybackTimelineDelivery.Send }
+        null -> null
+    }
+
+@Composable
+private fun tvPlaybackTimelineFeedback(feedback: PlaybackTimelineFeedback): String =
+    when (feedback) {
+        PlaybackTimelineFeedback.CollectionDisabled -> stringResource(R.string.tv_settings_timeline_collection_disabled)
+        PlaybackTimelineFeedback.NoTimedEvents -> stringResource(R.string.tv_settings_timeline_no_events)
+        PlaybackTimelineFeedback.PrepareFailed -> stringResource(R.string.tv_settings_timeline_prepare_failed)
+        PlaybackTimelineFeedback.Saved -> stringResource(R.string.tv_settings_timeline_saved)
+        PlaybackTimelineFeedback.SaveCancelled -> stringResource(R.string.tv_settings_timeline_save_cancelled)
+        PlaybackTimelineFeedback.SaveUnavailable -> stringResource(R.string.tv_settings_timeline_save_unavailable)
+        PlaybackTimelineFeedback.Interrupted -> stringResource(R.string.tv_settings_timeline_interrupted)
+        PlaybackTimelineFeedback.Expired -> stringResource(R.string.tv_settings_timeline_expired)
+        PlaybackTimelineFeedback.SaveFailed -> stringResource(R.string.tv_settings_timeline_save_failed)
+        is PlaybackTimelineFeedback.Sent -> stringResource(R.string.tv_settings_timeline_sent, feedback.filename)
+        PlaybackTimelineFeedback.UploadDisallowed -> stringResource(R.string.tv_settings_log_upload_disallowed)
+        PlaybackTimelineFeedback.SendFailed -> stringResource(R.string.tv_settings_timeline_send_failed)
+    }
 
 @Composable
 private fun TvClientLogsDialog(

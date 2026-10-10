@@ -7,9 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.coroutines.platformIoDispatcher
 import com.jellyscope.core.domain.action.ClearLocalSubtitlesAction
 import com.jellyscope.core.domain.action.LogoutAction
+import com.jellyscope.core.domain.action.PreparePlaybackTimelineAction
 import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SavePlayerDeviceSettingsAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
+import com.jellyscope.core.domain.action.SendPlaybackTimelineAction
 import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.action.SessionRemovalError
 import com.jellyscope.core.domain.action.SessionRemovalScope
@@ -35,8 +37,11 @@ import com.jellyscope.core.domain.model.DownloadUsage
 import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.OpenSubtitleResultPreference
 import com.jellyscope.core.domain.model.PlaybackPreferences
+import com.jellyscope.core.domain.model.PlaybackTimeline
+import com.jellyscope.core.domain.model.PreparePlaybackTimelineResult
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.model.SendClientLogsResult
+import com.jellyscope.core.domain.model.SendPlaybackTimelineResult
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.TileSizeId
 import com.jellyscope.core.domain.model.accountIdentity
@@ -84,6 +89,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -97,6 +103,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 
 data class SettingsUiState(
     val serverName: String,
@@ -150,7 +157,46 @@ data class SettingsUiState(
     val logBufferSize: LogBufferSize = LogBufferSize(),
     val isSendingClientLogs: Boolean = false,
     val logCollectionPreferenceError: Boolean = false,
+    /** False where no timeline action is bound, so the rows stay hidden. */
+    val playbackTimelineAvailable: Boolean = false,
+    /** The single save or send in progress; payloads stay in the ViewModel, never in state. */
+    val playbackTimelineActivity: PlaybackTimelineActivity? = null,
 )
+
+enum class PlaybackTimelineActivity {
+    Preparing,
+    Saving,
+    Sending,
+}
+
+/** One terminal, identity-free result per timeline save or send click. */
+sealed interface PlaybackTimelineFeedback {
+    data object CollectionDisabled : PlaybackTimelineFeedback
+
+    data object NoTimedEvents : PlaybackTimelineFeedback
+
+    data object PrepareFailed : PlaybackTimelineFeedback
+
+    data object Saved : PlaybackTimelineFeedback
+
+    data object SaveCancelled : PlaybackTimelineFeedback
+
+    data object SaveUnavailable : PlaybackTimelineFeedback
+
+    data object Interrupted : PlaybackTimelineFeedback
+
+    data object Expired : PlaybackTimelineFeedback
+
+    data object SaveFailed : PlaybackTimelineFeedback
+
+    data class Sent(
+        val filename: String,
+    ) : PlaybackTimelineFeedback
+
+    data object UploadDisallowed : PlaybackTimelineFeedback
+
+    data object SendFailed : PlaybackTimelineFeedback
+}
 
 sealed interface SettingsEvent {
     data class ClientLogsSent(
@@ -158,6 +204,21 @@ sealed interface SettingsEvent {
     ) : SettingsEvent
 
     data object LogoutFailed : SettingsEvent
+
+    /** Carries only the operation id; the exporter fetches the live payload at handoff time. */
+    data class SavePlaybackTimeline(
+        val operationId: Long,
+    ) : SettingsEvent
+
+    data class PlaybackTimelineDelivered(
+        val delivery: PlaybackTimelineDelivery,
+        val feedback: PlaybackTimelineFeedback,
+    ) : SettingsEvent
+}
+
+enum class PlaybackTimelineDelivery {
+    Save,
+    Send,
 }
 
 class SettingsViewModel(
@@ -204,8 +265,11 @@ class SettingsViewModel(
     getPlaybackInfoAtStartStateUseCase: GetPlaybackInfoAtStartStateUseCase? = null,
     private val setPlaybackInfoAtStartEnabledAction: SetPlaybackInfoAtStartEnabledAction? = null,
     private val sendClientLogsAction: SendClientLogsAction? = null,
+    private val preparePlaybackTimelineAction: PreparePlaybackTimelineAction? = null,
+    private val sendPlaybackTimelineAction: SendPlaybackTimelineAction? = null,
     private val workDispatcher: CoroutineDispatcher = platformIoDispatcher(),
-) : ViewModel() {
+) : ViewModel(),
+    PlaybackTimelineSaveHost {
     private val appTheme = observeAppThemeUseCase()
     private val tileSize = observeTileSizeUseCase()
     private val imageQuality = observeImageQualityUseCase()
@@ -247,6 +311,7 @@ class SettingsViewModel(
                 verboseLogcatEnabled = verboseLogcatState?.value ?: false,
                 playbackInfoAtStartEnabled = playbackInfoAtStartState?.value ?: false,
                 logBufferSize = logBufferSize?.value ?: LogBufferSize(),
+                playbackTimelineAvailable = preparePlaybackTimelineAction != null,
             ),
         )
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
@@ -255,6 +320,12 @@ class SettingsViewModel(
     private var logoutRemovalScope: SessionRemovalScope.FullLogout? = null
     private var openSubtitlesApiKeyLoadGeneration = 0L
     private var downloadUsageGeneration = 0L
+
+    // One timeline operation at a time. The payload is in memory only and dropped on every end.
+    private var activePlaybackTimelineOperation: Long? = null
+    private var activePlaybackTimelineDelivery = PlaybackTimelineDelivery.Save
+    private var pendingPlaybackTimeline: PlaybackTimeline? = null
+    private var playbackTimelineJob: Job? = null
     private val policyRefreshRequests = Channel<Unit>(capacity = Channel.BUFFERED)
     private val appThemeWriter =
         LatestValueWriter(
@@ -948,6 +1019,153 @@ class SettingsViewModel(
         }
     }
 
+    /** Prepares a timeline, then asks the screen's native exporter for a destination. */
+    fun savePlaybackTimeline() {
+        startPlaybackTimelineOperation(send = null)
+    }
+
+    /** Prepares a timeline and explicitly uploads it; there is no save-to-upload fallback. */
+    fun sendPlaybackTimeline() {
+        val send = sendPlaybackTimelineAction ?: return
+        startPlaybackTimelineOperation(send = send)
+    }
+
+    override fun deliverablePlaybackTimeline(operationId: Long): PlaybackTimeline? {
+        val prepare = preparePlaybackTimelineAction ?: return null
+        if (operationId != activePlaybackTimelineOperation) return null
+        return pendingPlaybackTimeline?.takeIf(prepare::isDeliverable)
+    }
+
+    override fun onPlaybackTimelineSaveResult(
+        operationId: Long,
+        result: PlaybackTimelineSaveResult,
+    ) {
+        val feedback = result.playbackTimelineFeedback()
+        if (operationId == activePlaybackTimelineOperation) {
+            finishPlaybackTimelineOperation(feedback)
+            return
+        }
+        // Never ends or overwrites a newer operation. With none current (screen disposal, process
+        // restoration), a platform fact is still reported: bytes written, a write that failed
+        // partway, or an empty destination the provider created.
+        logPlaybackTimelineOutcome(event = "save-stale-result", result = feedback.diagnosticResult())
+        if (activePlaybackTimelineOperation == null && result in reportedStaleSaveResults) {
+            emitPlaybackTimelineFeedback(PlaybackTimelineDelivery.Save, feedback)
+        }
+    }
+
+    /**
+     * Screen disposal cancels and ends the current operation quietly; a result its exporter reports
+     * later is stale. This includes Sending: an upload still queued for the work dispatcher never
+     * starts from a disposed screen. Cancelling a request the repository already issued is only
+     * best effort; bytes that reached the server cannot be recalled, and no outcome is reported.
+     */
+    override fun releasePlaybackTimelineOperation() {
+        if (activePlaybackTimelineOperation == null) return
+        playbackTimelineJob?.cancel()
+        logPlaybackTimelineOutcome(event = activePlaybackTimelineDelivery.finishedEvent(), result = "released")
+        endPlaybackTimelineOperation()
+    }
+
+    private fun startPlaybackTimelineOperation(send: SendPlaybackTimelineAction?) {
+        val prepare = preparePlaybackTimelineAction ?: return
+        if (activePlaybackTimelineOperation != null) return
+        val operationId = newPlaybackTimelineOperationId()
+        activePlaybackTimelineOperation = operationId
+        activePlaybackTimelineDelivery = if (send == null) PlaybackTimelineDelivery.Save else PlaybackTimelineDelivery.Send
+        _state.update { current -> current.copy(playbackTimelineActivity = PlaybackTimelineActivity.Preparing) }
+        playbackTimelineJob =
+            viewModelScope.launch {
+                val prepared =
+                    try {
+                        withContext(workDispatcher) { prepare() }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (exception: Throwable) {
+                        logPlaybackTimelineFailure("prepare-failed", exception)
+                        PreparePlaybackTimelineResult.Failure
+                    }
+                if (operationId != activePlaybackTimelineOperation) return@launch
+                val timeline =
+                    when (prepared) {
+                        is PreparePlaybackTimelineResult.Ready -> prepared.timeline
+                        PreparePlaybackTimelineResult.CollectionDisabled ->
+                            return@launch finishPlaybackTimelineOperation(PlaybackTimelineFeedback.CollectionDisabled)
+                        PreparePlaybackTimelineResult.NoTimedEvents ->
+                            return@launch finishPlaybackTimelineOperation(PlaybackTimelineFeedback.NoTimedEvents)
+                        PreparePlaybackTimelineResult.Failure ->
+                            return@launch finishPlaybackTimelineOperation(PlaybackTimelineFeedback.PrepareFailed)
+                    }
+                if (send == null) {
+                    pendingPlaybackTimeline = timeline
+                    _state.update { current -> current.copy(playbackTimelineActivity = PlaybackTimelineActivity.Saving) }
+                    _events.send(SettingsEvent.SavePlaybackTimeline(operationId))
+                    return@launch
+                }
+                _state.update { current -> current.copy(playbackTimelineActivity = PlaybackTimelineActivity.Sending) }
+                // The action makes the final collection check immediately before the repository call.
+                val sent =
+                    try {
+                        withContext(workDispatcher) { send(timeline) }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (exception: Throwable) {
+                        logPlaybackTimelineFailure("send-failed", exception)
+                        SendPlaybackTimelineResult.Failure
+                    }
+                if (operationId != activePlaybackTimelineOperation) return@launch
+                finishPlaybackTimelineOperation(
+                    when (sent) {
+                        is SendPlaybackTimelineResult.Success -> PlaybackTimelineFeedback.Sent(sent.filename)
+                        SendPlaybackTimelineResult.CollectionDisabled -> PlaybackTimelineFeedback.CollectionDisabled
+                        SendPlaybackTimelineResult.Expired -> PlaybackTimelineFeedback.Expired
+                        SendPlaybackTimelineResult.UploadDisallowed -> PlaybackTimelineFeedback.UploadDisallowed
+                        SendPlaybackTimelineResult.Failure -> PlaybackTimelineFeedback.SendFailed
+                    },
+                )
+            }
+    }
+
+    private fun finishPlaybackTimelineOperation(feedback: PlaybackTimelineFeedback) {
+        val delivery = activePlaybackTimelineDelivery
+        logPlaybackTimelineOutcome(event = delivery.finishedEvent(), result = feedback.diagnosticResult())
+        endPlaybackTimelineOperation()
+        emitPlaybackTimelineFeedback(delivery, feedback)
+    }
+
+    /**
+     * Disabling collection invalidates the pending timeline at once. A timeline still being prepared
+     * ends here. Once the exporter was asked for a destination, the operation stays current until
+     * the exporter reports, so a picker that cannot be dismissed keeps the screen honestly busy and
+     * no later request goes unanswered. A send keeps running: the action re-checks collection
+     * immediately before the repository call, and an upload already handed to the repository is
+     * irreversible and reports its real outcome.
+     */
+    private fun stopPlaybackTimelineForDisabledCollection() {
+        when (_state.value.playbackTimelineActivity) {
+            PlaybackTimelineActivity.Preparing -> {
+                playbackTimelineJob?.cancel()
+                finishPlaybackTimelineOperation(PlaybackTimelineFeedback.CollectionDisabled)
+            }
+            PlaybackTimelineActivity.Saving -> pendingPlaybackTimeline = null
+            PlaybackTimelineActivity.Sending, null -> Unit
+        }
+    }
+
+    private fun endPlaybackTimelineOperation() {
+        activePlaybackTimelineOperation = null
+        pendingPlaybackTimeline = null
+        playbackTimelineJob = null
+        _state.update { current -> current.copy(playbackTimelineActivity = null) }
+    }
+
+    private fun emitPlaybackTimelineFeedback(
+        delivery: PlaybackTimelineDelivery,
+        feedback: PlaybackTimelineFeedback,
+    ) {
+        _events.trySend(SettingsEvent.PlaybackTimelineDelivered(delivery, feedback))
+    }
+
     /** Android may lazily load LibVLC here. */
     private fun loadAvailablePlayerBackends() {
         viewModelScope.launch {
@@ -1198,6 +1416,7 @@ class SettingsViewModel(
             viewModelScope.launch {
                 collection.collect { enabled ->
                     _state.update { current -> current.copy(collectLogs = enabled) }
+                    if (!enabled) stopPlaybackTimelineForDisabledCollection()
                 }
             }
         }
@@ -1375,4 +1594,71 @@ private fun logSettingsFailure(
     }
 }
 
+// Fixed stage/event and sanitized exception type only; never the timeline, a destination, or a message.
+private fun logPlaybackTimelineFailure(
+    event: String,
+    throwable: Throwable,
+) {
+    playbackTimelineLogger.w {
+        formatSafeFailureDiagnostic(stage = "playback-timeline", event = event, throwable = throwable)
+    }
+}
+
+// Closed stage/event/result literals only; never the timeline, a destination, or a server filename.
+private fun logPlaybackTimelineOutcome(
+    event: String,
+    result: String,
+) {
+    playbackTimelineLogger.i { "stage=playback-timeline event=$event result=$result" }
+}
+
+/**
+ * Random per operation, so an id the Android bridge restores into a new ViewModel or process never
+ * matches bytes prepared later.
+ */
+private fun newPlaybackTimelineOperationId(): Long =
+    generateSequence { Random.nextLong() }.first { id -> id != NO_PLAYBACK_TIMELINE_OPERATION }
+
+/** Stale results still worth showing when nothing is current: each leaves something at the destination. */
+private val reportedStaleSaveResults =
+    setOf(
+        PlaybackTimelineSaveResult.Saved,
+        PlaybackTimelineSaveResult.Interrupted,
+        PlaybackTimelineSaveResult.Failure,
+    )
+
+private fun PlaybackTimelineSaveResult.playbackTimelineFeedback(): PlaybackTimelineFeedback =
+    when (this) {
+        PlaybackTimelineSaveResult.Saved -> PlaybackTimelineFeedback.Saved
+        PlaybackTimelineSaveResult.Cancelled -> PlaybackTimelineFeedback.SaveCancelled
+        PlaybackTimelineSaveResult.Unavailable -> PlaybackTimelineFeedback.SaveUnavailable
+        PlaybackTimelineSaveResult.Interrupted -> PlaybackTimelineFeedback.Interrupted
+        PlaybackTimelineSaveResult.Expired -> PlaybackTimelineFeedback.Expired
+        PlaybackTimelineSaveResult.Failure -> PlaybackTimelineFeedback.SaveFailed
+    }
+
+private fun PlaybackTimelineDelivery.finishedEvent(): String =
+    when (this) {
+        PlaybackTimelineDelivery.Save -> "save-finished"
+        PlaybackTimelineDelivery.Send -> "send-finished"
+    }
+
+/** The sent filename is never a diagnostic value. */
+private fun PlaybackTimelineFeedback.diagnosticResult(): String =
+    when (this) {
+        PlaybackTimelineFeedback.CollectionDisabled -> "collection-disabled"
+        PlaybackTimelineFeedback.NoTimedEvents -> "no-timed-events"
+        PlaybackTimelineFeedback.PrepareFailed -> "prepare-failed"
+        PlaybackTimelineFeedback.Saved -> "saved"
+        PlaybackTimelineFeedback.SaveCancelled -> "cancelled"
+        PlaybackTimelineFeedback.SaveUnavailable -> "unavailable"
+        PlaybackTimelineFeedback.Interrupted -> "interrupted"
+        PlaybackTimelineFeedback.Expired -> "expired"
+        PlaybackTimelineFeedback.SaveFailed -> "save-failed"
+        is PlaybackTimelineFeedback.Sent -> "sent"
+        PlaybackTimelineFeedback.UploadDisallowed -> "upload-disallowed"
+        PlaybackTimelineFeedback.SendFailed -> "send-failed"
+    }
+
 private val settingsViewModelLogger = diagnosticLogger(DiagnosticTag.SettingsViewModel)
+private val playbackTimelineLogger = diagnosticLogger(DiagnosticTag.PlaybackTimeline)

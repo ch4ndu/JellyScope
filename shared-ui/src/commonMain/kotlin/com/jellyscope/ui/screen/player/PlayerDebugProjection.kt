@@ -2,6 +2,9 @@
 
 package com.jellyscope.ui.screen.player
 
+import com.jellyscope.core.domain.playback.PlaybackOutputColor
+import com.jellyscope.core.domain.playback.PlaybackOutputColorConversion
+import com.jellyscope.core.domain.playback.PlaybackRendererRange
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlaybackVideoDecodingMode
@@ -103,6 +106,7 @@ fun playerDebugSections(
                         add(PlayerDebugRowModel("Decoder", runtimeDiagnostics.videoDecoderName.nonBlankOrUnavailable()))
                         add(PlayerDebugRowModel("Runtime format", runtimeDiagnostics.runtimeFormatSummary()))
                     }
+                    add(PlayerDebugRowModel(mpvLabels.rendererTarget, runtimeDiagnostics.outputColor.rendererTargetLabel(mpvLabels)))
                     addAll(
                         listOf(
                             PlayerDebugRowModel(
@@ -170,6 +174,15 @@ private fun PlayerDebugInfo.audioSummary(): String =
     listOfNotNull(audioCodec, audioChannels, audioLanguage)
         .joinToString(" · ")
         .ifEmpty { PLAYER_DEBUG_UNAVAILABLE }
+
+/** Renderer target only; the physical display stays unverified and is never claimed here. */
+private fun PlaybackOutputColor.rendererTargetLabel(labels: PlayerDebugMpvLabels): String =
+    when {
+        conversion == PlaybackOutputColorConversion.HdrInputToSdrTarget -> labels.rendererTargetHdrToSdr
+        rendererRange == PlaybackRendererRange.Hdr -> labels.rendererTargetHdr
+        rendererRange == PlaybackRendererRange.Sdr -> labels.rendererTargetSdr
+        else -> labels.unknown
+    }
 
 private fun String?.nonBlankOrUnavailable(): String = this?.takeIf(String::isNotBlank) ?: PLAYER_DEBUG_UNAVAILABLE
 

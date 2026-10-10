@@ -148,6 +148,7 @@ internal object AndroidMpvNativeEventIds {
     const val IDLE = 11
     const val START_FILE = 6
     const val SHUTDOWN = 1
+    const val VIDEO_RECONFIG = 17
 }
 
 internal object AndroidMpvPropertyFormat {

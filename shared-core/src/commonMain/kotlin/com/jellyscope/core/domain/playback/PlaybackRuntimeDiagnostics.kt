@@ -52,6 +52,11 @@ data class PlaybackRuntimeDiagnostics(
     val playbackTransition: PlaybackTransitionRuntimeDiagnostics? = null,
     /** Active native decoding, never inferred from a configured preference or renderer. */
     val videoDecodingMode: PlaybackVideoDecodingMode? = null,
+    /**
+     * Unlike the nullable fields, never null: a backend without native target evidence reports
+     * [PlaybackOutputColor.Unknown]. Observational only, like every other field here.
+     */
+    val outputColor: PlaybackOutputColor = PlaybackOutputColor.Unknown,
 ) {
     companion object {
         val EMPTY =

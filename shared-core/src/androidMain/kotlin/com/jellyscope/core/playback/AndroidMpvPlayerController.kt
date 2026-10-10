@@ -36,6 +36,7 @@ import com.jellyscope.core.domain.playback.PlaybackNativePlayerMilestone
 import com.jellyscope.core.domain.playback.PlaybackNativeSampleCause
 import com.jellyscope.core.domain.playback.PlaybackNativeVideoFormat
 import com.jellyscope.core.domain.playback.PlaybackNativeVideoOutput
+import com.jellyscope.core.domain.playback.PlaybackOutputColor
 import com.jellyscope.core.domain.playback.PlaybackPlan
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
@@ -189,6 +190,9 @@ internal class AndroidMpvPlayerController(
     private val nativeMutex = Mutex()
     private val releasedFlag = AtomicBoolean(false)
     private val nativeEventGeneration = AtomicLong(NO_NATIVE_EVENT_GENERATION)
+
+    /** Bumped whenever output color is cleared; a native color sample spanning a bump is discarded. */
+    private val outputColorReconfiguration = AtomicLong(0L)
     private val nativeLoadOutstanding = AtomicBoolean(false)
     private val expectedReplacementEndFiles = AtomicInteger(0)
     private val hotClockSample = AtomicReference<AndroidMpvHotClockSample?>(null)
@@ -227,6 +231,13 @@ internal class AndroidMpvPlayerController(
     private var pendingSeekTargetPositionMs: Long? = null
     private var pendingSeekWatchdog: Job? = null
     private var resumeAfterTransientFocusLoss = false
+
+    /**
+     * Main-owned: set before a failure clears output color; only an admitted prepare lifts it.
+     * The offline-artifact rejection leaves the previous lifecycle untouched, so this, not the
+     * lifecycle outcome, keeps a still-running attempt from re-sampling a positive color.
+     */
+    private var outputColorFailed = false
 
     /** Changed on the native queue; release() clears both only as the engine is destroyed. */
     private val isDucked = AtomicBoolean(false)
@@ -485,6 +496,7 @@ internal class AndroidMpvPlayerController(
             tvSurfaceLossGeneration = generation
             nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
             invalidateHotSamples()
+            clearOutputColor()
             nativeReady = false
             startupWatchdog?.cancel()
             startupWatchdog = null
@@ -655,6 +667,7 @@ internal class AndroidMpvPlayerController(
         generation = reloadGeneration
         awaitReplacementHotSamples(reloadGeneration)
         nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
+        clearOutputColor()
         tvSurfaceLossGeneration = null
         tvSurfaceReloadAttemptedGeneration = outgoingGeneration
         startupWatchdog?.cancel()
@@ -760,11 +773,14 @@ internal class AndroidMpvPlayerController(
             offlinePath = null
             offlineSidecarPath = null
         } else if (offlinePath == null) {
+            outputColorFailed = true
+            clearOutputColor()
             _playbackState.update { current ->
                 current.copy(status = PlaybackStatus.Failed, error = PlaybackError.OfflineArtifactUnavailable)
             }
             return
         }
+        outputColorFailed = false
         startupWatchdog?.cancel()
         startupWatchdog = null
         seekCoalescer.cancel()
@@ -988,6 +1004,7 @@ internal class AndroidMpvPlayerController(
         lifecycle.transition(Stop(generation))
         nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
         invalidateHotSamples()
+        clearOutputColor()
         audioFocusCoordinator?.abandon(generation)
         playbackFocusAdmitted = false
         audioActivationConfirmation.clear()
@@ -1060,6 +1077,7 @@ internal class AndroidMpvPlayerController(
         lifecycle.transition(Release(generation))
         nativeEventGeneration.set(NO_NATIVE_EVENT_GENERATION)
         invalidateHotSamples()
+        clearOutputColor()
         audioFocusCoordinator?.abandon(generation)
         audioRouteObservation?.close()
         audioRouteObservation = null
@@ -1490,7 +1508,7 @@ internal class AndroidMpvPlayerController(
             "frame-drop-count",
             "decoder-frame-drop-count",
         ).forEach { name -> native.observeProperty(name, AndroidMpvPropertyFormat.INT64) }
-        listOf("video-codec", "hwdec-current", "video-format").forEach { name ->
+        (listOf("video-codec", "hwdec-current", "video-format") + OUTPUT_COLOR_PROPERTIES).forEach { name ->
             native.observeProperty(name, AndroidMpvPropertyFormat.STRING)
         }
     }
@@ -1928,6 +1946,7 @@ internal class AndroidMpvPlayerController(
                 if (event.name in setOf("video-codec", "hwdec-current", "video-format")) {
                     recordNativeSnapshot(PlaybackNativeSampleCause.VideoStateChanged)
                 }
+                if (event.name in OUTPUT_COLOR_PROPERTIES) resampleOutputColor()
             }
             is AndroidMpvEvent.PropertyCleared -> {
                 when (event.name) {
@@ -1935,6 +1954,10 @@ internal class AndroidMpvPlayerController(
                     "video-codec" -> updateDiagnostics { it.copy(videoDecoderName = null) }
                     "width" -> updateDiagnostics { it.copy(videoWidth = null) }
                     "height" -> updateDiagnostics { it.copy(videoHeight = null) }
+                    in OUTPUT_COLOR_PROPERTIES -> {
+                        resampleOutputColor()
+                        return
+                    }
                     else -> return
                 }
                 recordNativeSnapshot(PlaybackNativeSampleCause.VideoStateChanged)
@@ -2020,7 +2043,60 @@ internal class AndroidMpvPlayerController(
                 logNativeMilestone(PlaybackNativePlayerMilestone.Shutdown, warning = true)
                 applyLifecycle(NativeFailure(eventGeneration, lastNativeError ?: PlaybackError.Unknown))
             }
+            AndroidMpvNativeEventIds.VIDEO_RECONFIG -> resampleOutputColor()
         }
+    }
+
+    /**
+     * Clears the published renderer-target color immediately, then reads one coherent sample on
+     * the serialized native queue. It is published only if the generation, stopped/failed state and
+     * every later clear are unchanged, so a stale input is never merged with a newer target and a
+     * failed read or terminal failure never retains the last positive value. Independent of log
+     * collection.
+     */
+    private fun resampleOutputColor() {
+        clearOutputColor()
+        if (
+            outputColorFailed ||
+            releasedFlag.get() ||
+            lifecycle.state.stopped ||
+            lifecycle.state.outcome == AndroidMpvLifecycleOutcome.Failed
+        ) {
+            return
+        }
+        val sampleGeneration = generation
+        if (sampleGeneration == NO_NATIVE_EVENT_GENERATION) return
+        val sampleReconfiguration = outputColorReconfiguration.get()
+        enqueueNative { native ->
+            if (nativeEventGeneration.get() != sampleGeneration) return@enqueueNative
+            val color =
+                runCatching {
+                    PlaybackOutputColor.fromMpv(
+                        videoPresent = (native.getPropertyLong("video-params/w") ?: 0L) > 0L,
+                        inputTransfer = native.getPropertyString("video-params/gamma"),
+                        inputPrimaries = native.getPropertyString("video-params/primaries"),
+                        targetTransfer = native.getPropertyString("video-target-params/gamma"),
+                        targetPrimaries = native.getPropertyString("video-target-params/primaries"),
+                    )
+                }.getOrDefault(PlaybackOutputColor.Unknown)
+            postMain {
+                if (
+                    !outputColorFailed &&
+                    !releasedFlag.get() &&
+                    sampleGeneration == generation &&
+                    sampleReconfiguration == outputColorReconfiguration.get() &&
+                    !lifecycle.state.stopped &&
+                    lifecycle.state.outcome != AndroidMpvLifecycleOutcome.Failed
+                ) {
+                    updateDiagnostics { current -> current.copy(outputColor = color) }
+                }
+            }
+        }
+    }
+
+    private fun clearOutputColor() {
+        outputColorReconfiguration.incrementAndGet()
+        updateDiagnostics { current -> current.copy(outputColor = PlaybackOutputColor.Unknown) }
     }
 
     private fun handleBooleanProperty(
@@ -2656,6 +2732,8 @@ internal class AndroidMpvPlayerController(
         when (val decision = transition.decision) {
             Completed -> publishState(PlaybackStatus.Completed, positionMs = playbackFacts.durationMs ?: playbackFacts.positionMs)
             is Failed -> {
+                outputColorFailed = true
+                clearOutputColor()
                 androidMpvControllerLogger.w {
                     formatPlaybackDiagnostic(
                         PlaybackDiagnostic(
@@ -2794,6 +2872,8 @@ internal class AndroidMpvPlayerController(
                 streamMode = lastPlan?.streamMode,
                 firstVideoOutputAvailable = false,
                 firstVideoOutputEvidence = VideoOutputEvidence.Unsupported,
+                // The currently published observation; this log-only path never samples color itself.
+                outputColor = _runtimeDiagnostics.value.outputColor,
             )
         enqueueNative { native ->
             if (nativeEventGeneration.get() != sampleGeneration) return@enqueueNative
@@ -3225,6 +3305,15 @@ internal class AndroidMpvPlayerController(
         const val SEEK_CONFIRMATION_TOLERANCE_MS = 250L
         const val HOT_CLOCK_PUBLICATION_INTERVAL_MS = 250L
         const val HOT_DIAGNOSTIC_PUBLICATION_INTERVAL_MS = 1_000L
+
+        /** Decoded input and renderer target; video-out-params is filter output, not target proof. */
+        val OUTPUT_COLOR_PROPERTIES =
+            setOf(
+                "video-params/gamma",
+                "video-params/primaries",
+                "video-target-params/gamma",
+                "video-target-params/primaries",
+            )
 
         /** Well below the 5s input-dispatch ANR threshold; a normal detach takes milliseconds. */
         const val NATIVE_SURFACE_RELEASE_TIMEOUT_MS = 3_000L

@@ -1081,6 +1081,16 @@
         }
       }
     },
+    "Collected logs changed before the timeline was sent. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collected logs changed before the timeline was sent. Try again."
+          }
+        }
+      }
+    },
     "Collection is off by default. Sanitized logs stay on this device until you send them to your Jellyfin server. Turning collection off deletes stored logs.": {
       "localizations": {
         "en": {
@@ -2811,6 +2821,16 @@
         }
       }
     },
+    "No timed playback events collected. Reproduce the playback problem with collection on, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No timed playback events collected. Reproduce the playback problem with collection on, then try again."
+          }
+        }
+      }
+    },
     "No titles found.": {
       "localizations": {
         "en": {
@@ -3251,6 +3271,16 @@
         }
       }
     },
+    "Playback timeline uploaded as %@.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback timeline uploaded as %@."
+          }
+        }
+      }
+    },
     "Played": {
       "localizations": {
         "en": {
@@ -3337,6 +3367,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Premiere Date"
+          }
+        }
+      }
+    },
+    "Preparing timeline…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing timeline…"
           }
         }
       }
@@ -4037,6 +4077,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Send Client Logs"
+          }
+        }
+      }
+    },
+    "Send Playback Timeline to Server": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Playback Timeline to Server"
+          }
+        }
+      }
+    },
+    "Sending timeline…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending timeline…"
           }
         }
       }
@@ -4971,6 +5031,16 @@
         }
       }
     },
+    "The playback timeline could not be sent.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The playback timeline could not be sent."
+          }
+        }
+      }
+    },
     "The player could not be created.": {
       "localizations": {
         "en": {
@@ -5411,6 +5481,16 @@
         }
       }
     },
+    "Turn on Collect diagnostic logs, reproduce the playback problem, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Collect diagnostic logs, reproduce the playback problem, then try again."
+          }
+        }
+      }
+    },
     "Unavailable": {
       "localizations": {
         "en": {
@@ -5527,6 +5607,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Uploading"
+          }
+        }
+      }
+    },
+    "Uploads a sanitized JSON trace of collected playback events to your Jellyfin server. Open it in a trace viewer such as Perfetto. Collected logs are kept.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploads a sanitized JSON trace of collected playback events to your Jellyfin server. Open it in a trace viewer such as Perfetto. Collected logs are kept."
           }
         }
       }

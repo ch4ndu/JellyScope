@@ -104,6 +104,7 @@ import com.jellyscope.core.playback.PlaybackReportingCoordinator
 import com.jellyscope.core.playback.PlaybackReportingQueue
 import com.jellyscope.core.playback.toDiagnosticsSourceDescriptor
 import com.jellyscope.core.util.DiagnosticTag
+import com.jellyscope.core.util.PlaybackDiagnosticSessions
 import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.tvos.bridge.WatchHandle
 import com.jellyscope.tvos.bridge.watchIn
@@ -221,6 +222,9 @@ class TvPlaybackSessionPresenter(
     private var lastStatus: PlaybackStatus = PlaybackStatus.Idle
     private val autoSkippedSegmentKeys = mutableSetOf<String>()
     private var playbackHealthGeneration = 0L
+
+    /** Process-unique diagnostic correlation for [playbackHealthGeneration]; never compared operationally. */
+    private var diagnosticSession = 0L
     private var lastAudioTrackDiagnostic: TvTrackDiagnosticSnapshot? = null
     private var lastSubtitleTrackDiagnostic: TvTrackDiagnosticSnapshot? = null
     private var lastTerminalDiagnostic: TvTerminalDiagnosticSnapshot? = null
@@ -1171,6 +1175,7 @@ class TvPlaybackSessionPresenter(
         localSubtitleAssetsJob = null
         playbackHealthCoordinator.end()
         playbackHealthGeneration += 1L
+        diagnosticSession = PlaybackDiagnosticSessions.allocate()
         autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, itemId, playerController.activeBackend)
         playbackSessionRecoveryState =
             playbackSessionRecoveryPolicy.reset(playbackHealthGeneration, itemId)
@@ -1339,7 +1344,7 @@ class TvPlaybackSessionPresenter(
                         sourceContainer = selectedSourceContainer,
                         requestPolicy =
                             PlaybackInfoRequestPolicy(
-                                diagnosticSessionSequence = playbackHealthGeneration,
+                                diagnosticSessionSequence = diagnosticSession,
                             ),
                     )
                 }
@@ -1846,7 +1851,7 @@ class TvPlaybackSessionPresenter(
                                 sourceContainer = selectedSourceContainer,
                                 requestPolicy =
                                     requestPolicy.copy(
-                                        diagnosticSessionSequence = playbackHealthGeneration,
+                                        diagnosticSessionSequence = diagnosticSession,
                                         bitrateConstraint =
                                             requestPolicy.bitrateConstraint.takeUnless { constraint ->
                                                 constraint == PlaybackBitrateConstraint.NoClientLimit
@@ -2506,7 +2511,7 @@ class TvPlaybackSessionPresenter(
                     platform = PlaybackDiagnosticPlatform.TvOs,
                     backend = playerController.activeBackend,
                     prepareSequence = playerController.runtimeDiagnostics.value.prepareEpoch,
-                    sessionSequence = playbackHealthGeneration,
+                    sessionSequence = diagnosticSession,
                     streamMode = plan?.streamMode,
                     requestPolicy = requestPolicy?.diagnosticClass(),
                     clientTrigger = requestPolicy?.clientTrigger,
@@ -2535,7 +2540,7 @@ class TvPlaybackSessionPresenter(
                     platform = PlaybackDiagnosticPlatform.TvOs,
                     backend = playerController.activeBackend,
                     prepareSequence = playerController.runtimeDiagnostics.value.prepareEpoch,
-                    sessionSequence = playbackHealthGeneration,
+                    sessionSequence = diagnosticSession,
                     streamMode = plan?.streamMode,
                     autoRecoveryTrigger = trigger,
                     recoveryDecision = recoveryDecision,
@@ -2557,7 +2562,7 @@ class TvPlaybackSessionPresenter(
         val terminalSnapshot =
             terminalOutcome?.let {
                 TvTerminalDiagnosticSnapshot(
-                    sessionSequence = playbackHealthGeneration,
+                    sessionSequence = diagnosticSession,
                     prepareSequence = runtime.prepareEpoch,
                     outcome = it,
                     error = error,
@@ -2573,7 +2578,7 @@ class TvPlaybackSessionPresenter(
                     platform = PlaybackDiagnosticPlatform.TvOs,
                     backend = controller.activeBackend,
                     prepareSequence = runtime.prepareEpoch,
-                    sessionSequence = playbackHealthGeneration,
+                    sessionSequence = diagnosticSession,
                     streamMode = plan?.streamMode,
                     exceptionType = exception?.playbackExceptionType(),
                     errorCategory = error,
@@ -2581,6 +2586,8 @@ class TvPlaybackSessionPresenter(
                     allocatedBufferBytes = runtime.allocatedBufferBytes.takeIf { terminalOutcome != null },
                     bufferedAheadMs = runtime.bufferedAheadMs.takeIf { terminalOutcome != null },
                     libVlcCachePercent = runtime.libVlcCachePercent.takeIf { terminalOutcome != null },
+                    // Apple backends expose no renderer-target evidence, so terminal records say Unknown.
+                    outputColor = runtime.outputColor.takeIf { terminalOutcome != null },
                 ),
             )
         }
@@ -2602,12 +2609,13 @@ class TvPlaybackSessionPresenter(
                     platform = PlaybackDiagnosticPlatform.TvOs,
                     backend = controller.activeBackend,
                     prepareSequence = runtime.prepareEpoch,
-                    sessionSequence = playbackHealthGeneration,
+                    sessionSequence = diagnosticSession,
                     streamMode = plan?.streamMode,
                     healthSignal = signal,
                     allocatedBufferBytes = runtime.allocatedBufferBytes,
                     bufferedAheadMs = runtime.bufferedAheadMs,
                     libVlcCachePercent = runtime.libVlcCachePercent,
+                    outputColor = runtime.outputColor,
                 ),
             )
         }
@@ -2624,7 +2632,7 @@ class TvPlaybackSessionPresenter(
                     platform = PlaybackDiagnosticPlatform.TvOs,
                     backend = controller.activeBackend,
                     prepareSequence = runtime.prepareEpoch,
-                    sessionSequence = playbackHealthGeneration,
+                    sessionSequence = diagnosticSession,
                     streamMode = plan?.streamMode,
                     allocatedBufferBytes = runtime.allocatedBufferBytes,
                     bufferedAheadMs = runtime.bufferedAheadMs,
@@ -2650,6 +2658,7 @@ class TvPlaybackSessionPresenter(
                     decoderDroppedVideoFrames = runtime.decoderDroppedVideoFrames,
                     outputDroppedVideoFrames = runtime.outputDroppedVideoFrames,
                     healthEmittedSignalCount = summary.emittedSignals.size,
+                    outputColor = runtime.outputColor,
                 ),
             )
         }
@@ -2666,7 +2675,7 @@ class TvPlaybackSessionPresenter(
                     platform = PlaybackDiagnosticPlatform.TvOs,
                     backend = controller.activeBackend,
                     prepareSequence = runtime.prepareEpoch,
-                    sessionSequence = playbackHealthGeneration,
+                    sessionSequence = diagnosticSession,
                     streamMode = plan?.streamMode,
                     firstVideoOutputAvailable = true,
                     firstVideoOutputObserved = observed,
@@ -2679,7 +2688,7 @@ class TvPlaybackSessionPresenter(
         val diagnosticsContext = playbackDiagnosticsContext ?: return
         val failureKey =
             TvControllerFailureKey(
-                sessionSequence = playbackHealthGeneration,
+                sessionSequence = diagnosticSession,
                 prepareSequence = playerController.runtimeDiagnostics.value.prepareEpoch,
             )
         if (controllerFailureRecordedKey == failureKey) return
@@ -2763,7 +2772,7 @@ class TvPlaybackSessionPresenter(
     ) {
         val correlatedSnapshot =
             snapshot.copy(
-                sessionSequence = playbackHealthGeneration,
+                sessionSequence = diagnosticSession,
                 prepareSequence = prepareSequence,
             )
         val previous =
@@ -2784,7 +2793,7 @@ class TvPlaybackSessionPresenter(
                     platform = PlaybackDiagnosticPlatform.TvOs,
                     backend = playerController.activeBackend,
                     prepareSequence = prepareSequence,
-                    sessionSequence = playbackHealthGeneration,
+                    sessionSequence = diagnosticSession,
                     streamMode = currentPlan.streamMode,
                     trackKind = correlatedSnapshot.kind,
                     trackRequestedState = correlatedSnapshot.requestedState,

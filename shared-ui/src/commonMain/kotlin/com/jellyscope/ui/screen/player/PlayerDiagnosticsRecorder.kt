@@ -26,6 +26,7 @@ import com.jellyscope.core.domain.playback.PlaybackHealthSignal
 import com.jellyscope.core.domain.playback.PlaybackHealthSummary
 import com.jellyscope.core.domain.playback.PlaybackInfoRequestPolicy
 import com.jellyscope.core.domain.playback.PlaybackLaunchReadOutcome
+import com.jellyscope.core.domain.playback.PlaybackOutputColor
 import com.jellyscope.core.domain.playback.PlaybackPersistenceResult
 import com.jellyscope.core.domain.playback.PlaybackPersistenceTarget
 import com.jellyscope.core.domain.playback.PlaybackPlanningException
@@ -149,6 +150,7 @@ internal class PlayerDiagnosticsRecorder {
     private var lastAudioTrackDiagnostic: PlayerTrackDiagnosticSnapshot? = null
     private var lastSubtitleTrackDiagnostic: PlayerTrackDiagnosticSnapshot? = null
     private var lastTerminalDiagnostic: PlayerTerminalDiagnosticSnapshot? = null
+    private var lastOutputColorDiagnostic: PlayerOutputColorDiagnosticSnapshot? = null
 
     fun recordTrackStates(
         context: PlayerDiagnosticContext,
@@ -236,6 +238,38 @@ internal class PlayerDiagnosticsRecorder {
                     runtimeVideoWidth = diagnostics.videoWidth,
                     runtimeVideoHeight = diagnostics.videoHeight,
                     runtimeVideoFrameRate = diagnostics.videoFrameRate,
+                    outputColor = diagnostics.outputColor,
+                ),
+            )
+        }
+    }
+
+    /**
+     * One instant per changed renderer-target observation within a diagnostic session, prepare
+     * and backend, so the first record is an explicit Unknown on backends without native target
+     * evidence. Polls that repeat the same value are not logged.
+     */
+    fun recordOutputColorIfChanged(context: PlayerDiagnosticContext) {
+        val snapshot =
+            PlayerOutputColorDiagnosticSnapshot(
+                backend = context.backend,
+                sessionSequence = context.sessionSequence,
+                prepareSequence = context.prepareSequence,
+                outputColor = context.runtimeDiagnostics.outputColor,
+            )
+        if (lastOutputColorDiagnostic == snapshot) return
+        lastOutputColorDiagnostic = snapshot
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.NativePlayer,
+                    event = PlaybackDiagnosticEvent.OutputColor,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = context.backend,
+                    prepareSequence = context.prepareSequence,
+                    sessionSequence = context.sessionSequence,
+                    streamMode = context.streamMode,
+                    outputColor = snapshot.outputColor,
                 ),
             )
         }
@@ -587,6 +621,7 @@ internal class PlayerDiagnosticsRecorder {
                     healthThresholdClass = signal.thresholdClass(),
                     healthDurationMs = signal.durationMs,
                     healthCount = signal.count,
+                    outputColor = diagnostics.outputColor,
                 ),
             )
         }
@@ -652,6 +687,7 @@ internal class PlayerDiagnosticsRecorder {
                     firstVideoOutputAvailable = summary.firstVideoOutputMeasurementAvailable,
                     firstVideoOutputObserved = summary.firstVideoOutputObserved,
                     firstVideoOutputEvidence = facts.firstVideoOutputEvidence,
+                    outputColor = diagnostics.outputColor,
                 ),
             )
         }
@@ -734,6 +770,13 @@ private data class PlayerTerminalDiagnosticSnapshot(
     val errorName: String?,
     val autoRecoveryTrigger: AutoPlaybackRecoveryTrigger?,
     val recoveryDecision: PlaybackRecoveryDecision?,
+)
+
+private data class PlayerOutputColorDiagnosticSnapshot(
+    val backend: PlayerBackend,
+    val sessionSequence: Long,
+    val prepareSequence: Long?,
+    val outputColor: PlaybackOutputColor,
 )
 
 internal fun PlaybackLaunchReadOutcome.toPersistenceResult(): PlaybackPersistenceResult =

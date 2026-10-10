@@ -26,4 +26,36 @@ class PlaybackRuntimeDiagnosticsTest {
     fun preservesZeroWhenFirstValidAccessLogCountHasNoDrops() {
         assertEquals(0L, sumValidDroppedFrames(listOf(0L)))
     }
+
+    @Test
+    fun absentOrAmbiguousRendererTargetNeverClaimsRangeOrConversion() {
+        fun sample(
+            target: String?,
+            videoPresent: Boolean = true,
+        ) = PlaybackOutputColor.fromMpv(
+            videoPresent = videoPresent,
+            inputTransfer = "pq",
+            inputPrimaries = "bt.2020",
+            targetTransfer = target,
+            targetPrimaries = "bt.709",
+        )
+
+        val linear = sample("linear")
+        assertEquals(PlaybackColorTransfer.Linear, linear.targetTransfer)
+        assertEquals(PlaybackOutputColorEvidence.NativeTarget, linear.evidence)
+        listOf(linear, sample(null), sample("not-a-transfer"), sample("bt.1886", videoPresent = false)).forEach { color ->
+            assertEquals(PlaybackRendererRange.Unknown, color.rendererRange)
+            assertEquals(PlaybackOutputColorConversion.Unknown, color.conversion)
+            assertEquals(PlaybackPhysicalDisplayConfirmation.Unknown, color.physicalDisplay)
+        }
+        assertNull(sample(null).targetPrimaries)
+        assertEquals(PlaybackOutputColorEvidence.Unavailable, sample(null).evidence)
+        assertEquals(PlaybackOutputColor.Unknown, sample("bt.1886", videoPresent = false))
+
+        // Control: a recognized SDR target is mapped, but only as a renderer target observation.
+        val sdrTarget = sample("bt.1886")
+        assertEquals(PlaybackRendererRange.Sdr, sdrTarget.rendererRange)
+        assertEquals(PlaybackOutputColorConversion.HdrInputToSdrTarget, sdrTarget.conversion)
+        assertEquals(PlaybackPhysicalDisplayConfirmation.Unknown, sdrTarget.physicalDisplay)
+    }
 }

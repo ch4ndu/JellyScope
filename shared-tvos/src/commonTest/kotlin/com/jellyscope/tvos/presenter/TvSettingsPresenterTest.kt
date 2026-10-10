@@ -5,8 +5,10 @@ package com.jellyscope.tvos.presenter
 import com.jellyscope.core.data.local.LibraryViewPreferencesStore
 import com.jellyscope.core.data.local.LogCollectionPreferenceStore
 import com.jellyscope.core.data.local.PlayerClockStore
+import com.jellyscope.core.domain.action.PreparePlaybackTimelineAction
 import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
+import com.jellyscope.core.domain.action.SendPlaybackTimelineAction
 import com.jellyscope.core.domain.action.SetLogCollectionEnabledAction
 import com.jellyscope.core.domain.action.SetPlaybackInfoAtStartEnabledAction
 import com.jellyscope.core.domain.action.SetPlayerClockEnabledAction
@@ -302,6 +304,16 @@ class TvSettingsPresenterTest {
                         diagnosticsEnvironment = TestDiagnosticsEnvironment,
                         deviceProfileProvider = TestDeviceProfileProvider,
                         playbackDiagnosticsContext = PlaybackDiagnosticsContext(),
+                    ),
+                preparePlaybackTimelineAction =
+                    PreparePlaybackTimelineAction(
+                        logBufferStore = logBufferStore,
+                        workerDispatcher = workDispatcher,
+                    ),
+                sendPlaybackTimelineAction =
+                    SendPlaybackTimelineAction(
+                        logBufferStore = logBufferStore,
+                        mediaRepository = repository,
                     ),
                 dispatchers = TvosDispatchers(main = mainDispatcher, work = workDispatcher),
             )

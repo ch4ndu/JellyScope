@@ -9,10 +9,15 @@ import com.jellyscope.ui.generated.resources.player_debug_decoded_size
 import com.jellyscope.ui.generated.resources.player_debug_decoding
 import com.jellyscope.ui.generated.resources.player_debug_hardware
 import com.jellyscope.ui.generated.resources.player_debug_hardware_copy_back
+import com.jellyscope.ui.generated.resources.player_debug_renderer_target
+import com.jellyscope.ui.generated.resources.player_debug_renderer_target_hdr
+import com.jellyscope.ui.generated.resources.player_debug_renderer_target_hdr_to_sdr
+import com.jellyscope.ui.generated.resources.player_debug_renderer_target_sdr
 import com.jellyscope.ui.generated.resources.player_debug_software
 import com.jellyscope.ui.generated.resources.player_debug_unknown
 import org.jetbrains.compose.resources.stringResource
 
+/** Localized Playback info labels; the renderer-target row also uses them on non-mpv backends. */
 data class PlayerDebugMpvLabels(
     val codecDescription: String,
     val decoding: String,
@@ -21,6 +26,10 @@ data class PlayerDebugMpvLabels(
     val hardwareCopyBack: String,
     val software: String,
     val unknown: String,
+    val rendererTarget: String,
+    val rendererTargetHdr: String,
+    val rendererTargetSdr: String,
+    val rendererTargetHdrToSdr: String,
 )
 
 @Composable
@@ -33,4 +42,8 @@ fun playerDebugMpvLabels(): PlayerDebugMpvLabels =
         hardwareCopyBack = stringResource(Res.string.player_debug_hardware_copy_back),
         software = stringResource(Res.string.player_debug_software),
         unknown = stringResource(Res.string.player_debug_unknown),
+        rendererTarget = stringResource(Res.string.player_debug_renderer_target),
+        rendererTargetHdr = stringResource(Res.string.player_debug_renderer_target_hdr),
+        rendererTargetSdr = stringResource(Res.string.player_debug_renderer_target_sdr),
+        rendererTargetHdrToSdr = stringResource(Res.string.player_debug_renderer_target_hdr_to_sdr),
     )

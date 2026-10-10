@@ -170,5 +170,7 @@ internal fun settingsTileIcon(id: TvSettingsTileId): ImageVector =
         TvSettingsTileId.SendClientLogs,
         TvSettingsTileId.VerboseLogcat,
         TvSettingsTileId.PlaybackInfoAtStart,
+        TvSettingsTileId.SavePlaybackTimeline,
+        TvSettingsTileId.SendPlaybackTimeline,
         -> SettingsIcons.AboutJellyScope
     }

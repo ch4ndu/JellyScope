@@ -59,6 +59,8 @@ internal enum class TvSettingsTileId(
     SendClientLogs(6, 1),
     VerboseLogcat(6, 2),
     PlaybackInfoAtStart(6, 3),
+    SavePlaybackTimeline(6, 4),
+    SendPlaybackTimeline(6, 5),
 }
 
 internal enum class TvSettingsSectionId(
@@ -106,6 +108,8 @@ internal enum class TvSettingsTileAction {
     SendClientLogs,
     VerboseLogcat,
     PlaybackInfoAtStart,
+    SavePlaybackTimeline,
+    SendPlaybackTimeline,
 }
 
 internal fun TvSettingsTileId.action(): TvSettingsTileAction =
@@ -154,6 +158,8 @@ internal fun TvSettingsTileId.action(): TvSettingsTileAction =
         TvSettingsTileId.SendClientLogs -> TvSettingsTileAction.SendClientLogs
         TvSettingsTileId.PlaybackInfoAtStart -> TvSettingsTileAction.PlaybackInfoAtStart
         TvSettingsTileId.VerboseLogcat -> TvSettingsTileAction.VerboseLogcat
+        TvSettingsTileId.SavePlaybackTimeline -> TvSettingsTileAction.SavePlaybackTimeline
+        TvSettingsTileId.SendPlaybackTimeline -> TvSettingsTileAction.SendPlaybackTimeline
     }
 
 internal fun TvSettingsTileId.usesPlaybackPreferences(): Boolean =

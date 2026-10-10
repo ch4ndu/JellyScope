@@ -219,6 +219,8 @@ val sharedUiModule =
                 getPlaybackInfoAtStartStateUseCase = get(),
                 setPlaybackInfoAtStartEnabledAction = get(),
                 sendClientLogsAction = get(),
+                preparePlaybackTimelineAction = get(),
+                sendPlaybackTimelineAction = get(),
             )
         }
         viewModel { (session: Session) ->

@@ -229,9 +229,17 @@ class TvPlaybackSessionPresenterTest {
                 fixture.presenter.start()
                 runCurrent()
 
+                val session =
+                    assertNotNull(
+                        fixture.controller.preparedPlans
+                            .single()
+                            .diagnosticSessionSequence,
+                    )
                 assertTrue(captured.any { (_, message, _) -> message.contains("event=prepare-requested") })
                 assertTrue(captured.any { (_, message, _) -> message.contains("event=track-state") })
-                assertTrue(captured.any { (severity, message, _) -> severity == Severity.Info && message.contains("sessionSequence=1") })
+                assertTrue(
+                    captured.any { (severity, message, _) -> severity == Severity.Info && message.contains("sessionSequence=$session") },
+                )
                 val audioTrack =
                     captured
                         .map { (_, message, _) -> message }
@@ -286,7 +294,7 @@ class TvPlaybackSessionPresenterTest {
                     captured.any { (_, message, _) ->
                         message.contains("event=track-state") &&
                             message.contains("prepareSequence=7") &&
-                            message.contains("sessionSequence=1")
+                            message.contains("sessionSequence=$session")
                     },
                 )
                 captured.forEach { (_, message, throwable) ->
@@ -315,7 +323,7 @@ class TvPlaybackSessionPresenterTest {
                         severity == Severity.Warn &&
                             message.contains("event=terminal-error") &&
                             message.contains("terminalOutcome=RetryScheduled") &&
-                            message.contains("sessionSequence=1") &&
+                            message.contains("sessionSequence=$session") &&
                             message.contains("prepareSequence=7") &&
                             message.contains("allocatedBufferBytes=8192") &&
                             message.contains("bufferedAheadMs=4000") &&
@@ -336,7 +344,7 @@ class TvPlaybackSessionPresenterTest {
                     captured.any { (severity, message, _) ->
                         severity == Severity.Warn &&
                             message.contains("event=terminal-error") &&
-                            message.contains("sessionSequence=1") &&
+                            message.contains("sessionSequence=$session") &&
                             message.contains("prepareSequence=8")
                     },
                 )

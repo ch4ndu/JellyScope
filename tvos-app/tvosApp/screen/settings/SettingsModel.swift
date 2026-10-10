@@ -77,6 +77,10 @@ final class SettingsModel: ObservableObject {
         presenter.sendClientLogs()
     }
 
+    func sendPlaybackTimeline() {
+        presenter.sendPlaybackTimeline()
+    }
+
     func setSegmentPolicy(type: MediaSegmentType, policyName: String) {
         let policy: SegmentSkipPolicy =
             switch policyName {

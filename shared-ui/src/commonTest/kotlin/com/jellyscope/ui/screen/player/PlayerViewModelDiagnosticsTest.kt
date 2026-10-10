@@ -171,6 +171,16 @@ class PlayerViewModelDiagnosticsTest {
                 assertTrue(afterPrepareDiagnostics.size > initialCount)
                 assertTrue(afterPrepareDiagnostics.any { (_, line) -> "prepareSequence=99" in line })
 
+                // Exact field match: every value of a whole `sessionSequence=` token on the line.
+                fun String.sessionValues(): List<String> =
+                    split(' ')
+                        .filter { token -> token.substringBefore('=') == "sessionSequence" }
+                        .map { token -> token.substringAfter('=') }
+                val initialSession = assertNotNull(fixture.controller.preparedPlan?.diagnosticSessionSequence)
+                assertTrue(initialTrackDiagnostics.all { (_, line) -> line.sessionValues() == listOf(initialSession.toString()) })
+
+                // Fast retry re-plays the installed controller under a freshly allocated diagnostic
+                // session without re-preparing, so the new session is read from the emitted lines.
                 fixture.viewModel.retry()
                 runCurrent()
                 fixture.controller.playbackStateFlow.value =
@@ -179,7 +189,13 @@ class PlayerViewModelDiagnosticsTest {
                 runCurrent()
                 val afterSessionDiagnostics = trackDiagnostics()
                 assertTrue(afterSessionDiagnostics.size > afterPrepareDiagnostics.size)
-                assertTrue(afterSessionDiagnostics.any { (_, line) -> "sessionSequence=2" in line })
+                val retrySessions =
+                    afterSessionDiagnostics
+                        .drop(afterPrepareDiagnostics.size)
+                        .map { (_, line) -> line.sessionValues().single() }
+                        .toSet()
+                val retrySession = retrySessions.single()
+                assertNotEquals(initialSession.toString(), retrySession)
 
                 val forbiddenTokens =
                     listOf(

@@ -165,6 +165,8 @@ val tvosPresentationModule =
                 getPlaybackInfoAtStartState = get(),
                 setPlaybackInfoAtStartEnabled = get(),
                 sendClientLogsAction = get(),
+                preparePlaybackTimelineAction = get(),
+                sendPlaybackTimelineAction = get(),
                 dispatchers = get(),
             )
         }

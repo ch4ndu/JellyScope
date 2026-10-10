@@ -186,6 +186,7 @@ internal interface LibMpv : Library {
         const val EVENT_START_FILE = 6
         const val EVENT_END_FILE = 7
         const val EVENT_FILE_LOADED = 8
+        const val EVENT_VIDEO_RECONFIG = 17
         const val EVENT_QUEUE_OVERFLOW = 24
 
         // mpv_end_file_reason values required before a deferred sidecar has

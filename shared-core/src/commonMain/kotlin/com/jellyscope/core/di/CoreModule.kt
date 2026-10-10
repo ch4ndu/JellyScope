@@ -61,6 +61,7 @@ import com.jellyscope.core.domain.action.DownloadAndInstallOpenSubtitleAction
 import com.jellyscope.core.domain.action.InstallLocalSubtitleAction
 import com.jellyscope.core.domain.action.LoginAction
 import com.jellyscope.core.domain.action.LogoutAction
+import com.jellyscope.core.domain.action.PreparePlaybackTimelineAction
 import com.jellyscope.core.domain.action.QuickConnectLoginAction
 import com.jellyscope.core.domain.action.RefreshParentalRatingAction
 import com.jellyscope.core.domain.action.RetryLocalSubtitleSyncAction
@@ -71,6 +72,7 @@ import com.jellyscope.core.domain.action.SavePlayerBackendOverrideAction
 import com.jellyscope.core.domain.action.SavePlayerDeviceSettingsAction
 import com.jellyscope.core.domain.action.SaveSubtitleSelectionAction
 import com.jellyscope.core.domain.action.SendClientLogsAction
+import com.jellyscope.core.domain.action.SendPlaybackTimelineAction
 import com.jellyscope.core.domain.action.SetAppThemeAction
 import com.jellyscope.core.domain.action.SetGridSortAction
 import com.jellyscope.core.domain.action.SetImageQualityAction
@@ -519,6 +521,13 @@ val coreModule =
                 playbackDiagnosticsContext = get(),
             )
         }
+        single {
+            PreparePlaybackTimelineAction(
+                logBufferStore = get(),
+                workerDispatcher = Dispatchers.Default,
+            )
+        }
+        single { SendPlaybackTimelineAction(logBufferStore = get(), mediaRepository = get()) }
         single { SetGridSortAction(gridSortStore = get()) }
         single { SetLibrarySortAction(librarySortStore = get()) }
         single { AddRecentSearchAction(recentSearchStore = get()) }
