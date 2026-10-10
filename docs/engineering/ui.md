@@ -331,7 +331,9 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   Kids instead supplies the measured bottom control overlay within its video
   bounds, clamped to the surface without adding safe insets twice. Hidden
   controls and PiP supply zero extra clearance. iOS/JVM accept this surface
-  input without changing their native subtitle placement.
+  input without changing their native subtitle placement. The
+  [subtitle styling contract](subtitles.md#quality-tracks-and-subtitles) owns
+  mpv's authored-ASS override tradeoff and Android TV appearance controls.
 - The player top bar shows title and year plus series/episode metadata; codec and
   media-version facts stay in debug UI. When the device-wide player clock is on
   (default), the bar ends with the wall-clock time from

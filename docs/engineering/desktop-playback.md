@@ -310,7 +310,9 @@ does not establish real playback behavior.
   native placement because VLC 3.0.23 exposes only a construction-time integer
   margin before video dimensions exist; do not restore one fixed pixel override
   without per-media geometry. Android placement is owned by
-  [UI](ui.md#tv-layout), and iOS ignores this surface input.
+  [UI](ui.md#tv-layout), and iOS ignores this surface input. mpv retains the
+  shared [ASS override policy](subtitles.md#quality-tracks-and-subtitles), so
+  these margins do not promise preservation of authored subtitle placement.
 
 - **[desktop]** mpv uses the independent base and user size preference defined in
   the [subtitle presentation policy](ui.md#tv-layout). It resolves non-external `track-list`

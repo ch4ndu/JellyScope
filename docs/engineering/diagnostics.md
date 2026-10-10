@@ -142,6 +142,23 @@ timing is unavailable; tvOS output without proven prepare identity remains an
 instant. A timeline is bounded diagnostic evidence, not a complete performance
 trace. Preparing, saving and sending it never clear or acknowledge safe history.
 
+### Seek evidence
+
+Seek records describe the boundary observed by each backend. AVPlayer emits
+`SeekCompleted` only for a successful native callback admitted after the final
+Main-lane release/sequence guard. Ordinary VLCKit emits `SeekDeferred` when it
+stores an initial target, or `SeekDispatched` after assigning native time; neither
+proves arrival. Its later deferred execution and separate PiP path retain their
+existing coverage.
+
+Android mpv emits `SeekPositionObserved` when the existing directional tolerance
+accepts a position sample. That sample is not a request-correlated native
+acknowledgement. Native snapshot causes distinguish `SeekRequested`,
+`SeekPositionObserved` and `SeekTimeout`; a timeout never implies completion.
+The new event wire names use the existing lowercase fallback. Retained reports
+can contain older labels, which must not be reinterpreted as stronger evidence.
+Seek records remain instants; other backends may lack parts of this sequence.
+
 ### Explicit delivery
 
 | Platform | Settings → Diagnostics action and destination |
@@ -340,6 +357,13 @@ An unrecognized native target can carry NativeTarget provenance while its
 range remains Unknown. Desktop Render API/Metal property availability remains
 unverified; unavailable evidence must stay Unknown without renderer repair.
 
+Media3 frame/codec output metadata does not establish the final compositor
+result. AVPlayer HDR eligibility excludes what is currently playing or displayed.
+The current VLC-family native-window/VLCKit integrations expose no equivalent
+renderer-target observation. LibVLC custom-rendering callbacks require different
+rendering ownership; they are not a readback hook for these integrations. These
+backends retain Unknown rather than deriving output from source or capabilities.
+
 Prepare, release, backend changes, terminal failure and native reconfiguration
 clear observations; publication checks current prepare/reconfiguration identity
 and failure state. Failed attempts cannot restore positive color evidence before
@@ -407,6 +431,8 @@ mapper tests do not prove native property availability or physical HDR output.
 - **Timing preserves uncertainty.** Capture/session identities correlate safe
   events without media identity. Missing boundaries cannot justify durations;
   local lane remapping and coverage markers make partial history interpretable.
+  Seek assignment and tolerance observations are not native arrival, so their
+  labels preserve that distinction instead of fabricating completion durations.
 - **Native export keeps delivery accessible.** Users need no offline converter.
   TV offers explicit server delivery where a native destination picker may be
   absent; failed local saving never silently grants network consent.

@@ -978,6 +978,7 @@ internal class AndroidMpvPlayerController(
         refreshImmediateClockGeneration()
         logSeekDiagnostic(
             event = PlaybackDiagnosticEvent.SeekStarted,
+            sampleCause = PlaybackNativeSampleCause.SeekRequested,
             originPositionMs = origin,
             targetPositionMs = target,
         )
@@ -2169,8 +2170,10 @@ internal class AndroidMpvPlayerController(
         val resumeConfirmed =
             resumeConfirmationFromPositionMs?.let { previous -> observedPositionMs != previous } ?: true
         if (seekConfirmed && pendingSeekOrigin != null && pendingSeekTarget != null) {
+            // A position within tolerance of the target; not proof this request caused it.
             logSeekDiagnostic(
-                event = PlaybackDiagnosticEvent.SeekCompleted,
+                event = PlaybackDiagnosticEvent.SeekPositionObserved,
+                sampleCause = PlaybackNativeSampleCause.SeekPositionObserved,
                 originPositionMs = pendingSeekOrigin,
                 targetPositionMs = pendingSeekTarget,
                 observedPositionMs = observedPositionMs,
@@ -2375,17 +2378,12 @@ internal class AndroidMpvPlayerController(
 
     private fun logSeekDiagnostic(
         event: PlaybackDiagnosticEvent,
+        sampleCause: PlaybackNativeSampleCause,
         originPositionMs: Long,
         targetPositionMs: Long,
         observedPositionMs: Long? = null,
     ) {
-        recordNativeSnapshot(
-            if (event == PlaybackDiagnosticEvent.SeekStarted) {
-                PlaybackNativeSampleCause.SeekRequested
-            } else {
-                PlaybackNativeSampleCause.SeekCompleted
-            },
-        )
+        recordNativeSnapshot(sampleCause)
         androidMpvControllerLogger.i {
             formatPlaybackDiagnostic(
                 PlaybackDiagnostic(
@@ -2461,6 +2459,7 @@ internal class AndroidMpvPlayerController(
                 if (generation != requestGeneration || pendingSeekTargetPositionMs != targetPositionMs) return@launch
                 logSeekDiagnostic(
                     event = PlaybackDiagnosticEvent.Timeout,
+                    sampleCause = PlaybackNativeSampleCause.SeekTimeout,
                     originPositionMs = pendingSeekFromPositionMs ?: playbackFacts.positionMs,
                     targetPositionMs = targetPositionMs,
                     observedPositionMs = playbackFacts.positionMs,

@@ -336,6 +336,15 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   publishes one `subtitleStyleable` truth so the shared controls, TV overlay,
   picker auto-close, and debug row cannot disagree.
 
+- **[mpv]** Shared styling keeps `sub-ass-override=force`: ordinary style and
+  clearance options can affect native ASS as well as converted text. Authored
+  signs, colors and layout are therefore not guaranteed to remain unchanged.
+  The shared Compose picker offers font size; Android TV also offers foreground,
+  background and edge controls. Preserve those controls with their renderer
+  mapping; a global switch to `scale` would leave the TV appearance choices
+  ineffective for native ASS. A preserve-authored mode would need an explicit
+  user-intent and control-availability contract before changing this policy.
+
 - **[all]** Explicit subtitle **Off** is durable and distinct from
   `Unspecified`, which resolves language/default fallbacks. Detail exposes
   separate track and local-asset paths rather than one nullable choice.
@@ -377,6 +386,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 ## Why
 
 ### Subtitles and OpenSubtitles
+
+- **mpv appearance controls and override policy form one contract.** Force mode
+  keeps the offered TV color/background/edge choices meaningful. Preserving more
+  authored ASS style cannot silently disable those controls; native fidelity and
+  placement still require representative playback checks.
 
 - **Subtitle Off does not erase approved embedded descriptors.** Keeping the
   descriptor permits a later native DirectPlay switch without a needless

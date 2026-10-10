@@ -668,7 +668,6 @@ class AppleAVPlayerController(
             )
         }
         player.seekToTime(targetPositionMs.toCMTime(), tolerance, tolerance) { finished ->
-            logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.SeekCompleted)
             if (!finished || released || sequence.load() != seekSequence) return@seekToTime
             // AVFoundation delivers this completion on its own queue. Resume the
             // player mutation and updateStateFromPlayer on main so the
@@ -678,6 +677,8 @@ class AppleAVPlayerController(
             // can land between the native completion and this block.
             dispatch_async(dispatch_get_main_queue()) {
                 if (released || sequence.load() != seekSequence) return@dispatch_async
+                // Only a finished, current, unreleased seek counts as completed.
+                logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.SeekCompleted)
                 if (wasPlaying && pauseGeneration == pauseGenerationAtStart) {
                     resumeNativePlaybackIfAudioReady()
                 }

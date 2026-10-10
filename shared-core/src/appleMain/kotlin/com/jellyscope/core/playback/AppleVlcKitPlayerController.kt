@@ -571,7 +571,11 @@ internal class AppleVlcKitPlayerController(
                 VLCTime.timeWithInt(targetPositionMs.toInt())
         }
         if (!isCurrentCallback(generation, nativePlayer, media)) return true
-        logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.SeekCompleted)
+        // Dispatched only means the native time was assigned; arrival is not observed here.
+        logDiagnostic(
+            PlaybackDiagnosticStage.NativePlayer,
+            if (deferUntilPlaybackStarts) PlaybackDiagnosticEvent.SeekDeferred else PlaybackDiagnosticEvent.SeekDispatched,
+        )
         updateStateFromPlayer(statusOverride = if (playWhenReady) PlaybackStatus.Buffering else PlaybackStatus.Paused)
         return true
     }
