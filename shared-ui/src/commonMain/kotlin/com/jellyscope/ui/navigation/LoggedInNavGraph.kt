@@ -39,6 +39,8 @@ import com.jellyscope.ui.screen.home.HomeScreen
 import com.jellyscope.ui.screen.library.LibraryScreen
 import com.jellyscope.ui.screen.library.LibraryTabScreen
 import com.jellyscope.ui.screen.person.PersonScreen
+import com.jellyscope.ui.screen.player.KidsPlaybackLaunchRequest
+import com.jellyscope.ui.screen.player.PlayerLaunchOptions
 import com.jellyscope.ui.screen.player.PlayerLaunchPolicy
 import com.jellyscope.ui.screen.player.PlayerScreen
 import com.jellyscope.ui.screen.settings.SettingsScreen
@@ -56,6 +58,7 @@ internal fun LoggedInNavGraph(
     startSafeDrawingConsumed: Boolean,
     bottomBarContentPadding: Dp,
     playbackQueueHandoffStore: PlaybackQueueHandoffStore,
+    kidsPlaybackHost: KidsPlaybackHostState,
 ) {
     NavHost(
         navController = navController,
@@ -694,32 +697,61 @@ internal fun LoggedInNavGraph(
                 } else {
                     queue
                 }
-            PlayerScreen(
-                session = session,
-                boundaryEpoch = boundaryEpoch,
-                itemId = itemId,
-                startPositionTicks = startTicks,
-                mediaSourceId = mediaSourceId,
-                initialAudioStreamIndex = initialAudioStreamIndex,
-                initialSubtitleSelection = initialSubtitleSelection,
-                queue = playbackQueue,
-                offlineDownloadId = offlineDownloadId,
-                offlineRestartFromBeginning = offlineRestartFromBeginning,
-                launchPolicy = launchPolicy,
-                onBack = { navController.popBackStack() },
-                onOpenPlaybackSettings = {
-                    navController.popBackStack()
-                    navController.navigate(Routes.Settings)
-                },
-                onOpenDownloads = {
-                    if (!navController.popBackStack(Routes.Downloads, inclusive = false)) {
+            if (launchPolicy == PlayerLaunchPolicy.KidsSingleAsset) {
+                LaunchedEffect(entry) {
+                    if (navController.currentBackStackEntry === entry) {
+                        kidsPlaybackHost.launch(
+                            KidsPlaybackLaunchRequest(
+                                requestId = entry.id,
+                                itemId = itemId,
+                                options =
+                                    PlayerLaunchOptions(
+                                        startPositionTicks = startTicks,
+                                        mediaSourceId = mediaSourceId,
+                                        initialAudioStreamIndex = initialAudioStreamIndex,
+                                        initialSubtitleSelection = initialSubtitleSelection,
+                                        offlineDownloadId = offlineDownloadId,
+                                        offlineRestartFromBeginning = offlineRestartFromBeginning,
+                                        launchPolicy = launchPolicy,
+                                    ),
+                            ),
+                        )
                         navController.popBackStack()
-                        navController.navigate(Routes.Downloads) {
-                            launchSingleTop = true
-                        }
                     }
-                },
-            )
+                }
+            } else if (kidsPlaybackHost.activeSession != null) {
+                // Clear the old owner before a normal PlayerScreen can construct its controller.
+                LaunchedEffect(entry) {
+                    if (navController.currentBackStackEntry === entry) kidsPlaybackHost.close()
+                }
+            } else {
+                PlayerScreen(
+                    session = session,
+                    boundaryEpoch = boundaryEpoch,
+                    itemId = itemId,
+                    startPositionTicks = startTicks,
+                    mediaSourceId = mediaSourceId,
+                    initialAudioStreamIndex = initialAudioStreamIndex,
+                    initialSubtitleSelection = initialSubtitleSelection,
+                    queue = playbackQueue,
+                    offlineDownloadId = offlineDownloadId,
+                    offlineRestartFromBeginning = offlineRestartFromBeginning,
+                    launchPolicy = launchPolicy,
+                    onBack = { navController.popBackStack() },
+                    onOpenPlaybackSettings = {
+                        navController.popBackStack()
+                        navController.navigate(Routes.Settings)
+                    },
+                    onOpenDownloads = {
+                        if (!navController.popBackStack(Routes.Downloads, inclusive = false)) {
+                            navController.popBackStack()
+                            navController.navigate(Routes.Downloads) {
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                )
+            }
         }
     }
 }

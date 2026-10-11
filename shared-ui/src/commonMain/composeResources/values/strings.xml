@@ -332,6 +332,9 @@
     <string name="kids_retry_offline">Check downloads again</string>
     <string name="kids_more_playback_options">More playback options</string>
     <string name="kids_replay">Replay from the beginning</string>
+    <string name="kids_minimize_player">Shrink video and keep browsing</string>
+    <string name="kids_restore_player">Open video</string>
+    <string name="kids_close_player">Close video</string>
     <string name="player_play_cd">Play video</string>
     <string name="player_pause_cd">Pause video</string>
     <string name="player_seek_cd">Seek playback position</string>

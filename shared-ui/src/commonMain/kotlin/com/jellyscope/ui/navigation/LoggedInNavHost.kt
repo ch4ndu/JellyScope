@@ -3,6 +3,7 @@
 package com.jellyscope.ui.navigation
 
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
@@ -22,7 +23,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -155,6 +159,15 @@ private fun LoggedInNavHostContent(
     onInitialDetailEventConsumed: (Long) -> Unit,
 ) {
     val navController = rememberNavController()
+    val kidsPlaybackHost = remember(session.serverId, session.userId, boundaryEpoch) { KidsPlaybackHostState() }
+    DisposableEffect(kidsPlaybackHost) {
+        onDispose { kidsPlaybackHost.close() }
+    }
+    val kidsExpanded = kidsPlaybackHost.activeSession?.expanded == true
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(kidsExpanded) {
+        if (kidsExpanded) focusManager.clearFocus(force = true)
+    }
     LaunchedEffect(initialDetailEvent, session.accountIdentity(), boundaryEpoch) {
         val event = initialDetailEvent ?: return@LaunchedEffect
         if (event.isEligibleFor(session.accountIdentity(), boundaryEpoch)) {
@@ -227,43 +240,69 @@ private fun LoggedInNavHostContent(
     }
 
     Box(modifier = Modifier.fillMaxSize().dismissKeyboardOnTap()) {
-        AdaptiveRailScaffold(
-            railWidth = currentRailWidth,
-            rail = {
-                if (showAdaptiveRail) {
-                    AdaptiveNavRail(
-                        items = visibleTopLevelNavItems,
-                        selectedRoute = selectedTopLevelRoute(currentRoute),
-                        expanded = adaptiveNavRailExpanded,
-                        onExpandedChange = { expanded -> adaptiveNavRailExpanded = expanded },
-                        onItemSelected = { item -> navController.navigateTopLevel(item.route) },
-                    )
-                }
-            },
+        Box(
+            modifier =
+                Modifier.fillMaxSize().then(
+                    if (kidsExpanded) {
+                        Modifier
+                            .clearAndSetSemantics {}
+                            .focusProperties { onEnter = { cancelFocusChange() } }
+                            .focusGroup()
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
-            LoggedInNavGraph(
-                navController = navController,
-                session = session,
-                boundaryEpoch = boundaryEpoch,
-                onLogoutComplete = onLogoutComplete,
-                onSettingsClick = onSettingsClick,
-                loggedInContentInsets = loggedInContentInsets,
-                startSafeDrawingConsumed = showAdaptiveRail,
-                bottomBarContentPadding = bottomBarContentPadding,
-                playbackQueueHandoffStore = playbackQueueHandoffStore,
-            )
+            AdaptiveRailScaffold(
+                railWidth = currentRailWidth,
+                rail = {
+                    if (showAdaptiveRail) {
+                        AdaptiveNavRail(
+                            items = visibleTopLevelNavItems,
+                            selectedRoute = selectedTopLevelRoute(currentRoute),
+                            expanded = adaptiveNavRailExpanded,
+                            onExpandedChange = { expanded -> adaptiveNavRailExpanded = expanded },
+                            onItemSelected = { item -> navController.navigateTopLevel(item.route) },
+                        )
+                    }
+                },
+            ) {
+                LoggedInNavGraph(
+                    navController = navController,
+                    session = session,
+                    boundaryEpoch = boundaryEpoch,
+                    onLogoutComplete = onLogoutComplete,
+                    onSettingsClick = onSettingsClick,
+                    loggedInContentInsets = loggedInContentInsets,
+                    startSafeDrawingConsumed = showAdaptiveRail,
+                    bottomBarContentPadding = bottomBarContentPadding,
+                    playbackQueueHandoffStore = playbackQueueHandoffStore,
+                    kidsPlaybackHost = kidsPlaybackHost,
+                )
+            }
+            if (showBottomBar) {
+                LoggedInBottomBar(
+                    currentRoute = currentRoute,
+                    items = visibleTopLevelNavItems,
+                    onItemSelected = { item -> navController.navigateTopLevel(item.route) },
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
+                )
+            }
         }
-        if (showBottomBar) {
-            LoggedInBottomBar(
-                currentRoute = currentRoute,
-                items = visibleTopLevelNavItems,
-                onItemSelected = { item -> navController.navigateTopLevel(item.route) },
-                modifier =
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth(),
-            )
-        }
+        KidsPlaybackHost(
+            state = kidsPlaybackHost,
+            session = session,
+            boundaryEpoch = boundaryEpoch,
+            railWidth = currentRailWidth,
+            bottomPadding = bottomBarContentPadding,
+            onOpenPlaybackSettings = onSettingsClick,
+            onOpenDownloads = {
+                navController.navigate(Routes.Downloads) { launchSingleTop = true }
+            },
+        )
     }
 }
 

@@ -38,16 +38,17 @@ checks the release APK package contents.
 The `licenses/` directory retains the generic license texts and adds
 `MPV-NATIVE-NOTICES.txt`, preserving the published `.1` native release's
 component notices and NDK notice text, which the `.2` candidate inherits
-unchanged. It also includes Lua's notice and FreeType's FTL
-text from the exact source archives; FreeType is distributed using its FTL
+unchanged. It also includes Lua's notice, FreeType's FTL text and Vulkan-Headers'
+Apache/MIT license files from the exact source archives; FreeType uses its FTL
 option. The consolidated file labels each original source path and retains its
 text. Build-tool, demo and source-test notices in the release are retained for
 context, not a claim that those files execute in the APK.
 
-The proposed [native release source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz)
-is to provide the full source context, dependency revisions and submodule
-mappings. It and the proposed [notices archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-notices.zip)
-are pending the native source commit and publication, as recorded in
+The prepared [native release source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz)
+provides the full source context, dependency revisions and submodule mappings,
+bound to native commit `662fa5159800ea4d72c6fb0eca088a511c52583d`. It and the
+prepared [notices archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-notices.zip)
+await owner publication; these download routes remain unverified, as recorded in
 [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md). Notices and source files retain their
 own terms. Package filename checks establish
 presence and consistency, not a legal-compliance determination.

@@ -230,9 +230,9 @@ internal fun PlayerGestureLayer(
     onHud: (PlayerGestureHud?) -> Unit,
     volumeAndBrightnessEnabled: Boolean = true,
     playbackGesturesEnabled: Boolean = true,
-    fullscreenDragDirection: PlayerFullscreenDragDirection = PlayerFullscreenDragDirection.Down,
-    onFullscreenDrag: ((distancePx: Float, videoHeightPx: Int) -> Unit)? = null,
-    onFullscreenDragEnd: (cancelled: Boolean) -> Unit = {},
+    fullscreenDragDirections: Set<PlayerFullscreenDragDirection> = setOf(PlayerFullscreenDragDirection.Down),
+    onFullscreenDrag: ((distancePx: Float, videoHeightPx: Int, direction: PlayerFullscreenDragDirection) -> Unit)? = null,
+    onFullscreenDragEnd: (cancelled: Boolean, direction: PlayerFullscreenDragDirection) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val gestureController = if (volumeAndBrightnessEnabled) rememberPlayerGestureController() else null
@@ -261,7 +261,7 @@ internal fun PlayerGestureLayer(
             modifier
                 .onGloballyPositioned {
                     gestureCoordinates = it
-                }.pointerInput(volumeAndBrightnessEnabled, playbackGesturesEnabled, fullscreenDragDirection) {
+                }.pointerInput(volumeAndBrightnessEnabled, playbackGesturesEnabled, fullscreenDragDirections) {
                     coroutineScope {
                         var lastTapUptimeMs = 0L
                         var lastTapZone: PlayerTapZone? = null
@@ -317,7 +317,8 @@ internal fun PlayerGestureLayer(
                                 return@awaitEachGesture
                             }
                             val downInRoot = gestureCoordinates?.takeIf { it.isAttached }?.localToRoot(down.position) ?: down.position
-                            var fullscreenDragActive = false
+                            // The first vertical direction past slop is latched for the whole gesture.
+                            var fullscreenDragDirection: PlayerFullscreenDragDirection? = null
                             var released = false
                             var moved = false
                             var verticalMode: PlayerVerticalGesture? = null
@@ -356,12 +357,18 @@ internal fun PlayerGestureLayer(
                                         if (!ignored) {
                                             if (
                                                 verticalMode == null &&
-                                                !fullscreenDragActive &&
+                                                fullscreenDragDirection == null &&
                                                 abs(totalOffset.y) >= PLAYER_GESTURE_MIN_DISTANCE_PX &&
                                                 abs(totalOffset.y) >= abs(totalOffset.x) * PLAYER_VERTICAL_DOMINANCE_RATIO
                                             ) {
-                                                if (currentOnFullscreenDrag != null && totalOffset.y * fullscreenDragDirection.sign > 0f) {
-                                                    fullscreenDragActive = true
+                                                val direction =
+                                                    if (totalOffset.y < 0f) {
+                                                        PlayerFullscreenDragDirection.Up
+                                                    } else {
+                                                        PlayerFullscreenDragDirection.Down
+                                                    }
+                                                if (currentOnFullscreenDrag != null && direction in fullscreenDragDirections) {
+                                                    fullscreenDragDirection = direction
                                                 } else if (currentVolumeAndBrightnessEnabled) {
                                                     verticalMode =
                                                         if (down.position.x < size.width / 2f) {
@@ -377,8 +384,8 @@ internal fun PlayerGestureLayer(
                                                 singleTapJob?.cancel()
                                             }
 
-                                            if (fullscreenDragActive) {
-                                                currentOnFullscreenDrag?.invoke(totalOffset.y, initialVideoHeightPx)
+                                            fullscreenDragDirection?.let { direction ->
+                                                currentOnFullscreenDrag?.invoke(totalOffset.y, initialVideoHeightPx, direction)
                                                 change.consume()
                                             }
                                             val mode = verticalMode
@@ -410,13 +417,15 @@ internal fun PlayerGestureLayer(
                                         }
                                     }
                                     if (!change.pressed) {
-                                        if (fullscreenDragActive) currentOnFullscreenDrag?.invoke(totalOffset.y, initialVideoHeightPx)
+                                        fullscreenDragDirection?.let { direction ->
+                                            currentOnFullscreenDrag?.invoke(totalOffset.y, initialVideoHeightPx, direction)
+                                        }
                                         released = true
                                         break
                                     }
                                 }
                             } finally {
-                                if (fullscreenDragActive) currentOnFullscreenDragEnd(!released)
+                                fullscreenDragDirection?.let { direction -> currentOnFullscreenDragEnd(!released, direction) }
                                 longPressJob.cancel()
                                 if (verticalMode != null) {
                                     gestureController?.endGesture()

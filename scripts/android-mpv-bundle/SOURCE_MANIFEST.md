@@ -10,22 +10,21 @@ from committed JellyScope JNI sources. The pinned source, patch, toolchain, ABI,
 library and license records are in `manifest-1.0.0.txt` (the filename is
 retained for existing packaged consumers).
 
-**Pending binding — blocks release.** `0.41.0-jellyscope.2` is a locally
-prepared candidate. Its native source commit does not exist yet
-(`source-commit=pending-native-source-commit`), and its tag and release assets
-are not published. The routes below are proposed and are not claimed to be
-accessible:
+**Publication pending — blocks app release.** `0.41.0-jellyscope.2` is bound to
+native commit `662fa5159800ea4d72c6fb0eca088a511c52583d`. The AAR and complete
+source/notice archives are prepared locally. The release tag and assets still
+require owner publication; the routes below must be checked afterward:
 
 - source tree: https://github.com/ch4ndu/jellyscope-mpv-android/tree/v0.41.0-jellyscope.2
 - [source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz)
 - [notices archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-notices.zip)
 
-These records must be bound to the real native commit and checked against
-public assets before any JellyScope build using this pin is published. The
-source archive is to carry the inherited upstream and modified mpv, pinned
-native component, submodule and provider sources, each ABI's patched mpv source
-and build records, and a repository snapshot matching that commit. The notices
-archive is to carry the inherited component notices. NDK prerequisites and LLVM
+These records must be checked against public assets before any JellyScope build
+using this pin is published. The prepared source archive carries the inherited
+upstream and modified mpv, pinned native component, submodule and provider
+sources, each ABI's patched mpv source and build records, and the exact committed
+repository snapshot. The notices archive preserves component notices, including
+Lua's source-carried notice and FreeType's FTL text. NDK prerequisites and LLVM
 source/patch routes are recorded in the source archive; the NDK distribution is
 obtained separately.
 
@@ -40,9 +39,11 @@ is not applied.
 
 A fresh native build of all three ABIs in new build and output directories
 produced these six libraries, and static ELF checks against the retained
-provider graph and API 26 passed. That is build evidence for a local candidate,
-not physical qualification or public availability: Shield and TiVo
-qualification, source/notice asset verification and publication remain pending.
+provider graph and API 26 passed. The owner confirmed Shield playback and
+surround on 2026-10-08 and TiVo playback and audio for the same bundle on
+2026-10-10. These reports do not establish every route/control or Cube/x86_64
+acceptance. Public downloads and ordinary builds without the local resolver
+override remain unverified until publication.
 
 The published `0.41.0-jellyscope.1` release, which replaced only ARM32
 `libmpv.so`, is immutable and historical. Its Cube acceptance covers only those

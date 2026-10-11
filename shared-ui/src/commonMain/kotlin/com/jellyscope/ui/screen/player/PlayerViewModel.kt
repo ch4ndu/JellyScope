@@ -152,6 +152,7 @@ import com.jellyscope.core.util.PlaybackDiagnosticSessions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -254,6 +255,18 @@ class PlayerViewModel(
     private var pendingRestartFromBeginningLaunchGeneration: Long? = null
     private var playingPositionOwner: PlayerPlaybackTarget? = null
     private var hasManuallySelectedAsset = false
+
+    // Explicit launch intent stays authoritative for its target through planning failure and Retry.
+    private var launchIntentTarget: PlayerPlaybackTarget? = initialPlaybackTarget
+    private var launchIntent =
+        PlayerLaunchOptions(
+            startPositionTicks = startPositionTicks,
+            mediaSourceId = mediaSourceId,
+            initialAudioStreamIndex = initialAudioStreamIndex,
+            initialSubtitleSelection = initialSubtitleSelection,
+        )
+    private var externalLaunchEpoch = 0L
+    private var externalLaunchesClosed = false
     private val _selectedPlaybackTarget = MutableStateFlow(PlayerPlaybackTarget(itemId, offlineDownloadId))
     val selectedPlaybackTarget: StateFlow<PlayerPlaybackTarget> = _selectedPlaybackTarget.asStateFlow()
     private var selectedPlaybackGeneration = 0L
@@ -696,6 +709,54 @@ class PlayerViewModel(
         offlineDownloadId: DownloadId? = null,
         restartFromBeginning: Boolean = false,
         allowCurrentTargetRetry: Boolean = false,
+    ): Boolean =
+        selectKidsPlaybackTarget(
+            itemId = itemId,
+            offlineDownloadId = offlineDownloadId,
+            restartFromBeginning = restartFromBeginning,
+            allowCurrentTargetRetry = allowCurrentTargetRetry,
+            launchOptions = null,
+        )
+
+    /**
+     * Admits a later Kids Play request into this session. The install lock is only an admission
+     * barrier: selection runs after it is released, with no intervening suspension, so the
+     * existing selection generations own the accepted replacement.
+     */
+    suspend fun acceptKidsLaunch(
+        itemId: String,
+        options: PlayerLaunchOptions,
+    ): Boolean {
+        val epoch = ++externalLaunchEpoch
+        controllerInstallMutex.withLock {}
+        currentCoroutineContext().ensureActive()
+        val rejection =
+            when {
+                epoch != externalLaunchEpoch -> "superseded"
+                externalLaunchesClosed || disposed -> "closed"
+                !isKidsSingleAsset || options.launchPolicy != PlayerLaunchPolicy.KidsSingleAsset -> "ineligible"
+                else -> null
+            }
+        val accepted =
+            rejection == null &&
+                selectKidsPlaybackTarget(
+                    itemId = itemId,
+                    offlineDownloadId = options.offlineDownloadId,
+                    restartFromBeginning = options.offlineRestartFromBeginning && options.offlineDownloadId != null,
+                    allowCurrentTargetRetry = true,
+                    launchOptions = options,
+                )
+        val result = if (accepted) "accepted" else rejection ?: "refused"
+        playerViewModelLogger.i { "stage=kids-launch event=admission platform=shared result=$result" }
+        return accepted
+    }
+
+    private fun selectKidsPlaybackTarget(
+        itemId: String,
+        offlineDownloadId: DownloadId?,
+        restartFromBeginning: Boolean,
+        allowCurrentTargetRetry: Boolean,
+        launchOptions: PlayerLaunchOptions?,
     ): Boolean {
         if (!isKidsSingleAsset || disposed || controllerInstallInFlight || controllerInstallMutex.isLocked) {
             return false
@@ -707,48 +768,54 @@ class PlayerViewModel(
         val retainsCurrentSelection = target == _selectedPlaybackTarget.value
         if (retainsCurrentSelection && !restartFromBeginning && !allowCurrentTargetRetry) return false
 
-        val retainsOriginalLaunchIntent =
-            retainsCurrentSelection &&
-                !hasManuallySelectedAsset &&
-                target == initialPlaybackTarget
+        // An explicit launch replaces runtime selections, even for the title already playing.
+        val retainsRuntimeSelection = retainsCurrentSelection && launchOptions == null
+        val targetLaunchIntent =
+            launchOptions ?: launchIntent.takeIf { retainsCurrentSelection && target == launchIntentTarget }
         val retainedSourceId =
-            selectedMediaSourceId.takeIf { retainsCurrentSelection && offlineDownloadId == null }
-                ?: mediaSourceId.takeIf { retainsOriginalLaunchIntent && offlineDownloadId == null }
+            selectedMediaSourceId.takeIf { retainsRuntimeSelection && offlineDownloadId == null }
+                ?: targetLaunchIntent?.mediaSourceId?.takeIf { offlineDownloadId == null }
         val retainedAudioStreamIndex =
-            requestedAudioStreamIndex.takeIf { retainsCurrentSelection }
-                ?: initialAudioStreamIndex.takeIf { retainsOriginalLaunchIntent }
+            requestedAudioStreamIndex.takeIf { retainsRuntimeSelection }
+                ?: targetLaunchIntent?.initialAudioStreamIndex
         val retainedSubtitleSelection =
             requestedSubtitleSelection.takeIf {
-                retainsCurrentSelection && it != SubtitleSelectionIntent.Unspecified
+                retainsRuntimeSelection && it != SubtitleSelectionIntent.Unspecified
             }
-                ?: initialSubtitleSelection.takeIf { retainsOriginalLaunchIntent }
+                ?: targetLaunchIntent?.initialSubtitleSelection
                 ?: SubtitleSelectionIntent.Unspecified
         val retainedOfflineSidecarIdentity =
             (plan?.plannedSubtitle as? PlannedSubtitle.OfflineSidecar)
-                ?.takeIf { retainsCurrentSelection && offlineDownloadId != null }
+                ?.takeIf { retainsRuntimeSelection && offlineDownloadId != null }
                 ?.identity
         val retainsPendingRestartFromBeginning =
-            retainsCurrentSelection &&
+            retainsRuntimeSelection &&
                 forceStartFromBeginning &&
                 target == pendingRestartFromBeginningTarget
         val startsFromBeginning = restartFromBeginning || retainsPendingRestartFromBeginning
-        val hasCurrentTargetPositionProof = retainsCurrentSelection && target == playingPositionOwner
+        val hasCurrentTargetPositionProof = retainsRuntimeSelection && target == playingPositionOwner
         val retainedStartPositionTicks =
-            if (retainsCurrentSelection && !startsFromBeginning) {
-                if (hasCurrentTargetPositionProof) {
+            when {
+                startsFromBeginning -> 0L
+                launchOptions != null -> launchOptions.startPositionTicks.coerceAtLeast(0L)
+                !retainsCurrentSelection -> 0L
+                hasCurrentTargetPositionProof ->
                     millisecondsToTicks(playerController.playbackState.value.positionMs)
                         .takeIf { positionTicks -> positionTicks > 0L }
                         ?: currentStartPositionTicks
-                } else {
-                    currentStartPositionTicks
-                }
-            } else {
-                0L
+                else -> currentStartPositionTicks
             }
         val outgoingPositionMs = playerController.playbackState.value.positionMs
         val selectionGeneration = ++selectedPlaybackGeneration
+        externalLaunchEpoch += 1L
 
-        if (!retainsCurrentSelection) {
+        if (launchOptions != null) {
+            launchIntentTarget = target
+            launchIntent = launchOptions
+        } else if (!retainsCurrentSelection) {
+            launchIntentTarget = null
+        }
+        if (!retainsRuntimeSelection) {
             hasManuallySelectedAsset = true
             clearPlayingPositionProof()
         }
@@ -990,6 +1057,8 @@ class PlayerViewModel(
     }
 
     fun stop() {
+        externalLaunchEpoch += 1L
+        externalLaunchesClosed = true
         clearPlayingPositionProof()
         invalidateBackendSwitch()
         if (controllerInstallInFlight || controllerInstallMutex.isLocked) {
@@ -1714,6 +1783,8 @@ class PlayerViewModel(
     }
 
     fun dispose() {
+        externalLaunchEpoch += 1L
+        externalLaunchesClosed = true
         clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Superseded)
         if (disposed) return
         invalidateBackendSwitch()
@@ -2768,6 +2839,26 @@ class PlayerViewModel(
             playerController === controller &&
             this.installedPlan === installedPlan
 
+    /**
+     * A failure handled across diagnostics capture may now belong to a replaced install. A held
+     * lock means the next owner has already been admitted; recovery queued behind it would take
+     * the lock from an admitted Kids launch.
+     */
+    private fun ownsCapturedControllerFailure(
+        controller: PlayerController,
+        launchGeneration: Long,
+        selectionGeneration: Long,
+        installedPlan: PlaybackPlan?,
+    ): Boolean =
+        !disposed &&
+            !controllerInstallInFlight &&
+            !controllerInstallMutex.isLocked &&
+            offlineReprepareGeneration == null &&
+            playerController === controller &&
+            playbackLaunchGeneration == launchGeneration &&
+            selectedPlaybackGeneration == selectionGeneration &&
+            this.installedPlan === installedPlan
+
     private fun preservesPlaybackForQualityFailure(
         requestGeneration: Long,
         launchGeneration: Long,
@@ -2875,13 +2966,16 @@ class PlayerViewModel(
             return
         }
 
-        reportingJob =
-            viewModelScope.launch {
+        // Register before starting: the body may run inline and reach an installer that captures reportingJob.
+        val job =
+            viewModelScope.launch(start = CoroutineStart.LAZY) {
                 // Edge handling is fast and idempotent; avoid child jobs per emission.
                 playerController.playbackState.collect { playbackState ->
                     handlePlaybackState(playbackState)
                 }
             }
+        reportingJob = job
+        job.start()
     }
 
     private fun observeRuntimeDiagnostics() {
@@ -3431,7 +3525,9 @@ class PlayerViewModel(
             return false
         }
         if (!isCurrentBackendSwitch(switch)) return false
-        return installBackendSwitchController(switch)
+        val prepared = installBackendSwitchController(switch)
+        if (!prepared) reconcileRetainedControllerFailure(switch)
+        return prepared
     }
 
     /** Plans against fresh backend facts while the current controller remains healthy and installed. */
@@ -3570,6 +3666,31 @@ class PlayerViewModel(
                 error = switch.planningError,
             )
         }
+    }
+
+    /**
+     * Runs after the switch released installation ownership. A failure observed while it held the
+     * lock was dropped by the captured-authority guard; when the switch kept that failed controller,
+     * restart observation so StateFlow redelivers it through ordinary recovery. Cancelling the old
+     * observer also stops a handler still suspended in diagnostics from processing it twice. A lock
+     * handed to a waiter (an admitted Kids launch) keeps priority.
+     */
+    private fun reconcileRetainedControllerFailure(switch: BackendSwitchSnapshot) {
+        if (
+            !isCurrentBackendSwitch(switch) ||
+            stopRequestedDuringControllerInstall ||
+            controllerInstallInFlight ||
+            controllerInstallMutex.isLocked ||
+            offlineReprepareGeneration != null ||
+            playerController !== switch.activeController ||
+            installedPlan !== switch.activePlan ||
+            playerController.playbackState.value.status != PlaybackStatus.Failed ||
+            lastStatus == PlaybackStatus.Failed ||
+            state.value is PlayerUiState.Error
+        ) {
+            return
+        }
+        restartPlaybackStateObservation()
     }
 
     /**
@@ -3927,11 +4048,27 @@ class PlayerViewModel(
     private suspend fun handlePlaybackState(playbackState: PlaybackState) {
         if (controllerInstallInFlight) return
         if (offlineReprepareGeneration != null) return
+        // Failure capture suspends; capture the install authority it must still own afterwards.
+        val controllerAtState = playerController
+        val launchGenerationAtState = playbackLaunchGeneration
+        val selectionGenerationAtState = selectedPlaybackGeneration
+        val installedPlanAtState = installedPlan
         val enrichedPlaybackState = playbackState.withPlaybackMetadata()
         _playbackState.value = enrichedPlaybackState
         val installedAudioChanged = updateInstalledAudio(enrichedPlaybackState)
         recordTrackDiagnostics(enrichedPlaybackState)
         if (observeSoftwarePlaybackRecovery(enrichedPlaybackState)) {
+            if (
+                enrichedPlaybackState.status == PlaybackStatus.Failed &&
+                !ownsCapturedControllerFailure(
+                    controller = controllerAtState,
+                    launchGeneration = launchGenerationAtState,
+                    selectionGeneration = selectionGenerationAtState,
+                    installedPlan = installedPlanAtState,
+                )
+            ) {
+                return
+            }
             publishContent(playbackState = enrichedPlaybackState)
             playbackReportingCoordinator.onPlaybackState(enrichedPlaybackState, lastStatus)
             lastStatus = enrichedPlaybackState.status
@@ -3940,6 +4077,16 @@ class PlayerViewModel(
         playbackHealthCoordinator.observePlaybackState(enrichedPlaybackState)
         if (enrichedPlaybackState.status == PlaybackStatus.Failed) {
             captureControllerFailure()
+            if (
+                !ownsCapturedControllerFailure(
+                    controller = controllerAtState,
+                    launchGeneration = launchGenerationAtState,
+                    selectionGeneration = selectionGenerationAtState,
+                    installedPlan = installedPlanAtState,
+                )
+            ) {
+                return
+            }
         }
 
         val completed = enrichedPlaybackState.status == PlaybackStatus.Completed
@@ -4036,6 +4183,7 @@ class PlayerViewModel(
             } catch (_: Throwable) {
                 null
             }
+        currentCoroutineContext().ensureActive()
         diagnosticsContext.recordFailure(
             backend = backend,
             capabilities = capabilities,

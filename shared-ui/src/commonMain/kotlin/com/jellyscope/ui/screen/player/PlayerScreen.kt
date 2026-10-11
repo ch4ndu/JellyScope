@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -15,6 +16,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.Session
@@ -46,6 +49,10 @@ fun PlayerScreen(
     onOpenPlaybackSettings: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
     modifier: Modifier = Modifier,
+    kidsLaunchRequest: KidsPlaybackLaunchRequest? = null,
+    miniPlayerRailWidth: () -> Dp = { 0.dp },
+    miniPlayerBottomPadding: Dp = 0.dp,
+    onKidsExpandedChanged: (Boolean) -> Unit = {},
     viewModel: PlayerViewModel =
         koinViewModel(
             parameters = {
@@ -86,6 +93,10 @@ fun PlayerScreen(
         }
     var isInPictureInPicture by remember { mutableStateOf(false) }
     var kidsFullscreen by remember(viewModel) { mutableStateOf(false) }
+    var kidsMinimized by remember(viewModel) { mutableStateOf(false) }
+    SideEffect { onKidsExpandedChanged(!kidsMinimized && !isInPictureInPicture) }
+    // The constructor already launched the first request; only later identities are admitted.
+    val firstKidsLaunchRequestId = remember(viewModel) { kidsLaunchRequest?.requestId }
     var playerSourceBounds by remember { mutableStateOf<Rect?>(null) }
     val platformCapabilities = LocalPlatformCapabilities.current
     val currentOnBack by rememberUpdatedState(onBack)
@@ -173,6 +184,35 @@ fun PlayerScreen(
                 }
             }
         }
+    // Blocking errors and mandatory recovery need the watch page's actions.
+    val kidsRequiresWatchPage = playerError != null || softwareRecovery != null
+    LaunchedEffect(kidsRequiresWatchPage) {
+        if (kidsRequiresWatchPage) {
+            kidsMinimized = false
+            kidsFullscreen = false
+        }
+    }
+    val onKidsMinimize =
+        remember(viewModel) {
+            {
+                if (viewModel.state.value !is PlayerUiState.Error && viewModel.softwarePlaybackRecovery.value == null) {
+                    val picker = (viewModel.state.value as? PlayerUiState.Content)?.pickerVisible
+                    if (picker != null && picker != PlayerPicker.None) viewModel.hidePicker()
+                    kidsFullscreen = false
+                    kidsMinimized = true
+                }
+            }
+        }
+    LaunchedEffect(viewModel, kidsLaunchRequest?.requestId) {
+        val request = kidsLaunchRequest ?: return@LaunchedEffect
+        if (request.requestId == firstKidsLaunchRequestId) return@LaunchedEffect
+        kidsMinimized = false
+        kidsFullscreen = false
+        // Cancelling this effect cancels a waiting admission and leaves current playback intact.
+        if (viewModel.acceptKidsLaunch(request.itemId, request.options)) {
+            kidsWatchViewModel?.acceptExternalLaunch(request.itemId, request.options.offlineDownloadId)
+        }
+    }
     LaunchedEffect(
         kidsWatchViewModel,
         selectedTarget,
@@ -254,6 +294,12 @@ fun PlayerScreen(
                 playerSourceBounds = playerSourceBounds,
                 onPlayerSourceBoundsChanged = onPlayerSourceBoundsChangedCallback,
                 modifier = modifier,
+                minimized = kidsMinimized,
+                // Only the account-scoped Kids host can keep browsing underneath a minimized player.
+                onMinimize = onKidsMinimize.takeIf { kidsLaunchRequest != null && !kidsRequiresWatchPage },
+                onRestore = { kidsMinimized = false },
+                miniPlayerRailWidth = miniPlayerRailWidth,
+                miniPlayerBottomPadding = miniPlayerBottomPadding,
             )
         }
     } else {

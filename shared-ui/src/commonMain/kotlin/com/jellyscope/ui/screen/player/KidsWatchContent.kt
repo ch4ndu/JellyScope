@@ -47,6 +47,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -79,8 +80,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -91,6 +94,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -110,6 +114,7 @@ import com.jellyscope.ui.generated.resources.detail_retry
 import com.jellyscope.ui.generated.resources.kids_downloads
 import com.jellyscope.ui.generated.resources.kids_downloads_error
 import com.jellyscope.ui.generated.resources.kids_empty
+import com.jellyscope.ui.generated.resources.kids_minimize_player
 import com.jellyscope.ui.generated.resources.kids_more_playback_options
 import com.jellyscope.ui.generated.resources.kids_recommendations
 import com.jellyscope.ui.generated.resources.kids_replay
@@ -180,9 +185,20 @@ internal fun KidsWatchContent(
     playerSourceBounds: Rect?,
     onPlayerSourceBoundsChanged: (Rect?) -> Unit,
     modifier: Modifier = Modifier,
+    minimized: Boolean = false,
+    onMinimize: (() -> Unit)? = null,
+    onRestore: () -> Unit = {},
+    miniPlayerRailWidth: () -> Dp = { 0.dp },
+    miniPlayerBottomPadding: Dp = 0.dp,
 ) {
     val content = state as? PlayerUiState.Content
     val fullscreenToggle = LocalFullscreenToggle.current
+    // System PiP owns the whole canvas regardless of the retained in-app mode.
+    val miniActive = minimized && !isInPictureInPicture
+    val expandedChrome = !isInPictureInPicture && !miniActive
+    val currentOnMinimize by rememberUpdatedState(onMinimize)
+    val miniPlayerScope = rememberCoroutineScope()
+    val miniPlayerState = remember { KidsMiniPlayerState(miniPlayerScope) }
     val platformCapabilities = LocalPlatformCapabilities.current
     val recommendationScrollState = rememberSaveableStateHolder()
     var controlsVisible by remember { mutableStateOf(true) }
@@ -235,7 +251,8 @@ internal fun KidsWatchContent(
         }
     }
 
-    BackHandler(enabled = !isInPictureInPicture, onBack = ::handleBack)
+    // While minimized, Back belongs to the browsing screen underneath.
+    BackHandler(enabled = !isInPictureInPicture && !minimized, onBack = ::handleBack)
     PlayerPlatformEffects(
         controller = controller,
         content = content,
@@ -305,13 +322,15 @@ internal fun KidsWatchContent(
         }
     }
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize().background(LocalAppBackgroundBrush.current).clipToBounds()) {
+    val backgroundBrush = LocalAppBackgroundBrush.current
+    val safeDrawingInsets = WindowInsets.safeDrawing
+    BoxWithConstraints(modifier = modifier.fillMaxSize().clipToBounds()) {
         val landscape = maxWidth > maxHeight
         val fullscreen = fullscreenToggle.isFullscreen || isInPictureInPicture
         val animateLayout = !isInPictureInPicture
         val layoutTransition =
             key(isInPictureInPicture) {
-                updateTransition(KidsPlayerLayout(landscape, fullscreen), label = "Kids player layout")
+                updateTransition(KidsPlayerLayout(landscape, fullscreen, miniActive), label = "Kids player layout")
             }
         val orientationChanged = layoutTransition.segment.initialState.landscape != layoutTransition.segment.targetState.landscape
         val layoutAnimationMs =
@@ -325,6 +344,11 @@ internal fun KidsWatchContent(
                 transitionSpec = { if (animateLayout) tween(layoutAnimationMs) else snap() },
                 label = "Kids fullscreen progress",
             ) { layout -> if (layout.fullscreen) 1f else 0f }
+        val miniProgress =
+            layoutTransition.animateFloat(
+                transitionSpec = { if (animateLayout) tween(PLAYER_LAYOUT_ANIMATION_MS) else snap() },
+                label = "Kids mini-player progress",
+            ) { layout -> if (layout.minimized) 1f else 0f }
         val fullscreenVisible by remember(fullscreenProgress) {
             derivedStateOf { fullscreenProgress.value > 0f }
         }
@@ -425,7 +449,7 @@ internal fun KidsWatchContent(
                             .fillMaxSize()
                             .background(Color.Black)
                             .then(
-                                if (content != null && !isInPictureInPicture) {
+                                if ((content != null && !isInPictureInPicture) || miniActive) {
                                     Modifier
                                 } else {
                                     Modifier.pointerInput(content, controlsVisible, isInPictureInPicture) {
@@ -449,14 +473,19 @@ internal fun KidsWatchContent(
                                 .onGloballyPositioned { coordinates -> onPlayerSourceBoundsChanged(coordinates.boundsInWindow()) },
                         resizeMode = PlayerResizeMode.Fit,
                         subtitleStyle = content?.subtitleStyle ?: SubtitleStyle(),
-                        subtitleClearanceActive = controlsVisible && content != null && !isInPictureInPicture,
-                        subtitleBottomClearance = if (controlsVisible && !isInPictureInPicture) subtitleClearance else 0.dp,
+                        subtitleClearanceActive = controlsVisible && content != null && expandedChrome,
+                        subtitleBottomClearance = if (controlsVisible && expandedChrome) subtitleClearance else 0.dp,
                         pictureInPictureRequiresLinearPlayback = content?.pictureInPictureRequiresLinearPlayback == true,
                     )
-                    if (content != null && !isInPictureInPicture) {
+                    // Omitted while minimized so it cannot take mini-player taps, drags or buttons.
+                    if (content != null && expandedChrome) {
                         key(widthPx, heightPx, fullscreenToggle.isFullscreen) {
-                            val dragDirection =
-                                if (fullscreenToggle.isFullscreen) PlayerFullscreenDragDirection.Down else PlayerFullscreenDragDirection.Up
+                            val dragDirections =
+                                if (fullscreenToggle.isFullscreen || onMinimize != null) {
+                                    setOf(PlayerFullscreenDragDirection.Up, PlayerFullscreenDragDirection.Down)
+                                } else {
+                                    setOf(PlayerFullscreenDragDirection.Up)
+                                }
                             PlayerGestureLayer(
                                 content = content,
                                 playbackState = { playbackStateFlow.value },
@@ -470,20 +499,24 @@ internal fun KidsWatchContent(
                                 onHud = { hud -> gestureHud = hud },
                                 volumeAndBrightnessEnabled = false,
                                 playbackGesturesEnabled = fullscreenToggle.isFullscreen,
-                                fullscreenDragDirection = dragDirection,
-                                onFullscreenDrag = { distance, videoHeightPx ->
+                                fullscreenDragDirections = dragDirections,
+                                onFullscreenDrag = { distance, videoHeightPx, direction ->
                                     fullscreenDrag.dragTo(
                                         distance = distance,
                                         maximumPx = heightPx * KIDS_FULLSCREEN_DRAG_MAX_FRACTION,
-                                        direction = dragDirection,
+                                        direction = direction,
                                         thresholdPx = videoHeightPx * KIDS_FULLSCREEN_DRAG_THRESHOLD_FRACTION,
                                     )
                                 },
-                                onFullscreenDragEnd = { cancelled ->
+                                onFullscreenDragEnd = { cancelled, direction ->
+                                    // Watch-page Down minimizes; fullscreen Up or Down returns to the watch page only.
+                                    val minimizes = direction == PlayerFullscreenDragDirection.Down && !fullscreenToggle.isFullscreen
                                     fullscreenDrag.finish(
                                         cancelled = cancelled,
-                                        direction = dragDirection,
-                                        onCommit = fullscreenToggle.toggleFullscreen,
+                                        direction = direction,
+                                        onCommit = {
+                                            if (minimizes) currentOnMinimize?.invoke() else fullscreenToggle.toggleFullscreen()
+                                        },
                                     )
                                 },
                                 modifier = Modifier.fillMaxSize(),
@@ -502,9 +535,22 @@ internal fun KidsWatchContent(
                             )
                         is PlayerUiState.Content -> Unit
                     }
-                    if (!isInPictureInPicture && (controlsVisible || content == null)) {
+                    if (miniActive) {
+                        KidsMiniPlayerOverlay(
+                            state = miniPlayerState,
+                            playbackStateFlow = playbackStateFlow,
+                            showPlaybackControl = content != null,
+                            onRestore = onRestore,
+                            onClose = ::closePlayer,
+                            onPlay = onPlay,
+                            onPause = onPause,
+                            onReplay = onReplay,
+                        )
+                    }
+                    if (expandedChrome && (controlsVisible || content == null)) {
                         KidsNavigationControls(
                             onBack = ::handleBack,
+                            onMinimize = onMinimize.takeUnless { fullscreenToggle.isFullscreen },
                             content = content,
                             optionsExpanded = optionsExpanded,
                             onOptionsExpandedChange = { expanded ->
@@ -516,7 +562,7 @@ internal fun KidsWatchContent(
                             modifier = Modifier.align(Alignment.TopCenter),
                         )
                     }
-                    if (content != null && !isInPictureInPicture) {
+                    if (content != null && expandedChrome) {
                         KidsPlayPauseControl(
                             playbackStateFlow = playbackStateFlow,
                             controlsVisible = controlsVisible,
@@ -526,7 +572,7 @@ internal fun KidsWatchContent(
                             modifier = Modifier.align(Alignment.Center),
                         )
                     }
-                    if (content != null && controlsVisible && !isInPictureInPicture) {
+                    if (content != null && controlsVisible && expandedChrome) {
                         KidsPlayerControls(
                             content = content,
                             session = session,
@@ -543,7 +589,7 @@ internal fun KidsWatchContent(
                                     .onGloballyPositioned { coordinates -> controlsHeightPx = coordinates.size.height.toLong() },
                         )
                     }
-                    if (content != null && !isInPictureInPicture && content.pickerVisible != PlayerPicker.None) {
+                    if (content != null && expandedChrome && content.pickerVisible != PlayerPicker.None) {
                         PlayerPickerSheet(
                             content = content,
                             playbackStateFlow = playbackStateFlow,
@@ -571,7 +617,7 @@ internal fun KidsWatchContent(
                             modifier = Modifier.align(Alignment.BottomCenter).padding(Dimensions.screenPadding),
                         )
                     }
-                    if (content != null && !isInPictureInPicture) {
+                    if (content != null && expandedChrome) {
                         Column(
                             modifier =
                                 Modifier
@@ -604,19 +650,19 @@ internal fun KidsWatchContent(
                             }
                         }
                     }
-                    if (content?.playbackChangeNotice != null && !isInPictureInPicture) {
+                    if (content?.playbackChangeNotice != null && expandedChrome) {
                         PlaybackChangeKeptBanner(
                             notice = content.playbackChangeNotice,
                             onDismiss = { onPlaybackAction(PlaybackAction.Dismiss) },
                             modifier = Modifier.align(Alignment.TopCenter).padding(Dimensions.screenPadding),
                         )
-                    } else if (content?.playbackActionNotice != null && !isInPictureInPicture) {
+                    } else if (content?.playbackActionNotice != null && expandedChrome) {
                         PlaybackActionNoticeBanner(
                             notice = content.playbackActionNotice,
                             onAction = onPlaybackAction,
                             modifier = Modifier.align(Alignment.TopCenter).padding(Dimensions.screenPadding),
                         )
-                    } else if (content?.playbackGuidance != null && !isInPictureInPicture) {
+                    } else if (content?.playbackGuidance != null && expandedChrome) {
                         PlaybackGuidanceBanner(
                             guidance = content.playbackGuidance,
                             onReduce = { content.playbackGuidance.nextLowerQualityRungBps?.let(onSelectQuality) },
@@ -625,7 +671,7 @@ internal fun KidsWatchContent(
                             modifier = Modifier.align(Alignment.TopCenter).padding(Dimensions.screenPadding),
                         )
                     }
-                    if (gestureHud != null && !isInPictureInPicture) {
+                    if (gestureHud != null && expandedChrome) {
                         GestureHud(
                             hud = gestureHud,
                             modifier = Modifier.align(Alignment.Center).padding(Dimensions.screenPadding),
@@ -660,7 +706,27 @@ internal fun KidsWatchContent(
                     )
                 }
             },
-            modifier = Modifier.fillMaxSize().consumeWindowInsets(appliedTopInset),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .consumeWindowInsets(appliedTopInset)
+                    .drawBehind {
+                        val backgroundAlpha = 1f - miniProgress.value.coerceIn(0f, 1f)
+                        if (backgroundAlpha > 0f) drawRect(backgroundBrush, alpha = backgroundAlpha)
+                    }.then(
+                        // Expanded modes own the whole viewport; minimized leaves browsing interactive.
+                        if (miniActive) {
+                            Modifier
+                        } else {
+                            Modifier.pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent()
+                                    }
+                                }
+                            }
+                        },
+                    ),
         ) { measurables, constraints ->
             val player = measurables[0]
             val recommendations = measurables[1]
@@ -670,9 +736,30 @@ internal fun KidsWatchContent(
             val videoSize = if (isInPictureInPicture) targetPlayerBounds.size else playerSize.value
             val videoCenter = if (isInPictureInPicture) targetPlayerBounds.center else playerCenter.value
             val video = Rect(videoCenter - Offset(videoSize.width / 2f, videoSize.height / 2f), videoSize)
-            val videoWidth = video.width.roundToInt().coerceAtLeast(0)
             val videoHeight = video.height.roundToInt().coerceAtLeast(0)
-            val playerPlaceable = player.measure(Constraints.fixed(videoWidth, videoHeight))
+            val miniFraction = if (isInPictureInPicture) 0f else miniProgress.value.coerceIn(0f, 1f)
+            val miniBounds =
+                if (miniFraction > 0f) {
+                    kidsMiniPlayerBounds(
+                        width = width,
+                        height = height,
+                        safeDrawing = safeDrawingInsets,
+                        layoutDirection = layoutDirection,
+                        railWidth = miniPlayerRailWidth(),
+                        bottomPadding = miniPlayerBottomPadding,
+                    )
+                } else {
+                    null
+                }
+            val miniSize = miniBounds?.let { bounds -> kidsMiniPlayerSize(bounds) }
+            val placedVideoSize = if (miniSize != null) lerp(video.size, miniSize, miniFraction) else video.size
+            val playerPlaceable =
+                player.measure(
+                    Constraints.fixed(
+                        placedVideoSize.width.roundToInt().coerceAtLeast(0),
+                        placedVideoSize.height.roundToInt().coerceAtLeast(0),
+                    ),
+                )
             val recommendationRect = recommendationBounds.value
             val recommendationsPlaceable =
                 recommendations.measure(
@@ -690,10 +777,17 @@ internal fun KidsWatchContent(
                     },
                 )
             layout(width, height) {
-                val progress = fullscreenProgress.value.coerceIn(0f, 1f)
+                val progress = maxOf(fullscreenProgress.value.coerceIn(0f, 1f), miniFraction)
                 val videoX = video.left.roundToInt()
                 val videoY = video.top.roundToInt()
-                playerPlaceable.place(videoX, videoY + fullscreenDrag.offsetPx.roundToInt(), zIndex = 1f)
+                val expandedTopLeft = Offset(video.left, video.top + fullscreenDrag.offsetPx)
+                val placedTopLeft =
+                    if (miniBounds != null && miniSize != null) {
+                        lerp(expandedTopLeft, miniPlayerState.topLeft(miniBounds, miniSize), miniFraction)
+                    } else {
+                        expandedTopLeft
+                    }
+                playerPlaceable.place(placedTopLeft.x.roundToInt(), placedTopLeft.y.roundToInt(), zIndex = 1f)
                 if (!isInPictureInPicture && progress < 1f) {
                     if (titleFits) {
                         titlePlaceable.placeWithLayer(videoX, videoY + videoHeight) { alpha = 1f - progress }
@@ -711,6 +805,7 @@ internal fun KidsWatchContent(
 @Composable
 private fun KidsNavigationControls(
     onBack: () -> Unit,
+    onMinimize: (() -> Unit)?,
     content: PlayerUiState.Content?,
     optionsExpanded: Boolean,
     onOptionsExpandedChange: (Boolean) -> Unit,
@@ -728,7 +823,12 @@ private fun KidsNavigationControls(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        KidsControlButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(Res.string.detail_back), onBack)
+        Row(horizontalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
+            KidsControlButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(Res.string.detail_back), onBack)
+            if (onMinimize != null) {
+                KidsControlButton(Icons.Filled.KeyboardArrowDown, stringResource(Res.string.kids_minimize_player), onMinimize)
+            }
+        }
         if (content != null) {
             KidsPlaybackOptions(content, optionsExpanded, onOptionsExpandedChange, onShowPicker, onKeepControlsAlive)
         }
@@ -783,13 +883,14 @@ private fun KidsPlayerControls(
 }
 
 @Composable
-private fun KidsPlayPauseControl(
+internal fun KidsPlayPauseControl(
     playbackStateFlow: StateFlow<PlaybackState>,
     controlsVisible: Boolean,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onReplay: () -> Unit,
     modifier: Modifier = Modifier,
+    primary: Boolean = true,
 ) {
     val statusFlow = remember(playbackStateFlow) { playbackStateFlow.map { it.status }.distinctUntilChanged() }
     val status by statusFlow.collectAsStateWithLifecycle(playbackStateFlow.value.status)
@@ -833,7 +934,7 @@ private fun KidsPlayPauseControl(
                             } else {
                                 onPlay
                             },
-                        primary = true,
+                        primary = primary,
                     )
                 }
             PlaybackStatus.Failed -> Unit
@@ -902,7 +1003,7 @@ private fun KidsPlaybackOptions(
 }
 
 @Composable
-private fun KidsControlButton(
+internal fun KidsControlButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     onClick: () -> Unit,
@@ -1061,6 +1162,7 @@ private fun LazyGridScope.recommendationCards(
 private data class KidsPlayerLayout(
     val landscape: Boolean,
     val fullscreen: Boolean,
+    val minimized: Boolean,
 )
 
 private const val KIDS_FULLSCREEN_DRAG_THRESHOLD_FRACTION = 0.2f
@@ -1072,6 +1174,9 @@ private class KidsFullscreenDragState(
     private var dragging by mutableStateOf(false)
     private var distancePx by mutableFloatStateOf(0f)
     private var startOffsetPx = 0f
+
+    // Commit eligibility uses this gesture's own travel, never an interrupted settle's offset.
+    private var gestureTravelPx = 0f
     private var thresholdPx = 0f
     private val settlingOffset = Animatable(0f)
     private var settlingJob: Job? = null
@@ -1095,6 +1200,7 @@ private class KidsFullscreenDragState(
         val minimum = if (direction == PlayerFullscreenDragDirection.Up) -maximumPx else minOf(0f, startOffsetPx)
         val maximum = if (direction == PlayerFullscreenDragDirection.Down) maximumPx else maxOf(0f, startOffsetPx)
         distancePx = (startOffsetPx + distance).coerceIn(minimum, maximum)
+        gestureTravelPx = distance.coerceIn(-maximumPx, maximumPx)
     }
 
     fun finish(
@@ -1104,7 +1210,7 @@ private class KidsFullscreenDragState(
     ) {
         if (disposed || !dragging) return
         val releasedOffset = distancePx
-        val shouldCommit = !cancelled && releasedOffset * direction.sign >= thresholdPx
+        val shouldCommit = !cancelled && gestureTravelPx * direction.sign >= thresholdPx
         settlingJob =
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 settlingOffset.snapTo(releasedOffset)

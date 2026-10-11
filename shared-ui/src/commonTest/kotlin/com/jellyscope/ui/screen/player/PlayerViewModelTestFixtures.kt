@@ -424,6 +424,7 @@ internal fun playerFixture(
     deviceProfileProvider: DeviceProfileProvider? = null,
     playerBackendOverrideStore: PlayerBackendOverrideStore? = null,
     playbackDiagnosticsContext: PlaybackDiagnosticsContext? = null,
+    launchPolicy: PlayerLaunchPolicy = PlayerLaunchPolicy.Normal,
 ): PlayerFixture {
     val monotonicOrigin =
         kotlin.time.TimeSource.Monotonic
@@ -529,6 +530,7 @@ internal fun playerFixture(
             playbackHealthGuidancePolicy = guidancePolicy.toPlaybackHealthGuidancePolicy(),
             offlineDownloadId = offlineDownloadId,
             getOfflinePlaybackPlanUseCase = getOfflinePlaybackPlanUseCase,
+            launchPolicy = launchPolicy,
         )
 
     return PlayerFixture(

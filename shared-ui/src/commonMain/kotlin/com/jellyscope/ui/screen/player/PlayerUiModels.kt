@@ -289,6 +289,12 @@ fun PlayerPicker.parentPicker(): PlayerPicker =
 
 const val DEFAULT_AUTOPLAY_DELAY_MS = 10_000L
 
+data class KidsPlaybackLaunchRequest(
+    val requestId: String,
+    val itemId: String,
+    val options: PlayerLaunchOptions,
+)
+
 data class PlayerLaunchOptions(
     val startPositionTicks: Long,
     val mediaSourceId: String?,

@@ -27,7 +27,8 @@ is **0.1.0-alpha94**.
   audio controls, autoplay next, and queues
 - [Kids viewing](docs/user/getting-started.md#kids-viewing) on Android/iOS phones and
   tablets, selected by the account's parental rating, with single-video
-  playback, shuffled library choices, compact video controls, and permitted downloads
+  playback, shuffled library choices, a draggable in-app mini-player for browsing
+  while watching, compact controls, and permitted downloads
 - Offline downloads for individual movies and episodes on Android, iOS, macOS,
   and the Apple TV preview when content downloading is enabled for the account,
   with a library-style grid and offline details; new downloads save metadata

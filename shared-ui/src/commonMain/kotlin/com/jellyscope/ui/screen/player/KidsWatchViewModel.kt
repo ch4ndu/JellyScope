@@ -63,12 +63,12 @@ data class KidsWatchUiState(
     val hasMissingOfflineArtifacts: Boolean = false,
 )
 
-/** Account- and route-bound recommendation state for a single Kids watch page. */
+/** Account- and session-bound recommendation state for a Kids watch session. */
 class KidsWatchViewModel(
     private val session: Session,
     private val boundaryEpoch: Long,
     initialItemId: String,
-    private val initialOfflineDownloadId: DownloadId?,
+    initialOfflineDownloadId: DownloadId?,
     private val getKidsCatalogueUseCase: GetKidsCatalogueUseCase,
     private val observeDownloadsUseCase: ObserveDownloadsUseCase,
     private val getOfflinePlaybackPlanUseCase: GetOfflinePlaybackPlanUseCase,
@@ -93,11 +93,14 @@ class KidsWatchViewModel(
     private var offlineRefreshJob: Job? = null
     private val imageUrlBuilder = JellyfinImageUrlBuilder()
 
+    // Downloaded playback recommends only qualified downloads and makes no remote catalogue requests.
+    private var offlineMode = initialOfflineDownloadId != null
+
     init {
         if (session.enableContentDownloading) {
             observeDownloads()
         }
-        if (initialOfflineDownloadId == null) {
+        if (!offlineMode) {
             loadCatalogue()
         } else {
             _state.update { current -> current.copy(catalogueState = KidsCatalogueState.Empty) }
@@ -106,9 +109,33 @@ class KidsWatchViewModel(
 
     fun retryCatalogue() {
         retryOfflineQualification()
-        if (initialOfflineDownloadId == null) {
+        if (!offlineMode) {
             loadCatalogue()
         }
+    }
+
+    /** Applies a Play request the player accepted; same-mode launches keep the shuffled pool. */
+    fun acceptExternalLaunch(
+        itemId: String,
+        offlineDownloadId: DownloadId?,
+    ) {
+        if (itemId.isBlank()) return
+        val offline = offlineDownloadId != null
+        if (offline != offlineMode) {
+            offlineMode = offline
+            if (offline) {
+                catalogueGeneration += 1L
+                catalogueJob?.cancel()
+                catalogueJob = null
+                remoteOrder = emptyList()
+                _state.update { current ->
+                    current.copy(catalogueState = if (offlinePool.isEmpty()) KidsCatalogueState.Empty else KidsCatalogueState.Content)
+                }
+            } else {
+                loadCatalogue()
+            }
+        }
+        selectAccepted(itemId)
     }
 
     fun retryOfflineQualification() {
@@ -340,7 +367,7 @@ class KidsWatchViewModel(
                 hasMissingOfflineArtifacts = hasMissingOfflineArtifacts,
             )
         }
-        if (initialOfflineDownloadId != null) {
+        if (offlineMode) {
             _state.update { current ->
                 current.copy(catalogueState = if (offlinePool.isEmpty()) KidsCatalogueState.Empty else KidsCatalogueState.Content)
             }
@@ -354,6 +381,7 @@ class KidsWatchViewModel(
         val selectedId = state.value.selectedItemId
         val remoteOrderSnapshot = remoteOrder
         val offlineSnapshot = offlinePool
+        val offlineModeSnapshot = offlineMode
         projectionJob =
             viewModelScope.launch {
                 val projection =
@@ -362,7 +390,7 @@ class KidsWatchViewModel(
                             selectedId = selectedId,
                             remoteOrder = remoteOrderSnapshot,
                             offlinePool = offlineSnapshot,
-                            initialOfflineDownloadId = initialOfflineDownloadId,
+                            offlineMode = offlineModeSnapshot,
                         )
                     }
                 if (generation != projectionGeneration || selectedId != state.value.selectedItemId) return@launch
@@ -412,10 +440,10 @@ private fun projectKidsWatchItems(
     selectedId: String,
     remoteOrder: List<KidsWatchItem>,
     offlinePool: List<KidsWatchItem>,
-    initialOfflineDownloadId: DownloadId?,
+    offlineMode: Boolean,
 ): KidsWatchProjection {
     val recommendations =
-        (if (initialOfflineDownloadId == null) remoteOrder else offlinePool)
+        (if (offlineMode) offlinePool else remoteOrder)
             .filterNot { item -> item.card.id == selectedId }
     val offlineFallback = offlinePool.filterNot { item -> item.card.id == selectedId }
     return KidsWatchProjection(

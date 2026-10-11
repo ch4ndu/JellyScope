@@ -58,10 +58,20 @@ choice on the concrete episode where it is offered.
 
 JellyScope selects Kids viewing on Android/iOS phones and tablets from the
 account's parental rating. It plays one chosen video at a time: recommendations
-are choices, not an autoplay queue. The compact watch page supports selecting
-another title, fullscreen, and permitted downloads. The normal player's queue,
-Up Next, and automatic episode advance do not apply. See [Kids engineering](../engineering/kids-viewing.md)
-for eligibility and lifecycle details.
+are choices, not an autoplay queue. The watch page supports selecting another
+title, fullscreen, and permitted downloads.
+
+Swipe down on the watch-page video, or use its minimize button, to keep watching
+in a small window while browsing. From fullscreen, swipe up or down to return to
+the watch page, then down to minimize. The window scales with the available space
+on phones and tablets. It starts at the bottom-right;
+drag it to any corner. Tap it to reopen the watch page, use its play/pause or
+Replay control, or close it. Back navigates the app while the window is small.
+Choosing another video opens its watch page with your selected playback options.
+
+The normal player's queue, Up Next, and automatic episode advance do not apply.
+See [Kids engineering](../engineering/kids-viewing.md) for eligibility and
+lifecycle details.
 
 ## Account changes and saved files
 

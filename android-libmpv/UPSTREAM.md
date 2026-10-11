@@ -26,16 +26,17 @@ wrapper:
    fence. Surface attachment rejects overwriting a retained global reference.
    Final engine destruction retains the reference until mpv terminates.
 
-The native input is `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2`, a
-local candidate whose source commit and
-[proposed release](https://github.com/ch4ndu/jellyscope-mpv-android/releases/tag/v0.41.0-jellyscope.2)
-are pending. It replaces `libmpv.so` and `libavformat.so` for `armeabi-v7a`,
+The native input is `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2`, bound to
+native commit `662fa5159800ea4d72c6fb0eca088a511c52583d`. Its complete assets are
+prepared locally; the
+[release](https://github.com/ch4ndu/jellyscope-mpv-android/releases/tag/v0.41.0-jellyscope.2)
+awaits owner publication. It replaces `libmpv.so` and `libavformat.so` for `armeabi-v7a`,
 `arm64-v8a` and `x86_64`: all three carry the encoded-audio carrier-rate
 AudioTrack patch and the SPDIF muxer, and ARM32 additionally carries the
 ImageReader patches and crop diagnostics. Other provider libraries/ABIs remain
 unchanged. This module rebuilds only the JNI bridge; it does not build mpv or
-its native dependencies. Native patch sources, notices and the pending
-source/publication and qualification status are recorded in
+its native dependencies. Native patch sources, notices, owner-reported device
+acceptance and the pending publication checks are recorded in
 [`SOURCE_MANIFEST.md`](../scripts/android-mpv-bundle/SOURCE_MANIFEST.md).
 
 The small headers under `src/main/cpp/include/` are the ABI declarations used

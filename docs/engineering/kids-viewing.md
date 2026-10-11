@@ -33,7 +33,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   separate watch-history shelf or additional history requests. Only
   artifact-unavailable errors remove a local card; decoder or backend failures
   do not invalidate its files.
-- Explicit offline watch entries make no catalogue/history requests. Their pool
+- Accepted external Play requests select the remote or offline catalogue mode.
+  Same-mode launches keep the shuffled pool. Entering offline mode cancels and
+  invalidates remote loading and projection; returning to remote mode reloads it.
+  Explicit offline watch entries make no catalogue/history requests. Their pool
   contains current-account Completed Movie/Episode records whose artifacts pass
   `GetOfflinePlaybackPlanUseCase`; missing or changed generations invalidate
   qualification, and explicit retry rechecks. Playback always revalidates a tap.
@@ -53,16 +56,24 @@ metadata, Next/Previous/Shuffle, Up Next, automatic advance, and still-watching
 countdowns are suppressed. Recommendation cards never become queue entries.
 Completion settles reporting and keeps the selected asset displayed for Replay.
 
-Direct selection retains one PlayerViewModel/controller owner and the existing
-release-first installation path. The accepted target owns item ID, optional
-DownloadId, and launch identity. Initial loading, selection, and retry share the
-cancellable launch owner; selection invalidates outgoing seek/plan/source/track
-state and settles reporting before installing the new target. Refused controller
-installation conflicts leave selection unchanged, and stale completions cannot
-replace the latest accepted target. Retry uses that current target; constructor
-source fallback is limited to the initial target before manual selection.
-Retry reuses a controller position only after the current selected target has
-actually played; earlier failures preserve that target's launch position.
+The account shell owns one active Kids playback session with a dedicated
+ViewModel store. A Player route transfers its complete request once and pops
+only its own navigation entry. The shell retains the same PlayerScreen, native
+surface, and platform effects across browsing, minimization and restoration.
+Constructor arguments remain the session's first request; later Play actions use
+an explicit acceptance API, including same-title requests with new options.
+Closing or leaving the account clears the store. A later session gets a fresh
+identity; stale callbacks cannot close it. A normal Player route clears the Kids
+session before constructing its own owner.
+
+Direct selection retains the existing release-first installation path. External
+requests cancellably wait at the installer mutex, release that barrier, then
+check freshness and dispatch through the existing selection path without another
+suspension. Newer requests, accepted selections, stop and disposal invalidate old
+waiters. Selection invalidates outgoing seek/plan/source/track state and settles
+reporting before installation. The accepted target retains its resume, source,
+audio, subtitle and offline restart intent through planning failure and Retry.
+Retry uses a controller position only after that target has actually played.
 
 Remote recommendation cards begin at zero; ordinary local cards use saved local
 resume. Replay explicitly starts from the beginning, including
@@ -77,8 +88,8 @@ to [Kids watch page](#kids-watch-page).
 ## Kids watch page
 
 - Eligibility and account freshness follow [Kids account playback](#kids-account-playback).
-  The presentation is captured once per player route on Android/iOS phones and
-  tablets; TV and desktop keep normal playback. There is no app toggle, Kids
+  Presentation is selected at Player route entry and retained for the active
+  session on Android/iOS phones and tablets; TV and desktop keep normal playback. There is no app toggle, Kids
   home redesign, parent approval, or viewing timer.
 - The [selected touch mockups](../design/kids-mode/player-mockups/README.md)
   define video placement and control hierarchy. Recommendations use the vertical
@@ -131,8 +142,10 @@ to [Kids watch page](#kids-watch-page).
   banners and timeout constants; the audio warning can be dismissed and returns
   on control interaction, with a glyph while controls are hidden. Gesture HUDs
   expire using the shared timeout.
-- Dragging the inline video upward enters fullscreen; dragging the fullscreen
-  video downward exits it. Either direction follows the finger up to 50% of the
+- Dragging the watch-page video upward enters fullscreen; dragging fullscreen
+  upward or downward returns to the watch page. Dragging downward on the watch page minimizes, as does
+  the watch-page minimize button. Direction is latched after touch slop. Either
+  direction follows the finger up to 50% of the
   watch screen height, allowing the video to move off-screen. The release
   threshold in both directions is 20% of the measured video viewport height at
   pointer-down, fixed for that gesture even if its size changes. Releasing at or
@@ -144,10 +157,29 @@ to [Kids watch page](#kids-watch-page).
   system gesture edges and overlaid controls keep their input ownership. Kids
   disables brightness/volume swipes on both sides without acquiring the native
   brightness controller. Fullscreen tap, double-tap seek, and hold speed remain.
-- Back returns within or closes a picker, then exits fullscreen, then stops and
-  pops the watch route. It has no extra hide-controls step. Background/PiP close
-  uses the explicit route stop path. Permitted Downloads navigation also stops
-  and pops the player before opening the existing destination.
+- The 16:9 mini-player first docks bottom-right and later retains the chosen
+  corner. Every phone and tablet prefers 40% of the usable width, with a soft
+  limit of 50% of the usable height and no fixed video-width limits. The minimum
+  is derived from two 48 dp touch targets and their 8 dp insets; physical screen
+  bounds take precedence. A 360 dp phone with 336 dp usable width produces about
+  134 × 76 dp of video. Play/pause moves from center to start when needed to avoid
+  the inset close target, including during the minimize animation. The close
+  target sits 8 dp inside the video; native visibility still needs device validation.
+  Drag follows the finger and settles to the nearest corner; rotation
+  and keyboard changes clamp it inside safe drawing, rail and bottom-bar bounds,
+  taking the largest inset at each edge. Placement reads drag/animation values.
+  Only the video rectangle receives player input while minimized. Tap restores
+  the watch page without relaunching; local controls provide play/pause, Replay
+  and close. Loading stays visible. Expanded playback covers the browse screen
+  and excludes it from accessibility and focus; minimizing makes it available.
+- Expanded Back returns within or closes a picker, exits fullscreen, then stops
+  and clears the hosted session. Minimized Back belongs to browsing. Close and
+  background/PiP stop never pop a browsing destination. Settings/Downloads
+  actions stop and clear the session before opening their existing destinations.
+  Blocking errors and mandatory recovery reopen the watch page. System PiP uses
+  the full video canvas without custom controls, restoring the prior in-app mode
+  on exit unless recovery requires the watch page. Native PiP/background policy
+  remains unchanged; small-layer iOS auto-PiP needs device validation.
 - Offline cards use saved snapshot metadata and artwork. Legacy downloads and
   missing images use placeholders; cached remote thumbnails do not imply offline
   availability. Download permission and artifact qualification remain governed by the [download contract](downloads.md#downloads-and-offline).
@@ -167,9 +199,13 @@ to [Kids watch page](#kids-watch-page).
   completion. Kids uses a distinct launch policy while retaining the existing
   planner, reporting, artifact leases, and native installation owner.
 
-- Kids recommendations are discovery views, not queues. One retained
-  player and explicit selection avoid autoplay while preserving responsive
-  layout and fullscreen continuity. Animation keeps the live surface; rotation
+- Kids recommendations are discovery views, not queues. An account-shell owner
+  keeps playback alive while navigation changes; a fresh store after close
+  prevents disposed state from surviving the next Play. Complete request intent
+  and cancellable admission keep replacement and Retry tied to the selected
+  target. One mounted native surface preserves browsing/fullscreen continuity. Animation keeps the live surface; rotation
   uses the destination pane center and longer timing, while fullscreen keeps its
   shorter timing. A video-height release threshold makes drag transitions
-  reversible and reachable in portrait.
+  reversible and reachable in portrait. Proportional mini-player sizing follows
+  the available window on phones and tablets; a control-derived minimum and
+  adaptive control placement preserve usable touch targets without fixed video sizes.

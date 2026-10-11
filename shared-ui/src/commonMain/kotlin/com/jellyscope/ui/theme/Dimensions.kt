@@ -88,6 +88,9 @@ object Dimensions {
     val playerPrimaryIconSize = 36.dp
     val videoCardAspectRatio = 16f / 9f
     val kidsLandscapePlayerFraction = 0.68f
+    val kidsMiniPlayerWidthFraction = 0.4f
+    val kidsMiniPlayerMaxHeightFraction = 0.5f
+    val kidsMiniPlayerMargin = 12.dp
     val playerTimeLabelMaxWidth = 72.dp
     val playerPickerMaxWidth = 640.dp
     val playerPickerListMaxHeight = 320.dp

@@ -2,9 +2,9 @@
 # Audited provenance and package inventory for scripts/verify-android-native-bundle.sh.
 # The libmpv AAR is a build input; android-libmpv compiles the shipped wrapper.
 # Review this record whenever the native graph changes.
-# 0.41.0-jellyscope.2 is a local candidate: its native source commit, tag and
-# release assets are pending, and the routes below are proposed. Release blocks
-# until source-commit is the real native commit and the assets are public.
+# 0.41.0-jellyscope.2 is bound to the native source commit below. Its release
+# assets are prepared locally; publication and ordinary public resolution remain
+# pending. The download routes must be verified before an app release.
 manifest-version=2
 artifact-coordinate=io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2
 artifact-url=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2.aar
@@ -17,7 +17,7 @@ wrapper-patches=typed-log-request,no-raw-logcat,idempotent-destroy,stopped-surfa
 wrapper-libraries=libplayer.so
 source-repository=https://github.com/ch4ndu/jellyscope-mpv-android
 source-tag=v0.41.0-jellyscope.2
-source-commit=pending-native-source-commit
+source-commit=662fa5159800ea4d72c6fb0eca088a511c52583d
 source-archive=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz
 source-notices=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-notices.zip
 provider-artifact-coordinate=dev.jdtech.mpv:libmpv:1.0.0

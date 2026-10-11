@@ -11,8 +11,9 @@ remains the default on API-25 devices.
 
 The project-owned `:android-libmpv` module prepares
 `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2` as its only external mpv input.
-The `.2` source commit, complete source/notice assets and publication are pending;
-its proposed release routes are not ordinary public-resolution evidence. The
+The `.2` assets are bound to native commit
+`662fa5159800ea4d72c6fb0eca088a511c52583d` and prepared locally. Owner publication
+and ordinary public resolution remain pending. The
 published `.1` remains immutable. Prepublication qualification uses an ignored
 local resolver; final ordinary builds must resolve the new public AAR through
 the existing exclusive artifact-only Ivy repository without that override.
@@ -33,16 +34,18 @@ no unresolved strong imports against the retained provider libraries plus
 API-26 stubs, preserved exports and dependency lists, and registered SPDIF
 muxers. The new AAR/source-config records match those outputs. These checks do
 not establish Android loader behavior or physical surround acceptance. Earlier
-`.1` Cube and local-candidate TiVo acceptance are historical; new Shield/TiVo
-qualification and Cube/x86 physical limits remain separate.
+`.1` Cube and earlier local-candidate TiVo acceptance are historical. For the
+`.2` bundle, the owner confirmed Shield playback/surround on 2026-10-08 and
+TiVo playback/audio on 2026-10-10. Untested routes/controls and rebuilt Cube/x86
+physical limits remain separate.
 
 The AAR is extracted into the module build directory. All native libraries
 except the original `libplayer.so` and x86 are retained. The committed project
 bridge compiles against the extracted `libmpv.so`, `libavcodec.so`, and NDK-29 C++
 runtime. Its upstream wrapper remains provider commit
-`fcf6745703dc1265bca88f12fee8fc355ddf251e`; the real `.2` native source commit
-and tag still await the explicit Git checkpoint. Both provenance layers and
-proposed source/notice routes are recorded in
+`fcf6745703dc1265bca88f12fee8fc355ddf251e`; the `.2` native source commit is
+`662fa5159800ea4d72c6fb0eca088a511c52583d`. Both provenance layers and the
+source/notice routes awaiting publication are recorded in
 [`scripts/android-mpv-bundle/manifest-1.0.0.txt`](../../scripts/android-mpv-bundle/manifest-1.0.0.txt).
 The stable manifest filename remains unchanged for packaged consumers.
 
