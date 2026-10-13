@@ -159,11 +159,14 @@ to [Kids watch page](#kids-watch-page).
   brightness controller. Fullscreen tap, double-tap seek, and hold speed remain.
 - The 16:9 mini-player first docks bottom-right and later retains the chosen
   corner. Every phone and tablet prefers 40% of the usable width, with a soft
-  limit of 50% of the usable height and no fixed video-width limits. The minimum
-  is derived from two 48 dp touch targets and their 8 dp insets; physical screen
-  bounds take precedence. A 360 dp phone with 336 dp usable width produces about
-  134 × 76 dp of video. Play/pause moves from center to start when needed to avoid
-  the inset close target, including during the minimize animation. The close
+  limit of 50% of the usable height. The minimum width is 240 dp, never below
+  the width needed for two 48 dp touch targets and their 8 dp insets. This minimum
+  overrides the soft height limit; the usable window bounds always take precedence.
+  A 360 dp phone with 336 dp usable width produces 240 × 135 dp of video,
+  about 71% of that usable width. Proportional growth starts above 600 dp usable
+  width when height permits, with no fixed maximum. Play/pause moves from center
+  to start when needed to avoid the inset close target, including during the
+  minimize animation. The close
   target sits 8 dp inside the video; native visibility still needs device validation.
   Drag follows the finger and settles to the nearest corner; rotation
   and keyboard changes clamp it inside safe drawing, rail and bottom-bar bounds,
@@ -207,5 +210,6 @@ to [Kids watch page](#kids-watch-page).
   uses the destination pane center and longer timing, while fullscreen keeps its
   shorter timing. A video-height release threshold makes drag transitions
   reversible and reachable in portrait. Proportional mini-player sizing follows
-  the available window on phones and tablets; a control-derived minimum and
-  adaptive control placement preserve usable touch targets without fixed video sizes.
+  the available window on phones and tablets; a 240 dp minimum keeps the video
+  watchable on small phones. Density conversion preserves that minimum across
+  displays, while hard bounds and adaptive control placement handle smaller windows.

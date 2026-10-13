@@ -90,6 +90,7 @@ object Dimensions {
     val kidsLandscapePlayerFraction = 0.68f
     val kidsMiniPlayerWidthFraction = 0.4f
     val kidsMiniPlayerMaxHeightFraction = 0.5f
+    val kidsMiniPlayerMinWidth = 240.dp
     val kidsMiniPlayerMargin = 12.dp
     val playerTimeLabelMaxWidth = 72.dp
     val playerPickerMaxWidth = 640.dp

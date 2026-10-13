@@ -156,20 +156,23 @@ internal fun Density.kidsMiniPlayerBounds(
 }
 
 /**
- * 16:9 mini-player size. Every window prefers the same fraction of the usable width (softly
- * capped by a fraction of its height), never below the width that fits the play and close
- * targets side by side inside their insets. The usable rectangle is a hard clamp, so only
- * windows too small for that minimum shrink below it; at the narrowest widths the compact
- * buffering spinner may still touch the close inset while touch targets stay full size.
+ * 16:9 mini-player size. The minimum width is the larger of a practical phone-sized floor
+ * and the width that fits the play and close targets side by side inside their insets.
+ * Above that floor every window grows with the same fraction of the usable width, softly
+ * capped by a fraction of its height; the floor wins over that soft height preference. The
+ * usable rectangle is a hard clamp, so only windows too small for the minimum shrink below
+ * it; at the narrowest widths the compact buffering spinner may still touch the close inset
+ * while touch targets stay full size.
  */
 internal fun Density.kidsMiniPlayerSize(bounds: Rect): Size {
     val aspectRatio = Dimensions.videoCardAspectRatio
     val target = Dimensions.minTouchTarget.toPx()
     val inset = Dimensions.contentSpacing.toPx()
     val controlsMinWidth = max(2 * target + 2 * inset, (target + 2 * inset) * aspectRatio)
+    val minimumWidth = max(Dimensions.kidsMiniPlayerMinWidth.toPx(), controlsMinWidth)
     val preferredWidth =
         max(
-            controlsMinWidth,
+            minimumWidth,
             min(
                 bounds.width * Dimensions.kidsMiniPlayerWidthFraction,
                 bounds.height * Dimensions.kidsMiniPlayerMaxHeightFraction * aspectRatio,

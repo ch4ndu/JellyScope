@@ -64,7 +64,7 @@ title, fullscreen, and permitted downloads.
 Swipe down on the watch-page video, or use its minimize button, to keep watching
 in a small window while browsing. From fullscreen, swipe up or down to return to
 the watch page, then down to minimize. The window scales with the available space
-on phones and tablets. It starts at the bottom-right;
+on phones and tablets, with a practical minimum size. It starts at the bottom-right;
 drag it to any corner. Tap it to reopen the watch page, use its play/pause or
 Replay control, or close it. Back navigates the app while the window is small.
 Choosing another video opens its watch page with your selected playback options.
