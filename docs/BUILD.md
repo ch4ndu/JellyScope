@@ -257,6 +257,16 @@ disables developer properties, and runs the iOS release-ready license check.
 Other configurations cannot archive/install; local Release uses the
 non-distribution check.
 
+Native Debug builds enable incremental compilation of project klibs through
+`kotlin.incremental.native=true`. The first build populates caches; subsequent
+Kotlin edits can reuse them. For a diagnostic comparison, override the setting
+on a direct Gradle invocation with `-Pkotlin.incremental.native=false`. This
+setting does not make the pinned compiler's optimized Release links incremental.
+
+The shared UI DI module uses `@HiddenFromObjC` to keep Koin out of Swift's API
+while remaining public to other Kotlin modules. Preserve the iOS entry point
+and background-download bridge when changing exported declarations.
+
 ## tvOS
 
 `tvos-app/` hosts the native SwiftUI shell over the `SharedTv` framework

@@ -1300,14 +1300,9 @@ class Media3PlayerController(
     ): NativeTrackResolution<Tracks.Group> {
         val typedGroups =
             tracks.groups
-                .withIndex()
-                .filter { (_, group) -> group.type == type }
-                .filterNot { (_, group) -> type == C.TRACK_TYPE_TEXT && group.isKnownExternalSubtitleGroup() }
+                .filter { group -> group.type == type }
+                .filterNot { group -> type == C.TRACK_TYPE_TEXT && group.isKnownExternalSubtitleGroup() }
 
-        val ordered =
-            typedGroups.sortedWith { left, right ->
-                compareMedia3TrackIds(left.value.firstFormatId(), right.value.firstFormatId(), left.index, right.index)
-            }
         val trackKind =
             if (type == C.TRACK_TYPE_TEXT) {
                 EmbeddedTrackKind.Subtitle
@@ -1318,11 +1313,11 @@ class Media3PlayerController(
             descriptor = descriptor,
             trackKind = trackKind,
             candidates =
-                ordered.map { (_, group) ->
+                typedGroups.map { group ->
                     val format = group.firstFormatOrNull()
                     Media3TrackResolutionCandidate(
                         value = group,
-                        stableSourceIndex = format?.id.media3StableSourceIndex(),
+                        formatId = format?.id,
                         codec =
                             if (trackKind == EmbeddedTrackKind.Subtitle) {
                                 format?.subtitleCodecIdentity()
@@ -1338,8 +1333,6 @@ class Media3PlayerController(
     }
 
     private fun Tracks.Group.firstFormatOrNull(): Format? = if (length > 0) getTrackFormat(0) else null
-
-    private fun Tracks.Group.firstFormatId(): String? = firstFormatOrNull()?.id
 
     private fun Format.subtitleCodecIdentity(): String? =
         listOf(codecs, sampleMimeType)
@@ -1642,7 +1635,7 @@ private fun AnalyticsListener.EventTime.prepareEpoch(): Long? {
 
 internal data class Media3TrackResolutionCandidate<T>(
     val value: T,
-    val stableSourceIndex: Int?,
+    val formatId: String?,
     val codec: String?,
     val language: String?,
     val label: String?,
@@ -1690,10 +1683,16 @@ internal fun <T> resolveMedia3TrackCandidates(
     trackKind: EmbeddedTrackKind,
     candidates: List<Media3TrackResolutionCandidate<T>>,
 ): NativeTrackResolution<T> {
+    val ordered =
+        candidates
+            .withIndex()
+            .sortedWith { left, right ->
+                compareMedia3TrackIds(left.value.formatId, right.value.formatId, left.index, right.index)
+            }.map { it.value }
     val eligible =
         when (trackKind) {
-            EmbeddedTrackKind.Audio -> candidates.filter(Media3TrackResolutionCandidate<T>::supported)
-            EmbeddedTrackKind.Subtitle -> candidates
+            EmbeddedTrackKind.Audio -> ordered.filter(Media3TrackResolutionCandidate<T>::supported)
+            EmbeddedTrackKind.Subtitle -> ordered
         }
     if (trackKind == EmbeddedTrackKind.Audio && candidates.isNotEmpty() && eligible.isEmpty()) {
         return NativeTrackResolution(
@@ -1709,7 +1708,8 @@ internal fun <T> resolveMedia3TrackCandidates(
                 eligible.map { candidate ->
                     NativeTrackCandidate(
                         value = candidate,
-                        stableSourceIndex = candidate.stableSourceIndex,
+                        // Extractor IDs (for example Matroska TrackNumber) are not FFmpeg/Jellyfin stream indexes.
+                        stableSourceIndex = null,
                         codec = candidate.codec,
                         language = candidate.language,
                         label = candidate.label,
@@ -1799,12 +1799,6 @@ internal fun compareMedia3TrackIds(
     }
     return leftNativeOrder.compareTo(rightNativeOrder)
 }
-
-internal fun String?.media3StableSourceIndex(): Int? =
-    numericColonComponents()
-        ?.lastOrNull()
-        ?.takeIf { value -> value in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() }
-        ?.toInt()
 
 private fun String?.numericColonComponents(): List<Long>? {
     val value = this?.takeIf { candidate -> candidate.isNotBlank() } ?: return null

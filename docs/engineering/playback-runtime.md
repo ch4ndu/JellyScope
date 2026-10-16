@@ -317,8 +317,10 @@ suppresses interactive recovery until it is safe to show the consequence.
   zero matches are not found and multiple matches are ambiguous. Neither result
   permits a closest-language or closest-title guess. Media3 sorts fully numeric
   colon-delimited ids numerically and excludes JellyScope sidecars/external
-  groups; AVPlayer uses ready media-selection-group order and confirms the exact
-  option identity; mpv prefers `ff-index` and sets `aid`/`sid` to the resolved
+  groups. Those extractor IDs are ordering hints, not Jellyfin stream indexes;
+  Media3 resolves audio and subtitles by ordinal with metadata validation, then
+  unique metadata fallback. AVPlayer uses ready media-selection-group order and
+  confirms the exact option identity; mpv prefers `ff-index` and sets `aid`/`sid` to the resolved
   `track-list/N/id`, never `ordinal + 1`. Subtitle codec comparison uses the
   canonical alias families. Audio comparison lowercases and trims, strips an
   `audio/` MIME prefix, then maps `eac3-joc`/`ec-3`/`ec+3` to `eac3`, `ac-3` to
@@ -615,6 +617,11 @@ server/user IDs, titles, paths, or raw native errors.
     server.
 
 ## Why
+
+- **Media3 IDs are container-specific.** Matroska TrackNumber can numerically
+  collide with a different Jellyfin stream index. Treating that collision as
+  exact identity can map two picker choices to one native track and falsely
+  confirm both. Numeric ordering remains useful without asserting identity.
 
 - **Native observations share teardown ownership.** A diagnostic getter can
   block like stop. Serialize snapshots with native transitions off Main, publish

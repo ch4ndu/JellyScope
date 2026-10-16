@@ -38,7 +38,12 @@ import com.jellyscope.ui.screen.settings.SettingsViewModel
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.parameter.parametersOf
 import org.koin.dsl.module
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
 
+// App shells install this module from Kotlin; it is not part of the Swift API.
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
 val sharedUiModule =
     module {
         single {

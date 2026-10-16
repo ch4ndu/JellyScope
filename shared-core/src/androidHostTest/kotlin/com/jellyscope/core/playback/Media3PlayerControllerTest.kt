@@ -183,12 +183,27 @@ class Media3PlayerControllerTest {
     }
 
     @Test
-    fun onlyFullyNumericIdsExposeStableSourceIdentity() {
-        assertEquals(7, "2:7".media3StableSourceIndex())
-        assertEquals(9, "9".media3StableSourceIndex())
-        assertEquals(null, "period:7".media3StableSourceIndex())
-        assertEquals(null, "7:bad".media3StableSourceIndex())
-        assertEquals(null, null.media3StableSourceIndex())
+    fun numericContainerIdsDoNotCollapseDistinctAudioAndSubtitleSelections() {
+        for (kind in listOf(EmbeddedTrackKind.Audio, EmbeddedTrackKind.Subtitle)) {
+            val firstStreamIndex = if (kind == EmbeddedTrackKind.Audio) 1 else 3
+            val codec = if (kind == EmbeddedTrackKind.Audio) "aac" else "srt"
+            val candidates =
+                (0..1).map { ordinal ->
+                    media3Candidate("track-$ordinal", codec = codec, supported = true)
+                        .copy(formatId = "1:${firstStreamIndex + ordinal + 1}")
+                }
+            val selected =
+                (0..1).map { ordinal ->
+                    resolveMedia3TrackCandidates(
+                        PlannedEmbeddedTrack(firstStreamIndex + ordinal, ordinal, codec, null, null),
+                        kind,
+                        candidates.reversed(),
+                    )
+                }
+
+            assertEquals(listOf("track-0", "track-1"), selected.map { it.candidate }, kind.name)
+            assertTrue(selected.all { it.reason == NativeTrackMappingReason.Ordinal }, kind.name)
+        }
     }
 
     @Test
@@ -451,7 +466,7 @@ private fun media3Candidate(
     supported: Boolean,
 ) = Media3TrackResolutionCandidate(
     value = value,
-    stableSourceIndex = null,
+    formatId = null,
     codec = codec,
     language = language,
     label = null,
