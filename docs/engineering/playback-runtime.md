@@ -542,6 +542,9 @@ old dialog actions. Thresholds and capture fields live in
 
 ### Recovery coordinator ownership
 
+The `playback-policy` module owns these recovery/health coordinators and their
+request-policy values; presentation owners supply scope, clock and callbacks.
+
 `AutoPlaybackRecoveryCoordinator` is pure common-domain logic: it has no
 coroutines, controller references, persistence calls, navigation, or strings.
 It owns the two one-shot budgets and produces `CompatibilityReplan`, `LowerTo`,

@@ -148,6 +148,9 @@ platform/src/commonMain/kotlin/.../
 player/src/commonMain/kotlin/.../
 +-- domain/playback/      # controller contracts, state and runtime observations
 
+playback-policy/src/commonMain/kotlin/.../
++-- domain/playback/      # recovery, health, still-watching and request policy
+
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
 +-- domain/               # adapters, usecase, action, planning and runtime
@@ -252,6 +255,16 @@ Kotlin bridges hidden from Objective-C; private constructors, private copy
 visibility and validation remain intact. Core exposes player through API, and
 both tvOS frameworks explicitly export it to retain the existing public surface.
 The narrow iOS facade keeps no exports.
+
+`playback-policy` owns recovery decisions, health evaluation/session mechanics,
+still-watching state and request-policy values over `core-model`, `player` and
+coroutines. Scope, clock, capabilities and result callbacks remain supplied by
+the presentation owner; planner execution, native commands, diagnostics,
+persistence and navigation stay above. Private helpers, sealed families and
+request defaults stay with their declarations. Core exposes the module through
+API, and both tvOS frameworks explicitly export it. The upper device-policy
+file retains its public `isDefault` extension and file facade.
+The [playback policy guide](playback-policy.md) covers the broader quality and wire contracts.
 
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
 image infrastructure over `shared-core`. `settings-account`,
@@ -560,6 +573,11 @@ gates live in
   keep construction with private invariants; native polling and reporting side
   effects remain with their existing lifecycle owners. The two production Kotlin
   bridges preserve those invariants without adding a Swift API.
+- Recovery and health policy have a separate owner so shared precedence,
+  one-shot budgets and evidence windows stay independent of native execution.
+  Caller-owned scope and callbacks preserve presentation lifetime and side-effect
+  authority; literal request values let recovery express intent without importing
+  the planner or persistence.
 - The iOS framework boundary keeps unused presentation declarations out of the
   Swift API and its native export roots. It preserves full Release optimization;
   fewer exported roots can reduce the graph processed by global optimization.

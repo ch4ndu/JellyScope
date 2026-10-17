@@ -203,6 +203,7 @@ kotlin {
             export(project(":diagnostics"))
             export(project(":platform"))
             export(project(":player"))
+            export(project(":playback-policy"))
         }
     }
 
@@ -215,6 +216,7 @@ kotlin {
             export(project(":diagnostics"))
             export(project(":platform"))
             export(project(":player"))
+            export(project(":playback-policy"))
         }
     }
 
@@ -232,6 +234,7 @@ kotlin {
             api(project(":diagnostics"))
             api(project(":platform"))
             api(project(":player"))
+            api(project(":playback-policy"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }

@@ -348,7 +348,7 @@ completion criteria. Broad changes use this baseline:
 ```bash
 ./scripts/verify.sh
 ./gradlew :core-model:jvmTest :diagnostics:jvmTest \
-  :platform:jvmTest :player:jvmTest \
+  :platform:jvmTest :player:jvmTest :playback-policy:jvmTest \
   :ui-foundation:jvmTest :settings-account:jvmTest \
   :browse:jvmTest :playback:jvmTest :detail:jvmTest \
   :auth:jvmTest :downloads:jvmTest
@@ -376,9 +376,11 @@ to UI, playback, and platform changes.
   cleanup contracts and cancellation-safe result handling over `diagnostics`.
 - `player`: shared controller/state, timing/volume and progress contracts, runtime
   observation values and software-progress observation over `core-model`.
+- `playback-policy`: recovery decisions, health evaluation/session mechanics,
+  still-watching state and request-policy values over `core-model` and `player`.
 - `shared-core`: shared data, domain orchestration, DI, Jellyfin API facade,
-  playback planning and native players over `core-model`, `diagnostics`, `platform`
-  and `player`.
+  playback planning and native players over `core-model`, `diagnostics`, `platform`,
+  `player` and `playback-policy`.
 - `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
   components, shared input/focus contracts, account-scoped image and playback
   selection memory, and shared presentation helpers over `shared-core`.
@@ -407,7 +409,7 @@ to UI, playback, and platform changes.
 - `ios-app`: SwiftUI host for the shared Compose iOS app.
 - `shared-tvos`: tvOS Kotlin presentation layer (presenters, Swift bridge,
   `SharedTv` framework) over `shared-core` and explicitly exported `core-model`,
-  `diagnostics`, `platform` and `player`.
+  `diagnostics`, `platform`, `player` and `playback-policy`.
 - `tvos-app`: native SwiftUI Apple TV shell driven by `shared-tvos`.
 
 Layers, platform seams, and source-layout rules are owned by

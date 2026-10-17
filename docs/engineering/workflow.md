@@ -193,6 +193,7 @@ runtime-only behavior and remain subject to authorization above.
 | Safe diagnostics | `diagnostics/src/commonTest` | Existing log-writer configuration and formatter/capture field parity |
 | Platform services | `platform/src/commonTest` | Existing cancellation propagation and ordinary-failure result handling |
 | Player contracts | `player/src/commonTest` | Existing timing normalization and support rules |
+| Playback policy | `playback-policy/src/commonTest` | Existing recovery precedence, one-shot budgets, health evidence and session scheduling |
 | Shared domain/data | `shared-core/src/commonTest` | Planning, policy projections, repositories, DTOs, discovery, stores |
 | Android host | `shared-core/src/androidHostTest` | Media3, Room, SharedPreferences, device profiles |
 | JVM | `shared-core/src/jvmTest` | mpv, tracks, subtitle style, file stores |

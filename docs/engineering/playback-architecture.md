@@ -10,8 +10,9 @@ fetch Jellyfin metadata or choose a stream mode.
 
 `core-model` owns plan values. `player` owns controller/state, timing/volume and
 progress contracts, runtime observation values and software-progress observation.
-`shared-core` retains planning, native interpretation, native players and
-reporting implementations; the `playback` module owns Compose presentation.
+`playback-policy` owns recovery, health/session coordination, still-watching and
+request-policy values. `shared-core` retains planning, native interpretation,
+native players and reporting implementations; the `playback` module owns Compose presentation.
 The [architecture guide](architecture.md) defines these module dependencies.
 
 ## 2. End-to-end decision pipeline

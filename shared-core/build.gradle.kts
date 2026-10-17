@@ -63,6 +63,7 @@ kotlin {
             api(project(":diagnostics"))
             api(project(":platform"))
             api(project(":player"))
+            api(project(":playback-policy"))
             api(libs.kermit)
             api(libs.koin.core)
             api(libs.ktor.client.core)
