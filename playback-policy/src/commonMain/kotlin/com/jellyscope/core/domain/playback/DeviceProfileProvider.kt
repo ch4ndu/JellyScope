@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.domain.playback
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 data class DeviceDecodingCapabilities(
     val videoCodecs: List<String>,
     val audioCodecs: List<String>,
@@ -106,7 +109,9 @@ data class VideoCodecConstraints(
  * rewrite, and source-copy preflight. A selected quality rung has a box only;
  * decoder area and throughput limits remain in force when present.
  */
-internal fun reconcileVideoResolutionBounds(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun reconcileVideoResolutionBounds(
     deviceCeiling: VideoCodecResolution?,
     qualityRungCeiling: VideoCodecResolution?,
     userResolutionCeiling: VideoCodecResolution? = null,
@@ -121,7 +126,9 @@ internal fun reconcileVideoResolutionBounds(
     )
 }
 
-internal fun playbackResolutionPolicy(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun playbackResolutionPolicy(
     deviceCeiling: VideoCodecResolution?,
     qualityRungCeiling: VideoCodecResolution?,
     userResolutionCeiling: VideoCodecResolution?,
@@ -208,7 +215,9 @@ interface DeviceProfileProvider {
 }
 
 /** Pure MobileVLCKit capability data used by the Apple provider. */
-internal fun appleAvPlayerDeviceCapabilities(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun appleAvPlayerDeviceCapabilities(
     videoCodecs: List<String>,
     supportsHdr: Boolean,
     videoResolutionsByCodec: Map<String, VideoCodecResolution>,
@@ -277,7 +286,9 @@ internal fun appleAvPlayerDeviceCapabilities(
     ).withoutUnusableVideoCodecs().first
 }
 
-internal fun vlcKitDeviceCapabilities(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun vlcKitDeviceCapabilities(
     // The default exists for host tests and resolves the universal iOS safety
     // envelope. Real providers still pass their platform-family result so a
     // future tvOS VLCKit route cannot inherit the iOS policy accidentally.

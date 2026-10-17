@@ -4,6 +4,8 @@ package com.jellyscope.core.domain.playback
 
 import com.jellyscope.core.util.DiagnosticOperation
 import com.jellyscope.core.util.safeDiagnosticType
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
 
 sealed interface DiagnosticReason
 
@@ -1223,10 +1225,14 @@ fun formatPlaybackDiagnostic(diagnostic: PlaybackDiagnostic): String =
     }.joinToString(" ")
 
 /** Closed wire values recognized by the playback timeline encoder. */
-internal val playbackDiagnosticStageNames: Set<String> =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val playbackDiagnosticStageNames: Set<String> =
     PlaybackDiagnosticStage.entries.map { stage -> stage.name.lowercase() }.toSet()
 
-internal val playbackDiagnosticEventNames: Set<String> =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val playbackDiagnosticEventNames: Set<String> =
     PlaybackDiagnosticEvent.entries.map { event -> event.diagnosticName() }.toSet()
 
 private fun MutableList<String>.appendDiagnosticField(

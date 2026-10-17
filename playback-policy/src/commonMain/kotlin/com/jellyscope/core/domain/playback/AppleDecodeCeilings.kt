@@ -2,8 +2,13 @@
 
 package com.jellyscope.core.domain.playback
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 /** Apple product family used to select the conservative decode fallback. */
-internal enum class ApplePlatformFamily {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+enum class ApplePlatformFamily {
     Ios,
     TvOs,
 }
@@ -25,7 +30,9 @@ internal enum class ApplePlatformFamily {
  * same 4K30 frame-area/throughput envelope as a JellyScope input-safety policy;
  * its codec declaration and provenance remain backend-owned.
  */
-internal fun resolveAppleDecodeCeilings(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun resolveAppleDecodeCeilings(
     deviceModelIdentifier: String,
     platformFamily: ApplePlatformFamily,
     backend: PlayerBackend,

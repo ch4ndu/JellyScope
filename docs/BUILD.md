@@ -377,11 +377,11 @@ to UI, playback, and platform changes.
   cleanup contracts and cancellation-safe result handling over `diagnostics`.
 - `player`: shared controller/state, timing/volume and progress contracts, runtime
   observation values and software-progress observation over `core-model`.
-- `playback-policy`: recovery decisions, health evaluation/session mechanics,
-  still-watching state, request-policy values, selection-load and Watch Next
-  decisions over `core-model` and `player`.
+- `playback-policy`: capability declarations, backend/device and stream/track
+  decisions, playback diagnostic vocabulary/formatting, recovery/health/session
+  policy and selection inputs over `core-model`, `diagnostics` and `player`.
 - `shared-core`: shared data, domain orchestration, DI, Jellyfin API facade,
-  playback planning and native players over `core-model`, `diagnostics`, `platform`,
+  playback orchestration and native players over `core-model`, `diagnostics`, `platform`,
   `player` and `playback-policy`.
 - `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
   components, shared input/focus contracts, account-scoped image and playback

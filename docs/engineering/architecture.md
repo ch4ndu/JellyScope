@@ -149,7 +149,7 @@ player/src/commonMain/kotlin/.../
 +-- domain/playback/      # controller contracts, state and runtime observations
 
 playback-policy/src/commonMain/kotlin/.../
-+-- domain/playback/      # recovery, health, still-watching and request policy
++-- domain/playback/      # capabilities, selection, diagnostics and session policy
 
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
@@ -257,14 +257,17 @@ visibility and validation remain intact. Core exposes player through API, and
 both tvOS frameworks explicitly export it to retain the existing public surface.
 The narrow iOS facade keeps no exports.
 
-`playback-policy` owns recovery decisions, health evaluation/session mechanics,
-still-watching state, request-policy values, selection-load and Watch Next
-decisions over `core-model`, `player` and coroutines. Scope, clock, capabilities and result callbacks remain supplied by
-the presentation owner; planner execution, native commands, diagnostics,
-persistence and navigation stay above. Private helpers, sealed families and
-request defaults stay with their declarations. Core exposes the module through
-API, and both tvOS frameworks explicitly export it. The upper device-policy
-file retains its public `isDefault` extension and file facade.
+`playback-policy` owns capability declarations and pure capability factories,
+backend/device policy, stream/track/URL decisions, playback diagnostic vocabulary
+and formatting, typed planning failures, and recovery/health/session policy.
+It depends on `core-model`, `diagnostics`, `player` and coroutines. Native probes,
+planner/repository execution, diagnostic capture/upload, persistence, navigation
+and presentation lifetime stay above. Private helpers, sealed families, defaults
+and public file facades stay with their declarations. Necessary Kotlin bridges
+for existing upper production callers use `HiddenFromObjC`; other internals stay
+internal. Core exposes the module through API, and both tvOS frameworks export
+it; the iOS facade keeps no exports. Pure capability cases follow policy; DTO mapping cases stay with their
+upper adapter tests, without a test-only API.
 The [playback policy guide](playback-policy.md) covers the broader quality and wire contracts.
 
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
@@ -575,11 +578,12 @@ gates live in
   keep construction with private invariants; native polling and reporting side
   effects remain with their existing lifecycle owners. The two production Kotlin
   bridges preserve those invariants without adding a Swift API.
-- Recovery and health policy have a separate owner so shared precedence,
-  one-shot budgets and evidence windows stay independent of native execution.
-  Caller-owned scope and callbacks preserve presentation lifetime and side-effect
-  authority; literal request values let recovery express intent without importing
-  the planner or persistence.
+- Capability, stream/track and recovery decisions share the same closed playback
+  vocabulary and private helpers. Keeping that closure below native execution
+  avoids upward capability, URL or sealed-reason dependencies. Typed planning
+  failures cross the boundary without importing planner execution; existing
+  production Kotlin bridges retain a narrow Swift surface. Caller-owned scope
+  and callbacks preserve presentation lifetime and side-effect authority.
 - The iOS framework boundary keeps unused presentation declarations out of the
   Swift API and its native export roots. It preserves full Release optimization;
   fewer exported roots can reduce the graph processed by global optimization.

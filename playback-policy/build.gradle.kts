@@ -33,6 +33,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":core-model"))
+            api(project(":diagnostics"))
             api(project(":player"))
             api(libs.kotlinx.coroutines.core)
         }

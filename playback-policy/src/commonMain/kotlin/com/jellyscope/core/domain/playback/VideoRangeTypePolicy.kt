@@ -2,8 +2,13 @@
 
 package com.jellyscope.core.domain.playback
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 /** Derives Jellyfin's supported `VideoRangeType` allowlist for one video codec. */
-internal object VideoRangeTypePolicy {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+object VideoRangeTypePolicy {
     fun supportedRangeTypes(
         capabilities: VideoRangeCapabilities,
         preferSdr: Boolean,

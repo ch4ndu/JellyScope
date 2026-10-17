@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.domain.playback
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 /** Player ladder with distinct Auto and Original rows; null is no longer the mode discriminator. */
 fun playerQualityOptions(
     sourceBitrateBps: Long?,
@@ -148,7 +151,9 @@ fun embeddedAudioTracks(
         responseAuthoritative = true,
     )
 
-internal fun detailEmbeddedAudioTracks(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun detailEmbeddedAudioTracks(
     streams: List<PlaybackMediaStream>,
     capabilities: DeviceDecodingCapabilities?,
 ): List<PlannedEmbeddedTrack> =
@@ -205,7 +210,9 @@ fun responseEmbeddedSubtitleTracks(streams: List<PlaybackMediaStream>): List<Pla
     }
 }
 
-internal fun PlaybackMediaStream.toPlannedEmbeddedTrack(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun PlaybackMediaStream.toPlannedEmbeddedTrack(
     streamIndex: Int,
     filteredContainerOrdinal: Int,
     responseAuthoritativeCohortSize: Int? = null,
@@ -485,7 +492,9 @@ fun normalizeAudioCodecFamily(value: String?): String? =
             }
         }
 
-internal fun knownSubtitleFormat(value: String?): String? = value.normalizedTrackMetadata()?.let(subtitleCodecFamilies::get)
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun knownSubtitleFormat(value: String?): String? = value.normalizedTrackMetadata()?.let(subtitleCodecFamilies::get)
 
 fun subtitleFormatsEquivalent(
     first: String?,

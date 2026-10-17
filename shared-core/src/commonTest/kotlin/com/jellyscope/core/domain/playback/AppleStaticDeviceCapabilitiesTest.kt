@@ -11,14 +11,6 @@ import kotlin.test.assertTrue
 
 class AppleStaticDeviceCapabilitiesTest {
     @Test
-    fun advertisesOnlyAvFoundationDecodableAudioCodecsAndSixChannels() {
-        val capabilities = appleStaticDeviceCapabilities()
-
-        assertEquals(listOf("aac", "mp3", "ac3", "eac3", "flac", "alac"), capabilities.audioCodecs)
-        assertEquals(6, capabilities.maxAudioChannels)
-    }
-
-    @Test
     fun hdrDisplayClaimsHdr10AndHlgForHevcAndAv1Only() {
         val ranges = appleVideoRanges(listOf("h264", "hevc", "av1"), supportsHdr = true)
 

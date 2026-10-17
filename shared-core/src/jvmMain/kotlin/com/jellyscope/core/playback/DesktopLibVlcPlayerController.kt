@@ -1109,10 +1109,11 @@ class DesktopLibVlcPlayerController private constructor(
                         },
                     trackKind = EmbeddedTrackKind.Audio,
                 )
+            val resolvedAudioTrackId = resolution.candidate
             if (
                 resolution.result == NativeTrackMappingResult.Active &&
-                resolution.candidate != null &&
-                active.selectAudioTrack(resolution.candidate)
+                resolvedAudioTrackId != null &&
+                active.selectAudioTrack(resolvedAudioTrackId)
             ) {
                 pendingAudioSelection = null
                 audioActivationConfirmation.confirm(selection.target)

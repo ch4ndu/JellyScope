@@ -2,11 +2,15 @@
 
 package com.jellyscope.core.domain.playback
 
+import kotlin.experimental.ExperimentalObjCRefinement
 import kotlin.math.sqrt
+import kotlin.native.HiddenFromObjC
 
 internal fun normalizedPlaybackServerUrl(serverUrl: String): String = serverUrl.trim().trimEnd('/')
 
-internal fun directPlayStreamUrl(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun directPlayStreamUrl(
     serverUrl: String,
     itemId: String,
     mediaSourceId: String,
@@ -15,7 +19,9 @@ internal fun directPlayStreamUrl(
     "${normalizedPlaybackServerUrl(serverUrl)}/Videos/$itemId/stream" +
         "?static=true&mediaSourceId=$mediaSourceId&deviceId=$deviceId"
 
-internal fun directStreamUrl(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun directStreamUrl(
     serverUrl: String,
     itemId: String,
     container: String,
@@ -39,14 +45,18 @@ internal fun directStreamUrl(
         "?${parameters.joinToString("&")}"
 }
 
-internal fun normalizedStreamContainer(container: String?): String? =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun normalizedStreamContainer(container: String?): String? =
     container
         ?.substringBefore(',')
         ?.trim()
         ?.trimStart('.')
         ?.takeIf { value -> value.isNotEmpty() && value.all { it.isLetterOrDigit() } }
 
-internal fun playbackStreamMimeType(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun playbackStreamMimeType(
     container: String?,
     subProtocol: String?,
 ): String? {
@@ -75,7 +85,9 @@ internal fun playbackStreamMimeType(
 // Width/Height wins on the non-normalized path but is ignored once the
 // normalizer engages (both behaviors verified against 10.11).
 // Returns null when no cap is needed or the target decoder limits are unknown.
-internal fun transcodeResolutionCap(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun transcodeResolutionCap(
     transcodingUrl: String,
     sourceWidth: Int?,
     sourceHeight: Int?,
@@ -264,7 +276,9 @@ fun subtitleHonestTranscodingUrl(
 // VLC-recognized and OpenSubtitles assets are stored as .vtt, so only ".subrip" is
 // remapped. Only the path is rewritten: the query — including any credential the
 // caller's origin guard attaches — is preserved verbatim.
-internal fun vlcSlaveSubtitleUrl(url: String): String {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun vlcSlaveSubtitleUrl(url: String): String {
     val queryIndex = url.indexOf('?')
     val path = if (queryIndex >= 0) url.substring(0, queryIndex) else url
     val query = if (queryIndex >= 0) url.substring(queryIndex) else ""
@@ -283,7 +297,9 @@ private fun evenDimension(value: Int): Int = (value / 2) * 2
 private const val MACROBLOCK = 16
 private const val MIN_CAPPED_DIMENSION = 256
 
-internal fun blockPaddedArea(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun blockPaddedArea(
     width: Int,
     height: Int,
 ): Long {

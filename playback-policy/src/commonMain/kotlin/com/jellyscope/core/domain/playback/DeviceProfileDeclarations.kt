@@ -2,13 +2,20 @@
 
 package com.jellyscope.core.domain.playback
 
-internal data class DeviceProfileDeclaration(
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+data class DeviceProfileDeclaration(
     val containers: List<String>,
     val videoCodecs: List<String>,
     val audioCodecs: List<String>,
 )
 
-internal val vlcKitDeviceProfileDeclaration =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val vlcKitDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers =
             listOf(
@@ -105,7 +112,9 @@ internal val androidDirectPlayDeviceProfileDeclaration =
  * can decode the additional software-codec families below, while the initial
  * Android controller delegates only the listed video families to MediaCodec.
  */
-internal val androidMpvDeviceProfileDeclaration =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val androidMpvDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers = listOf("avi", "mkv", "m2ts", "mov", "mp4", "mpegts", "ts", "webm"),
         videoCodecs = listOf("av1", "h264", "hevc", "mpeg2video", "mpeg4", "vp8", "vp9"),
@@ -125,28 +134,36 @@ internal val androidMpvDeviceProfileDeclaration =
             ),
     )
 
-internal val androidLibVlcDeviceProfileDeclaration =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val androidLibVlcDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers = listOf("avi", "mkv", "mov", "mp4", "mpegts", "ts", "webm"),
         videoCodecs = listOf("h264", "hevc", "mpeg1video", "mpeg2video", "vp8", "vp9", "av1"),
         audioCodecs = listOf("aac", "ac3", "eac3", "flac", "mp3", "opus", "vorbis"),
     )
 
-internal val desktopMpvDeviceProfileDeclaration =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val desktopMpvDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers = listOf("mp4", "m4v", "mov", "mkv", "webm", "mpegts", "ts", "avi"),
         videoCodecs = listOf("h264", "hevc", "vp9", "av1"),
         audioCodecs = listOf("aac", "mp3", "flac", "ac3", "eac3", "opus", "vorbis", "pcm", "dts", "dca", "truehd", "mp2"),
     )
 
-internal val desktopLibVlcDeviceProfileDeclaration =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val desktopLibVlcDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers = listOf("mp4", "m4v", "mov", "mkv", "webm", "mpegts", "ts", "avi"),
         videoCodecs = listOf("h264", "hevc", "vp9", "av1"),
         audioCodecs = listOf("aac", "mp3", "flac", "ac3", "eac3", "opus", "vorbis", "pcm", "dts", "dca", "truehd", "mp2"),
     )
 
-internal val appleDeviceProfileDeclaration =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val appleDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers = listOf("mp4", "m4v", "mov", "mpegts", "ts"),
         videoCodecs = listOf("h264", "hevc", "av1"),
@@ -164,7 +181,9 @@ internal val diagnosticsDeviceProfileDeclarations =
         appleDeviceProfileDeclaration,
     )
 
-internal val androidDirectPlayProfiles =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val androidDirectPlayProfiles =
     listOf(
         DeviceDirectPlayProfile(
             containers = androidDirectPlayDeviceProfileDeclaration.containers,

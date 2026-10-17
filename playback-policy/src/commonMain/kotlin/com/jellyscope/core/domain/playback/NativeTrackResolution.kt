@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.domain.playback
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 data class NativeTrackCandidate<T>(
     val value: T,
     val stableSourceIndex: Int?,
@@ -34,7 +37,9 @@ enum class NativeTrackMappingReason {
     Timeout,
 }
 
-internal enum class EmbeddedTrackKind {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+enum class EmbeddedTrackKind {
     Audio,
     Subtitle,
 }
@@ -45,7 +50,9 @@ data class NativeTrackResolution<T>(
     val reason: NativeTrackMappingReason = result.defaultReason(),
 )
 
-internal fun <T> resolveEmbeddedTrack(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun <T> resolveEmbeddedTrack(
     descriptor: PlannedEmbeddedTrack,
     orderedCandidates: List<NativeTrackCandidate<T>>,
     trackKind: EmbeddedTrackKind,

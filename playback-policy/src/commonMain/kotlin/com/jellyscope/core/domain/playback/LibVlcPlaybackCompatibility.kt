@@ -2,14 +2,21 @@
 
 package com.jellyscope.core.domain.playback
 
-internal data class PlaybackInfoAttempt(
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+data class PlaybackInfoAttempt(
     val playbackInfo: PlaybackInfo,
     val maxStreamingBitrate: Long?,
     val qualityCapOrigin: PlaybackQualityCapOrigin?,
     val requestPolicy: PlaybackInfoRequestPolicy,
 )
 
-internal fun canonicalVideoCodec(value: String?): String? =
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun canonicalVideoCodec(value: String?): String? =
     value
         ?.trim()
         ?.lowercase()

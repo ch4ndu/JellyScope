@@ -2,7 +2,12 @@
 
 package com.jellyscope.core.domain.playback
 
-internal object DiagnosticsCodecAllowlist {
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+object DiagnosticsCodecAllowlist {
     const val UNRECOGNIZED = "unrecognized"
 
     val allowedCodecs: Set<String> =
