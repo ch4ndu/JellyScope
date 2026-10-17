@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.domain.model
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 fun DownloadState.canTransitionTo(next: DownloadState): Boolean =
     when (this) {
         DownloadState.NotDownloaded -> next == DownloadState.Queued
@@ -150,7 +153,9 @@ fun selectDownloadQueueHead(
     }
 }
 
-internal fun saturatingAddNonNegative(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun saturatingAddNonNegative(
     first: Long,
     second: Long,
 ): Long {

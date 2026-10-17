@@ -369,8 +369,8 @@ to UI, playback, and platform changes.
 ## Module map
 
 - `core-model`: standard-library-only domain values, preferences, playback plans,
-  launch inputs and subtitle intents with their pure invariants, shared by core
-  and exported by the tvOS framework.
+  launch inputs, subtitle intents and pure download quota/queue decisions, shared
+  by core and exported by the tvOS framework.
 - `diagnostics`: safe diagnostic tags, operation tokens, field schemas, failure
   formatting, capture validation and application log-writer configuration.
 - `platform`: reusable IO dispatching, device/environment services, native-log

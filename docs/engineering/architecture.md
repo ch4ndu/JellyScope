@@ -218,8 +218,10 @@ launch inputs and subtitle intents, without runtime, persistence, transport or
 presentation dependencies. `shared-core` exposes it
 through an API dependency and retains application adapters, orchestration and
 native controller implementations. Existing Kotlin packages stay stable.
-Pure value validation moves with its values; policy and adapter implementations
-stay above the value layer.
+Pure value validation and download transition, quota, estimate and queue decisions
+stay with their model values and private arithmetic. The saturating-add helper is
+a Kotlin production bridge hidden from Objective-C for existing database and
+repository callers; persistence, queue execution and adapters stay above.
 Consumers snapshot model properties into local values when a null or type check
 needs a smart cast across module boundaries.
 `shared-tvos` depends directly on and explicitly exports `core-model` from both
@@ -538,8 +540,10 @@ gates live in
   unchanged.
 - Domain values, playback plans and launch/selection contracts form a stable
   lower dependency closure.
-  Keeping their pure invariants together separates value ownership from
-  implementation changes without moving controllers or persistence contracts.
+  Keeping their pure invariants and download quota/queue arithmetic together
+  separates value ownership from execution changes without moving controllers or
+  persistence contracts. Transport estimates reuse the same saturating arithmetic
+  without importing repositories or storage.
   Existing self-contained value tests follow that owner; mixed planning tests
   stay with their implementation. Explicit tvOS exports preserve direct Swift
   use while the iOS facade keeps its narrow surface.

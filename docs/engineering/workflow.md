@@ -189,7 +189,7 @@ runtime-only behavior and remain subject to authorization above.
 
 | Suite | Location | Focus |
 | --- | --- | --- |
-| Domain values | `core-model/src/commonTest` | Existing value invariants, selection/launch inputs, image URL construction and playback metadata |
+| Domain values | `core-model/src/commonTest` | Existing value invariants, selection/launch inputs, image URLs, playback metadata and download quota/queue decisions |
 | Safe diagnostics | `diagnostics/src/commonTest` | Existing log-writer configuration and formatter/capture field parity |
 | Platform services | `platform/src/commonTest` | Existing cancellation propagation and ordinary-failure result handling |
 | Player contracts | `player/src/commonTest` | Existing timing normalization and support rules |

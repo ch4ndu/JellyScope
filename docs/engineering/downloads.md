@@ -9,6 +9,10 @@ This section is the authoritative data, transfer, storage, and local-playback
 contract for Downloads. Secondary architecture and UI guides link here rather
 than restating it.
 
+`core-model` owns pure download transitions, quota arithmetic, size estimates and
+queue selection. `shared-core` applies those decisions through admission, durable
+claims, storage and transfer execution.
+
 ## Scope and identity
 
 - Downloads support individual Movies and Episodes on Android mobile, Android
