@@ -116,13 +116,6 @@ class PlaybackDiagnosticsTest {
     }
 
     @Test
-    fun scrubberAllowedFieldsCoverEveryFormatterField() {
-        val missingFields = playbackDiagnosticFieldNames - LogScrubber.allowedFields
-
-        assertTrue(missingFields.isEmpty(), "LogScrubber is missing formatter fields: $missingFields")
-    }
-
-    @Test
     fun formatterRendersStructuredRuntimeReportingAndIdentityFreeTrackFacts() {
         val output =
             formatPlaybackDiagnostic(

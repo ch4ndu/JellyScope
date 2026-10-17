@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.util
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 /**
  * Formats a failure without exposing throwable messages, causes, or stack traces.
  * Stage and event are constrained to the same token grammar used by client diagnostics.
@@ -32,8 +35,10 @@ fun formatSafeFailureDiagnostic(
         throwable = throwable,
     )
 
-/** Internal bridge for a previously sanitized marker exception token. */
-internal fun formatSafeFailureDiagnostic(
+/** Kotlin bridge for a previously sanitized marker exception token. */
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun formatSafeFailureDiagnostic(
     stage: String,
     event: String,
     operation: DiagnosticOperation,

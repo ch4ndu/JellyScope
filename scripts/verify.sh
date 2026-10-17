@@ -16,7 +16,7 @@ echo "==> Checking the project-owned Android mpv wrapper source"
 bash scripts/check-android-mpv-wrapper-source.sh
 
 echo "==> Running ktlint, shared tests, TV route tests, and Android release assemblies"
-./gradlew ktlintCheck verifyDeveloperPropertiesIsolation :core-model:testAndroidHostTest \
+./gradlew ktlintCheck verifyDeveloperPropertiesIsolation :core-model:testAndroidHostTest :diagnostics:testAndroidHostTest \
     :shared-core:testAndroidHostTest :shared-ui:testAndroidHostTest \
     :ui-foundation:testAndroidHostTest :settings-account:testAndroidHostTest \
     :browse:testAndroidHostTest :playback:testAndroidHostTest \

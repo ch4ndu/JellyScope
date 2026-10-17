@@ -135,6 +135,11 @@ core-model/src/commonMain/kotlin/.../
 +-- domain/model/        # stable values, preferences and pure invariants
 +-- domain/playback/     # playback plans and value vocabulary
 
+diagnostics/src/commonMain/kotlin/.../
++-- util/                 # safe logging and capture validation
++-- domain/playback/      # closed diagnostic wire-field vocabulary
++-- data/local/           # log-collection preference contract
+
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
 +-- domain/               # adapters, usecase, action, planning and runtime
@@ -207,6 +212,16 @@ needs a smart cast across module boundaries.
 `shared-tvos` depends directly on and explicitly exports `core-model` from both
 framework targets because Swift names these values. The narrow iOS facade does
 not export it.
+
+`diagnostics` owns safe producer tags, operation tokens, wire-field schemas,
+formatting, capture validation and log-writer configuration. It depends only on
+Kermit and coroutines. Collection preferences remain an injected interface;
+persistence, capture actors, reports, playback policy and uploads stay in
+`shared-core`. Internal scrubber policy and its existing tests stay together.
+The field enum and sanitized-marker formatter bridge are public to Kotlin
+consumers and hidden from Objective-C; field-name sets remain internal.
+`shared-core` exposes the module through API, and both tvOS frameworks explicitly
+export it to preserve the existing Swift surface. The narrow iOS facade does not.
 
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
 image infrastructure over `shared-core`. `settings-account`,
@@ -469,6 +484,11 @@ gates live in
 
 ### Platform strategy and sharing
 
+- Safe diagnostic production and capture schemas form one lower boundary, so
+  transport, persistence and native implementations can use the privacy gate
+  without depending on application orchestration. Capture and upload lifecycle
+  remain above that boundary; the existing wire format and admission rules stay
+  unchanged.
 - Domain values and playback plans form a stable lower dependency closure.
   Keeping their pure invariants together separates value ownership from
   implementation changes without moving controllers or persistence contracts.

@@ -200,6 +200,7 @@ kotlin {
             isStatic = true
             export(project(":shared-core"))
             export(project(":core-model"))
+            export(project(":diagnostics"))
         }
     }
 
@@ -209,6 +210,7 @@ kotlin {
             isStatic = true
             export(project(":shared-core"))
             export(project(":core-model"))
+            export(project(":diagnostics"))
         }
     }
 
@@ -223,6 +225,7 @@ kotlin {
         }
         commonMain.dependencies {
             api(project(":core-model"))
+            api(project(":diagnostics"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }

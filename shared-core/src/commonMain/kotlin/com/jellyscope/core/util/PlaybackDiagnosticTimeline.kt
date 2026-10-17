@@ -42,9 +42,6 @@ import kotlin.random.Random
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.TimeSource
 
-/** Store-owned capture envelope names. Producers can never supply or override them. */
-internal val reservedCaptureFieldNames: Set<String> = setOf("diagEpoch", "diagSegment", "diagElapsedMs")
-
 /**
  * One random capture epoch and one monotonic origin for every diagnostic owner in this process.
  * The epoch only links retained lines from one process; it is never derived from time, account,
