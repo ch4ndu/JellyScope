@@ -5,6 +5,8 @@ package com.jellyscope.core.data.remote
 import io.ktor.http.parseQueryString
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
 
 @Serializable
 data class PublicSystemInfoDto(
@@ -60,7 +62,9 @@ data class ClientLogDocumentDto(
 )
 
 @Serializable
-internal data class AuthenticationRequestDto(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+data class AuthenticationRequestDto(
     @SerialName("Username")
     val username: String,
     @SerialName("Pw")
@@ -80,7 +84,9 @@ data class QuickConnectResultDto(
 )
 
 @Serializable
-internal data class QuickConnectAuthenticationRequestDto(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+data class QuickConnectAuthenticationRequestDto(
     @SerialName("Secret")
     val secret: String,
 )
@@ -411,7 +417,9 @@ data class PlaybackInfoMediaSourceDto(
     val mediaStreams: List<MediaStreamDto> = emptyList(),
 )
 
-internal fun PlaybackInfoMediaSourceDto.resolvedTranscodeReasons(): List<String> {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun PlaybackInfoMediaSourceDto.resolvedTranscodeReasons(): List<String> {
     val responseReasons = transcodeReasons.filter { reason -> reason.isNotBlank() }
     if (responseReasons.isNotEmpty()) {
         return responseReasons
@@ -550,7 +558,9 @@ data class ProfileConditionDto(
 )
 
 @Serializable
-internal data class PlaybackStartRequestDto(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+data class PlaybackStartRequestDto(
     @SerialName("ItemId")
     val itemId: String,
     @SerialName("MediaSourceId")
@@ -566,7 +576,9 @@ internal data class PlaybackStartRequestDto(
 )
 
 @Serializable
-internal data class PlaybackProgressRequestDto(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+data class PlaybackProgressRequestDto(
     @SerialName("ItemId")
     val itemId: String,
     @SerialName("MediaSourceId")
@@ -586,7 +598,9 @@ internal data class PlaybackProgressRequestDto(
 )
 
 @Serializable
-internal data class PlaybackStoppedRequestDto(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+data class PlaybackStoppedRequestDto(
     @SerialName("ItemId")
     val itemId: String,
     @SerialName("MediaSourceId")

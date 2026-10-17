@@ -205,6 +205,7 @@ kotlin {
             export(project(":network"))
             export(project(":player"))
             export(project(":playback-policy"))
+            export(project(":jellyfin-api"))
         }
     }
 
@@ -219,6 +220,7 @@ kotlin {
             export(project(":network"))
             export(project(":player"))
             export(project(":playback-policy"))
+            export(project(":jellyfin-api"))
         }
     }
 
@@ -238,6 +240,7 @@ kotlin {
             api(project(":network"))
             api(project(":player"))
             api(project(":playback-policy"))
+            api(project(":jellyfin-api"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }

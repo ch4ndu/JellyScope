@@ -155,6 +155,9 @@ player/src/commonMain/kotlin/.../
 playback-policy/src/commonMain/kotlin/.../
 +-- domain/playback/      # capabilities, selection, diagnostics and session policy
 
+jellyfin-api/src/commonMain/kotlin/.../
++-- data/remote/          # Jellyfin wire DTOs, profile mapping and typed API failures
+
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
 +-- domain/               # adapters, usecase, action, planning and runtime
@@ -282,9 +285,18 @@ and presentation lifetime stay above. Private helpers, sealed families, defaults
 and public file facades stay with their declarations. Necessary Kotlin bridges
 for existing upper production callers use `HiddenFromObjC`; other internals stay
 internal. Core exposes the module through API, and both tvOS frameworks export
-it; the iOS facade keeps no exports. Pure capability cases follow policy; DTO mapping cases stay with their
-upper adapter tests, without a test-only API.
+it; the iOS facade keeps no exports. Pure capability cases follow policy;
+wire-profile mapping tests follow `jellyfin-api`, without a test-only API.
 The [playback policy guide](playback-policy.md) covers the broader quality and wire contracts.
+
+`jellyfin-api` owns Jellyfin wire DTOs, device-profile mapping and the typed API
+failure family. It exposes existing playback-policy inputs and the serialization
+runtime; Ktor HTTP is an implementation dependency for parsing transcode reasons.
+JSON encoding tests follow the wire owner. HTTP execution, client factories,
+sessions, repositories and DI remain in `shared-core`. Six necessary request and
+response-mapping Kotlin bridges are hidden from Objective-C. Core exposes the
+module through API, and both tvOS frameworks explicitly export it to preserve
+existing Swift declarations; the narrow iOS facade keeps no exports.
 
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
 image infrastructure over `shared-core`. `settings-account`,
@@ -565,6 +577,9 @@ gates live in
   native playback requests without owning a session or transport lifetime. A
   lower network owner keeps encoding and trust helpers together; session-backed
   persistence and HTTP execution retain their upper owners.
+- Jellyfin wire models and profile encoding form a reusable contract below HTTP
+  execution. Keeping their serialization defaults, mapper and existing tests
+  together separates wire changes from client and repository lifetimes.
 - UI foundation, Settings/Account, browsing, playback presentation, Detail,
   authentication and Downloads have cohesive owners below app
   composition, so a feature edit can compile a smaller source unit. Existing tests move with

@@ -1244,7 +1244,8 @@ class KtorJellyfinApi(
                 )
         val audioStreams =
             mediaSource.mediaStreams.filter { stream ->
-                stream.type.equals("Audio", ignoreCase = true) && stream.index != null && stream.index >= 0
+                val streamIndex = stream.index
+                stream.type.equals("Audio", ignoreCase = true) && streamIndex != null && streamIndex >= 0
             }
         val audioIndex =
             request.audioStreamIndex

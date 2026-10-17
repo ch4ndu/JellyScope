@@ -65,6 +65,7 @@ kotlin {
             api(project(":network"))
             api(project(":player"))
             api(project(":playback-policy"))
+            api(project(":jellyfin-api"))
             api(libs.kermit)
             api(libs.koin.core)
             api(libs.ktor.client.core)
