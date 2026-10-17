@@ -62,6 +62,7 @@ kotlin {
             api(project(":core-model"))
             api(project(":diagnostics"))
             api(project(":platform"))
+            api(project(":network"))
             api(project(":player"))
             api(project(":playback-policy"))
             api(libs.kermit)

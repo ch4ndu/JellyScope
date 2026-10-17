@@ -5,8 +5,12 @@ package com.jellyscope.core.security
 import io.ktor.http.URLBuilder
 import io.ktor.http.Url
 import io.ktor.http.parseUrl
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
 
-internal const val JELLYFIN_API_KEY_QUERY_NAME = "ApiKey"
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+const val JELLYFIN_API_KEY_QUERY_NAME = "ApiKey"
 
 data class CredentialResourceDecision(
     val sanitizedUrl: String,

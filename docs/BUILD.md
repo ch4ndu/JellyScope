@@ -348,7 +348,7 @@ completion criteria. Broad changes use this baseline:
 ```bash
 ./scripts/verify.sh
 ./gradlew :core-model:jvmTest :diagnostics:jvmTest \
-  :platform:jvmTest :player:jvmTest :playback-policy:jvmTest \
+  :platform:jvmTest :network:jvmTest :player:jvmTest :playback-policy:jvmTest \
   :ui-foundation:jvmTest :settings-account:jvmTest \
   :browse:jvmTest :playback:jvmTest :detail:jvmTest \
   :auth:jvmTest :downloads:jvmTest
@@ -375,14 +375,16 @@ to UI, playback, and platform changes.
   formatting, capture validation and application log-writer configuration.
 - `platform`: reusable IO dispatching, device/environment services, native-log
   cleanup contracts and cancellation-safe result handling over `diagnostics`.
+- `network`: authorization-header contracts and encoding, credential-origin
+  policy and server-URL normalization over `platform` and Ktor HTTP.
 - `player`: shared controller/state, timing/volume and progress contracts, runtime
   observation values and software-progress observation over `core-model`.
 - `playback-policy`: capability declarations, backend/device and stream/track
   decisions, playback diagnostic vocabulary/formatting, recovery/health/session
   policy and selection inputs over `core-model`, `diagnostics` and `player`.
 - `shared-core`: shared data, domain orchestration, DI, Jellyfin API facade,
-  playback orchestration and native players over `core-model`, `diagnostics`, `platform`,
-  `player` and `playback-policy`.
+  playback orchestration and native players over `core-model`, `diagnostics`,
+  `platform`, `network`, `player` and `playback-policy`.
 - `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
   components, shared input/focus contracts, account-scoped image and playback
   selection memory, and shared presentation helpers over `shared-core`.

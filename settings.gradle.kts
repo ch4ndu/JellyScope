@@ -36,6 +36,7 @@ rootProject.name = "jellyscope"
 include(":core-model")
 include(":diagnostics")
 include(":platform")
+include(":network")
 include(":player")
 include(":playback-policy")
 include(":shared-core")

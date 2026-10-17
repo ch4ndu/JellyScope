@@ -145,6 +145,10 @@ platform/src/commonMain/kotlin/.../
 +-- domain/platform/      # device/environment services and native-log cleanup port
 +-- util/                 # cancellation-safe result handling
 
+network/src/commonMain/kotlin/.../
++-- data/remote/          # auth-header contracts/encoding and server-URL normalization
++-- security/             # credential-origin policy
+
 player/src/commonMain/kotlin/.../
 +-- domain/playback/      # controller contracts, state and runtime observations
 
@@ -248,6 +252,16 @@ sources stay in `shared-core`. The existing public enum keeps its Kotlin package
 and Objective-C exposure in `diagnostics`; no visibility is expanded. Core exposes
 platform through API, and both tvOS frameworks explicitly export it to preserve
 existing Swift declarations. The narrow iOS facade keeps no exports.
+
+`network` owns authorization-header contracts and encoding, server-URL
+normalization and credential-origin policy. It exposes the existing `platform`
+interface dependency and uses Ktor HTTP internally, without a client engine.
+The encoder remains internal; the credential-query constant is a Kotlin bridge
+hidden from Objective-C for the existing Apple player. Session-backed device-ID
+reads, HTTP clients, repositories and DI stay in `shared-core`. The session
+provider retains its public class in a separate upper file. Core exposes network
+through API, and both tvOS frameworks explicitly export it; the iOS facade keeps
+no exports.
 
 `player` owns controller/state, timing/volume and progress contracts, runtime
 observation values and software-progress observation over `core-model` and
@@ -547,6 +561,10 @@ gates live in
   Existing self-contained value tests follow that owner; mixed planning tests
   stay with their implementation. Explicit tvOS exports preserve direct Swift
   use while the iOS facade keeps its narrow surface.
+- Authorization syntax and credential-origin policy apply across API, image and
+  native playback requests without owning a session or transport lifetime. A
+  lower network owner keeps encoding and trust helpers together; session-backed
+  persistence and HTTP execution retain their upper owners.
 - UI foundation, Settings/Account, browsing, playback presentation, Detail,
   authentication and Downloads have cohesive owners below app
   composition, so a feature edit can compile a smaller source unit. Existing tests move with

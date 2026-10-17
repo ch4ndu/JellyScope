@@ -202,6 +202,7 @@ kotlin {
             export(project(":core-model"))
             export(project(":diagnostics"))
             export(project(":platform"))
+            export(project(":network"))
             export(project(":player"))
             export(project(":playback-policy"))
         }
@@ -215,6 +216,7 @@ kotlin {
             export(project(":core-model"))
             export(project(":diagnostics"))
             export(project(":platform"))
+            export(project(":network"))
             export(project(":player"))
             export(project(":playback-policy"))
         }
@@ -233,6 +235,7 @@ kotlin {
             api(project(":core-model"))
             api(project(":diagnostics"))
             api(project(":platform"))
+            api(project(":network"))
             api(project(":player"))
             api(project(":playback-policy"))
             api(project(":shared-core"))

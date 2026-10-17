@@ -3,6 +3,11 @@
 Engineering contract. See the [documentation map](../README.md) for related
 owners and the [user guides](../USAGE.md) for usage instructions.
 
+`network` owns shared authorization syntax, server-URL normalization and
+credential-origin policy. Session-backed identity reads, HTTP request execution
+and repositories remain in `shared-core`. The [architecture guide](architecture.md)
+defines the dependency and export boundary.
+
 ## Jellyfin API
 
 - Keep API clients behind repositories or API facades.
