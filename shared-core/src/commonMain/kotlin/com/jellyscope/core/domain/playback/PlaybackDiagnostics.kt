@@ -425,14 +425,6 @@ fun PlaybackHealthSignal.thresholdClass(): PlaybackHealthThresholdClass =
             PlaybackHealthThresholdClass.DroppedFrames2PerSecondFor20SecondsIn60Seconds
     }
 
-enum class PlaybackDiagnosticPlatform {
-    Shared,
-    Android,
-    Ios,
-    TvOs,
-    Desktop,
-}
-
 enum class PlaybackDiagnosticTrackKind {
     Audio,
     Subtitle,

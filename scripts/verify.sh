@@ -17,6 +17,7 @@ bash scripts/check-android-mpv-wrapper-source.sh
 
 echo "==> Running ktlint, shared tests, TV route tests, and Android release assemblies"
 ./gradlew ktlintCheck verifyDeveloperPropertiesIsolation :core-model:testAndroidHostTest :diagnostics:testAndroidHostTest \
+    :platform:testAndroidHostTest \
     :shared-core:testAndroidHostTest :shared-ui:testAndroidHostTest \
     :ui-foundation:testAndroidHostTest :settings-account:testAndroidHostTest \
     :browse:testAndroidHostTest :playback:testAndroidHostTest \

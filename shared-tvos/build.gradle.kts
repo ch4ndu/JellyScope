@@ -201,6 +201,7 @@ kotlin {
             export(project(":shared-core"))
             export(project(":core-model"))
             export(project(":diagnostics"))
+            export(project(":platform"))
         }
     }
 
@@ -211,6 +212,7 @@ kotlin {
             export(project(":shared-core"))
             export(project(":core-model"))
             export(project(":diagnostics"))
+            export(project(":platform"))
         }
     }
 
@@ -226,6 +228,7 @@ kotlin {
         commonMain.dependencies {
             api(project(":core-model"))
             api(project(":diagnostics"))
+            api(project(":platform"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }

@@ -5,6 +5,6 @@ package com.jellyscope.core.coroutines
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 
-// Kotlin/Native does not expose a separate public Dispatchers.IO. Default is
-// its supported background dispatcher for database and file work.
+// JellyScope uses Default for Apple database and file work. Keep this app
+// policy independent of the coroutine library's available dispatcher APIs.
 actual fun platformIoDispatcher(): CoroutineDispatcher = Dispatchers.Default

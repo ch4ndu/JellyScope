@@ -347,7 +347,7 @@ completion criteria. Broad changes use this baseline:
 
 ```bash
 ./scripts/verify.sh
-./gradlew :core-model:jvmTest :diagnostics:jvmTest \
+./gradlew :core-model:jvmTest :diagnostics:jvmTest :platform:jvmTest \
   :ui-foundation:jvmTest :settings-account:jvmTest \
   :browse:jvmTest :playback:jvmTest :detail:jvmTest \
   :auth:jvmTest :downloads:jvmTest
@@ -371,8 +371,11 @@ to UI, playback, and platform changes.
   and their pure invariants, shared by core and exported by the tvOS framework.
 - `diagnostics`: safe diagnostic tags, operation tokens, field schemas, failure
   formatting, capture validation and application log-writer configuration.
+- `platform`: reusable IO dispatching, device/environment services, native-log
+  cleanup contracts and cancellation-safe result handling over `diagnostics`.
 - `shared-core`: shared data, domain orchestration, DI, Jellyfin API facade,
-  playback planning and player implementations over `core-model` and `diagnostics`.
+  playback planning and player implementations over `core-model`, `diagnostics`
+  and `platform`.
 - `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
   components, shared input/focus contracts, account-scoped image and playback
   selection memory, and shared presentation helpers over `shared-core`.
@@ -400,8 +403,8 @@ to UI, playback, and platform changes.
 - `desktop-app`: Compose Desktop shell and JVM/libmpv playback path.
 - `ios-app`: SwiftUI host for the shared Compose iOS app.
 - `shared-tvos`: tvOS Kotlin presentation layer (presenters, Swift bridge,
-  `SharedTv` framework) over `shared-core` and explicitly exported `core-model`
-  and `diagnostics`.
+  `SharedTv` framework) over `shared-core` and explicitly exported `core-model`,
+  `diagnostics` and `platform`.
 - `tvos-app`: native SwiftUI Apple TV shell driven by `shared-tvos`.
 
 Layers, platform seams, and source-layout rules are owned by

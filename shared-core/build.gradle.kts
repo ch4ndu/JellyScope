@@ -61,6 +61,7 @@ kotlin {
         commonMain.dependencies {
             api(project(":core-model"))
             api(project(":diagnostics"))
+            api(project(":platform"))
             api(libs.kermit)
             api(libs.koin.core)
             api(libs.ktor.client.core)
