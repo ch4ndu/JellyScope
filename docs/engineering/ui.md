@@ -64,7 +64,7 @@ visual. Touch/desktop keep their indication inside the shape clip.
   30 `ImageVector` glyphs translated from the canonical SVG assets; shared and
   TV Settings use that set. Do not add runtime XML/path parsing, PNG copies,
   Material substitutes, or a second TV mapping.
-- Ported vectors under `shared-ui/src/commonMain/composeResources/` must replace
+- Ported vectors under `ui-foundation/src/commonMain/composeResources/` must replace
   `@android:` values with literals, such as `#00000000`; the multiplatform
   parser may otherwise degrade at runtime without a build failure.
 

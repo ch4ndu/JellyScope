@@ -263,6 +263,20 @@ Kotlin edits can reuse them. For a diagnostic comparison, override the setting
 on a direct Gradle invocation with `-Pkotlin.incremental.native=false`. This
 setting does not make the pinned compiler's optimized Release links incremental.
 
+`ios-framework` produces the static `SharedUi` framework consumed by Xcode.
+It owns the Swift entry point and download bridge. App composition, DI, and
+generated developer configuration remain in `shared-ui`; shared resources belong
+to `ui-foundation`, Settings/Account belongs to `settings-account`, and
+browsing screens and state belong to `browse`. Player presentation and
+platform UI hosts belong to `playback`; media and series details belong
+to `detail`; server connection and login belong to `auth`.
+Downloads list/detail presentation belongs to `downloads`.
+Keep UI dependencies unexported from the framework. The existing
+`:shared-ui:link{Debug,Release}FrameworkIos{Arm64,SimulatorArm64}` commands
+remain compatibility aliases; their framework output is under
+`ios-framework/build/bin/`, and Xcode staging is under
+`ios-framework/build/xcode-frameworks/`.
+
 The shared UI DI module uses `@HiddenFromObjC` to keep Koin out of Swift's API
 while remaining public to other Kotlin modules. Preserve the iOS entry point
 and background-download bridge when changing exported declarations.
@@ -326,9 +340,12 @@ completion criteria. Broad changes use this baseline:
 
 ```bash
 ./scripts/verify.sh
+./gradlew :ui-foundation:jvmTest :settings-account:jvmTest \
+  :browse:jvmTest :playback:jvmTest :detail:jvmTest \
+  :auth:jvmTest :downloads:jvmTest
 ./gradlew :desktop-app:compileKotlin
 ./gradlew -Pjellyscope.macos.signing.enabled=false :desktop-app:packageReleaseDistributionForCurrentOS # macOS 15+ on Apple Silicon; local test DMG
-./gradlew :shared-ui:linkDebugFrameworkIosSimulatorArm64
+./gradlew :ios-framework:linkDebugFrameworkIosSimulatorArm64
 ./gradlew :shared-tvos:jvmTest
 ./gradlew :shared-tvos:linkDebugFrameworkTvosSimulatorArm64
 ./gradlew --stop
@@ -344,8 +361,25 @@ to UI, playback, and platform changes.
 
 - `shared-core`: shared data, domain, DI, Jellyfin API facade, and playback
   planning/player contracts.
-- `shared-ui`: shared Compose theme, resources, reusable components, and screen
-  surfaces for mobile, desktop, and iOS.
+- `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
+  components, shared input/focus contracts, account-scoped image and playback
+  selection memory, and shared presentation helpers over `shared-core`.
+- `settings-account`: Settings/Account state, screens, and platform
+  adapters over `ui-foundation` and `shared-core`.
+- `browse`: Home, Discover, Find, Library, Grid, Collection, and Person
+  presentation and pagination over `ui-foundation` and `shared-core`.
+- `playback`: player presentation, state, platform UI hosts, and their
+  existing tests over `ui-foundation` and `shared-core`.
+- `detail`: media, series and season details, subtitle dialogs, download
+  entry points, and ambient-color platform adapters over foundation and core.
+- `auth`: server entry/discovery, credential login, and Quick Connect
+  presentation over foundation and core.
+- `downloads`: Downloads list/detail state and presentation over
+  foundation and core; transfer execution and storage remain core-owned.
+- `shared-ui`: app composition, navigation, DI, generated build metadata, and
+  platform entry points over the UI modules for mobile, desktop, and iOS.
+- `ios-framework`: static `SharedUi` framework with the Swift entry point and
+  background-download bridge over the shared Compose implementation.
 - `android-app`: Android mobile application shell over the shared app root.
 - `android-tv-app`: Android TV shell with TV-native navigation, focus, player,
   and Watch Next integration.

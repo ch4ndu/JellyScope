@@ -17,6 +17,10 @@ bash scripts/check-android-mpv-wrapper-source.sh
 
 echo "==> Running ktlint, shared tests, TV route tests, and Android release assemblies"
 ./gradlew ktlintCheck verifyDeveloperPropertiesIsolation :shared-core:testAndroidHostTest :shared-ui:testAndroidHostTest \
+    :ui-foundation:testAndroidHostTest :settings-account:testAndroidHostTest \
+    :browse:testAndroidHostTest :playback:testAndroidHostTest \
+    :detail:testAndroidHostTest :auth:testAndroidHostTest \
+    :downloads:testAndroidHostTest \
     :shared-ui:verifyReleaseDevServerConfig \
     :shared-tvos:verifyDevServerLiteralEscaping \
     :android-tv-app:testDebugUnitTest :android-app:assembleRelease :android-tv-app:assembleRelease
@@ -31,7 +35,7 @@ for apk in \
     if ! echo "$apk_listing" \
         | grep "assets/composeResources/com.jellyscope.ui.generated.resources/values/strings.commonMain.cvr" \
             > /dev/null; then
-        echo "ERROR: shared-ui Compose resources missing from $apk (string lookups will crash at runtime)."
+        echo "ERROR: shared Compose resources missing from $apk (string lookups will crash at runtime)."
         exit 1
     fi
 done

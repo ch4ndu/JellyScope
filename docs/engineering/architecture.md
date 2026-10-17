@@ -136,16 +136,46 @@ shared-core/src/commonMain/kotlin/.../
 +-- domain/               # model, usecase, action, playback
 +-- di/
 
-shared-ui/src/commonMain/kotlin/.../
+ui-foundation/src/commonMain/kotlin/.../
 +-- component/
-+-- screen/
++-- adaptive/
++-- image/
 +-- theme/
++-- focus/                # shared restoration and bring-into-view policies
++-- platform/             # shell-provided input/permission callbacks
++-- screen/               # shared selection, formatting and backdrop contracts
+
+settings-account/src/commonMain/kotlin/.../
++-- screen/settings/
++-- screen/account/
+
+browse/src/commonMain/kotlin/.../
++-- screen/               # home, discover, find, library, grid, collection, person
++-- paging/
+
+playback/src/commonMain/kotlin/.../
++-- screen/player/        # player state and presentation
+
+detail/src/commonMain/kotlin/.../
++-- screen/detail/        # media/series/season state and presentation
+
+auth/src/commonMain/kotlin/.../
++-- screen/login/
++-- screen/serverentry/
+
+downloads/src/commonMain/kotlin/.../
++-- screen/downloads/
+
+shared-ui/src/commonMain/kotlin/.../
++-- screen/               # app-shell scaffolding
 +-- navigation/
++-- di/
 
 android-libmpv/           # project-owned Kotlin/JNI bridge over pinned AAR input
 android-app/              # shared UI shell and selectable Android playback
 android-tv-app/           # D-pad shell, TV screens/player, Watch Next
 desktop-app/              # JVM Compose shell and libmpv/LibVLC bridges
+ios-framework/            # narrow Swift API and static SharedUi framework
 ios-app/                  # shared Compose shell and Apple playback
 shared-tvos/              # Kotlin presenters, Swift bridge, static SharedTv
 tvos-app/                 # native SwiftUI shell with AVKit/VLC hosts
@@ -155,6 +185,59 @@ Platform source sets include `androidMain`, `appleMain`, `iosMain`, `tvosMain`,
 and `jvmMain`. Share in the highest valid set; use `expect`/`actual` only when
 common code cannot own the behavior. Prefer feature grouping after a feature
 owns enough data, domain, presentation, and DI to justify it.
+
+`ios-framework` depends on `shared-ui` and `shared-core` without framework
+exports. Swift consumes its `MainViewController` entry point and download
+bridge. The entry calls the iOS factory in `shared-ui`, where Koin startup
+and generated configuration remain. The fullscreen callback composition local
+is shared through foundation; its provider remains in the root factory.
+Keep one static `SharedUi` binary; Kotlin consumers continue using `shared-ui`.
+
+`ui-foundation` owns shared resources, theme, adaptive layout, components, and
+image infrastructure over `shared-core`. `settings-account`,
+`browse`, `playback`, `detail`, `auth`, and
+`downloads` depend on foundation and core;
+`shared-ui` composes the UI modules and retains navigation, DI, generated configuration, and `AppInfo`.
+Lower modules never depend on the
+app aggregate. Settings receives version and revision strings from root DI.
+Keep the resource package `com.jellyscope.ui.generated.resources` public and
+defined only in foundation; all platforms consume that one asset set. Existing
+Kotlin packages remain stable across these module boundaries, including the
+shared Detail interaction locals and download byte formatter in foundation.
+
+Browsing screens, ViewModels, pagination, and their existing tests stay together
+in `browse`. Root navigation, DI, and mixed Android previews consume its
+public presentation API; preview fixtures remain with app composition.
+
+Player presentation, ViewModels, and platform UI hosts stay together in
+`playback`, including their common, Android-host, iOS, and JVM friend
+tests. Core retains controllers and backend policy; root DI retains controller
+construction and pending-controller startup. Neutral key-command, safe-focus,
+and iOS fullscreen callbacks live in foundation so player code has no dependency
+on app composition or Detail. Android shells and mixed app previews consume the existing public player
+presentation contracts.
+
+Media, series and season Detail screens and their ambient-color platform
+adapters share `detail` with their existing friend tests. Root navigation,
+DI, TV focus providers and mixed previews consume its public API. Shared focus
+restoration, permission callbacks and backdrop geometry live in foundation for
+Detail, Downloads and TV. The existing account-scoped playback-selection memory,
+recall precedence and duration formatter also live there; Detail has no dependency
+on the playback presentation module. Root DI still owns the single memory
+registration and its account/server cleanup boundary. The mixed focus-restoration
+suite stays with Detail because it also exercises the internal container
+constructor; foundation’s focus policies remain public.
+
+Server entry, discovery UI, credential login and Quick Connect share
+`auth` with their existing ViewModel tests. Root navigation and DI retain
+session startup and constructor parameters; core retains discovery, authentication,
+credentials and persistence. TV keeps its UI and consumes the same public state
+and ViewModels through app composition.
+
+Downloads list/detail state, presentation and their existing ViewModel tests
+share `downloads`. Core retains admission, execution, storage and offline
+leases; Detail retains enqueue entry points. Root navigation and TV consume the
+existing public API, and shared backdrop/formatting contracts remain in foundation.
 
 Split large files by cohesive ownership near a 500-line review trigger. Keep
 public contracts in named files and helpers/chrome/fixtures in same-package
@@ -213,7 +296,7 @@ refetchable cache cleanup. See
 
 iOS optionally injects continued-execution permission into the shared Apple
 lifecycle host. The Swift controller owns BackgroundTasks objects; a narrow
-shared-ui bridge forwards opaque generations and numeric progress to the core
+`ios-framework` bridge forwards opaque generations and numeric progress to the core
 adapter. Shared coordinators remain the byte writers and quota/account owners.
 tvOS uses the default app-active host without that adapter.
 
@@ -371,6 +454,35 @@ gates live in
 
 ### Platform strategy and sharing
 
+- UI foundation, Settings/Account, browsing, playback presentation, Detail,
+  authentication and Downloads have cohesive owners below app
+  composition, so a feature edit can compile a smaller source unit. Existing tests move with
+  their internal owners. One resource module preserves generated imports and
+  packaging without duplicating assets. Module boundaries do not make optimized
+  native Release linking incremental; measure affected edit loops before
+  claiming a build-time improvement.
+- Browsing shares state projections and test internals across its screens.
+  Keeping them in one feature avoids fragmenting that ownership or duplicating
+  fixtures; its existing stateless content functions remain usable by root
+  previews.
+- Playback state and platform UI hosts share lifecycle and test internals, so
+  they move together without changing controller or application-startup owners.
+  Existing neutral input callbacks belong in foundation rather than introducing
+  an upward dependency or a second callback owner.
+- Detail and player share selection memory and formatting, not each other’s
+  platform presentation. Foundation owns these existing contracts and the focus
+  and backdrop policies used by multiple screens; root providers retain their
+  lifecycle and account cleanup responsibilities.
+- Authentication presentation shares a pre-login journey and dependency closure.
+  Keeping it separate from post-login Settings avoids coupling their screens and
+  platform adapters; credentials and session state remain core-owned.
+- Downloads list/detail presentation forms one boundary over existing core
+  operations. It stays separate from transfer/storage ownership and Detail’s
+  enqueue dialog, avoiding a dependency between presentation features.
+- The iOS framework boundary keeps unused presentation declarations out of the
+  Swift API and its native export roots. It preserves full Release optimization;
+  fewer exported roots can reduce the graph processed by global optimization.
+  Framework header size alone does not establish a build-time improvement.
 - Native tvOS preserves Siri Remote focus and keeps SwiftUI/AVKit outside common
   code while sharing Kotlin presentation/domain. Platform-family implementations
   stay in Apple source sets.

@@ -150,7 +150,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nif [ \"${CONFIGURATION:-}\" = \"StoreRelease\" ]; then\n  export KOTLIN_FRAMEWORK_BUILD_TYPE=Release\n  export JELLYSCOPE_FORCE_DISABLE_DEVELOPER_PROPERTIES=true\n  export ORG_GRADLE_PROJECT_jellyscopeDeveloperPropertiesEnabled=false\nelif [ \"${ACTION:-}\" = \"install\" ]; then\n  echo \"error: Archives and install builds require the StoreRelease configuration.\" >&2\n  exit 1\nfi\nexport SDK_NAME=\"${SDK_NAME}\"\nexport CONFIGURATION=\"${CONFIGURATION}\"\nexport ARCHS=\"${ARCHS}\"\nexport TARGET_BUILD_DIR=\"${TARGET_BUILD_DIR}\"\nexport FRAMEWORKS_FOLDER_PATH=\"${FRAMEWORKS_FOLDER_PATH}\"\nexport EXPANDED_CODE_SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\ncd \"$SRCROOT/..\"\n./gradlew :shared-ui:embedAndSignAppleFrameworkForXcode\n";
+			shellScript = "set -e\nif [ \"${CONFIGURATION:-}\" = \"StoreRelease\" ]; then\n  export KOTLIN_FRAMEWORK_BUILD_TYPE=Release\n  export JELLYSCOPE_FORCE_DISABLE_DEVELOPER_PROPERTIES=true\n  export ORG_GRADLE_PROJECT_jellyscopeDeveloperPropertiesEnabled=false\nelif [ \"${ACTION:-}\" = \"install\" ]; then\n  echo \"error: Archives and install builds require the StoreRelease configuration.\" >&2\n  exit 1\nfi\nexport SDK_NAME=\"${SDK_NAME}\"\nexport CONFIGURATION=\"${CONFIGURATION}\"\nexport ARCHS=\"${ARCHS}\"\nexport TARGET_BUILD_DIR=\"${TARGET_BUILD_DIR}\"\nexport FRAMEWORKS_FOLDER_PATH=\"${FRAMEWORKS_FOLDER_PATH}\"\nexport EXPANDED_CODE_SIGN_IDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY}\"\ncd \"$SRCROOT/..\"\n./gradlew :ios-framework:embedAndSignAppleFrameworkForXcode\n";
 		};
 		1C1B6C182D1F400200A00001 /* Package License Metadata */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -377,7 +377,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/../shared-ui/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
+					"$(SRCROOT)/../ios-framework/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iosApp/Info.plist;
@@ -417,7 +417,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/../shared-ui/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
+					"$(SRCROOT)/../ios-framework/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iosApp/Info.plist;
@@ -457,7 +457,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"$(SRCROOT)/../shared-ui/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
+					"$(SRCROOT)/../ios-framework/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iosApp/Info.plist;

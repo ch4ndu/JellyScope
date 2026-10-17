@@ -9,6 +9,7 @@ import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.PlayerController
+import com.jellyscope.ui.AppInfo
 import com.jellyscope.ui.screen.account.AccountViewModel
 import com.jellyscope.ui.screen.collection.CollectionViewModel
 import com.jellyscope.ui.screen.detail.AmbientColorExtractor
@@ -179,9 +180,11 @@ val sharedUiModule =
         }
         viewModel { (session: Session) ->
             val playerBackendPolicy = get<DeviceProfileProvider>().backendPolicy
+            val appInfo = get<AppInfo>()
             SettingsViewModel(
                 session = session,
-                appInfo = get(),
+                versionName = appInfo.versionName,
+                sourceRevision = appInfo.sourceRevision,
                 playerBackendPolicy = playerBackendPolicy,
                 logoutAction = get(),
                 observeAccountsUseCase = get(),

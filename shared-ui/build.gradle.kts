@@ -274,19 +274,8 @@ kotlin {
         withHostTest {}
     }
 
-    iosArm64 {
-        binaries.framework {
-            baseName = "SharedUi"
-            isStatic = true
-        }
-    }
-
-    iosSimulatorArm64 {
-        binaries.framework {
-            baseName = "SharedUi"
-            isStatic = true
-        }
-    }
+    iosArm64()
+    iosSimulatorArm64()
 
     jvm()
 
@@ -297,6 +286,13 @@ kotlin {
         }
         commonMain.dependencies {
             api(project(":shared-core"))
+            api(project(":ui-foundation"))
+            api(project(":settings-account"))
+            api(project(":browse"))
+            api(project(":playback"))
+            api(project(":detail"))
+            api(project(":auth"))
+            api(project(":downloads"))
             api(compose.runtime)
             implementation(compose.components.resources)
             implementation(compose.foundation)
@@ -342,9 +338,14 @@ kotlin {
     }
 }
 
-compose.resources {
-    packageOfResClass = "com.jellyscope.ui.generated.resources"
-    // Public so android-tv-app can reuse shared string resources (e.g. the
-    // media-info labels) instead of duplicating them into TV's own strings.xml.
-    publicResClass = true
+// Preserve existing direct framework commands while the iOS bridge owns the binary.
+listOf("IosArm64", "IosSimulatorArm64").forEach { target ->
+    listOf("Debug", "Release").forEach { buildType ->
+        val taskName = "link${buildType}Framework$target"
+        tasks.register(taskName) {
+            group = "build"
+            description = "Links the iOS bridge framework through the existing shared-ui command."
+            dependsOn(":ios-framework:$taskName")
+        }
+    }
 }

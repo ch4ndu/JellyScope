@@ -192,7 +192,14 @@ runtime-only behavior and remain subject to authorization above.
 | Shared domain/data | `shared-core/src/commonTest` | Planning, selection, repositories, DTOs, discovery, stores |
 | Android host | `shared-core/src/androidHostTest` | Media3, Room, SharedPreferences, device profiles |
 | JVM | `shared-core/src/jvmTest` | mpv, tracks, subtitle style, file stores |
-| Shared UI | `shared-ui/src/commonTest` | Durable ViewModel state, accounts, shared business behavior |
+| Shared UI | `shared-ui/src/commonTest` | Navigation |
+| UI foundation | `ui-foundation/src/commonTest` | Adaptive layout, media cards, image/account caches, and playback-selection memory |
+| Settings/Account | `settings-account/src/commonTest`, `src/jvmTest` | Settings/account state, persistence actions, desktop availability |
+| Browsing | `browse/src/commonTest` | Browse state, layout policy, and pagination |
+| Playback presentation | `playback/src/commonTest`, `src/androidHostTest`, `src/iosTest`, `src/jvmTest` | Player state, presentation policy, and platform UI bridge ownership |
+| Media details | `detail/src/commonTest` | Detail/series state, focus containers and restoration, track/subtitle selection, download drafts, layout and ambient-color policy |
+| Authentication | `auth/src/commonTest` | Login, Quick Connect, server entry and discovery state |
+| Downloads presentation | `downloads/src/commonTest` | Download list/detail state, commands and account/lease projections |
 | Android TV | `android-tv-app/src/test` | Persistence, account/cache boundaries, business state |
 | Desktop | `desktop-app/src/test` | Shell behavior, including the cursor bridge |
 
