@@ -2,7 +2,12 @@
 
 package com.jellyscope.core.domain.model
 
-internal fun MediaItemDetail.toOfflineDetailSnapshot(): OfflineDetailSnapshot =
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun MediaItemDetail.toOfflineDetailSnapshot(): OfflineDetailSnapshot =
     OfflineDetailSnapshot(
         overview = overview?.takeIf(String::isNotBlank),
         tagline = taglines.firstOrNull()?.takeIf(String::isNotBlank),
@@ -30,7 +35,9 @@ internal fun MediaItemDetail.toOfflineDetailSnapshot(): OfflineDetailSnapshot =
             ),
     )
 
-internal fun MediaItemDetail.offlineArtworkReferences(seriesDetail: MediaItemDetail?): List<OfflineArtworkReference> {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun MediaItemDetail.offlineArtworkReferences(seriesDetail: MediaItemDetail?): List<OfflineArtworkReference> {
     val item = item
     val episode = item.kind == MediaKind.Episode
     val seriesItem = seriesDetail?.item

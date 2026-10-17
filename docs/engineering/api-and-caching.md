@@ -6,8 +6,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 `network` owns shared authorization syntax, server-URL normalization and
 credential-origin policy. Session-backed identity reads, HTTP request execution
 and repositories remain in `shared-core`. `jellyfin-api` owns Jellyfin wire DTOs,
-device-profile mapping and typed API failures; JSON encoding tests follow that
-owner. The [architecture guide](architecture.md) defines the dependency and
+metadata-to-domain mapping, device-profile mapping and typed API failures; JSON
+encoding and media-mapping tests follow that owner. The [architecture guide](architecture.md) defines the dependency and
 export boundary.
 
 ## Jellyfin API

@@ -157,6 +157,7 @@ playback-policy/src/commonMain/kotlin/.../
 
 jellyfin-api/src/commonMain/kotlin/.../
 +-- data/remote/          # Jellyfin wire DTOs, profile mapping and typed API failures
++-- domain/model/         # Jellyfin-to-domain media projections
 
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
@@ -223,12 +224,13 @@ Keep one static `SharedUi` binary; Kotlin consumers continue using `shared-ui`.
 `core-model` owns domain values and playback-plan vocabulary, including raw
 launch inputs and subtitle intents, without runtime, persistence, transport or
 presentation dependencies. `shared-core` exposes it
-through an API dependency and retains application adapters, orchestration and
-native controller implementations. Existing Kotlin packages stay stable.
-Pure value validation and download transition, quota, estimate and queue decisions
-stay with their model values and private arithmetic. The saturating-add helper is
-a Kotlin production bridge hidden from Objective-C for existing database and
-repository callers; persistence, queue execution and adapters stay above.
+through an API dependency and retains application orchestration and native
+controller implementations. Existing Kotlin packages stay stable.
+Pure value validation, download transition, quota, estimate and queue decisions,
+and offline detail/artwork projections stay with their model values and private
+helpers. The saturating-add and offline projection helpers are Kotlin production
+bridges hidden from Objective-C for existing database and admission callers;
+persistence and queue execution stay above. Mixed admission tests stay upper.
 Consumers snapshot model properties into local values when a null or type check
 needs a smart cast across module boundaries.
 `shared-tvos` depends directly on and explicitly exports `core-model` from both
@@ -289,10 +291,12 @@ it; the iOS facade keeps no exports. Pure capability cases follow policy;
 wire-profile mapping tests follow `jellyfin-api`, without a test-only API.
 The [playback policy guide](playback-policy.md) covers the broader quality and wire contracts.
 
-`jellyfin-api` owns Jellyfin wire DTOs, device-profile mapping and the typed API
-failure family. It exposes existing playback-policy inputs and the serialization
+`jellyfin-api` owns Jellyfin wire DTOs, metadata-to-domain projections,
+device-profile mapping and the typed API failure family. It exposes existing playback-policy inputs and the serialization
 runtime; Ktor HTTP is an implementation dependency for parsing transcode reasons.
-JSON encoding tests follow the wire owner. HTTP execution, client factories,
+JSON encoding and metadata-mapping tests follow the wire owner. Public mapper
+packages and filenames retain their existing DTO extension identities.
+HTTP execution, client factories,
 sessions, repositories and DI remain in `shared-core`. Six necessary request and
 response-mapping Kotlin bridges are hidden from Objective-C. Core exposes the
 module through API, and both tvOS frameworks explicitly export it to preserve
@@ -566,7 +570,7 @@ gates live in
   unchanged.
 - Domain values, playback plans and launch/selection contracts form a stable
   lower dependency closure.
-  Keeping their pure invariants and download quota/queue arithmetic together
+  Keeping their pure invariants, offline projections and download quota/queue arithmetic together
   separates value ownership from execution changes without moving controllers or
   persistence contracts. Transport estimates reuse the same saturating arithmetic
   without importing repositories or storage.
@@ -577,8 +581,8 @@ gates live in
   native playback requests without owning a session or transport lifetime. A
   lower network owner keeps encoding and trust helpers together; session-backed
   persistence and HTTP execution retain their upper owners.
-- Jellyfin wire models and profile encoding form a reusable contract below HTTP
-  execution. Keeping their serialization defaults, mapper and existing tests
+- Jellyfin wire models, metadata projection and profile encoding form a reusable
+  contract below HTTP execution. Keeping their serialization defaults, mappers and existing tests
   together separates wire changes from client and repository lifetimes.
 - UI foundation, Settings/Account, browsing, playback presentation, Detail,
   authentication and Downloads have cohesive owners below app

@@ -369,8 +369,8 @@ to UI, playback, and platform changes.
 ## Module map
 
 - `core-model`: standard-library-only domain values, preferences, playback plans,
-  launch inputs, subtitle intents and pure download quota/queue decisions, shared
-  by core and exported by the tvOS framework.
+  launch inputs, subtitle intents, pure download quota/queue decisions and offline
+  detail/artwork projections, shared by core and exported by the tvOS framework.
 - `diagnostics`: safe diagnostic tags, operation tokens, field schemas, failure
   formatting, capture validation and application log-writer configuration.
 - `platform`: reusable IO dispatching, device/environment services, native-log
@@ -382,8 +382,9 @@ to UI, playback, and platform changes.
 - `playback-policy`: capability declarations, backend/device and stream/track
   decisions, playback diagnostic vocabulary/formatting, recovery/health/session
   policy and selection inputs over `core-model`, `diagnostics` and `player`.
-- `jellyfin-api`: Jellyfin wire DTOs, device-profile mapping and typed API failures
-  over `playback-policy` and serialization; Ktor HTTP is internal.
+- `jellyfin-api`: Jellyfin wire DTOs, metadata-to-domain mapping, device profiles
+  and typed API failures over `playback-policy` and serialization; Ktor HTTP is
+  internal.
 - `shared-core`: shared data, domain orchestration, DI, Jellyfin API execution,
   playback orchestration and native players over `core-model`, `diagnostics`,
   `platform`, `network`, `player`, `playback-policy` and `jellyfin-api`.
