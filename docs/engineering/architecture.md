@@ -213,12 +213,13 @@ and generated configuration remain. The fullscreen callback composition local
 is shared through foundation; its provider remains in the root factory.
 Keep one static `SharedUi` binary; Kotlin consumers continue using `shared-ui`.
 
-`core-model` owns domain values and playback-plan vocabulary without runtime,
-persistence, transport or presentation dependencies. `shared-core` exposes it
+`core-model` owns domain values and playback-plan vocabulary, including raw
+launch inputs and subtitle intents, without runtime, persistence, transport or
+presentation dependencies. `shared-core` exposes it
 through an API dependency and retains application adapters, orchestration and
 native controller implementations. Existing Kotlin packages stay stable.
-Pure value validation moves with its values; mixed policy and adapter files stay
-in core.
+Pure value validation moves with its values; policy and adapter implementations
+stay above the value layer.
 Consumers snapshot model properties into local values when a null or type check
 needs a smart cast across module boundaries.
 `shared-tvos` depends directly on and explicitly exports `core-model` from both
@@ -257,8 +258,8 @@ both tvOS frameworks explicitly export it to retain the existing public surface.
 The narrow iOS facade keeps no exports.
 
 `playback-policy` owns recovery decisions, health evaluation/session mechanics,
-still-watching state and request-policy values over `core-model`, `player` and
-coroutines. Scope, clock, capabilities and result callbacks remain supplied by
+still-watching state, request-policy values, selection-load and Watch Next
+decisions over `core-model`, `player` and coroutines. Scope, clock, capabilities and result callbacks remain supplied by
 the presentation owner; planner execution, native commands, diagnostics,
 persistence and navigation stay above. Private helpers, sealed families and
 request defaults stay with their declarations. Core exposes the module through
@@ -532,7 +533,8 @@ gates live in
   without depending on application orchestration. Capture and upload lifecycle
   remain above that boundary; the existing wire format and admission rules stay
   unchanged.
-- Domain values and playback plans form a stable lower dependency closure.
+- Domain values, playback plans and launch/selection contracts form a stable
+  lower dependency closure.
   Keeping their pure invariants together separates value ownership from
   implementation changes without moving controllers or persistence contracts.
   Existing self-contained value tests follow that owner; mixed planning tests

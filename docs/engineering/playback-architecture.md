@@ -8,11 +8,13 @@ DirectStream, Transcode and Offline explicitly, and gains a field only with the
 capability that consumes it. Platform players map it to native APIs; they do not
 fetch Jellyfin metadata or choose a stream mode.
 
-`core-model` owns plan values. `player` owns controller/state, timing/volume and
-progress contracts, runtime observation values and software-progress observation.
-`playback-policy` owns recovery, health/session coordination, still-watching and
-request-policy values. `shared-core` retains planning, native interpretation,
-native players and reporting implementations; the `playback` module owns Compose presentation.
+`core-model` owns plan values, launch inputs and subtitle intents. `player` owns
+controller/state, timing/volume and progress contracts, runtime observation
+values and software-progress observation. `playback-policy` owns recovery,
+health/session coordination, still-watching, request-policy values, selection-load
+and Watch Next decisions. `shared-core` retains planning, capability-qualified
+track options, native identity matching, playback URLs, native players and
+reporting implementations; the `playback` module owns Compose presentation.
 The [architecture guide](architecture.md) defines these module dependencies.
 
 ## 2. End-to-end decision pipeline

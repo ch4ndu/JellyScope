@@ -368,8 +368,9 @@ to UI, playback, and platform changes.
 
 ## Module map
 
-- `core-model`: standard-library-only domain values, preferences, playback plans
-  and their pure invariants, shared by core and exported by the tvOS framework.
+- `core-model`: standard-library-only domain values, preferences, playback plans,
+  launch inputs and subtitle intents with their pure invariants, shared by core
+  and exported by the tvOS framework.
 - `diagnostics`: safe diagnostic tags, operation tokens, field schemas, failure
   formatting, capture validation and application log-writer configuration.
 - `platform`: reusable IO dispatching, device/environment services, native-log
@@ -377,7 +378,8 @@ to UI, playback, and platform changes.
 - `player`: shared controller/state, timing/volume and progress contracts, runtime
   observation values and software-progress observation over `core-model`.
 - `playback-policy`: recovery decisions, health evaluation/session mechanics,
-  still-watching state and request-policy values over `core-model` and `player`.
+  still-watching state, request-policy values, selection-load and Watch Next
+  decisions over `core-model` and `player`.
 - `shared-core`: shared data, domain orchestration, DI, Jellyfin API facade,
   playback planning and native players over `core-model`, `diagnostics`, `platform`,
   `player` and `playback-policy`.
