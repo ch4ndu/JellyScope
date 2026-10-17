@@ -647,9 +647,9 @@ internal fun DownloadRequest.toEntity(fifoSequence: Long): DownloadRecordEntity 
         selectedAudioStreamIndex = selectedAudioStreamIndex,
         subtitleSelectionKey = subtitleSelection.toKey(),
         subtitleStreamIndex =
-            when (subtitleSelection) {
-                is DownloadSubtitleSelection.Embedded -> subtitleSelection.streamIndex
-                is DownloadSubtitleSelection.ExternalServerTextSidecar -> subtitleSelection.streamIndex
+            when (val selection = subtitleSelection) {
+                is DownloadSubtitleSelection.Embedded -> selection.streamIndex
+                is DownloadSubtitleSelection.ExternalServerTextSidecar -> selection.streamIndex
                 DownloadSubtitleSelection.Off,
                 is DownloadSubtitleSelection.ExternalTextSidecar,
                 -> null

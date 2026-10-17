@@ -33,6 +33,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "jellyscope"
 
+include(":core-model")
 include(":shared-core")
 include(":shared-tvos")
 include(":ui-foundation")

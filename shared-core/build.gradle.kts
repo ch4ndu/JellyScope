@@ -59,6 +59,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            api(project(":core-model"))
             api(libs.kermit)
             api(libs.koin.core)
             api(libs.ktor.client.core)

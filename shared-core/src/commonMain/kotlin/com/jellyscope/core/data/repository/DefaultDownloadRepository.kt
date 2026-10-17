@@ -155,7 +155,8 @@ internal class DefaultDownloadRepository(
             // Reuse the model invariant without manufacturing a second validation policy.
             DownloadSettings(quotaBytes = quotaBytes, nextFifoSequence = 1L, membershipRevision = 0L)
             val current = settingsStore.get()
-            if (quotaBytes != null && (current.quotaBytes == null || quotaBytes > current.quotaBytes)) {
+            val currentQuotaBytes = current.quotaBytes
+            if (quotaBytes != null && (currentQuotaBytes == null || quotaBytes > currentQuotaBytes)) {
                 require(quotaBytes <= loadDownloadUsage(accountIdentity = null).maximumConfigurableQuotaBytes) {
                     "Download allocation exceeds currently safe device capacity."
                 }

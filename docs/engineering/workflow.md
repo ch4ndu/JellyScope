@@ -189,7 +189,8 @@ runtime-only behavior and remain subject to authorization above.
 
 | Suite | Location | Focus |
 | --- | --- | --- |
-| Shared domain/data | `shared-core/src/commonTest` | Planning, selection, repositories, DTOs, discovery, stores |
+| Domain values | `core-model/src/commonTest` | Existing value invariants, selection values, image URL construction and playback metadata |
+| Shared domain/data | `shared-core/src/commonTest` | Planning, policy projections, repositories, DTOs, discovery, stores |
 | Android host | `shared-core/src/androidHostTest` | Media3, Room, SharedPreferences, device profiles |
 | JVM | `shared-core/src/jvmTest` | mpv, tracks, subtitle style, file stores |
 | Shared UI | `shared-ui/src/commonTest` | Navigation |

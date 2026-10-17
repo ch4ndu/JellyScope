@@ -366,10 +366,11 @@ internal interface DownloadDao {
         val retryReservationBytes =
             (currentRecord.reservationBytes - currentRecord.physicalBytes).coerceAtLeast(0L)
         val projectedRetryBytes = saturatingAddNonNegative(usage.projectedCommittedBytes, retryReservationBytes)
+        val quotaBytes = usage.quotaBytes
         val quotaAllowsClaim =
-            usage.quotaBytes != null &&
+            quotaBytes != null &&
                 !usage.overAllocation &&
-                projectedRetryBytes <= usage.quotaBytes &&
+                projectedRetryBytes <= quotaBytes &&
                 projectedRetryBytes <= usage.maximumConfigurableQuotaBytes
         if (!quotaAllowsClaim) return null
         val nextGeneration = nextDownloadAttemptGeneration(expectedAttemptGeneration) ?: return null

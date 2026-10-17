@@ -263,6 +263,13 @@ Kotlin edits can reuse them. For a diagnostic comparison, override the setting
 on a direct Gradle invocation with `-Pkotlin.incremental.native=false`. This
 setting does not make the pinned compiler's optimized Release links incremental.
 
+After moving declarations between modules, an existing Native Debug cache may
+report a missing file under its previous owner. Stop Gradle and move aside the
+affected project-library entries for that owner and its consumers under
+`ios-framework/build/kotlin-native-ic-cache/`, then rerun the link. Leave global
+toolchain caches and compiler settings unchanged. Use the same targeted recovery
+in `shared-tvos/build/kotlin-native-ic-cache/` if its framework reports this error.
+
 `ios-framework` produces the static `SharedUi` framework consumed by Xcode.
 It owns the Swift entry point and download bridge. App composition, DI, and
 generated developer configuration remain in `shared-ui`; shared resources belong
@@ -340,7 +347,7 @@ completion criteria. Broad changes use this baseline:
 
 ```bash
 ./scripts/verify.sh
-./gradlew :ui-foundation:jvmTest :settings-account:jvmTest \
+./gradlew :core-model:jvmTest :ui-foundation:jvmTest :settings-account:jvmTest \
   :browse:jvmTest :playback:jvmTest :detail:jvmTest \
   :auth:jvmTest :downloads:jvmTest
 ./gradlew :desktop-app:compileKotlin
@@ -359,8 +366,10 @@ to UI, playback, and platform changes.
 
 ## Module map
 
-- `shared-core`: shared data, domain, DI, Jellyfin API facade, and playback
-  planning/player contracts.
+- `core-model`: standard-library-only domain values, preferences, playback plans
+  and their pure invariants, shared by core and exported by the tvOS framework.
+- `shared-core`: shared data, domain orchestration, DI, Jellyfin API facade,
+  playback planning and player implementations over `core-model`.
 - `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
   components, shared input/focus contracts, account-scoped image and playback
   selection memory, and shared presentation helpers over `shared-core`.
@@ -388,7 +397,7 @@ to UI, playback, and platform changes.
 - `desktop-app`: Compose Desktop shell and JVM/libmpv playback path.
 - `ios-app`: SwiftUI host for the shared Compose iOS app.
 - `shared-tvos`: tvOS Kotlin presentation layer (presenters, Swift bridge,
-  `SharedTv` framework) over `shared-core`.
+  `SharedTv` framework) over `shared-core` and explicitly exported `core-model`.
 - `tvos-app`: native SwiftUI Apple TV shell driven by `shared-tvos`.
 
 Layers, platform seams, and source-layout rules are owned by

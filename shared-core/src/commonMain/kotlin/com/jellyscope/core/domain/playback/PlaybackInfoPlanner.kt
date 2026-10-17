@@ -671,6 +671,7 @@ fun decidePlan(
             transcodeReasons = mediaSource.transcodeReasons,
             diagnosticSessionSequence = requestPolicy.diagnosticSessionSequence,
         )
+    val transcodingUrl = mediaSource.transcodingUrl
     val resolvedPlan =
         when {
             mediaSource.supportsDirectPlay && requestPolicy.enableDirectPlay && sourceCopyPreflight.allowsSourceCopy ->
@@ -701,7 +702,7 @@ fun decidePlan(
                     streamMimeType = playbackStreamMimeType(directStreamContainer, mediaSource.transcodingSubProtocol),
                 )
             mediaSource.supportsTranscoding &&
-                !mediaSource.transcodingUrl.isNullOrBlank() &&
+                !transcodingUrl.isNullOrBlank() &&
                 sourceCopyPreflight.allowsUnverifiedTranscode &&
                 // A copy-refused source may only take a transcode whose request
                 // provably forced a video re-encode: with AllowVideoStreamCopy
@@ -713,7 +714,7 @@ fun decidePlan(
                 val transcodeUrl =
                     resolveServerRelativeUrl(
                         serverUrl = serverUrl,
-                        url = mediaSource.transcodingUrl,
+                        url = transcodingUrl,
                     )
                 val cappedUrl =
                     transcodeResolutionCap(
@@ -1078,7 +1079,11 @@ private fun sourceVideoCopyPreflight(
     }
     val frameArea = blockPaddedArea(width, height)
     val frameRate = videoStream.realFrameRate
-    val hasFiniteThroughput = effectiveBound.maxFrameAreaPerSecond != null
+    val maxWidth = effectiveBound.maxWidth
+    val maxHeight = effectiveBound.maxHeight
+    val maxFrameArea = effectiveBound.maxFrameArea
+    val maxFrameAreaPerSecond = effectiveBound.maxFrameAreaPerSecond
+    val hasFiniteThroughput = maxFrameAreaPerSecond != null
     if (hasFiniteThroughput && (frameRate == null || !frameRate.isFinite() || frameRate <= 0.0)) {
         // PlaybackInfo does not expose negotiated output rate. Until a pinned
         // MaxFramerate request is probe-verified, an unknown-rate recovery is
@@ -1090,13 +1095,13 @@ private fun sourceVideoCopyPreflight(
             sourceFrameArea = frameArea,
         )
     }
-    if (effectiveBound.maxWidth != null && width > effectiveBound.maxWidth) {
+    if (maxWidth != null && width > maxWidth) {
         return rejected(SourceVideoCopyRejectionReason.WidthExceeded, SourceVideoCopyBinding.Width, sourceFrameArea = frameArea)
     }
-    if (effectiveBound.maxHeight != null && height > effectiveBound.maxHeight) {
+    if (maxHeight != null && height > maxHeight) {
         return rejected(SourceVideoCopyRejectionReason.HeightExceeded, SourceVideoCopyBinding.Height, sourceFrameArea = frameArea)
     }
-    if (effectiveBound.maxFrameArea != null && frameArea > effectiveBound.maxFrameArea) {
+    if (maxFrameArea != null && frameArea > maxFrameArea) {
         return rejected(
             SourceVideoCopyRejectionReason.FrameAreaExceeded,
             SourceVideoCopyBinding.FrameArea,
@@ -1107,8 +1112,8 @@ private fun sourceVideoCopyPreflight(
     val sourceFrameAreaPerSecond = sourceFrameAreaPerSecondExact?.toLong()
     if (
         sourceFrameAreaPerSecondExact != null &&
-        effectiveBound.maxFrameAreaPerSecond != null &&
-        sourceFrameAreaPerSecondExact > effectiveBound.maxFrameAreaPerSecond.toDouble()
+        maxFrameAreaPerSecond != null &&
+        sourceFrameAreaPerSecondExact > maxFrameAreaPerSecond.toDouble()
     ) {
         return rejected(
             SourceVideoCopyRejectionReason.ThroughputExceeded,

@@ -576,19 +576,20 @@ class LibVlcPlayerController(
             request.subtitleAsset.takeUnless {
                 request.plan.streamMode == com.jellyscope.core.domain.playback.StreamMode.Offline
             }
+        val subtitleActivationTarget = request.plan.subtitleActivationTarget
         if ((
                 nativeSubtitleAsset != null ||
                     (request.plan.streamMode == com.jellyscope.core.domain.playback.StreamMode.Offline && offlineSidecarPath != null)
             ) &&
-            request.plan.subtitleActivationTarget != null &&
+            subtitleActivationTarget != null &&
             pendingEmbeddedSubtitleSelection == null &&
             !deferredSubtitleDisable
         ) {
-            subtitleActivationConfirmation.begin(request.plan.subtitleActivationTarget)
+            subtitleActivationConfirmation.begin(subtitleActivationTarget)
             nativeSubtitleAsset?.let { asset ->
-                attachExternalSubtitle(request.plan.subtitleActivationTarget, asset)
+                attachExternalSubtitle(subtitleActivationTarget, asset)
             } ?: offlineSidecarPath?.let { path ->
-                attachExternalSubtitle(request.plan.subtitleActivationTarget, path)
+                attachExternalSubtitle(subtitleActivationTarget, path)
             }
         }
         if (pendingEmbeddedAudioSelection == null) {

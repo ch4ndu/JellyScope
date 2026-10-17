@@ -131,9 +131,13 @@ navigation controllers.
 ## Source Layout Target
 
 ```text
+core-model/src/commonMain/kotlin/.../
++-- domain/model/        # stable values, preferences and pure invariants
++-- domain/playback/     # playback plans and value vocabulary
+
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
-+-- domain/               # model, usecase, action, playback
++-- domain/               # adapters, usecase, action, planning and runtime
 +-- di/
 
 ui-foundation/src/commonMain/kotlin/.../
@@ -192,6 +196,17 @@ bridge. The entry calls the iOS factory in `shared-ui`, where Koin startup
 and generated configuration remain. The fullscreen callback composition local
 is shared through foundation; its provider remains in the root factory.
 Keep one static `SharedUi` binary; Kotlin consumers continue using `shared-ui`.
+
+`core-model` owns domain values and playback-plan vocabulary without runtime,
+persistence, transport or presentation dependencies. `shared-core` exposes it
+through an API dependency and retains adapters, orchestration, controllers and
+platform implementations. Existing Kotlin packages stay stable. Pure value
+validation moves with its values; mixed policy and adapter files stay in core.
+Consumers snapshot model properties into local values when a null or type check
+needs a smart cast across module boundaries.
+`shared-tvos` depends directly on and explicitly exports `core-model` from both
+framework targets because Swift names these values. The narrow iOS facade does
+not export it.
 
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
 image infrastructure over `shared-core`. `settings-account`,
@@ -454,6 +469,12 @@ gates live in
 
 ### Platform strategy and sharing
 
+- Domain values and playback plans form a stable lower dependency closure.
+  Keeping their pure invariants together separates value ownership from
+  implementation changes without moving controllers or persistence contracts.
+  Existing self-contained value tests follow that owner; mixed planning tests
+  stay with their implementation. Explicit tvOS exports preserve direct Swift
+  use while the iOS facade keeps its narrow surface.
 - UI foundation, Settings/Account, browsing, playback presentation, Detail,
   authentication and Downloads have cohesive owners below app
   composition, so a feature edit can compile a smaller source unit. Existing tests move with

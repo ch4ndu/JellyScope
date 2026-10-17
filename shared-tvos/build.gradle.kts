@@ -199,6 +199,7 @@ kotlin {
             baseName = "SharedTv"
             isStatic = true
             export(project(":shared-core"))
+            export(project(":core-model"))
         }
     }
 
@@ -207,6 +208,7 @@ kotlin {
             baseName = "SharedTv"
             isStatic = true
             export(project(":shared-core"))
+            export(project(":core-model"))
         }
     }
 
@@ -220,6 +222,7 @@ kotlin {
             kotlin.srcDir(generateTvDistributionBuildInfo)
         }
         commonMain.dependencies {
+            api(project(":core-model"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }
