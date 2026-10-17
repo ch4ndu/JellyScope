@@ -202,6 +202,7 @@ kotlin {
             export(project(":core-model"))
             export(project(":diagnostics"))
             export(project(":platform"))
+            export(project(":player"))
         }
     }
 
@@ -213,6 +214,7 @@ kotlin {
             export(project(":core-model"))
             export(project(":diagnostics"))
             export(project(":platform"))
+            export(project(":player"))
         }
     }
 
@@ -229,6 +231,7 @@ kotlin {
             api(project(":core-model"))
             api(project(":diagnostics"))
             api(project(":platform"))
+            api(project(":player"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }

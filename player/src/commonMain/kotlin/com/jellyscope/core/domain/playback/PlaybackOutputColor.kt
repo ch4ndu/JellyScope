@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.domain.playback
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 /** Closed transfer characteristics; any other native name is not recognized and stays null. */
 enum class PlaybackColorTransfer {
     Pq,
@@ -91,7 +94,9 @@ data class PlaybackOutputColor private constructor(
          * presentation path are deliberately not inputs. A null target transfer means the
          * native property was absent or failed.
          */
-        internal fun fromMpv(
+        @OptIn(ExperimentalObjCRefinement::class)
+        @HiddenFromObjC
+        fun fromMpv(
             videoPresent: Boolean,
             inputTransfer: String?,
             inputPrimaries: String?,

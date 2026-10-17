@@ -62,6 +62,7 @@ kotlin {
             api(project(":core-model"))
             api(project(":diagnostics"))
             api(project(":platform"))
+            api(project(":player"))
             api(libs.kermit)
             api(libs.koin.core)
             api(libs.ktor.client.core)

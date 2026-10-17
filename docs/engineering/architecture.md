@@ -145,6 +145,9 @@ platform/src/commonMain/kotlin/.../
 +-- domain/platform/      # device/environment services and native-log cleanup port
 +-- util/                 # cancellation-safe result handling
 
+player/src/commonMain/kotlin/.../
++-- domain/playback/      # controller contracts, state and runtime observations
+
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
 +-- domain/               # adapters, usecase, action, planning and runtime
@@ -209,8 +212,8 @@ Keep one static `SharedUi` binary; Kotlin consumers continue using `shared-ui`.
 
 `core-model` owns domain values and playback-plan vocabulary without runtime,
 persistence, transport or presentation dependencies. `shared-core` exposes it
-through an API dependency and retains application adapters, orchestration,
-controllers and their native implementations. Existing Kotlin packages stay stable.
+through an API dependency and retains application adapters, orchestration and
+native controller implementations. Existing Kotlin packages stay stable.
 Pure value validation moves with its values; mixed policy and adapter files stay
 in core.
 Consumers snapshot model properties into local values when a null or type check
@@ -220,8 +223,9 @@ framework targets because Swift names these values. The narrow iOS facade does
 not export it.
 
 `diagnostics` owns safe producer tags, operation tokens, wire-field schemas,
-platform vocabulary, formatting, capture validation and log-writer configuration. It depends only on
-Kermit and coroutines. Collection preferences remain an injected interface;
+platform vocabulary, formatting, capture validation and log-writer configuration.
+It depends only on Kermit and coroutines. Collection preferences remain an injected
+interface;
 persistence, capture actors, reports, playback policy and uploads stay in
 `shared-core`. Internal scrubber policy and its existing tests stay together.
 The wire-field enum and sanitized-marker formatter bridge are public to Kotlin
@@ -238,6 +242,16 @@ sources stay in `shared-core`. The existing public enum keeps its Kotlin package
 and Objective-C exposure in `diagnostics`; no visibility is expanded. Core exposes
 platform through API, and both tvOS frameworks explicitly export it to preserve
 existing Swift declarations. The narrow iOS facade keeps no exports.
+
+`player` owns controller/state, timing/volume and progress contracts, runtime
+observation values and software-progress observation over `core-model` and
+coroutines. Defaults and sealed families stay with their declarations. Native
+interpretation and polling, split reporting routes, planning and native players
+stay in `shared-core`. The output-color factory and shared frame-rate helper are
+Kotlin bridges hidden from Objective-C; private constructors, private copy
+visibility and validation remain intact. Core exposes player through API, and
+both tvOS frameworks explicitly export it to retain the existing public surface.
+The narrow iOS facade keeps no exports.
 
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
 image infrastructure over `shared-core`. `settings-account`,
@@ -541,6 +555,11 @@ gates live in
   The closed platform enum belongs with diagnostic vocabulary, keeping those
   adapters independent of upper playback formatting. Private DI and concrete
   native cleanup retain their application lifecycle owners.
+- Player contracts expose coroutine flows, so their separate owner keeps the
+  model-value layer free of runtime dependencies. Validated observation values
+  keep construction with private invariants; native polling and reporting side
+  effects remain with their existing lifecycle owners. The two production Kotlin
+  bridges preserve those invariants without adding a Swift API.
 - The iOS framework boundary keeps unused presentation declarations out of the
   Swift API and its native export roots. It preserves full Release optimization;
   fewer exported roots can reduce the graph processed by global optimization.
