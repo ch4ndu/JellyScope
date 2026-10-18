@@ -197,10 +197,11 @@ runtime-only behavior and remain subject to authorization above.
 | Player contracts | `player/src/commonTest`, `src/jvmTest` | Existing timing/support, offline lease/deletion guards and JVM generation rules |
 | Playback policy | `playback-policy/src/commonTest` | Existing capability/backend, stream/track/URL, diagnostic, recovery/health/session and Watch Next decisions |
 | Jellyfin wire contract | `jellyfin-api/src/commonTest` | Existing DTO encoding, media projections, transcode-reason parsing and device-profile mapping |
-| Shared domain/data | `shared-core/src/commonTest` | Planning, policy projections, repositories, transport, discovery, stores |
+| Shared domain/data | `shared-core/src/commonTest` | Planning, policy projections, repositories, transport, discovery and account coordination |
 | Native player runtime | `player-runtime/src/commonTest`, `src/androidHostTest`, `src/jvmTest`, `src/iosTest` | Existing activation/timing, native controllers, runtime probes, decoder/route mapping and Apple transition cases |
-| Android host | `shared-core/src/androidHostTest` | Room, SharedPreferences and retained application execution |
-| JVM | `shared-core/src/jvmTest` | Concrete file stores, persistence and retained application composition |
+| Persistence | `storage/src/commonTest`, `src/androidHostTest`, `src/jvmTest`, `src/iosTest` | Existing codecs, Room migrations/recovery, preference/artifact/subtitle stores; Apple cases compile on the build host |
+| Android host | `shared-core/src/androidHostTest` | Credential storage and retained application execution |
+| JVM | `shared-core/src/jvmTest` | Credential file storage and retained application composition |
 | Shared UI | `shared-ui/src/commonTest` | Navigation |
 | UI foundation | `ui-foundation/src/commonTest` | Adaptive layout, media cards, image/account caches, and playback-selection memory |
 | Settings/Account | `settings-account/src/commonTest`, `src/jvmTest` | Settings/account state, persistence actions, desktop availability |
@@ -379,6 +380,9 @@ scope:
   not establish the value of permanent maintenance cost.
 - **Manual validation complements selective tests:** native output and physical
   interaction cannot be established by compilation or shared fakes.
+- Existing storage tests follow their persistence owner. The Android host suite
+  depends on core production code to retain its registry integration case;
+  storage production remains independent of core.
 - **Review precedes the aggregate build:** rebuilding changing candidates does
   not verify the final result.
 - **Release gates stay distinct:** clean source binding does not prove native

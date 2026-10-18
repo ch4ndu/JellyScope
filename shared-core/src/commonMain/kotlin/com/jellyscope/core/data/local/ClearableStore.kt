@@ -7,45 +7,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-interface ClearableStore {
-    suspend fun clearServerScoped()
-}
-
-interface RefetchableServerCache : ClearableStore
-
-interface ServerScopedClearableStore : ClearableStore {
-    suspend fun clearServerScoped(serverId: String)
-}
-
-interface AccountScopedClearableStore : ServerScopedClearableStore {
-    suspend fun clearAccount(accountIdentity: AccountIdentity)
-}
-
-class StoreCleanupException(
-    val failures: List<Throwable>,
-) : IllegalStateException("Failed to clear ${failures.size} persistent store operation(s).")
-
-class LogoutCleanupCancellationException(
-    val failures: List<Throwable>,
-) : CancellationException("Logout cleanup completed after cancellation.")
-
-internal fun appendCleanupFailures(
-    failures: MutableList<Throwable>,
-    throwable: Throwable,
-) {
-    when (throwable) {
-        is StoreCleanupException -> failures += throwable.failures
-        is LogoutCleanupCancellationException -> failures += throwable.failures
-        else -> failures += throwable
-    }
-}
-
-internal fun throwIfCleanupFailed(failures: List<Throwable>) {
-    if (failures.isNotEmpty()) {
-        throw StoreCleanupException(failures.toList())
-    }
-}
-
 class AccountWorkLease internal constructor(
     internal val accountIdentity: AccountIdentity,
     internal val boundaryEpoch: Long,

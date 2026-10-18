@@ -349,7 +349,7 @@ completion criteria. Broad changes use this baseline:
 ./scripts/verify.sh
 ./gradlew :core-model:jvmTest :diagnostics:jvmTest \
   :platform:jvmTest :network:jvmTest :player:jvmTest :playback-policy:jvmTest \
-  :jellyfin-api:jvmTest :diagnostics-runtime:jvmTest :player-runtime:jvmTest :ui-foundation:jvmTest :settings-account:jvmTest \
+  :jellyfin-api:jvmTest :diagnostics-runtime:jvmTest :player-runtime:jvmTest :storage:jvmTest :ui-foundation:jvmTest :settings-account:jvmTest \
   :browse:jvmTest :playback:jvmTest :detail:jvmTest \
   :auth:jvmTest :downloads:jvmTest
 ./gradlew :desktop-app:compileKotlin
@@ -393,9 +393,13 @@ to UI, playback, and platform changes.
 - `player-runtime`: native controllers, surfaces, timing/activation helpers and
   device probes over `network` and `playback-policy`; existing Android backend
   factory bindings and Apple VLCKit interop stay with their implementations.
+- `storage`: file/preferences stores, Room databases, migrations and schemas over
+  `diagnostics-runtime`, with existing platform persistence bindings. KSP runs
+  here; committed Room schemas live in `storage/schemas`. Account/session
+  coordination and credential adapters remain in core.
 - `shared-core`: shared data, domain orchestration, root DI, Jellyfin API execution,
   playback planning/reporting and account-qualified offline validation over the
-  lower model, policy, platform, network, wire and runtime modules.
+  lower model, policy, platform, network, wire, runtime and storage modules.
 - `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
   components, shared input/focus contracts, account-scoped image and playback
   selection memory, and shared presentation helpers over `shared-core`.
@@ -410,7 +414,7 @@ to UI, playback, and platform changes.
 - `auth`: server entry/discovery, credential login, and Quick Connect
   presentation over foundation and core.
 - `downloads`: Downloads list/detail state and presentation over
-  foundation and core; transfer execution and storage remain core-owned.
+  foundation and core; transfer execution stays in core and persistence in storage.
 - `shared-ui`: app composition, navigation, DI, generated build metadata, and
   platform entry points over the UI modules for mobile, desktop, and iOS.
 - `ios-framework`: static `SharedUi` framework with the Swift entry point and
@@ -425,7 +429,7 @@ to UI, playback, and platform changes.
 - `shared-tvos`: tvOS Kotlin presentation layer (presenters, Swift bridge,
   `SharedTv` framework) over `shared-core` and explicitly exported `core-model`,
   `diagnostics`, `platform`, `network`, `player`, `playback-policy`, `jellyfin-api` and
-  `diagnostics-runtime` and `player-runtime`.
+  `diagnostics-runtime`, `player-runtime` and `storage`.
 - `tvos-app`: native SwiftUI Apple TV shell driven by `shared-tvos`.
 
 Layers, platform seams, and source-layout rules are owned by

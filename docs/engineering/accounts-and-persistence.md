@@ -35,6 +35,12 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 
 ## Persistence and account isolation
 
+`storage` owns ordinary file/preferences stores and Room databases, schemas and
+migrations. `shared-core` retains `SessionStore`, credential adapters, the
+account mutation registry, refetchable caches and `PersistentAccountStoreCleaner`.
+Root composition constructs databases and includes the lower store bindings;
+this module boundary does not change cleanup ordering or credential authority.
+
 - Session persistence flows through the project `SecureStore` boundary. Android
   uses Android Keystore-backed storage under `Context.noBackupFilesDir`, so Auto
   Backup never captures the undecryptable `secure-store.bin`; unreadable or
@@ -108,7 +114,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 - Shared persistence stores expose commonMain interfaces with plain data
   classes. Android, iOS, and JVM desktop back playback preferences,
   player-backend overrides, recent searches, and watch-next sync state with Room
-  KMP in `shared-core` using the bundled SQLite driver. iOS and JVM desktop also
+  KMP in `storage` using the bundled SQLite driver. iOS and JVM desktop also
   back player-device settings with the same Room database. The owner schema is
   version 11 with explicit migrations 1→2 through 10→11. If a future app
   downgrade encounters a database with a higher `user_version`, the
@@ -256,6 +262,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   changing the accepted Apple credential-storage policy.
 
 ### Persistence
+
+- Persistence implementations and Room generation stay together without
+  importing application execution. Session/account gates and credential
+  authority stay in core, preserving one cleanup and commit owner.
 
 - **Apple application credentials remain in app-owned plaintext storage by
   policy.** Avoiding Keychain access prevents application-triggered system

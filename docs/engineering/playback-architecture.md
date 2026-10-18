@@ -17,7 +17,8 @@ and formatting, typed planning failures, and recovery/health/session decisions.
 `player-runtime` owns native capability probes, controllers, surfaces and their
 private timing/activation/routing helpers, including existing Android backend
 factory bindings and Apple interop. Root DI composes these implementations.
-`shared-core` retains planner/repository execution, concrete file/database stores,
+`storage` owns concrete file/database stores and their persistence bindings.
+`shared-core` retains planner/repository execution,
 account-qualified offline validation, uploads and reporting implementations. The `playback` module owns
 Compose presentation.
 The [architecture guide](architecture.md) defines these module dependencies.

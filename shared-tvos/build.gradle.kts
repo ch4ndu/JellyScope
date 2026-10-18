@@ -208,6 +208,7 @@ kotlin {
             export(project(":jellyfin-api"))
             export(project(":diagnostics-runtime"))
             export(project(":player-runtime"))
+            export(project(":storage"))
         }
     }
 
@@ -225,6 +226,7 @@ kotlin {
             export(project(":jellyfin-api"))
             export(project(":diagnostics-runtime"))
             export(project(":player-runtime"))
+            export(project(":storage"))
         }
     }
 
@@ -247,6 +249,7 @@ kotlin {
             api(project(":jellyfin-api"))
             api(project(":diagnostics-runtime"))
             api(project(":player-runtime"))
+            api(project(":storage"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }

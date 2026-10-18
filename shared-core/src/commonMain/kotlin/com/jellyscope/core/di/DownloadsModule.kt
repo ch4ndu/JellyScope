@@ -3,16 +3,9 @@
 package com.jellyscope.core.di
 
 import com.jellyscope.core.data.local.DownloadArtifactStore
-import com.jellyscope.core.data.local.DownloadDatabase
 import com.jellyscope.core.data.local.DownloadDatabaseFactory
-import com.jellyscope.core.data.local.DownloadRecordStore
-import com.jellyscope.core.data.local.DownloadRemovalStore
-import com.jellyscope.core.data.local.DownloadSettingsStore
 import com.jellyscope.core.data.local.LocalSubtitleAssetStore
 import com.jellyscope.core.data.local.LocalSubtitleFileStore
-import com.jellyscope.core.data.local.RoomDownloadRecordStore
-import com.jellyscope.core.data.local.RoomDownloadRemovalStore
-import com.jellyscope.core.data.local.RoomDownloadSettingsStore
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.remote.DownloadArtworkTransport
 import com.jellyscope.core.data.remote.JellyfinApi
@@ -76,10 +69,7 @@ val downloadsModule =
             get<JellyfinClientFactory>().createDownloadTransfer()
         }
         single { get<DownloadDatabaseFactory>().create() }
-        single { get<DownloadDatabase>().downloadDao() }
-        single<DownloadSettingsStore> { RoomDownloadSettingsStore(dao = get()) }
-        single<DownloadRecordStore> { RoomDownloadRecordStore(dao = get()) }
-        single<DownloadRemovalStore> { RoomDownloadRemovalStore(dao = get()) }
+        includes(downloadStorageModule())
         single { OfflineArtifactLeaseRegistry() }
         single { DownloadRemovalMutex() }
         single<OfflineArtifactResolver> {

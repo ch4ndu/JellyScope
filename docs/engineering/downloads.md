@@ -11,7 +11,9 @@ than restating it.
 
 `core-model` owns pure download transitions, quota arithmetic, size estimates and
 queue selection. `shared-core` applies those decisions through admission, durable
-claims, storage and transfer execution.
+claims and transfer execution. `storage` owns the existing download database,
+Room stores and platform artifact stores; core retains account authorization,
+removal coordination, database construction and lifecycle hosts.
 
 ## Scope and identity
 
@@ -229,6 +231,10 @@ identity, artifact, and progress rules live in
 ## Why
 
 ### Downloads and offline
+
+- Durable bytes, records and migrations share the storage owner. Execution
+  retains account/attempt authority in core and consumes the existing store
+  boundaries without moving transfer or deletion policy into persistence.
 
 - **Download authorization is a current-account boundary.** Static bytes do not
   prove permission; admission and every start/resume revalidate account, policy,

@@ -3,6 +3,10 @@
 Engineering contract. See the [documentation map](../README.md) for related
 owners and the [user guides](../USAGE.md) for usage instructions.
 
+Execution, account/attempt coordination and platform lifecycle hosts remain in
+`shared-core`. They consume the database and artifact stores owned by `storage`;
+root DI retains database/factory construction and includes lower store bindings.
+
 ## Queue, quota, and recovery
 
 - One device-global FIFO sequence and one device-global active slot cover every
@@ -115,6 +119,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   transfer or durable-retention guarantee.
 
 ## Why
+
+- Persistence owns durable operations and migrations; core owns when an
+  account-qualified attempt may execute them. Keeping this direction avoids
+  coupling Room generation to transfer and lifecycle policy.
 
 - Bounded in-window network retries absorb transient reads without creating
   background execution promises. Exact attempt claims preserve queue ownership,

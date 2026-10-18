@@ -184,6 +184,12 @@ player-runtime/src/*Main/kotlin/.../
 player-runtime/src/nativeInterop/cinterop/
 +-- vlckit.def            # existing VLCKit foreign package and matching Apple slices
 
+storage/src/*Main/kotlin/.../
++-- data/local/           # file/preferences stores, Room databases and cleanup contracts
++-- di/                   # existing persistence registration bodies
+
+storage/schemas/         # committed Room schemas; KSP runs in storage
+
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
 +-- domain/               # adapters, usecase, action, planning and runtime
@@ -267,7 +273,7 @@ platform vocabulary, formatting, capture validation and log-writer configuration
 It depends only on Kermit and coroutines. Collection preferences remain an injected
 interface;
 capture actors and reports belong to `diagnostics-runtime`, playback policy to
-`playback-policy`, and persistence and uploads to `shared-core`. Internal scrubber policy and its existing tests stay together.
+`playback-policy`, persistence to `storage` and uploads to `shared-core`. Internal scrubber policy and its existing tests stay together.
 The wire-field enum and sanitized-marker formatter bridge are public to Kotlin
 consumers and hidden from Objective-C; field-name sets remain internal.
 `shared-core` exposes the module through API, and both tvOS frameworks explicitly
@@ -300,8 +306,8 @@ progress contracts over `core-model` and coroutines. Atomicfu synchronizes lease
 bookkeeping. The existing JVM volume port and generation helper also live here.
 The validated opaque artifact part name, its private validation and two canonical
 member values belong to `core-model`, retaining their Kotlin package. Concrete
-file stores, account-qualified artifact validation and download deletion actions
-remain upper; the lease registry coordinates their existing shared exclusion.
+file stores belong to `storage`; account-qualified artifact validation and
+download deletion actions remain in `shared-core`; the lease registry coordinates their existing shared exclusion.
 Fourteen necessary production declarations cross Kotlin module boundaries hidden
 from Objective-C; trusted paths remain excluded from UI models, persistence and
 diagnostics. Lease construction and private validation retain their restrictions.
@@ -341,8 +347,8 @@ controller constructors, native internals and test fixtures remain internal.
 
 The existing JVM app-directory function and serialized latest-value writer belong
 to `platform`, retaining their package and behavior. Concrete Room/preferences
-stores stay core-owned and use those same primitives. Whole native suites move
-with runtime; mixed account/reporting and concrete-store suites stay with core.
+stores belong to `storage` and use those same primitives. Whole native suites move
+with runtime; persistence suites follow storage, and mixed account/reporting suites stay with core.
 No test-only production API or friend relationship is required.
 
 `jellyfin-api` owns Jellyfin wire DTOs, metadata-to-domain projections,
@@ -363,11 +369,25 @@ atomicfu and JSON remain implementation dependencies. The two shared capture
 bounds, three marker helpers and three delivery checks are production Kotlin
 bridges hidden from Objective-C. Timeline construction, actor bookkeeping,
 encoding internals and platform installer hooks remain internal. Existing whole
-suites follow these owners. Account-scoped failure context, concrete Room/file
-stores, upload execution and DI stay in `shared-core`; its retained class file
+suites follow these owners. Concrete Room/file stores belong to `storage`.
+Account-scoped failure context, upload execution and root DI stay in `shared-core`; its retained class file
 has no top-level facade, while the lower public values and source extension keep
 the original package and filename. Core exposes runtime through API and both
 tvOS frameworks explicitly export it; the narrow iOS facade keeps no exports.
+
+`storage` owns durable preference, subtitle and download stores, Room databases,
+DAOs, migrations and schemas, plus their existing platform registration bodies.
+It exposes `diagnostics-runtime`, Koin, Room and serialization contracts without
+HTTP execution or native-player dependencies. Core includes the storage modules
+while retaining database singleton construction, credentials, session/account
+coordination, cleanup composition and eager desktop native startup. Cleanup
+contracts cross downward; account leases and their mutation registry stay upper.
+Necessary Kotlin bridges are hidden from Objective-C on common/Apple targets;
+DAOs, entities and implementation constructors remain internal. Core exposes
+storage through API; both tvOS frameworks explicitly export it, and the narrow
+iOS facade keeps no exports. Only storage Android host tests depend on core
+production code to preserve their existing registry case, without a production
+cycle or a test-only API.
 
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
 image infrastructure over `shared-core`. `settings-account`,
@@ -409,13 +429,14 @@ constructor; foundation’s focus policies remain public.
 Server entry, discovery UI, credential login and Quick Connect share
 `auth` with their existing ViewModel tests. Root navigation and DI retain
 session startup and constructor parameters; core retains discovery, authentication,
-credentials and persistence. TV keeps its UI and consumes the same public state
-and ViewModels through app composition.
+credentials and session persistence. TV keeps its UI and consumes the same public
+state and ViewModels through app composition.
 
 Downloads list/detail state, presentation and their existing ViewModel tests
-share `downloads`. Core retains admission, execution, storage and account-qualified offline
-validation; Detail retains enqueue entry points. Root navigation and TV consume the
-existing public API, and shared backdrop/formatting contracts remain in foundation.
+share `downloads`. Core retains admission, execution and account-qualified offline
+validation; `storage` owns durable records and artifacts, and Detail retains
+enqueue entry points. Root navigation and TV consume the existing public API,
+and shared backdrop/formatting contracts remain in foundation.
 
 Split large files by cohesive ownership near a 500-line review trigger. Keep
 public contracts in named files and helpers/chrome/fixtures in same-package
@@ -683,13 +704,16 @@ gates live in
   The closed platform enum belongs with diagnostic vocabulary, keeping those
   adapters independent of upper playback formatting. Private DI and concrete
   native cleanup retain their application lifecycle owners.
+- Persistence and its Room generation share one owner below application
+  execution. Existing store bindings keep implementation types private; account
+  gates, credentials and cleanup composition retain their upper authority.
 - Native execution depends on policy, network and platform primitives while
   application planning, account authority and reporting retain their core owner.
   Co-owning native factories, private helpers and whole existing suites avoids
   dependency cycles and test-only APIs; cinterop stays with its native users.
 - Capture, timeline preparation and process hooks share bounded history and
   privacy lifetimes. Keeping their complete tests with the runtime owner avoids
-  test-only APIs; concrete persistence and delivery retain application authority.
+  test-only APIs; concrete persistence belongs to storage and delivery retains application authority.
   Runtime sits above platform and playback policy so lower diagnostic vocabulary
   remains reusable without a dependency cycle.
 - Player contracts expose coroutine flows and shared lease exclusion, so their

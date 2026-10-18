@@ -4,11 +4,6 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kotlin.multiplatform.library)
     alias(libs.plugins.kotlin.plugin.serialization)
-    alias(libs.plugins.ksp)
-}
-
-ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 kotlin {
@@ -49,12 +44,11 @@ kotlin {
             api(project(":jellyfin-api"))
             api(project(":diagnostics-runtime"))
             api(project(":player-runtime"))
+            api(project(":storage"))
             api(libs.kermit)
             api(libs.koin.core)
             api(libs.ktor.client.core)
             api(libs.kotlinx.datetime)
-            api(libs.room.runtime)
-            implementation(libs.androidx.sqlite.bundled)
             implementation(libs.atomicfu)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
@@ -91,7 +85,6 @@ kotlin {
                 implementation(libs.kotlin.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.robolectric)
-                implementation(libs.room.testing)
             }
         }
 
@@ -99,13 +92,4 @@ kotlin {
             implementation(libs.ktor.client.darwin)
         }
     }
-}
-
-dependencies {
-    add("kspAndroid", libs.room.compiler)
-    add("kspIosArm64", libs.room.compiler)
-    add("kspIosSimulatorArm64", libs.room.compiler)
-    add("kspTvosArm64", libs.room.compiler)
-    add("kspTvosSimulatorArm64", libs.room.compiler)
-    add("kspJvm", libs.room.compiler)
 }

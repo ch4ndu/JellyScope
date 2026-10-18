@@ -177,8 +177,6 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 internal val downloadTransferClientQualifier = named("DownloadTransfer")
-internal val localSubtitleSelectionPersistenceQualifier = named("LocalSubtitleSelectionPersistence")
-
 val coreModule =
     module {
         single {
