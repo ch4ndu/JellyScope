@@ -34,10 +34,12 @@ kotlin {
         commonMain.dependencies {
             api(project(":core-model"))
             api(libs.kotlinx.coroutines.core)
+            implementation(libs.atomicfu)
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }

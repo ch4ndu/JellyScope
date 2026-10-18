@@ -134,6 +134,7 @@ navigation controllers.
 core-model/src/commonMain/kotlin/.../
 +-- domain/model/        # stable values, preferences and pure invariants
 +-- domain/playback/     # playback plans and value vocabulary
++-- data/local/          # validated opaque artifact part names (package retained)
 
 diagnostics/src/commonMain/kotlin/.../
 +-- util/                 # safe logging and capture validation
@@ -151,9 +152,16 @@ network/src/commonMain/kotlin/.../
 
 player/src/commonMain/kotlin/.../
 +-- domain/playback/      # controller contracts, state and runtime observations
++-- data/local/           # existing subtitle-file port
++-- playback/             # offline artifact leases and deletion guards
+
+player/src/jvmMain/kotlin/.../
++-- data/local/           # existing desktop-volume port
++-- util/                 # positive process-local generation helper
 
 playback-policy/src/commonMain/kotlin/.../
 +-- domain/playback/      # capabilities, selection, diagnostics and session policy
++-- data/local/           # device-setting port over policy-owned values
 
 diagnostics-runtime/src/commonMain/kotlin/.../
 +-- util/                 # capture actor, timeline encoder, reports and failure hooks
@@ -275,9 +283,18 @@ provider retains its public class in a separate upper file. Core exposes network
 through API, and both tvOS frameworks explicitly export it; the iOS facade keeps
 no exports.
 
-`player` owns controller/state, timing/volume and progress contracts, runtime
-observation values and software-progress observation over `core-model` and
-coroutines. Defaults and sealed families stay with their declarations. Native
+`player` owns controller/state, timing/volume and subtitle-file
+ports, offline artifact leases and deletion guards, runtime observations and
+progress contracts over `core-model` and coroutines. Atomicfu synchronizes lease
+bookkeeping. The existing JVM volume port and generation helper also live here.
+The validated opaque artifact part name, its private validation and two canonical
+member values belong to `core-model`, retaining their Kotlin package. Concrete
+file stores, account-qualified artifact validation and download deletion actions
+remain upper; the lease registry coordinates their existing shared exclusion.
+Fourteen necessary production declarations cross Kotlin module boundaries hidden
+from Objective-C; trusted paths remain excluded from UI models, persistence and
+diagnostics. Lease construction and private validation retain their restrictions.
+Defaults and sealed families stay with their declarations. Native
 interpretation and polling, split reporting routes, planning and native players
 stay in `shared-core`. The output-color factory and shared frame-rate helper are
 Kotlin bridges hidden from Objective-C; private constructors, private copy
@@ -288,7 +305,8 @@ The narrow iOS facade keeps no exports.
 `playback-policy` owns capability declarations and pure capability factories,
 backend/device policy, stream/track/URL decisions, playback diagnostic vocabulary
 and formatting, typed planning failures, and recovery/health/session policy.
-It depends on `core-model`, `diagnostics`, `player` and coroutines. Native probes,
+Its device-setting port uses the policy-owned settings values. The module
+depends on `core-model`, `diagnostics`, `player` and coroutines. Native probes,
 planner/repository execution, diagnostic capture/upload, persistence, navigation
 and presentation lifetime stay above. Private helpers, sealed families, defaults
 and public file facades stay with their declarations. Necessary Kotlin bridges
@@ -364,8 +382,8 @@ credentials and persistence. TV keeps its UI and consumes the same public state
 and ViewModels through app composition.
 
 Downloads list/detail state, presentation and their existing ViewModel tests
-share `downloads`. Core retains admission, execution, storage and offline
-leases; Detail retains enqueue entry points. Root navigation and TV consume the
+share `downloads`. Core retains admission, execution, storage and account-qualified offline
+validation; Detail retains enqueue entry points. Root navigation and TV consume the
 existing public API, and shared backdrop/formatting contracts remain in foundation.
 
 Split large files by cohesive ownership near a 500-line review trigger. Keep
@@ -639,8 +657,10 @@ gates live in
   test-only APIs; concrete persistence and delivery retain application authority.
   Runtime sits above platform and playback policy so lower diagnostic vocabulary
   remains reusable without a dependency cycle.
-- Player contracts expose coroutine flows, so their separate owner keeps the
-  model-value layer free of runtime dependencies. Validated observation values
+- Player contracts expose coroutine flows and shared lease exclusion, so their
+  separate owner keeps the model-value layer free of runtime dependencies.
+  Existing file/volume ports separate native playback from concrete persistence;
+  one lease registry preserves playback-versus-deletion authority across owners. Validated observation values
   keep construction with private invariants; native polling and reporting side
   effects remain with their existing lifecycle owners. The two production Kotlin
   bridges preserve those invariants without adding a Swift API.

@@ -12,9 +12,13 @@ import com.jellyscope.core.domain.playback.StreamMode
 import kotlinx.atomicfu.atomic
 import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.atomicfu.locks.withLock
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
 
 /** Physical identity restricted to the trusted resolver and deletion boundary. */
-internal data class OfflineArtifactLeaseIdentity(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+data class OfflineArtifactLeaseIdentity(
     val downloadId: DownloadId,
     val attemptGeneration: Long,
 ) {
@@ -28,7 +32,9 @@ internal data class OfflineArtifactLeaseIdentity(
 }
 
 /** Root-contained player resource whose path never reaches UI, persistence, or diagnostics. */
-internal class TrustedOfflineArtifactResource(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+class TrustedOfflineArtifactResource(
     val partKey: DownloadArtifactPartKey,
     private val localPath: String,
 ) {
@@ -41,7 +47,9 @@ internal class TrustedOfflineArtifactResource(
     override fun toString(): String = "TrustedOfflineArtifactResource"
 }
 
-internal enum class OfflineArtifactResolutionFailure {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+enum class OfflineArtifactResolutionFailure {
     UnauthorizedOrMissing,
     NotCompleted,
     StaleGeneration,
@@ -51,11 +59,15 @@ internal enum class OfflineArtifactResolutionFailure {
     DeletionInProgress,
 }
 
-internal sealed interface OfflineArtifactResolution {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+sealed interface OfflineArtifactResolution {
+    @HiddenFromObjC
     data class Available(
         val lease: OfflineArtifactLease,
     ) : OfflineArtifactResolution
 
+    @HiddenFromObjC
     data class Unavailable(
         val failure: OfflineArtifactResolutionFailure,
     ) : OfflineArtifactResolution
@@ -65,7 +77,9 @@ internal sealed interface OfflineArtifactResolution {
  * Revalidates account, completion, generation, containment, and package integrity
  * before leasing an offline artifact. An opaque route reference grants no authority.
  */
-internal interface OfflineArtifactResolver {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+interface OfflineArtifactResolver {
     suspend fun acquire(
         expectedAccountIdentity: AccountIdentity,
         reference: OfflineArtifactRef,
@@ -73,7 +87,9 @@ internal interface OfflineArtifactResolver {
 }
 
 /** Shared offline admission before any platform-native resource handling. */
-internal suspend fun OfflineArtifactResolver.acquireForOfflinePlan(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+suspend fun OfflineArtifactResolver.acquireForOfflinePlan(
     plan: PlaybackPlan,
     expectedAccountIdentity: AccountIdentity,
 ): OfflineArtifactResolution {
@@ -95,16 +111,19 @@ internal suspend fun OfflineArtifactResolver.acquireForOfflinePlan(
     return acquire(expectedAccountIdentity, reference)
 }
 
+@OptIn(ExperimentalObjCRefinement::class)
 class OfflineArtifactLease internal constructor(
     val artifactKind: DownloadArtifactKind,
     private val mainResource: TrustedOfflineArtifactResource,
     private val sidecarResources: List<TrustedOfflineArtifactResource>,
     private val releaseLease: () -> Unit,
 ) {
-    internal val mainPathForController: String
+    @HiddenFromObjC
+    val mainPathForController: String
         get() = mainResource.pathForPlatformPlayer()
 
-    internal val sidecarPathsForController: List<String>
+    @HiddenFromObjC
+    val sidecarPathsForController: List<String>
         get() = sidecarResources.map { resource -> resource.pathForPlatformPlayer() }
 
     init {
@@ -124,7 +143,9 @@ class OfflineArtifactLease internal constructor(
 }
 
 /** Holds the generation-bound lease so stale prepares cannot release a replacement's lease. */
-internal class OfflineArtifactLeaseHolder {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+class OfflineArtifactLeaseHolder {
     private val lock = ReentrantLock()
     private var lease: OfflineArtifactLease? = null
 
@@ -154,9 +175,13 @@ internal class OfflineArtifactLeaseHolder {
         get() = lock.withLock { lease }
 }
 
-internal sealed interface OfflineArtifactDeletionGuardResult<out T> {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+sealed interface OfflineArtifactDeletionGuardResult<out T> {
+    @HiddenFromObjC
     data object ArtifactInUse : OfflineArtifactDeletionGuardResult<Nothing>
 
+    @HiddenFromObjC
     data class Granted<T>(
         val value: T,
     ) : OfflineArtifactDeletionGuardResult<T>
@@ -166,12 +191,14 @@ internal sealed interface OfflineArtifactDeletionGuardResult<out T> {
  * Prevents playback admission after deletion starts without holding the registry
  * lock across suspending deletion work.
  */
-internal class OfflineArtifactLeaseRegistry {
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+class OfflineArtifactLeaseRegistry {
     private val lock = ReentrantLock()
     private val activeLeaseCounts = mutableMapOf<OfflineArtifactLeaseIdentity, Int>()
     private val deleting = mutableSetOf<OfflineArtifactLeaseIdentity>()
 
-    internal fun acquire(
+    fun acquire(
         identity: OfflineArtifactLeaseIdentity,
         artifactKind: DownloadArtifactKind,
         mainResource: TrustedOfflineArtifactResource,

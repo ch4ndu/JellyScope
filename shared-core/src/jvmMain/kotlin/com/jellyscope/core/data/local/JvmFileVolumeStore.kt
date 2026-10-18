@@ -15,12 +15,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-interface DesktopPlayerVolumeStore {
-    val restoredState: PlayerVolumeState
-
-    fun submit(state: PlayerVolumeState)
-}
-
 internal class JvmFileVolumeStore(
     private val preferences: JvmFilePreferencesStore,
     writerScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),

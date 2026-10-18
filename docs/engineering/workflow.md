@@ -194,7 +194,7 @@ runtime-only behavior and remain subject to authorization above.
 | Diagnostic runtime | `diagnostics-runtime/src/commonTest`, `src/androidHostTest`, `src/jvmTest`, `src/iosTest` | Existing capture, timeline preparation, report, previous-run marker and platform hook cases |
 | Platform services | `platform/src/commonTest` | Existing cancellation propagation and ordinary-failure result handling |
 | Network policy | `network/src/commonTest` | Existing authorization encoding, server-URL normalization and credential-origin rules |
-| Player contracts | `player/src/commonTest` | Existing timing normalization and support rules |
+| Player contracts | `player/src/commonTest`, `src/jvmTest` | Existing timing/support, offline lease/deletion guards and JVM generation rules |
 | Playback policy | `playback-policy/src/commonTest` | Existing capability/backend, stream/track/URL, diagnostic, recovery/health/session and Watch Next decisions |
 | Jellyfin wire contract | `jellyfin-api/src/commonTest` | Existing DTO encoding, media projections, transcode-reason parsing and device-profile mapping |
 | Shared domain/data | `shared-core/src/commonTest` | Planning, policy projections, repositories, transport, discovery, stores |

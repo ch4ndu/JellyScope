@@ -377,11 +377,13 @@ to UI, playback, and platform changes.
   cleanup contracts and cancellation-safe result handling over `diagnostics`.
 - `network`: authorization-header contracts and encoding, credential-origin
   policy and server-URL normalization over `platform` and Ktor HTTP.
-- `player`: shared controller/state, timing/volume and progress contracts, runtime
-  observation values and software-progress observation over `core-model`.
+- `player`: controller/state, timing/volume and subtitle-file ports,
+  offline artifact leases and deletion guards, runtime observations and progress
+  contracts over `core-model`; atomicfu keeps lease bookkeeping synchronized.
 - `playback-policy`: capability declarations, backend/device and stream/track
   decisions, playback diagnostic vocabulary/formatting, recovery/health/session
-  policy and selection inputs over `core-model`, `diagnostics` and `player`.
+  policy, the device-setting port and selection inputs over `core-model`,
+  `diagnostics` and `player`.
 - `jellyfin-api`: Jellyfin wire DTOs, metadata-to-domain mapping, device profiles
   and typed API failures over `playback-policy` and serialization; Ktor HTTP is
   internal.

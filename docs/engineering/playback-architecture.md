@@ -9,13 +9,15 @@ capability that consumes it. Platform players map it to native APIs; they do not
 fetch Jellyfin metadata or choose a stream mode.
 
 `core-model` owns plan values, launch inputs and subtitle intents. `player` owns
-controller/state, timing/volume and progress contracts, runtime observation
-values and software-progress observation. `playback-policy` owns capability declarations and pure capability factories,
-backend/device policy, stream/track/URL decisions, playback diagnostic vocabulary
+controller/state, timing/volume and subtitle-file ports, offline
+artifact lease/deletion guards, runtime observations and progress contracts. `playback-policy` owns capability declarations and pure capability factories,
+backend/device policy and its settings port, stream/track/URL decisions, playback diagnostic vocabulary
 and formatting, typed planning failures, and recovery/health/session decisions.
+`diagnostics-runtime` owns safe capture, reports and timeline preparation.
 `shared-core` retains native capability probes, planner/repository execution,
-native players, diagnostic capture/upload and reporting implementations; the
-`playback` module owns Compose presentation.
+native players, concrete file/database stores, account-qualified offline
+validation, uploads and reporting implementations. The `playback` module owns
+Compose presentation.
 The [architecture guide](architecture.md) defines these module dependencies.
 
 ## 2. End-to-end decision pipeline
