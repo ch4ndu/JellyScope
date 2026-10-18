@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.data.local
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 /** A scrubbed record ready for bounded diagnostic persistence. */
 data class DiagnosticBreadcrumbRecord(
     val recordId: String,
@@ -51,3 +54,11 @@ interface DiagnosticBreadcrumbStore {
     /** Closes the diagnostic handle and removes only this store's exact file and sidecars. */
     suspend fun purge()
 }
+
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+const val DIAGNOSTIC_MAX_ENTRIES = 4_000
+
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+const val DIAGNOSTIC_MAX_BYTES = 500_000

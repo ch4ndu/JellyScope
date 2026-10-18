@@ -3,6 +3,8 @@
 package com.jellyscope.core.data.local
 
 import com.jellyscope.core.util.safeDiagnosticType
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
 
 /** Closed platform values persisted in the previous-run marker. */
 enum class PreviousRunFailurePlatform(
@@ -44,9 +46,13 @@ object NoOpPreviousRunFailureStore : PreviousRunFailureStore {
     override fun clear() = Unit
 }
 
-internal const val PREVIOUS_RUN_FAILURE_SCHEMA_VERSION = 1
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+const val PREVIOUS_RUN_FAILURE_SCHEMA_VERSION = 1
 
-internal fun previousRunFailureMarker(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun previousRunFailureMarker(
     throwable: Throwable,
     platform: PreviousRunFailurePlatform,
 ): PreviousRunFailureMarker =
@@ -55,7 +61,9 @@ internal fun previousRunFailureMarker(
         platform = platform,
     )
 
-internal fun decodePreviousRunFailureMarker(
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun decodePreviousRunFailureMarker(
     schemaVersion: Int?,
     exceptionType: String?,
     platform: String?,

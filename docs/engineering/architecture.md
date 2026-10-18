@@ -155,6 +155,13 @@ player/src/commonMain/kotlin/.../
 playback-policy/src/commonMain/kotlin/.../
 +-- domain/playback/      # capabilities, selection, diagnostics and session policy
 
+diagnostics-runtime/src/commonMain/kotlin/.../
++-- util/                 # capture actor, timeline encoder, reports and failure hooks
++-- data/local/           # breadcrumb/previous-run contracts and shared bounds
++-- domain/action/        # collection toggle and explicit timeline preparation
++-- domain/model/         # prepared timeline and delivery result values
++-- playback/             # diagnostic snapshot values and source projection
+
 jellyfin-api/src/commonMain/kotlin/.../
 +-- data/remote/          # Jellyfin wire DTOs, profile mapping and typed API failures
 +-- domain/model/         # Jellyfin-to-domain media projections
@@ -241,8 +248,8 @@ not export it.
 platform vocabulary, formatting, capture validation and log-writer configuration.
 It depends only on Kermit and coroutines. Collection preferences remain an injected
 interface;
-persistence, capture actors, reports, playback policy and uploads stay in
-`shared-core`. Internal scrubber policy and its existing tests stay together.
+capture actors and reports belong to `diagnostics-runtime`, playback policy to
+`playback-policy`, and persistence and uploads to `shared-core`. Internal scrubber policy and its existing tests stay together.
 The wire-field enum and sanitized-marker formatter bridge are public to Kotlin
 consumers and hidden from Objective-C; field-name sets remain internal.
 `shared-core` exposes the module through API, and both tvOS frameworks explicitly
@@ -301,6 +308,19 @@ sessions, repositories and DI remain in `shared-core`. Six necessary request and
 response-mapping Kotlin bridges are hidden from Objective-C. Core exposes the
 module through API, and both tvOS frameworks explicitly export it to preserve
 existing Swift declarations; the narrow iOS facade keeps no exports.
+
+`diagnostics-runtime` owns the bounded capture actor, report rendering, timeline
+encoder and preparation, collection toggle, previous-run contracts and process
+failure hooks. It exposes existing `platform` and `playback-policy` contracts;
+atomicfu and JSON remain implementation dependencies. The two shared capture
+bounds, three marker helpers and three delivery checks are production Kotlin
+bridges hidden from Objective-C. Timeline construction, actor bookkeeping,
+encoding internals and platform installer hooks remain internal. Existing whole
+suites follow these owners. Account-scoped failure context, concrete Room/file
+stores, upload execution and DI stay in `shared-core`; its retained class file
+has no top-level facade, while the lower public values and source extension keep
+the original package and filename. Core exposes runtime through API and both
+tvOS frameworks explicitly export it; the narrow iOS facade keeps no exports.
 
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
 image infrastructure over `shared-core`. `settings-account`,
@@ -614,6 +634,11 @@ gates live in
   The closed platform enum belongs with diagnostic vocabulary, keeping those
   adapters independent of upper playback formatting. Private DI and concrete
   native cleanup retain their application lifecycle owners.
+- Capture, timeline preparation and process hooks share bounded history and
+  privacy lifetimes. Keeping their complete tests with the runtime owner avoids
+  test-only APIs; concrete persistence and delivery retain application authority.
+  Runtime sits above platform and playback policy so lower diagnostic vocabulary
+  remains reusable without a dependency cycle.
 - Player contracts expose coroutine flows, so their separate owner keeps the
   model-value layer free of runtime dependencies. Validated observation values
   keep construction with private invariants; native polling and reporting side

@@ -206,6 +206,7 @@ kotlin {
             export(project(":player"))
             export(project(":playback-policy"))
             export(project(":jellyfin-api"))
+            export(project(":diagnostics-runtime"))
         }
     }
 
@@ -221,6 +222,7 @@ kotlin {
             export(project(":player"))
             export(project(":playback-policy"))
             export(project(":jellyfin-api"))
+            export(project(":diagnostics-runtime"))
         }
     }
 
@@ -241,6 +243,7 @@ kotlin {
             api(project(":player"))
             api(project(":playback-policy"))
             api(project(":jellyfin-api"))
+            api(project(":diagnostics-runtime"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }

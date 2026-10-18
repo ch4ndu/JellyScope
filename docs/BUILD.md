@@ -349,7 +349,7 @@ completion criteria. Broad changes use this baseline:
 ./scripts/verify.sh
 ./gradlew :core-model:jvmTest :diagnostics:jvmTest \
   :platform:jvmTest :network:jvmTest :player:jvmTest :playback-policy:jvmTest \
-  :jellyfin-api:jvmTest :ui-foundation:jvmTest :settings-account:jvmTest \
+  :jellyfin-api:jvmTest :diagnostics-runtime:jvmTest :ui-foundation:jvmTest :settings-account:jvmTest \
   :browse:jvmTest :playback:jvmTest :detail:jvmTest \
   :auth:jvmTest :downloads:jvmTest
 ./gradlew :desktop-app:compileKotlin
@@ -385,9 +385,12 @@ to UI, playback, and platform changes.
 - `jellyfin-api`: Jellyfin wire DTOs, metadata-to-domain mapping, device profiles
   and typed API failures over `playback-policy` and serialization; Ktor HTTP is
   internal.
+- `diagnostics-runtime`: bounded capture, reports, timeline preparation, collection
+  control and process failure hooks over `platform` and `playback-policy`.
 - `shared-core`: shared data, domain orchestration, DI, Jellyfin API execution,
   playback orchestration and native players over `core-model`, `diagnostics`,
-  `platform`, `network`, `player`, `playback-policy` and `jellyfin-api`.
+  `platform`, `network`, `player`, `playback-policy`, `jellyfin-api` and
+  `diagnostics-runtime`.
 - `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
   components, shared input/focus contracts, account-scoped image and playback
   selection memory, and shared presentation helpers over `shared-core`.
@@ -416,7 +419,8 @@ to UI, playback, and platform changes.
 - `ios-app`: SwiftUI host for the shared Compose iOS app.
 - `shared-tvos`: tvOS Kotlin presentation layer (presenters, Swift bridge,
   `SharedTv` framework) over `shared-core` and explicitly exported `core-model`,
-  `diagnostics`, `platform`, `network`, `player`, `playback-policy` and `jellyfin-api`.
+  `diagnostics`, `platform`, `network`, `player`, `playback-policy`, `jellyfin-api` and
+  `diagnostics-runtime`.
 - `tvos-app`: native SwiftUI Apple TV shell driven by `shared-tvos`.
 
 Layers, platform seams, and source-layout rules are owned by

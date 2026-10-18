@@ -2,6 +2,9 @@
 
 package com.jellyscope.core.domain.model
 
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
+
 /** Fixed generic name for saved timelines; it never contains media, account, or device data. */
 const val PLAYBACK_TIMELINE_FILENAME = "jellyscope-playback-timeline.json"
 
@@ -10,13 +13,15 @@ const val PLAYBACK_TIMELINE_FILENAME = "jellyscope-playback-timeline.json"
  * converts it to bytes only at the native boundary. [collectionBoundary] is local bookkeeping that
  * lets delivery reject a payload prepared before collection was disabled, purged, or cleared.
  */
+@OptIn(ExperimentalObjCRefinement::class)
 @ConsistentCopyVisibility
 data class PlaybackTimeline internal constructor(
     val json: String,
     val eventCount: Int,
     /** False when dropped, legacy, malformed, truncated, or omitted history limits coverage. */
     val historyComplete: Boolean,
-    internal val collectionBoundary: Long,
+    @HiddenFromObjC
+    val collectionBoundary: Long,
 ) {
     val filename: String
         get() = PLAYBACK_TIMELINE_FILENAME

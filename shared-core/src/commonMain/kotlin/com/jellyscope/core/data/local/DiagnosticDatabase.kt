@@ -22,8 +22,6 @@ import kotlinx.coroutines.sync.withLock
 
 internal const val DIAGNOSTIC_DATABASE_FILE_NAME = "jellyscope-diagnostics.db"
 internal const val DIAGNOSTIC_DATABASE_SCHEMA_VERSION = 1
-internal const val DIAGNOSTIC_MAX_ENTRIES = 4_000
-internal const val DIAGNOSTIC_MAX_BYTES = 500_000
 
 @Entity(
     tableName = "diagnostic_breadcrumbs",

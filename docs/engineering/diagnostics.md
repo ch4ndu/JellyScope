@@ -3,6 +3,15 @@
 Engineering contract. See the [documentation map](../README.md) for related
 owners and the [user guides](../USAGE.md) for usage instructions.
 
+## Module ownership
+
+`diagnostics` owns safe vocabulary, formatting, capture admission and the
+collection preference interface. `diagnostics-runtime` owns bounded capture,
+report rendering, timeline preparation, collection toggling, previous-run marker
+contracts and process hooks. `shared-core` supplies concrete persistence,
+account-scoped failure context, upload execution and DI. These boundaries do not
+change collection consent, privacy, retention or delivery behavior.
+
 ## Diagnostics, logging, and privacy
 
 - Logging uses the Kermit facade (`Logger.withTag(...)`) in EVERY module,

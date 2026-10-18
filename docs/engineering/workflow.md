@@ -191,6 +191,7 @@ runtime-only behavior and remain subject to authorization above.
 | --- | --- | --- |
 | Domain values | `core-model/src/commonTest` | Existing value invariants, selection/launch inputs, image URLs, playback metadata and download quota/queue decisions |
 | Safe diagnostics | `diagnostics/src/commonTest` | Existing log-writer configuration and formatter/capture field parity |
+| Diagnostic runtime | `diagnostics-runtime/src/commonTest`, `src/androidHostTest`, `src/jvmTest`, `src/iosTest` | Existing capture, timeline preparation, report, previous-run marker and platform hook cases |
 | Platform services | `platform/src/commonTest` | Existing cancellation propagation and ordinary-failure result handling |
 | Network policy | `network/src/commonTest` | Existing authorization encoding, server-URL normalization and credential-origin rules |
 | Player contracts | `player/src/commonTest` | Existing timing normalization and support rules |

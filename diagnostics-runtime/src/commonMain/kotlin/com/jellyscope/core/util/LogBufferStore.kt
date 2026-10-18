@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
 import kotlin.random.Random
 
 data class LogBufferSize(
@@ -88,13 +90,17 @@ class LogBufferStore(
     val size: StateFlow<LogBufferSize> = _size.asStateFlow()
 
     /** Reads the authoritative preference without waiting for the actor. */
-    internal fun isCollectionEnabled(): Boolean = preferenceStore.enabled.value
+    @OptIn(ExperimentalObjCRefinement::class)
+    @HiddenFromObjC
+    fun isCollectionEnabled(): Boolean = preferenceStore.enabled.value
 
     /**
      * Current collection boundary for explicit timeline delivery. A payload prepared before a
      * disable, purge, or clear never matches again, even after collection is re-enabled.
      */
-    internal fun captureBoundary(): Long = captureSegment.value
+    @OptIn(ExperimentalObjCRefinement::class)
+    @HiddenFromObjC
+    fun captureBoundary(): Long = captureSegment.value
 
     val logWriter: LogWriter =
         object : LogWriter() {
