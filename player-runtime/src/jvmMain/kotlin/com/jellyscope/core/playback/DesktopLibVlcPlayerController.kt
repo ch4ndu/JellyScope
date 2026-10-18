@@ -141,7 +141,7 @@ class DesktopLibVlcPlayerController private constructor(
     private var offlineArtifactResolver: OfflineArtifactResolver? = null
 
     /** Platform DI seam; the public controller constructors remain remote-compatible. */
-    internal fun setOfflineArtifactResolver(resolver: OfflineArtifactResolver) {
+    fun setOfflineArtifactResolver(resolver: OfflineArtifactResolver) {
         offlineArtifactResolver = resolver
     }
 

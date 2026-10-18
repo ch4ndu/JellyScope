@@ -281,7 +281,7 @@ class MpvPlayerController private constructor(
     private var offlineArtifactResolver: OfflineArtifactResolver? = null
 
     /** Platform DI seam; the public controller constructor remains remote-compatible. */
-    internal fun setOfflineArtifactResolver(resolver: OfflineArtifactResolver) {
+    fun setOfflineArtifactResolver(resolver: OfflineArtifactResolver) {
         offlineArtifactResolver = resolver
     }
 

@@ -261,7 +261,9 @@ class AppleAVPlayerController(
     private var offlineArtifactResolver: OfflineArtifactResolver? = null
 
     /** Platform DI seam; the public controller constructor remains remote-compatible. */
-    internal fun setOfflineArtifactResolver(resolver: OfflineArtifactResolver) {
+    @OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+    @kotlin.native.HiddenFromObjC
+    fun setOfflineArtifactResolver(resolver: OfflineArtifactResolver) {
         offlineArtifactResolver = resolver
     }
 

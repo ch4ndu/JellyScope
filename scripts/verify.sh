@@ -19,7 +19,7 @@ echo "==> Running ktlint, shared tests, TV route tests, and Android release asse
 ./gradlew ktlintCheck verifyDeveloperPropertiesIsolation :core-model:testAndroidHostTest :diagnostics:testAndroidHostTest \
     :platform:testAndroidHostTest :network:testAndroidHostTest :player:testAndroidHostTest \
     :playback-policy:testAndroidHostTest :jellyfin-api:testAndroidHostTest \
-    :diagnostics-runtime:testAndroidHostTest \
+    :diagnostics-runtime:testAndroidHostTest :player-runtime:testAndroidHostTest \
     :shared-core:testAndroidHostTest :shared-ui:testAndroidHostTest \
     :ui-foundation:testAndroidHostTest :settings-account:testAndroidHostTest \
     :browse:testAndroidHostTest :playback:testAndroidHostTest \

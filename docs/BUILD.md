@@ -349,7 +349,7 @@ completion criteria. Broad changes use this baseline:
 ./scripts/verify.sh
 ./gradlew :core-model:jvmTest :diagnostics:jvmTest \
   :platform:jvmTest :network:jvmTest :player:jvmTest :playback-policy:jvmTest \
-  :jellyfin-api:jvmTest :diagnostics-runtime:jvmTest :ui-foundation:jvmTest :settings-account:jvmTest \
+  :jellyfin-api:jvmTest :diagnostics-runtime:jvmTest :player-runtime:jvmTest :ui-foundation:jvmTest :settings-account:jvmTest \
   :browse:jvmTest :playback:jvmTest :detail:jvmTest \
   :auth:jvmTest :downloads:jvmTest
 ./gradlew :desktop-app:compileKotlin
@@ -374,7 +374,8 @@ to UI, playback, and platform changes.
 - `diagnostics`: safe diagnostic tags, operation tokens, field schemas, failure
   formatting, capture validation and application log-writer configuration.
 - `platform`: reusable IO dispatching, device/environment services, native-log
-  cleanup contracts and cancellation-safe result handling over `diagnostics`.
+  cleanup contracts, JVM app-directory resolution and serialized latest-value
+  writing over `diagnostics`.
 - `network`: authorization-header contracts and encoding, credential-origin
   policy and server-URL normalization over `platform` and Ktor HTTP.
 - `player`: controller/state, timing/volume and subtitle-file ports,
@@ -389,10 +390,12 @@ to UI, playback, and platform changes.
   internal.
 - `diagnostics-runtime`: bounded capture, reports, timeline preparation, collection
   control and process failure hooks over `platform` and `playback-policy`.
-- `shared-core`: shared data, domain orchestration, DI, Jellyfin API execution,
-  playback orchestration and native players over `core-model`, `diagnostics`,
-  `platform`, `network`, `player`, `playback-policy`, `jellyfin-api` and
-  `diagnostics-runtime`.
+- `player-runtime`: native controllers, surfaces, timing/activation helpers and
+  device probes over `network` and `playback-policy`; existing Android backend
+  factory bindings and Apple VLCKit interop stay with their implementations.
+- `shared-core`: shared data, domain orchestration, root DI, Jellyfin API execution,
+  playback planning/reporting and account-qualified offline validation over the
+  lower model, policy, platform, network, wire and runtime modules.
 - `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
   components, shared input/focus contracts, account-scoped image and playback
   selection memory, and shared presentation helpers over `shared-core`.
@@ -422,7 +425,7 @@ to UI, playback, and platform changes.
 - `shared-tvos`: tvOS Kotlin presentation layer (presenters, Swift bridge,
   `SharedTv` framework) over `shared-core` and explicitly exported `core-model`,
   `diagnostics`, `platform`, `network`, `player`, `playback-policy`, `jellyfin-api` and
-  `diagnostics-runtime`.
+  `diagnostics-runtime` and `player-runtime`.
 - `tvos-app`: native SwiftUI Apple TV shell driven by `shared-tvos`.
 
 Layers, platform seams, and source-layout rules are owned by

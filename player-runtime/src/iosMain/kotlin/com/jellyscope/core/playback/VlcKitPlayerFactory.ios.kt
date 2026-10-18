@@ -8,10 +8,20 @@ import com.jellyscope.core.domain.playback.PlaybackDiagnosticPlatform
 import com.jellyscope.core.domain.playback.PlayerController
 import kotlinx.coroutines.CoroutineScope
 
-internal expect fun createAppleVlcKitController(
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+actual fun createAppleVlcKitController(
     session: Session,
     stateScope: CoroutineScope,
     localSubtitleFileStore: LocalSubtitleFileStore?,
     diagnosticPlatform: PlaybackDiagnosticPlatform,
     offlineArtifactResolver: OfflineArtifactResolver?,
-): PlayerController
+): PlayerController =
+    VlcKitPlayerController(
+        session = session,
+        stateScope = stateScope,
+        localSubtitleFileStore = localSubtitleFileStore,
+        diagnosticPlatform = diagnosticPlatform,
+    ).also { controller ->
+        offlineArtifactResolver?.let(controller::setOfflineArtifactResolver)
+    }

@@ -9,7 +9,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 
 /** Both the native library graph and its presentation, fixed for the process. */
-internal class DesktopMpvActiveRuntime(
+class DesktopMpvActiveRuntime(
     val mode: DesktopMpvPresentation,
     val availability: DesktopMpvPresentationAvailability,
     /** Absolute isolated Metal library; null keeps the existing Standard loader. */
@@ -27,7 +27,7 @@ internal class DesktopMpvActiveRuntime(
  * The startup store initializes it before any player or native probe; the JNA
  * singleton never reloads, so a later saved choice applies only after restart.
  */
-internal object DesktopMpvRuntime {
+object DesktopMpvRuntime {
     @Volatile
     private var frozen: DesktopMpvActiveRuntime? = null
 

@@ -146,6 +146,9 @@ platform/src/commonMain/kotlin/.../
 +-- domain/platform/      # device/environment services and native-log cleanup port
 +-- util/                 # cancellation-safe result handling
 
+platform/src/jvmMain/kotlin/.../
++-- data/local/           # existing app-directory and serialized-writer primitives
+
 network/src/commonMain/kotlin/.../
 +-- data/remote/          # auth-header contracts/encoding and server-URL normalization
 +-- security/             # credential-origin policy
@@ -173,6 +176,13 @@ diagnostics-runtime/src/commonMain/kotlin/.../
 jellyfin-api/src/commonMain/kotlin/.../
 +-- data/remote/          # Jellyfin wire DTOs, profile mapping and typed API failures
 +-- domain/model/         # Jellyfin-to-domain media projections
+
+player-runtime/src/*Main/kotlin/.../
++-- playback/             # native controllers, surfaces and inseparable helpers
++-- domain/playback/      # native probes, audio routing and runtime diagnostics
+
+player-runtime/src/nativeInterop/cinterop/
++-- vlckit.def            # existing VLCKit foreign package and matching Apple slices
 
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
@@ -239,8 +249,8 @@ Keep one static `SharedUi` binary; Kotlin consumers continue using `shared-ui`.
 `core-model` owns domain values and playback-plan vocabulary, including raw
 launch inputs and subtitle intents, without runtime, persistence, transport or
 presentation dependencies. `shared-core` exposes it
-through an API dependency and retains application orchestration and native
-controller implementations. Existing Kotlin packages stay stable.
+through an API dependency and retains application orchestration. Existing Kotlin
+packages stay stable.
 Pure value validation, download transition, quota, estimate and queue decisions,
 and offline detail/artwork projections stay with their model values and private
 helpers. The saturating-add and offline projection helpers are Kotlin production
@@ -267,8 +277,9 @@ export it to preserve the existing Swift surface. The narrow iOS facade does not
 cleanup contract and cancellation-safe result handling. Its existing actuals stay
 in Android, JVM and Apple source sets; it depends on coroutines and the diagnostic
 platform vocabulary. The Apple dispatcher remains `Default`; Android and JVM use
-`IO`. Application DI, private Apple/Desktop device providers and concrete native-log
-sources stay in `shared-core`. The existing public enum keeps its Kotlin package
+`IO`. Application DI and private Apple/Desktop device providers stay in
+`shared-core`; the Android mpv native-log source belongs to `player-runtime`.
+The existing public enum keeps its Kotlin package
 and Objective-C exposure in `diagnostics`; no visibility is expanded. Core exposes
 platform through API, and both tvOS frameworks explicitly export it to preserve
 existing Swift declarations. The narrow iOS facade keeps no exports.
@@ -294,9 +305,9 @@ remain upper; the lease registry coordinates their existing shared exclusion.
 Fourteen necessary production declarations cross Kotlin module boundaries hidden
 from Objective-C; trusted paths remain excluded from UI models, persistence and
 diagnostics. Lease construction and private validation retain their restrictions.
-Defaults and sealed families stay with their declarations. Native
-interpretation and polling, split reporting routes, planning and native players
-stay in `shared-core`. The output-color factory and shared frame-rate helper are
+Defaults and sealed families stay with their declarations. Native execution and
+polling live in `player-runtime`; split reporting routes, planning and
+account-qualified offline validation remain in `shared-core`. The output-color factory and shared frame-rate helper are
 Kotlin bridges hidden from Objective-C; private constructors, private copy
 visibility and validation remain intact. Core exposes player through API, and
 both tvOS frameworks explicitly export it to retain the existing public surface.
@@ -315,6 +326,24 @@ internal. Core exposes the module through API, and both tvOS frameworks export
 it; the iOS facade keeps no exports. Pure capability cases follow policy;
 wire-profile mapping tests follow `jellyfin-api`, without a test-only API.
 The [playback policy guide](playback-policy.md) covers the broader quality and wire contracts.
+
+`player-runtime` owns native controllers, surfaces, device probes and their
+inseparable timing, activation, routing, network and diagnostic helpers. It
+exposes existing network and playback-policy contracts; native libraries remain
+implementation dependencies. The existing Android backend-specific Koin factory
+moves with its construction policies; root composition and account-scoped
+resolver injection retain their application lifecycle. Apple expect/actual
+factories and the existing `org.videolan.vlckit` interop package stay together.
+Core exposes runtime through API and both tvOS frameworks explicitly export it;
+the narrow iOS facade keeps no exports. JVM startup and upper DI use necessary
+production bridges; Apple-only bridges remain hidden from Objective-C. Other
+controller constructors, native internals and test fixtures remain internal.
+
+The existing JVM app-directory function and serialized latest-value writer belong
+to `platform`, retaining their package and behavior. Concrete Room/preferences
+stores stay core-owned and use those same primitives. Whole native suites move
+with runtime; mixed account/reporting and concrete-store suites stay with core.
+No test-only production API or friend relationship is required.
 
 `jellyfin-api` owns Jellyfin wire DTOs, metadata-to-domain projections,
 device-profile mapping and the typed API failure family. It exposes existing playback-policy inputs and the serialization
@@ -358,8 +387,10 @@ public presentation API; preview fixtures remain with app composition.
 
 Player presentation, ViewModels, and platform UI hosts stay together in
 `playback`, including their common, Android-host, iOS, and JVM friend
-tests. Core retains controllers and backend policy; root DI retains controller
-construction and pending-controller startup. Neutral key-command, safe-focus,
+tests. Native controllers and Android backend factory bindings belong to
+`player-runtime`; backend and capability decisions belong to `playback-policy`.
+Root DI retains application composition, resolver injection and pending-controller
+startup. Neutral key-command, safe-focus,
 and iOS fullscreen callbacks live in foundation so player code has no dependency
 on app composition or Detail. Android shells and mixed app previews consume the existing public player
 presentation contracts.
@@ -652,6 +683,10 @@ gates live in
   The closed platform enum belongs with diagnostic vocabulary, keeping those
   adapters independent of upper playback formatting. Private DI and concrete
   native cleanup retain their application lifecycle owners.
+- Native execution depends on policy, network and platform primitives while
+  application planning, account authority and reporting retain their core owner.
+  Co-owning native factories, private helpers and whole existing suites avoids
+  dependency cycles and test-only APIs; cinterop stays with its native users.
 - Capture, timeline preparation and process hooks share bounded history and
   privacy lifetimes. Keeping their complete tests with the runtime owner avoids
   test-only APIs; concrete persistence and delivery retain application authority.

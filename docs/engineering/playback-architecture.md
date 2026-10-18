@@ -14,9 +14,11 @@ artifact lease/deletion guards, runtime observations and progress contracts. `pl
 backend/device policy and its settings port, stream/track/URL decisions, playback diagnostic vocabulary
 and formatting, typed planning failures, and recovery/health/session decisions.
 `diagnostics-runtime` owns safe capture, reports and timeline preparation.
-`shared-core` retains native capability probes, planner/repository execution,
-native players, concrete file/database stores, account-qualified offline
-validation, uploads and reporting implementations. The `playback` module owns
+`player-runtime` owns native capability probes, controllers, surfaces and their
+private timing/activation/routing helpers, including existing Android backend
+factory bindings and Apple interop. Root DI composes these implementations.
+`shared-core` retains planner/repository execution, concrete file/database stores,
+account-qualified offline validation, uploads and reporting implementations. The `playback` module owns
 Compose presentation.
 The [architecture guide](architecture.md) defines these module dependencies.
 

@@ -198,8 +198,9 @@ runtime-only behavior and remain subject to authorization above.
 | Playback policy | `playback-policy/src/commonTest` | Existing capability/backend, stream/track/URL, diagnostic, recovery/health/session and Watch Next decisions |
 | Jellyfin wire contract | `jellyfin-api/src/commonTest` | Existing DTO encoding, media projections, transcode-reason parsing and device-profile mapping |
 | Shared domain/data | `shared-core/src/commonTest` | Planning, policy projections, repositories, transport, discovery, stores |
-| Android host | `shared-core/src/androidHostTest` | Media3, Room, SharedPreferences, device profiles |
-| JVM | `shared-core/src/jvmTest` | mpv, tracks, subtitle style, file stores |
+| Native player runtime | `player-runtime/src/commonTest`, `src/androidHostTest`, `src/jvmTest`, `src/iosTest` | Existing activation/timing, native controllers, runtime probes, decoder/route mapping and Apple transition cases |
+| Android host | `shared-core/src/androidHostTest` | Room, SharedPreferences and retained application execution |
+| JVM | `shared-core/src/jvmTest` | Concrete file stores, persistence and retained application composition |
 | Shared UI | `shared-ui/src/commonTest` | Navigation |
 | UI foundation | `ui-foundation/src/commonTest` | Adaptive layout, media cards, image/account caches, and playback-selection memory |
 | Settings/Account | `settings-account/src/commonTest`, `src/jvmTest` | Settings/account state, persistence actions, desktop availability |

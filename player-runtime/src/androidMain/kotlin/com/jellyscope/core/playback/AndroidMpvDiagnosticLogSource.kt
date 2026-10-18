@@ -29,7 +29,7 @@ internal fun androidMpvDiagnosticLogDirectory(context: Context): File? =
  * Owns deletion of raw mpv verbose logs when diagnostic collection is
  * disabled. The raw files remain app-internal and are never uploaded.
  */
-internal class AndroidMpvDiagnosticLogSource internal constructor(
+class AndroidMpvDiagnosticLogSource internal constructor(
     private val directoryProvider: () -> File?,
 ) : NativeDiagnosticLogSource {
     constructor(context: Context) : this(

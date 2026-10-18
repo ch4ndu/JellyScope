@@ -11,16 +11,6 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-// Fetches the vendored VLCKit xcframework (gitignored) before the Apple
-// cinterop needs its headers. Idempotent: the script skips when already present.
-val fetchVlcKit =
-    tasks.register<Exec>("fetchVlcKit") {
-        commandLine("bash", rootProject.file("scripts/fetch-vlckit.sh").absolutePath)
-    }
-
-val vlcKitXcframework =
-    rootProject.file("ios-app/Frameworks/VLCKit.xcframework")
-
 kotlin {
     jvmToolchain(
         libs.versions.jdkToolchain
@@ -42,19 +32,10 @@ kotlin {
         withHostTest {}
     }
 
-    // Each Apple target uses its matching slice; appleMain consumes the commonized API.
-    fun org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget.vlcKitCinterop(slice: String) {
-        val cinterop =
-            compilations.getByName("main").cinterops.create("vlckit") {
-                defFile(project.file("src/nativeInterop/cinterop/vlckit.def"))
-                compilerOpts("-F" + vlcKitXcframework.resolve(slice).absolutePath)
-            }
-        tasks.named(cinterop.interopProcessingTaskName).configure { dependsOn(fetchVlcKit) }
-    }
-    iosArm64 { vlcKitCinterop("ios-arm64") }
-    iosSimulatorArm64 { vlcKitCinterop("ios-arm64_x86_64-simulator") }
-    tvosArm64 { vlcKitCinterop("tvos-arm64") }
-    tvosSimulatorArm64 { vlcKitCinterop("tvos-arm64_x86_64-simulator") }
+    iosArm64()
+    iosSimulatorArm64()
+    tvosArm64()
+    tvosSimulatorArm64()
     jvm()
 
     sourceSets {
@@ -67,6 +48,7 @@ kotlin {
             api(project(":playback-policy"))
             api(project(":jellyfin-api"))
             api(project(":diagnostics-runtime"))
+            api(project(":player-runtime"))
             api(libs.kermit)
             api(libs.koin.core)
             api(libs.ktor.client.core)
@@ -96,18 +78,9 @@ kotlin {
             // this dependency does not make WorkManager an SDK-34 fallback.
             implementation(libs.androidx.work.runtime.ktx)
             implementation(libs.ktor.client.okhttp)
-            implementation(libs.media3.datasource.okhttp)
-            implementation(libs.media3.exoplayer)
-            implementation(libs.media3.exoplayer.hls)
-            implementation(project(":android-libmpv"))
-            implementation(libs.libvlc.all)
-            // Jellyfin FFmpeg audio decoder from Maven Central (matches media3
-            // version); enables the decoder-fallback ladder without a local build.
-            implementation(libs.media3.ffmpeg.decoder)
         }
 
         jvmMain.dependencies {
-            implementation(libs.jna)
             implementation(libs.ktor.client.okhttp)
         }
 

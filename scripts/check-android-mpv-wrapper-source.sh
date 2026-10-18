@@ -80,10 +80,11 @@ require_text "android-libmpv/build.gradle.kts" 'version = "4.1.2"'
 require_text "android-libmpv/build.gradle.kts" 'exclude("jni/x86/**", "jni/**/libplayer.so")'
 require_text "android-libmpv/src/main/cpp/CMakeLists.txt" 'add_library(mpv SHARED IMPORTED)'
 require_text "android-libmpv/src/main/cpp/CMakeLists.txt" 'add_library(cxx SHARED IMPORTED)'
-require_text "shared-core/build.gradle.kts" 'implementation(project(":android-libmpv"))'
+require_text "player-runtime/build.gradle.kts" 'implementation(project(":android-libmpv"))'
 require_text "android-app/build.gradle.kts" 'implementation(project(":android-libmpv"))'
 require_text "android-tv-app/build.gradle.kts" 'implementation(project(":android-libmpv"))'
 require_absent "shared-core/build.gradle.kts" "implementation(libs.libmpv)"
+require_absent "player-runtime/build.gradle.kts" "implementation(libs.libmpv)"
 require_absent "android-app/build.gradle.kts" "implementation(libs.libmpv)"
 require_absent "android-tv-app/build.gradle.kts" "implementation(libs.libmpv)"
 
