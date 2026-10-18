@@ -20,7 +20,7 @@ echo "==> Running ktlint, shared tests, TV route tests, and Android release asse
     :platform:testAndroidHostTest :network:testAndroidHostTest :player:testAndroidHostTest \
     :playback-policy:testAndroidHostTest :jellyfin-api:testAndroidHostTest \
     :diagnostics-runtime:testAndroidHostTest :player-runtime:testAndroidHostTest \
-    :storage:testAndroidHostTest :shared-core:testAndroidHostTest :shared-ui:testAndroidHostTest \
+    :storage:testAndroidHostTest :transport:testAndroidHostTest :shared-core:testAndroidHostTest :shared-ui:testAndroidHostTest \
     :ui-foundation:testAndroidHostTest :settings-account:testAndroidHostTest \
     :browse:testAndroidHostTest :playback:testAndroidHostTest \
     :detail:testAndroidHostTest :auth:testAndroidHostTest \

@@ -197,7 +197,8 @@ runtime-only behavior and remain subject to authorization above.
 | Player contracts | `player/src/commonTest`, `src/jvmTest` | Existing timing/support, offline lease/deletion guards and JVM generation rules |
 | Playback policy | `playback-policy/src/commonTest` | Existing capability/backend, stream/track/URL, diagnostic, recovery/health/session and Watch Next decisions |
 | Jellyfin wire contract | `jellyfin-api/src/commonTest` | Existing DTO encoding, media projections, transcode-reason parsing and device-profile mapping |
-| Shared domain/data | `shared-core/src/commonTest` | Planning, policy projections, repositories, transport, discovery and account coordination |
+| HTTP transport | `transport/src/commonTest` | Existing Jellyfin API, fixed-download HTTP and OpenSubtitles API cases with private MockEngine helpers |
+| Shared domain/data | `shared-core/src/commonTest` | Planning, policy projections, repositories, client-configuration integration, discovery and account coordination |
 | Native player runtime | `player-runtime/src/commonTest`, `src/androidHostTest`, `src/jvmTest`, `src/iosTest` | Existing activation/timing, native controllers, runtime probes, decoder/route mapping and Apple transition cases |
 | Persistence | `storage/src/commonTest`, `src/androidHostTest`, `src/jvmTest`, `src/iosTest` | Existing codecs, Room migrations/recovery, preference/artifact/subtitle stores; Apple cases compile on the build host |
 | Android host | `shared-core/src/androidHostTest` | Credential storage and retained application execution |
@@ -380,6 +381,9 @@ scope:
   not establish the value of permanent maintenance cost.
 - **Manual validation complements selective tests:** native output and physical
   interaction cannot be established by compilation or shared fakes.
+- Standalone HTTP API tests follow transport. Client-factory and original-download
+  integration suites stay in core so its internal engine overloads remain private
+  to that module without changing assertions or setup.
 - Existing storage tests follow their persistence owner. The Android host suite
   depends on core production code to retain its registry integration case;
   storage production remains independent of core.

@@ -190,6 +190,9 @@ storage/src/*Main/kotlin/.../
 
 storage/schemas/         # committed Room schemas; KSP runs in storage
 
+transport/src/commonMain/kotlin/.../
++-- data/remote/          # API execution and bounded HTTP response contracts
+
 shared-core/src/commonMain/kotlin/.../
 +-- data/                 # remote, local, repository
 +-- domain/               # adapters, usecase, action, planning and runtime
@@ -295,7 +298,7 @@ normalization and credential-origin policy. It exposes the existing `platform`
 interface dependency and uses Ktor HTTP internally, without a client engine.
 The encoder remains internal; the credential-query constant is a Kotlin bridge
 hidden from Objective-C for the existing Apple player. Session-backed device-ID
-reads, HTTP clients, repositories and DI stay in `shared-core`. The session
+reads, configured HTTP clients, repositories and DI stay in `shared-core`. The session
 provider retains its public class in a separate upper file. Core exposes network
 through API, and both tvOS frameworks explicitly export it; the iOS facade keeps
 no exports.
@@ -356,7 +359,7 @@ device-profile mapping and the typed API failure family. It exposes existing pla
 runtime; Ktor HTTP is an implementation dependency for parsing transcode reasons.
 JSON encoding and metadata-mapping tests follow the wire owner. Public mapper
 packages and filenames retain their existing DTO extension identities.
-HTTP execution, client factories,
+HTTP execution belongs to `transport`; client factories,
 sessions, repositories and DI remain in `shared-core`. Six necessary request and
 response-mapping Kotlin bridges are hidden from Objective-C. Core exposes the
 module through API, and both tvOS frameworks explicitly export it to preserve
@@ -388,6 +391,19 @@ storage through API; both tvOS frameworks explicitly export it, and the narrow
 iOS facade keeps no exports. Only storage Android host tests depend on core
 production code to preserve their existing registry case, without a production
 cycle or a test-only API.
+
+`transport` owns Jellyfin/OpenSubtitles request execution, bounded original/fixed
+download responses and artwork HTTP reads. It consumes configured `HttpClient`
+instances and the existing `AuthHeaderProvider` contract over `network`,
+`jellyfin-api` and `storage`; artwork bounds retain their storage contract owner.
+`JellyfinClientFactory`, engines, session-backed identity, qualifiers and client
+lifetimes stay in core. Its factory and original-download integration suites
+stay upper with their internal engine overloads; the three standalone API
+suites follow transport with private mocks unchanged. Eight necessary Kotlin
+bridges for upper production callers are hidden from Objective-C. Request DTOs,
+HTTP helpers and stream/resource constructors retain their internal visibility.
+Core exposes transport through API and both tvOS frameworks export it; the
+narrow iOS facade keeps no exports.
 
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
 image infrastructure over `shared-core`. `settings-account`,
@@ -670,7 +686,10 @@ gates live in
 - Authorization syntax and credential-origin policy apply across API, image and
   native playback requests without owning a session or transport lifetime. A
   lower network owner keeps encoding and trust helpers together; session-backed
-  persistence and HTTP execution retain their upper owners.
+  persistence stays in core while HTTP execution belongs to transport.
+- HTTP execution has a distinct owner below application coordination. Existing
+  configured clients and session identity remain upper, preserving their
+  lifetimes and private factory test seams without new ports or wrappers.
 - Jellyfin wire models, metadata projection and profile encoding form a reusable
   contract below HTTP execution. Keeping their serialization defaults, mappers and existing tests
   together separates wire changes from client and repository lifetimes.

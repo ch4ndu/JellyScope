@@ -4,8 +4,9 @@ Engineering contract. See the [documentation map](../README.md) for related
 owners and the [user guides](../USAGE.md) for usage instructions.
 
 `network` owns shared authorization syntax, server-URL normalization and
-credential-origin policy. Session-backed identity reads, HTTP request execution
-and repositories remain in `shared-core`. `jellyfin-api` owns Jellyfin wire DTOs,
+credential-origin policy. `transport` owns HTTP request execution with configured
+clients and the existing auth-header interface. Session-backed identity reads,
+client factories/engine configuration and repositories remain in `shared-core`. `jellyfin-api` owns Jellyfin wire DTOs,
 metadata-to-domain mapping, device-profile mapping and typed API failures; JSON
 encoding and media-mapping tests follow that owner. The [architecture guide](architecture.md) defines the dependency and
 export boundary.
@@ -218,6 +219,10 @@ export boundary.
   product decision.
 
 ## Why
+
+- HTTP execution and response contracts stay together below application
+  orchestration. Retaining configured clients and session identity in core keeps
+  credential and client lifetimes with their existing owner.
 
 - **Encoded and decoded images have different identities.** Decode dimensions
   change memory requirements, but only a different effective URL changes the

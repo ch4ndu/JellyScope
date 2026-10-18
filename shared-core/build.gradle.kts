@@ -45,6 +45,7 @@ kotlin {
             api(project(":diagnostics-runtime"))
             api(project(":player-runtime"))
             api(project(":storage"))
+            api(project(":transport"))
             api(libs.kermit)
             api(libs.koin.core)
             api(libs.ktor.client.core)

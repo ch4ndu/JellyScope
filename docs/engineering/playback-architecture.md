@@ -18,6 +18,8 @@ and formatting, typed planning failures, and recovery/health/session decisions.
 private timing/activation/routing helpers, including existing Android backend
 factory bindings and Apple interop. Root DI composes these implementations.
 `storage` owns concrete file/database stores and their persistence bindings.
+`transport` executes API requests and bounded HTTP reads with clients configured
+by core; session identity and client lifetimes remain upper.
 `shared-core` retains planner/repository execution,
 account-qualified offline validation, uploads and reporting implementations. The `playback` module owns
 Compose presentation.

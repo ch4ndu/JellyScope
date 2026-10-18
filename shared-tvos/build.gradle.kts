@@ -209,6 +209,7 @@ kotlin {
             export(project(":diagnostics-runtime"))
             export(project(":player-runtime"))
             export(project(":storage"))
+            export(project(":transport"))
         }
     }
 
@@ -227,6 +228,7 @@ kotlin {
             export(project(":diagnostics-runtime"))
             export(project(":player-runtime"))
             export(project(":storage"))
+            export(project(":transport"))
         }
     }
 
@@ -250,6 +252,7 @@ kotlin {
             api(project(":diagnostics-runtime"))
             api(project(":player-runtime"))
             api(project(":storage"))
+            api(project(":transport"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }

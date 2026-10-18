@@ -13,7 +13,9 @@ than restating it.
 queue selection. `shared-core` applies those decisions through admission, durable
 claims and transfer execution. `storage` owns the existing download database,
 Room stores and platform artifact stores; core retains account authorization,
-removal coordination, database construction and lifecycle hosts.
+removal coordination, database construction and lifecycle hosts. `transport`
+executes the existing original/fixed/artwork HTTP operations with configured
+clients; core retains their redirect/timeout/logging configuration and engines.
 
 ## Scope and identity
 
@@ -235,6 +237,8 @@ identity, artifact, and progress rules live in
 - Durable bytes, records and migrations share the storage owner. Execution
   retains account/attempt authority in core and consumes the existing store
   boundaries without moving transfer or deletion policy into persistence.
+  Bounded HTTP response handling belongs to transport while client configuration
+  and attempt/account orchestration retain their core owner.
 
 - **Download authorization is a current-account boundary.** Static bytes do not
   prove permission; admission and every start/resume revalidate account, policy,

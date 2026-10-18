@@ -349,7 +349,7 @@ completion criteria. Broad changes use this baseline:
 ./scripts/verify.sh
 ./gradlew :core-model:jvmTest :diagnostics:jvmTest \
   :platform:jvmTest :network:jvmTest :player:jvmTest :playback-policy:jvmTest \
-  :jellyfin-api:jvmTest :diagnostics-runtime:jvmTest :player-runtime:jvmTest :storage:jvmTest :ui-foundation:jvmTest :settings-account:jvmTest \
+  :jellyfin-api:jvmTest :diagnostics-runtime:jvmTest :player-runtime:jvmTest :storage:jvmTest :transport:jvmTest :ui-foundation:jvmTest :settings-account:jvmTest \
   :browse:jvmTest :playback:jvmTest :detail:jvmTest \
   :auth:jvmTest :downloads:jvmTest
 ./gradlew :desktop-app:compileKotlin
@@ -397,9 +397,12 @@ to UI, playback, and platform changes.
   `diagnostics-runtime`, with existing platform persistence bindings. KSP runs
   here; committed Room schemas live in `storage/schemas`. Account/session
   coordination and credential adapters remain in core.
-- `shared-core`: shared data, domain orchestration, root DI, Jellyfin API execution,
+- `transport`: Jellyfin/OpenSubtitles HTTP execution and bounded download/artwork
+  responses over `network`, `jellyfin-api`, `storage` and Ktor client core.
+  Configured client factories, engines and session-backed identity stay in core.
+- `shared-core`: shared data, domain orchestration, root DI, configured HTTP clients,
   playback planning/reporting and account-qualified offline validation over the
-  lower model, policy, platform, network, wire, runtime and storage modules.
+  lower model, policy, platform, network, wire, runtime, storage and transport modules.
 - `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
   components, shared input/focus contracts, account-scoped image and playback
   selection memory, and shared presentation helpers over `shared-core`.
@@ -429,7 +432,7 @@ to UI, playback, and platform changes.
 - `shared-tvos`: tvOS Kotlin presentation layer (presenters, Swift bridge,
   `SharedTv` framework) over `shared-core` and explicitly exported `core-model`,
   `diagnostics`, `platform`, `network`, `player`, `playback-policy`, `jellyfin-api` and
-  `diagnostics-runtime`, `player-runtime` and `storage`.
+  `diagnostics-runtime`, `player-runtime`, `storage` and `transport`.
 - `tvos-app`: native SwiftUI Apple TV shell driven by `shared-tvos`.
 
 Layers, platform seams, and source-layout rules are owned by

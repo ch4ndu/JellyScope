@@ -17,7 +17,9 @@ import io.ktor.http.isSuccess
 import io.ktor.utils.io.readAvailable
 
 /** Bounded, authenticated image-byte transport used only by the retained download writer. */
-internal class DownloadArtworkTransport(
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+class DownloadArtworkTransport(
     private val downloadClient: HttpClient,
     private val authHeaderProvider: AuthHeaderProvider,
     private val imageUrlBuilder: JellyfinImageUrlBuilder = JellyfinImageUrlBuilder(),

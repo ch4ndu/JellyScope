@@ -6,7 +6,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 ## Direct OpenSubtitles And Local Subtitle Assets
 
 - JellyScope talks directly to `https://api.opensubtitles.com/api/v1` through a
-  dedicated `OpenSubtitlesApi`/repository boundary. API requests send only the
+  dedicated `OpenSubtitlesApi`/repository boundary. The API lives in `transport`;
+  the account-qualified repository and configured clients remain in core. API requests send only the
   persisted user-supplied consumer key, or the local development fallback when no
   persisted key exists, and the JellyScope User-Agent; the separate download
   client never receives OpenSubtitles or Jellyfin credentials. Download links
@@ -384,6 +385,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   external configuration id before reporting active.
 
 ## Why
+
+- OpenSubtitles HTTP handling and its response types stay together in transport;
+  account and selection orchestration stay with the upper repository. Existing
+  API tests keep their private mocks without widening a test-only seam.
 
 ### Subtitles and OpenSubtitles
 

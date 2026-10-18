@@ -6,6 +6,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 Execution, account/attempt coordination and platform lifecycle hosts remain in
 `shared-core`. They consume the database and artifact stores owned by `storage`;
 root DI retains database/factory construction and includes lower store bindings.
+`transport` owns the bounded HTTP API operations; core supplies configured clients
+and retains their engines, account admission, attempts and lifecycle policy.
 
 ## Queue, quota, and recovery
 

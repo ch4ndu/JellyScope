@@ -24,7 +24,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-internal class OpenSubtitlesApi(
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+class OpenSubtitlesApi(
     private val apiClient: HttpClient,
     private val downloadClient: HttpClient,
     private val userAgent: String,
@@ -215,7 +217,9 @@ private fun normalizeRedirectPath(path: String): String {
     }.ifEmpty { if (leadingSlash) "/" else "" }
 }
 
-internal data class OpenSubtitlesQuery(
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+data class OpenSubtitlesQuery(
     val imdbId: String? = null,
     val title: String? = null,
     val year: Int? = null,
@@ -224,16 +228,25 @@ internal data class OpenSubtitlesQuery(
     val language: String,
 )
 
-@Serializable internal data class OpenSubtitlesSearchResponse(
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+@Serializable
+data class OpenSubtitlesSearchResponse(
     val data: List<OpenSubtitlesResultDto?>? = null,
 )
 
-@Serializable internal data class OpenSubtitlesResultDto(
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+@Serializable
+data class OpenSubtitlesResultDto(
     val id: String? = null,
     val attributes: OpenSubtitlesAttributesDto? = null,
 )
 
-@Serializable internal data class OpenSubtitlesAttributesDto(
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+@Serializable
+data class OpenSubtitlesAttributesDto(
     val language: String? = null,
     @SerialName("release") val releaseName: String? = null,
     @SerialName("hearing_impaired") val hearingImpaired: Boolean? = null,
@@ -245,7 +258,10 @@ internal data class OpenSubtitlesQuery(
     val files: List<OpenSubtitlesFileDto?>? = null,
 )
 
-@Serializable internal data class OpenSubtitlesFileDto(
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+@Serializable
+data class OpenSubtitlesFileDto(
     @SerialName("file_id") val fileId: Int? = null,
     @SerialName("file_name") val fileName: String? = null,
 )
@@ -256,7 +272,10 @@ internal data class OpenSubtitlesQuery(
     constructor(fileId: String) : this(fileId.toIntOrNull() ?: throw IllegalArgumentException("Invalid OpenSubtitles file id."))
 }
 
-@Serializable internal data class OpenSubtitlesDownloadResponse(
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+@Serializable
+data class OpenSubtitlesDownloadResponse(
     val link: String,
     @SerialName("remaining") val remaining: Int? = null,
     @SerialName("reset_time") val resetTime: String? = null,
