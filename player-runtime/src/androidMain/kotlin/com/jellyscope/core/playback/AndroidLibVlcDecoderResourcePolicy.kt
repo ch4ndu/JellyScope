@@ -5,7 +5,7 @@ package com.jellyscope.core.playback
 import com.jellyscope.core.domain.playback.PlaybackDecoderResourcePolicy
 
 /**
- * Android libvlc 3.7.5 / bundled dav1d resource tuning. This is neither a
+ * Android libvlc 3.7.7 / bundled dav1d resource tuning. This is neither a
  * capability claim nor a user quality, device, or stream limit.
  */
 internal object AndroidLibVlcDecoderResourcePolicy {

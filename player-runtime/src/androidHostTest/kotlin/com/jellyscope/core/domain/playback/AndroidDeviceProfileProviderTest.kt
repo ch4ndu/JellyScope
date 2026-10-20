@@ -341,7 +341,7 @@ class AndroidDeviceProfileProviderTest {
         val matrix = androidLibVlcCapabilityMatrix()
         val capabilities = matrix.toDeviceDecodingCapabilities()
 
-        assertEquals("3.7.5", matrix.engineVersion)
+        assertEquals("3.7.7", matrix.engineVersion)
         assertTrue("mkv" in matrix.supportedContainers)
         assertTrue("hevc" in matrix.supportedVideoCodecs)
         assertTrue("av1" in matrix.supportedVideoCodecs)
@@ -928,6 +928,11 @@ private fun androidMedia3SubtitleProfiles(): List<DeviceSubtitleProfile> =
             kind = SubtitleKind.Text,
         )
     } +
+        DeviceSubtitleProfile(
+            format = "mov_text",
+            deliveryMethods = listOf(SubtitleDeliveryMethod.Embed, SubtitleDeliveryMethod.Encode),
+            kind = SubtitleKind.Text,
+        ) +
         listOf("pgs", "pgssub", "vobsub", "dvdsub", "dvbsub", "dvb").map { format ->
             DeviceSubtitleProfile(
                 format = format,

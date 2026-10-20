@@ -7,7 +7,7 @@ import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
 import org.videolan.libvlc.LibVLC
 
-/** Runtime/engine facts for the pinned LibVLC Android 3.7.5 artifact. */
+/** Runtime/engine facts for the pinned LibVLC Android 3.7.7 artifact. */
 data class LibVlcCapabilityMatrix(
     val engineVersion: String = LIBVLC_ANDROID_VERSION,
     val supportedContainers: Set<String> = androidLibVlcDeviceProfileDeclaration.containers.toSet(),
@@ -198,4 +198,4 @@ object AndroidLibVlcAvailability {
 
 private val availabilityLogger = diagnosticLogger(DiagnosticTag.AndroidLibVlcAvailability)
 
-const val LIBVLC_ANDROID_VERSION = "3.7.5"
+const val LIBVLC_ANDROID_VERSION = "3.7.7"

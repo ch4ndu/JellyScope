@@ -1,5 +1,5 @@
 /*
- * Declaration subset from FFmpeg 8.1 libavcodec/jni.h used by the pinned
+ * Declaration subset from FFmpeg 8.1.3 libavcodec/jni.h used by the pinned
  * Android bridge. The implementation remains in the extracted libavcodec.so.
  */
 #ifndef JELLYSCOPE_FFMPEG_JNI_H

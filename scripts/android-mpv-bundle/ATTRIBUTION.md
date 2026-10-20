@@ -14,8 +14,8 @@ checks the release APK package contents.
 
 | Component | Version | License | Corresponding source |
 | --- | --- | --- | --- |
-| mpv | 0.41.0; JellyScope bundle 2 candidate: AudioTrack encoded-carrier patch on three ABIs, ImageReader patches ARM32 only | GPL-2.0-or-later graph; modified ImageReader file LGPL-2.1-or-later | [Proposed per-ABI patched source, pending publication](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz) |
-| FFmpeg | 8.1; bundle `libavformat.so` adds the SPDIF muxer, source unchanged | LGPL-2.1-or-later; GPL-3.0-or-later code enabled | https://github.com/FFmpeg/FFmpeg/tree/n8.1; build recipe in the proposed bundle source archive |
+| mpv | 0.41.0; JellyScope bundle 3: AudioTrack encoded-carrier patch on three ABIs, ImageReader patches ARM32 only | GPL-2.0-or-later graph; modified ImageReader file LGPL-2.1-or-later | [Published per-ABI patched source](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.3/libmpv-native-0.41.0-jellyscope.3-sources.tar.gz) |
+| FFmpeg | 8.1.3; all seven shared libraries rebuilt together; SPDIF muxer retained, source unchanged | LGPL-2.1-or-later; GPL-3.0-or-later code enabled | https://github.com/FFmpeg/FFmpeg/tree/n8.1.3; build recipe in the published bundle source archive |
 | dav1d | 1.5.3 | BSD-2-Clause | https://code.videolan.org/videolan/dav1d/-/tree/1.5.3 |
 | libplacebo | 7.360.1 | LGPL-2.1-or-later | https://github.com/haasn/libplacebo/tree/v7.360.1 |
 | libass | 0.17.4 | ISC | https://github.com/libass/libass/tree/0.17.4 |
@@ -31,24 +31,25 @@ checks the release APK package contents.
 | JellyScope Android wrapper patch | in-repository `android-libmpv` | Upstream MIT wrapper with MPL-2.0 project integration | `android-libmpv/UPSTREAM.md` at the JellyScope revision identified by [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md) |
 | Android NDK libc++ runtime | 29.0.14206865 | Apache-2.0 with LLVM exception | https://android.googlesource.com/toolchain/llvm-project/ |
 | Jellyfin Media3 FFmpeg decoder | 1.9.0+1 | GPL-3.0 | https://github.com/jellyfin/jellyfin-androidx-media/tree/af9ee4e26b2045e3ea6f2ebf4a18ac8ebfeae396 |
-| LibVLC Android | 3.7.5; embedded VLC `3.0.23-2-850-gac1101d2c5` | LGPL-2.1 | https://code.videolan.org/videolan/libvlcjni/-/tree/libvlcjni-3.x and https://code.videolan.org/videolan/vlc/-/tree/ac1101d2c5 |
+| LibVLC Android | 3.7.7; embedded VLC `3.0.24-35`, dav1d 1.5.4 | LGPL-2.1 | [JNI and VLC patches](https://code.videolan.org/videolan/libvlcjni/-/tree/0b8dc65efb203c86a0476bc337ddd99ecf1c0ef6), [VLC base](https://code.videolan.org/videolan/vlc/-/tree/84177b2273abc5c4300234e6e18b55a4d2dd5a03); exact per-ABI revisions in `manifest-1.0.0.txt` |
 
 ## License-file coverage
 
 The `licenses/` directory retains the generic license texts and adds
 `MPV-NATIVE-NOTICES.txt`, preserving the published `.1` native release's
-component notices and NDK notice text, which the `.2` candidate inherits
-unchanged. It also includes Lua's notice, FreeType's FTL text and Vulkan-Headers'
+component notices and NDK notice text, which `.3` retains for unchanged components; FFmpeg notices come from its
+8.1.3 source. It also includes Lua's notice, FreeType's FTL text and Vulkan-Headers'
 Apache/MIT license files from the exact source archives; FreeType uses its FTL
 option. The consolidated file labels each original source path and retains its
 text. Build-tool, demo and source-test notices in the release are retained for
 context, not a claim that those files execute in the APK.
 
-The prepared [native release source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz)
+The published [native release source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.3/libmpv-native-0.41.0-jellyscope.3-sources.tar.gz)
 provides the full source context, dependency revisions and submodule mappings,
-bound to native commit `662fa5159800ea4d72c6fb0eca088a511c52583d`. It and the
-prepared [notices archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-notices.zip)
-await owner publication; these download routes remain unverified, as recorded in
+identified by the source snapshot digest in `manifest-1.0.0.txt`.
+Native commit `94dd29ce82399112cb161ffa23f9e55eb5913adc` binds this source. It and the
+published [notices archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.3/libmpv-native-0.41.0-jellyscope.3-notices.zip)
+were verified through anonymous downloads on 2026-10-20, as recorded in
 [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md). Notices and source files retain their
 own terms. Package filename checks establish
 presence and consistency, not a legal-compliance determination.

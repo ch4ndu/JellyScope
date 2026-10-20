@@ -2,12 +2,13 @@
 # Audited provenance and package inventory for scripts/verify-android-native-bundle.sh.
 # The libmpv AAR is a build input; android-libmpv compiles the shipped wrapper.
 # Review this record whenever the native graph changes.
-# 0.41.0-jellyscope.2 is bound to the native source commit below. Its release
-# assets are prepared locally; publication and ordinary public resolution remain
-# pending. The download routes must be verified before an app release.
+# Published .3 bundle bound to the committed native source below.
+# The source snapshot digest identifies records/candidate-source-files.json in
+# the source offer. Anonymous downloads and ordinary resolution verified 2026-10-20.
 manifest-version=2
-artifact-coordinate=io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2
-artifact-url=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2.aar
+artifact-coordinate=io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.3
+artifact-url=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.3/libmpv-native-0.41.0-jellyscope.3.aar
+artifact-sha256=d9530d594e655b282b579f54d3dbd2d050e9fa126c5e785dacb60a6b510b3af2
 artifact-role=pinned-build-input-only
 project-module=android-libmpv
 wrapper-build=android-libmpv/build.gradle.kts
@@ -16,15 +17,18 @@ wrapper-upstream-commit=fcf6745703dc1265bca88f12fee8fc355ddf251e
 wrapper-patches=typed-log-request,no-raw-logcat,idempotent-destroy,stopped-surface-detach
 wrapper-libraries=libplayer.so
 source-repository=https://github.com/ch4ndu/jellyscope-mpv-android
-source-tag=v0.41.0-jellyscope.2
-source-commit=662fa5159800ea4d72c6fb0eca088a511c52583d
-source-archive=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz
-source-notices=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-notices.zip
+source-tag=v0.41.0-jellyscope.3
+source-commit=94dd29ce82399112cb161ffa23f9e55eb5913adc
+source-base-commit=662fa5159800ea4d72c6fb0eca088a511c52583d
+source-snapshot-sha256=582fee53320d2d4f27867b74fe6173720865e2dafc85080ad3794fa99387b85a
+source-status=published
+source-archive=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.3/libmpv-native-0.41.0-jellyscope.3-sources.tar.gz
+source-notices=https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.3/libmpv-native-0.41.0-jellyscope.3-notices.zip
 provider-artifact-coordinate=dev.jdtech.mpv:libmpv:1.0.0
 provider-source-repository=https://github.com/jarnedemeulemeester/libmpv-android
 provider-source-tag=v1.0.0
 provider-source-commit=fcf6745703dc1265bca88f12fee8fc355ddf251e
-native-modified-entries=jni/arm64-v8a/libavformat.so,jni/arm64-v8a/libmpv.so,jni/armeabi-v7a/libavformat.so,jni/armeabi-v7a/libmpv.so,jni/x86_64/libavformat.so,jni/x86_64/libmpv.so
+native-modified-entries=jni/arm64-v8a/libavcodec.so,jni/arm64-v8a/libavdevice.so,jni/arm64-v8a/libavfilter.so,jni/arm64-v8a/libavformat.so,jni/arm64-v8a/libavutil.so,jni/arm64-v8a/libmpv.so,jni/arm64-v8a/libswresample.so,jni/arm64-v8a/libswscale.so,jni/armeabi-v7a/libavcodec.so,jni/armeabi-v7a/libavdevice.so,jni/armeabi-v7a/libavfilter.so,jni/armeabi-v7a/libavformat.so,jni/armeabi-v7a/libavutil.so,jni/armeabi-v7a/libmpv.so,jni/armeabi-v7a/libswresample.so,jni/armeabi-v7a/libswscale.so,jni/x86_64/libavcodec.so,jni/x86_64/libavdevice.so,jni/x86_64/libavfilter.so,jni/x86_64/libavformat.so,jni/x86_64/libavutil.so,jni/x86_64/libmpv.so,jni/x86_64/libswresample.so,jni/x86_64/libswscale.so
 native-patches=upstream-imagereader-three,cube-imagereader-two,crop-diagnostics,encoded-audio-carrier-rate,spdif-muxer
 native-mpv-source-commit=41f6a645068483470267271e1d09966ca3b9f413
 native-patched-api=26
@@ -33,17 +37,26 @@ media3-ffmpeg-source-repository=https://github.com/jellyfin/jellyfin-androidx-me
 media3-ffmpeg-source-tag=v1.9.0+1
 media3-ffmpeg-source-commit=af9ee4e26b2045e3ea6f2ebf4a18ac8ebfeae396
 media3-ffmpeg-declared-license=GPL-3.0
-libvlc-artifact-coordinate=org.videolan.android:libvlc-all:3.7.5
+libvlc-artifact-coordinate=org.videolan.android:libvlc-all:3.7.7
+libvlc-artifact-sha256=b48dab96e0e90e34cce3861963500c144a5aadb1b249d501d6a4b104d849e61b
 libvlc-source-repository=https://code.videolan.org/videolan/libvlcjni
 libvlc-source-branch=libvlcjni-3.x
-libvlc-embedded-version=3.0.23-2-850-gac1101d2c5
-libvlc-embedded-source=https://code.videolan.org/videolan/vlc/-/tree/ac1101d2c5
+libvlc-source-commit=0b8dc65efb203c86a0476bc337ddd99ecf1c0ef6
+libvlc-upstream-base-commit=84177b2273abc5c4300234e6e18b55a4d2dd5a03
+libvlc-source-patches=https://code.videolan.org/videolan/libvlcjni/-/tree/0b8dc65efb203c86a0476bc337ddd99ecf1c0ef6/libvlc/patches
+libvlc-embedded-version=3.0.24-35
+libvlc-embedded-version.armeabi-v7a=3.0.24-35-g6ae5de1ade
+libvlc-embedded-version.arm64-v8a=3.0.24-35-gc7e5d68ee5
+libvlc-embedded-version.x86_64=3.0.24-35-gfb1b3c819b
+libvlc-resource-vlc-revision=586dd059ac
+libvlc-embedded-source=https://code.videolan.org/videolan/vlc/-/tree/84177b2273abc5c4300234e6e18b55a4d2dd5a03
 libvlc-declared-license=LGPL-2.1
 native-android-platform=android-36
 native-ndk=29.0.14206865
 native-cmake=4.1.2
 native-mpv=0.41.0
-native-ffmpeg=8.1
+native-ffmpeg=8.1.3
+native-ffmpeg-source-commit=1041abdc962f4cc4f394aa8de9dc5236c0c3b9e7
 native-dav1d=1.5.3
 native-libplacebo=7.360.1
 native-libass=0.17.4

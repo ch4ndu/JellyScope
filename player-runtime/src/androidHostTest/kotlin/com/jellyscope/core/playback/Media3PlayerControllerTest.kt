@@ -207,6 +207,31 @@ class Media3PlayerControllerTest {
     }
 
     @Test
+    fun movTextSubtitlesResolveToDistinctTx3gCandidates() {
+        val candidates =
+            listOf("1:2", "1:10").mapIndexed { ordinal, formatId ->
+                media3Candidate(
+                    "tx3g-$ordinal",
+                    codec = "application/x-quicktime-tx3g",
+                    language = "eng",
+                    supported = true,
+                ).copy(formatId = formatId)
+            }
+        val selected =
+            (0..1).map { ordinal ->
+                resolveMedia3TrackCandidates(
+                    PlannedEmbeddedTrack(4 + ordinal, ordinal, "mov_text", "eng", null),
+                    EmbeddedTrackKind.Subtitle,
+                    candidates.reversed(),
+                )
+            }
+
+        assertEquals(listOf("tx3g-0", "tx3g-1"), selected.map { it.candidate })
+        assertTrue(selected.all { it.result == NativeTrackMappingResult.Active })
+        assertTrue(selected.all { it.reason == NativeTrackMappingReason.Ordinal })
+    }
+
+    @Test
     fun unsupportedSubtitleGroupsRetainOrdinalSlotsAndFailAfterExactResolution() {
         val descriptor = PlannedEmbeddedTrack(7, 0, "srt", "eng", null)
         val candidates =

@@ -89,7 +89,7 @@ and linked through the local binary Swift package in
 Each target links its matching dynamic framework slice. The exact archive,
 upstream LGPL-2.1 declaration and license text, official build revision,
 libVLC base revision, patch set, and source routes are recorded in
-[`scripts/vlckit-bundle/manifest-4.0.0a23.txt`](../../scripts/vlckit-bundle/manifest-4.0.0a23.txt).
+[`scripts/vlckit-bundle/manifest-4.0.0a25.txt`](../../scripts/vlckit-bundle/manifest-4.0.0a25.txt).
 That published provenance is accepted for this pinned input.
 
 VLCKit may be replaced with a compatible build of the recorded revision

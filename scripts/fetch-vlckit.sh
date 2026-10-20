@@ -4,14 +4,16 @@
 # by Kotlin/Native and the local Swift package. Skips a valid existing copy.
 set -euo pipefail
 
-VERSION="4.0.0a23"
-URL="https://download.videolan.org/cocoapods/unstable/VLCKit-4.0-20260805-1123.zip"
+VERSION="4.0.0a25"
+URL="https://download.videolan.org/cocoapods/unstable/VLCKit-4.0-20260929-1631.zip"
+# VideoLAN's Package.swift at release publication 8f5ce02f09a7da5d061a24ddac3cb432f2a9b332.
+SHA256="f37c8dbdd4427d1a3f5d75dc4b8bd1ae863cef4426f9a405a2fd1c5c9012f1fb"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST_DIR="$REPO_ROOT/ios-app/Frameworks"
 XCFRAMEWORK="$DEST_DIR/VLCKit.xcframework"
 STAMP="$DEST_DIR/.vlckit-$VERSION.stamp"
-ARCHIVE="$DEST_DIR/VLCKit-4.0-20260805-1123.zip"
+ARCHIVE="$DEST_DIR/${URL##*/}"
 TMP=""
 
 OLD_XCFRAMEWORK="$DEST_DIR/MobileVLCKit.xcframework"
@@ -38,9 +40,10 @@ trap cleanup EXIT
 mkdir -p "$DEST_DIR"
 echo "Downloading VLCKit $VERSION..."
 curl -fSL --retry 3 -o "$ARCHIVE" "$URL"
+echo "$SHA256  $ARCHIVE" | shasum -a 256 -c -
 
 echo "Extracting..."
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d "$DEST_DIR/.vlckit-extract.XXXXXX")"
 ditto -x -k "$ARCHIVE" "$TMP"
 SRC="$(find "$TMP" -maxdepth 4 -name VLCKit.xcframework -type d | head -1)"
 if [[ -z "$SRC" ]]; then
@@ -54,6 +57,8 @@ if [[ ! -d "$SRC/ios-arm64" || ! -d "$SRC/ios-arm64_x86_64-simulator" ||
 fi
 rm -rf "$XCFRAMEWORK"
 mv "$SRC" "$XCFRAMEWORK"
+# An old stamp must not make a later checkout mistake this kit for its pin.
+rm -f "$DEST_DIR"/.vlckit-*.stamp
 echo "$VERSION" > "$STAMP"
 rm -rf "$OLD_XCFRAMEWORK"
 rm -f "$OLD_STAMP" "$OLD_ARCHIVE"

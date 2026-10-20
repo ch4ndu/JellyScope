@@ -443,7 +443,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   label, dimensions, frame rate, and lost-picture count. Before media assignment
   it also emits one Info-priority `backend-readiness` record with the closed
   bounded-dav1d policy and frame-thread value. Production diagnostics can prove
-  the applied option and stream codec, but libvlc-android 3.7.5 exposes no public
+  the applied option and stream codec, but libvlc-android 3.7.7 exposes no public
   API for the native decoder module that actually opened; they must not claim
   `dav1d` as an observed decoder. LibVLC bandwidth is intentionally left unknown
   because the API does not document the unit of `inputBitrate`; the debug overlay
@@ -499,7 +499,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   and E-AC-3 support checks behind a non-throwing process cache. An unavailable,
   unsupported, linkage-failing, or throwing probe leaves Media3 on its prior
   platform-only audio profile.
-- Android LibVLC 3.7.5 receives only `CredentialOriginGuard.authorizedUrl`
+- Android LibVLC 3.7.7 receives only `CredentialOriginGuard.authorizedUrl`
   output: same-origin HTTP(S), no userinfo, inbound auth-query stripping, and
   exactly one current `ApiKey`. Legacy inbound spellings such as `api_key` are
   still stripped before the current value is appended. Local subtitle files

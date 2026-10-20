@@ -9,45 +9,28 @@ remains the default on API-25 devices.
 
 ## Pinned inputs
 
-The project-owned `:android-libmpv` module prepares
-`io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2` as its only external mpv input.
-The `.2` assets are bound to native commit
-`662fa5159800ea4d72c6fb0eca088a511c52583d` and prepared locally. Owner publication
-and ordinary public resolution remain pending. The
-published `.1` remains immutable. Prepublication qualification uses an ignored
-local resolver; final ordinary builds must resolve the new public AAR through
-the existing exclusive artifact-only Ivy repository without that override.
+The project-owned `:android-libmpv` module pins
+`io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.3`. It replaces libmpv and all
+seven FFmpeg 8.1.3 shared libraries across arm64-v8a, armeabi-v7a and x86_64:
+24 provider entries. The other 26 entries retain provider 1.0.0 bytes. ARM32
+keeps the ImageReader/crop patches; every ABI keeps encoded AudioTrack carrier
+rates and the registered SPDIF muxer. API 26, NDK r29 and the other native
+component pins remain unchanged. Both GPU and Direct MediaCodec output remain
+available through the existing TV output setting.
 
-Both GPU and Direct MediaCodec video-output drivers remain in the bundle. The
-[TV output setting](../engineering/android-playback.md#android-mpv-backend) selects
-between them without another native rebuild.
+The public tag resolves to native source commit
+`94dd29ce82399112cb161ffa23f9e55eb5913adc`. Anonymous AAR/source/notice downloads
+matched the prepared SHA-256 digests on 2026-10-20. Ordinary Gradle resolution
+downloaded the public AAR and extracted the exact 27 shipped input libraries.
+Published `.1` and `.2` assets stay immutable. The manifest records the native
+commit and source snapshot digest. Physical playback validation remains open
+for the rebuilt `.3` bytes; earlier device acceptance does not qualify them.
 
-The prepared `.2` bundle replaces `libmpv.so` and `libavformat.so` for arm64-v8a,
-armeabi-v7a and x86_64: six entries, preserving the other 44 provider entries.
-The common AudioTrack patch preserves encoded carrier rates and FFmpeg enables
-only the SPDIF muxer after the disabled-muxer option. The two-image ImageReader
-limit and numeric crop diagnostics remain ARM32-only. Provider/mpv/FFmpeg pins
-and the remaining provider native graph are unchanged.
-
-The maintained builder completed a fresh three-ABI build. Static checks found
-no unresolved strong imports against the retained provider libraries plus
-API-26 stubs, preserved exports and dependency lists, and registered SPDIF
-muxers. The new AAR/source-config records match those outputs. These checks do
-not establish Android loader behavior or physical surround acceptance. Earlier
-`.1` Cube and earlier local-candidate TiVo acceptance are historical. For the
-`.2` bundle, the owner confirmed Shield playback/surround on 2026-10-08 and
-TiVo playback/audio on 2026-10-10. Untested routes/controls and rebuilt Cube/x86
-physical limits remain separate.
-
-The AAR is extracted into the module build directory. All native libraries
-except the original `libplayer.so` and x86 are retained. The committed project
-bridge compiles against the extracted `libmpv.so`, `libavcodec.so`, and NDK-29 C++
-runtime. Its upstream wrapper remains provider commit
-`fcf6745703dc1265bca88f12fee8fc355ddf251e`; the `.2` native source commit is
-`662fa5159800ea4d72c6fb0eca088a511c52583d`. Both provenance layers and the
-source/notice routes awaiting publication are recorded in
-[`scripts/android-mpv-bundle/manifest-1.0.0.txt`](../../scripts/android-mpv-bundle/manifest-1.0.0.txt).
-The stable manifest filename remains unchanged for packaged consumers.
+The project still compiles its own bridge from the provider-based committed JNI
+sources. Provider `libplayer.so` and x86 are excluded; the extracted mpv,
+FFmpeg and NDK-29 C++ runtime provide link inputs. The manifest and wrapper
+provenance distinguish the bridge from the native payload. The stable
+`manifest-1.0.0.txt` filename is retained for packaged consumers.
 
 Both Android applications consume the dependency through `androidMain` and
 ship only these native ABIs:
@@ -77,13 +60,11 @@ FFmpeg muxers and retains mpv's PCM-rate cap. A missing muxer fails before the
 first audio frame reaches output initialization, so that stage cannot use
 mpv's later audio-output failure fallback to PCM.
 
-The unpublished candidate enables only `--enable-muxer=spdif` at the pinned
-FFmpeg revision and replaces `libavformat.so` alongside the patched `libmpv.so`
-for each shipped ABI. Its build and source records must identify both changes;
-all remaining provider libraries stay unchanged. Verify muxer registration,
-imports against those retained libraries, and exact packaged bytes before the
-physical playback gate. The prepared `.2` pin is not yet publicly resolvable
-and does not extend earlier Cube acceptance to these rebuilt libraries.
+The `.3` bundle retains `--enable-muxer=spdif` after `--disable-muxers` at
+the pinned FFmpeg 8.1.3 revision. All FFmpeg libraries and patched libmpv come
+from one fresh per-ABI build. Verify registration, imports against the complete
+packaged graph and exact stripped APK bytes before physical playback checks.
+Earlier Cube/Shield/TiVo results qualify only their original native bytes.
 
 ## License and corresponding source
 
@@ -92,7 +73,7 @@ graph still require the complete license record. The distributed graph
 includes mpv, FFmpeg with GPL and version-3 code enabled, dav1d, libplacebo,
 libass, font/subtitle libraries, mbedTLS, Lua, and the NDK C++ runtime. The apps
 also package the GPL-3.0 Jellyfin Media3 FFmpeg decoder `1.9.0+1` and LGPL-2.1
-LibVLC `3.7.5`. Their records stay in the same Android manifest so the release
+LibVLC `3.7.7`. Their records stay in the same Android manifest so the release
 has one native notice set. The exact component, version, license, source URL, wrapper patch, and
 corresponding-source route are listed in
 [`ATTRIBUTION.md`](../../scripts/android-mpv-bundle/ATTRIBUTION.md) and

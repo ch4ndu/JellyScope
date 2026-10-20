@@ -86,7 +86,7 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** In-process LibVLC 3.7.5 controller selected explicitly on Android. */
+/** In-process LibVLC 3.7.7 controller selected explicitly on Android. */
 @OptIn(UnstableApi::class)
 class LibVlcPlayerController(
     context: Context,
@@ -304,7 +304,7 @@ class LibVlcPlayerController(
     override val activeBackend: PlayerBackend = PlayerBackend.LibVlc
     override val timingController: LibVlcTimingController = timing
 
-    // libvlc-android 3.7.5 has no subtitle text-scale API; font size is a
+    // libvlc-android 3.7.7 has no subtitle text-scale API; font size is a
     // LibVLC construction-time option, so this controller cannot apply the style.
     override val appliesSubtitleStyle: Boolean = false
     override val playbackHealthMeasurementCapabilities =
@@ -434,6 +434,9 @@ class LibVlcPlayerController(
                                 if (nativeTeardownStarted) {
                                     NativePrepareResult(media = null, failure = null)
                                 } else {
+                                    // Join startup warmup before any text renderer opens.
+                                    // Both this transition and font scanning run off Main.
+                                    AndroidLibVlcFontCache.warmUp(appContext)
                                     performNativePrepare(transition.request)
                                 }
                             }
@@ -656,7 +659,7 @@ class LibVlcPlayerController(
         when (event.type) {
             MediaPlayer.Event.Opening -> publishStatus(PlaybackStatus.Buffering)
             MediaPlayer.Event.Buffering -> {
-                // libvlc-android 3.7.5 exposes the native cache-fill input, but
+                // libvlc-android 3.7.7 exposes the native cache-fill input, but
                 // the pinned VLC source computes it against a dynamic internal
                 // buffering duration (PTS delay, preroll, and extra buffering).
                 // Keep bufferedPositionMs unsupported rather than deriving a
@@ -2282,7 +2285,7 @@ class LibVlcPlayerController(
                 droppedVideoFramesPerSecond = droppedVideoFramesPerSecond,
                 outputDroppedVideoFrames = lostPictures,
                 // LibVLC's inputBitrate unit is not documented by the Android
-                // 3.7.5 API. Do not expose a falsely converted bandwidth.
+                // 3.7.7 API. Do not expose a falsely converted bandwidth.
                 bandwidthEstimateBps = null,
             )
         }

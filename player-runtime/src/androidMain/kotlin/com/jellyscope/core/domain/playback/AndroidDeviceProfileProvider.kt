@@ -996,6 +996,18 @@ private fun androidSubtitleProfiles(): List<DeviceSubtitleProfile> {
                 kind = SubtitleKind.Text,
             )
         }
+    val movTextEmbedSupported =
+        parserFactory.supportsFormat(Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_TX3G).build())
+    val movTextProfile =
+        DeviceSubtitleProfile(
+            format = "mov_text",
+            deliveryMethods =
+                buildList {
+                    if (movTextEmbedSupported) add(SubtitleDeliveryMethod.Embed)
+                    add(SubtitleDeliveryMethod.Encode)
+                },
+            kind = SubtitleKind.Text,
+        )
     val bitmapProfiles =
         listOf(
             "pgs" to MimeTypes.APPLICATION_PGS,
@@ -1016,5 +1028,5 @@ private fun androidSubtitleProfiles(): List<DeviceSubtitleProfile> {
                 kind = SubtitleKind.Bitmap,
             )
         }
-    return textProfiles + bitmapProfiles
+    return textProfiles + movTextProfile + bitmapProfiles
 }

@@ -26,21 +26,19 @@ wrapper:
    fence. Surface attachment rejects overwriting a retained global reference.
    Final engine destruction retains the reference until mpv terminates.
 
-The native input is `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2`, bound to
-native commit `662fa5159800ea4d72c6fb0eca088a511c52583d`. Its complete assets are
-prepared locally; the
-[release](https://github.com/ch4ndu/jellyscope-mpv-android/releases/tag/v0.41.0-jellyscope.2)
-awaits owner publication. It replaces `libmpv.so` and `libavformat.so` for `armeabi-v7a`,
-`arm64-v8a` and `x86_64`: all three carry the encoded-audio carrier-rate
-AudioTrack patch and the SPDIF muxer, and ARM32 additionally carries the
-ImageReader patches and crop diagnostics. Other provider libraries/ABIs remain
-unchanged. This module rebuilds only the JNI bridge; it does not build mpv or
-its native dependencies. Native patch sources, notices, owner-reported device
-acceptance and the pending publication checks are recorded in
+The pinned native input is `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.3`.
+It rebuilds libmpv and all seven FFmpeg 8.1.3 libraries on the three shipped
+ABIs. The common encoded-carrier AudioTrack patch and SPDIF muxer remain;
+ImageReader/crop patches remain ARM32-only. Other provider dependencies retain
+their original bytes. Native source commit `94dd29ce82399112cb161ffa23f9e55eb5913adc` is bound
+by the public tag. Anonymous asset downloads and ordinary Gradle resolution
+were verified on 2026-10-20. The snapshot digest and published source/notice
+routes are recorded in
 [`SOURCE_MANIFEST.md`](../scripts/android-mpv-bundle/SOURCE_MANIFEST.md).
+This module rebuilds the JNI bridge and does not compile mpv or FFmpeg.
 
 The small headers under `src/main/cpp/include/` are the ABI declarations used
-by the pinned bridge for mpv 0.41.0 and FFmpeg 8.1. They do not add native
+by the pinned bridge for mpv 0.41.0 and FFmpeg 8.1.3. They do not add native
 code; the corresponding implementations are the extracted AAR libraries.
 
 ## Refresh procedure

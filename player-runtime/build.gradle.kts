@@ -43,7 +43,14 @@ kotlin {
                 defFile(project.file("src/nativeInterop/cinterop/vlckit.def"))
                 compilerOpts("-F" + vlcKitXcframework.resolve(slice).absolutePath)
             }
-        tasks.named(cinterop.interopProcessingTaskName).configure { dependsOn(fetchVlcKit) }
+        tasks.named(cinterop.interopProcessingTaskName).configure {
+            dependsOn(fetchVlcKit)
+            // A changed external -F path alone does not describe the headers
+            // at that path. Invalidate cached bindings when the pinned kit changes.
+            inputs.file(rootProject.file("scripts/fetch-vlckit.sh"))
+            inputs.dir(vlcKitXcframework.resolve("$slice/VLCKit.framework/Headers"))
+            inputs.dir(vlcKitXcframework.resolve("$slice/VLCKit.framework/Modules"))
+        }
     }
     iosArm64 { vlcKitCinterop("ios-arm64") }
     iosSimulatorArm64 { vlcKitCinterop("ios-arm64_x86_64-simulator") }

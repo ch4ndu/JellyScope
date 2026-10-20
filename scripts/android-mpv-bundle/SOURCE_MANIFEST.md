@@ -1,53 +1,36 @@
 # Android Native Corresponding-Source Manifest
 
-The Android APKs contain the project-owned `android-libmpv` wrapper and the
-native payload from `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.2`.
-The bundle replaces six entries, `libmpv.so` and `libavformat.so` for
-`armeabi-v7a`, `arm64-v8a` and `x86_64`; all other native libraries, including
-the other FFmpeg libraries, remain from `dev.jdtech.mpv:libmpv:1.0.0`. The
-original AAR `libplayer.so` and x86 payload are excluded; the bridge is rebuilt
-from committed JellyScope JNI sources. The pinned source, patch, toolchain, ABI,
-library and license records are in `manifest-1.0.0.txt` (the filename is
-retained for existing packaged consumers).
+The Android APKs use the project-owned `android-libmpv` wrapper
+and `io.github.ch4ndu:libmpv-native:0.41.0-jellyscope.3`. The bundle replaces
+libmpv and all seven FFmpeg 8.1.3 shared libraries for armeabi-v7a, arm64-v8a
+and x86_64: 24 entries. The other 26 provider entries stay byte-identical to
+`dev.jdtech.mpv:libmpv:1.0.0`. The provider bridge and all x86 payload are
+excluded by the app, which rebuilds its committed JNI bridge.
 
-**Publication pending — blocks app release.** `0.41.0-jellyscope.2` is bound to
-native commit `662fa5159800ea4d72c6fb0eca088a511c52583d`. The AAR and complete
-source/notice archives are prepared locally. The release tag and assets still
-require owner publication; the routes below must be checked afterward:
+Native commit `94dd29ce82399112cb161ffa23f9e55eb5913adc` supplies the exact
+source tree. `manifest-1.0.0.txt` records the source file-inventory digest.
+The public tag resolves to this commit. Anonymous AAR/source/notice downloads
+matched the prepared SHA-256 digests on 2026-10-20, and ordinary Gradle
+resolution and extraction passed through the public release repository:
 
-- source tree: https://github.com/ch4ndu/jellyscope-mpv-android/tree/v0.41.0-jellyscope.2
-- [source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-sources.tar.gz)
-- [notices archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.2/libmpv-native-0.41.0-jellyscope.2-notices.zip)
+- source tree: https://github.com/ch4ndu/jellyscope-mpv-android/tree/v0.41.0-jellyscope.3
+- [source archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.3/libmpv-native-0.41.0-jellyscope.3-sources.tar.gz)
+- [notices archive](https://github.com/ch4ndu/jellyscope-mpv-android/releases/download/v0.41.0-jellyscope.3/libmpv-native-0.41.0-jellyscope.3-notices.zip)
 
-These records must be checked against public assets before any JellyScope build
-using this pin is published. The prepared source archive carries the inherited
-upstream and modified mpv, pinned native component, submodule and provider
-sources, each ABI's patched mpv source and build records, and the exact committed
-repository snapshot. The notices archive preserves component notices, including
-Lua's source-carried notice and FreeType's FTL text. NDK prerequisites and LLVM
-source/patch routes are recorded in the source archive; the NDK distribution is
-obtained separately.
+Fresh three-ABI build, static ELF/package checks and the isolated app full
+host/minified-package gate pass. The source offer
+retains exact component/submodule/provider archives, each ABI's builder-produced
+modified mpv archive and configuration records, and the committed repository
+snapshot. Source and notices include the replacement FFmpeg 8.1.3 materials.
+NDK prerequisites and LLVM source/build routes are supplied separately from
+the NDK distribution itself. The historical `.1`/`.2` releases remain immutable;
+their device acceptance does not qualify these rebuilt `.3` bytes.
 
-All three ABIs apply a common AudioTrack patch that exempts encoded formats from
-the PCM sample-rate cap, preserving the encoded-audio carrier rate. ARM32
-additionally carries the upstream three-image ImageReader backport, reduces
-ImageReader capacity to two and adds optional bounded crop diagnostics. The
-pinned FFmpeg source is unchanged; its build recipe adds only
-`--enable-muxer=spdif` after `--disable-muxers`, and only the resulting
-`libavformat.so` is packaged. The inactive FFmpeg VP9 adaptive-max experiment
-is not applied.
-
-A fresh native build of all three ABIs in new build and output directories
-produced these six libraries, and static ELF checks against the retained
-provider graph and API 26 passed. The owner confirmed Shield playback and
-surround on 2026-10-08 and TiVo playback and audio for the same bundle on
-2026-10-10. These reports do not establish every route/control or Cube/x86_64
-acceptance. Public downloads and ordinary builds without the local resolver
-override remain unverified until publication.
-
-The published `0.41.0-jellyscope.1` release, which replaced only ARM32
-`libmpv.so`, is immutable and historical. Its Cube acceptance covers only those
-ARM32 bytes and does not qualify the `.2` libraries.
+Every ABI preserves the encoded AudioTrack carrier-rate patch and registered
+SPDIF muxer. ARM32 retains the three-image backport, two-image limit and bounded
+crop diagnostics. No FFmpeg source patch or archived VP9 experiment is applied.
+Host/package checks cannot establish loader/playback, output or performance
+acceptance. The physical device matrix remains unrun for these rebuilt bytes.
 
 For every published JellyScope Android build, publish these source routes with
 the release metadata. In an Android APK, `assets/license-metadata/SOURCE_URL.txt`
@@ -69,14 +52,19 @@ source tree, not relative to this packaged notice:
    [FFmpeg build configuration](https://github.com/jarnedemeulemeester/libmpv-android/blob/fcf6745703dc1265bca88f12fee8fc355ddf251e/buildscripts/scripts/ffmpeg.sh)
    enables GPL and version-3 code; the native bundle's controlling copy,
    `vendor/provider/buildscripts/scripts/ffmpeg.sh`, adds only the SPDIF muxer
-   for its rebuilt `libavformat.so`. Its dependencies, patches and build order
+   for its complete rebuilt FFmpeg library set. Its dependencies, patches and build order
    are described by the [same revision's build instructions](https://github.com/jarnedemeulemeester/libmpv-android/blob/fcf6745703dc1265bca88f12fee8fc355ddf251e/buildscripts/README.md).
 3. Jellyfin's Media3 FFmpeg decoder source at tag `v1.9.0+1`, commit
    `af9ee4e26b2045e3ea6f2ebf4a18ac8ebfeae396`, including its upstream build
    instructions: https://github.com/jellyfin/jellyfin-androidx-media/tree/af9ee4e26b2045e3ea6f2ebf4a18ac8ebfeae396.
-4. VideoLAN's `libvlc-all:3.7.5` source route and its embedded VLC revision:
-   https://code.videolan.org/videolan/libvlcjni/-/tree/libvlcjni-3.x and
-   https://code.videolan.org/videolan/vlc/-/tree/ac1101d2c5.
+4. VideoLAN's `libvlc-all:3.7.7`: JNI source and its `libvlc/patches` at
+   https://code.videolan.org/videolan/libvlcjni/-/tree/0b8dc65efb203c86a0476bc337ddd99ecf1c0ef6,
+   applied to VLC base
+   https://code.videolan.org/videolan/vlc/-/tree/84177b2273abc5c4300234e6e18b55a4d2dd5a03.
+   Preserve that revision's build instructions and the VLC `contrib` recipes.
+   The published AAR embeds VLC `3.0.24-35` with distinct patched revision
+   suffixes for each ABI; its artifact hash, exact shipped-ABI version strings,
+   and separate Android resource revision are recorded in `manifest-1.0.0.txt`.
 
 The native bundle repository maintains its mpv patches and build entry point;
 its release archives preserve the dependency source inputs. Other upstream

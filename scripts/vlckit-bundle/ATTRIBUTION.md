@@ -1,21 +1,21 @@
 # VLCKit Attribution And Corresponding Source
 
 JellyScope's iOS and tvOS applications link the unmodified official VideoLAN
-VLCKit 4.0.0a23 dynamic XCFramework downloaded by
+VLCKit 4.0.0a25 dynamic XCFramework downloaded by
 `scripts/fetch-vlckit.sh`.
 
-- Component: VLCKit 4.0.0a23, including its embedded libVLC and contributed
+- Component: VLCKit 4.0.0a25, including its embedded libVLC and contributed
   codec/runtime graph.
 - Upstream-declared license: GNU Lesser General Public License 2.1.
 - Upstream copyright: VideoLAN and the individual VLCKit, VLC, and dependency
   authors.
 - License text: the upstream archive includes `COPYING.txt`; the complete
   LGPL-2.1 text is also packaged from `scripts/vlc-bundle/LGPL-2.1.txt`.
-- Artifact and source evidence: `manifest-4.0.0a23.txt`.
+- Artifact and source evidence: `manifest-4.0.0a25.txt`.
 
 Corresponding source and build material are available from the exact official
 VLCKit revision recorded in the manifest. It identifies the libVLC base
-revision, wrapper build tools, and 27 applied patches.
+revision, wrapper build tools, and 12 applied patches.
 
 To replace the downloaded binary, follow `docs/RELEASE.md`, section "iOS release
 artifacts", in the JellyScope source revision identified by the accompanying

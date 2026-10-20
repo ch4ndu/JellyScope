@@ -147,6 +147,7 @@ class TrackSelectionTest {
                 "vtt" to listOf("vtt", "webvtt", "text/vtt", "text/webvtt"),
                 "ass" to listOf("ass", "ssa", "text/x-ssa", "application/x-ass"),
                 "ttml" to listOf("ttml", "application/ttml+xml"),
+                "mov_text" to listOf("mov_text", "tx3g", "application/x-quicktime-tx3g"),
                 "pgs" to listOf("pgs", "pgssub", "application/pgs", "hdmv_pgs_subtitle"),
                 "vobsub" to listOf("vobsub", "dvdsub", "application/vobsub", "dvd_subtitle"),
                 "dvbsub" to listOf("dvbsub", "dvb", "application/dvbsubs", "dvb_subtitle"),

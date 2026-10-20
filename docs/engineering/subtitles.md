@@ -176,7 +176,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   equals a player's container track position, so no bridge may use a Jellyfin
   index directly as a native track ordinal (probe-verified on Jellyfin 10.11).
   Subtitle descriptors
-  canonicalize only known Jellyfin/native codec and MIME alias families; BOTH
+  canonicalize only known Jellyfin/native codec and MIME alias families,
+  including `mov_text`, `tx3g`, and `application/x-quicktime-tx3g`; BOTH
   kinds use the raw source `Title` as comparable identity — never the
   server-synthesized DisplayTitle, which cannot equal a native candidate's
   container track title and would force TitleConflict transcodes (readable
@@ -220,7 +221,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   track (probe-verified on Jellyfin 10.11). Normal device profiles advertise
   local subtitle methods before Encode: Android
   Media3 supports its verified text formats, VTT HLS, and bitmap Embed only
-  where `DefaultSubtitleParserFactory` confirms the MIME; desktop libmpv
+  where `DefaultSubtitleParserFactory` confirms the MIME. Its separate
+  `mov_text` profile advertises Embed only when that factory supports TX3G,
+  followed by Encode; it advertises neither External nor HLS. Desktop libmpv
   supports broad embedded text/bitmap and authenticated external text; iOS
   limits AVPlayer text delivery to Embed (direct-play container tracks matched
   by stable index) and Encode. It advertises NO External (unreliable
@@ -331,7 +334,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   text AND a backend that can apply it
   (`PlayerController.appliesSubtitleStyle`). Burned/transcoded subtitles are
   pixels and cannot be restyled; close an invalid open subtitle/style picker.
-  Android LibVLC reports the capability as false because libvlc-android 3.7.5
+  Android LibVLC reports the capability as false because libvlc-android 3.7.7
   exposes no subtitle text-scale API (font size is a `LibVLC` construction-time
   option), so its size control is hidden rather than inert. The ViewModel
   publishes one `subtitleStyleable` truth so the shared controls, TV overlay,
@@ -391,6 +394,13 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   API tests keep their private mocks without widening a test-only seam.
 
 ### Subtitles and OpenSubtitles
+
+- **MOV_TEXT and TX3G identify the same embedded subtitle format.** Jellyfin
+  and Media3 use different spellings, including the original MIME retained in
+  `Format.codecs` after Media3 cue conversion. Canonical identity permits strict
+  track matching without treating container IDs as stream indices. Parser
+  support for embedded TX3G does not establish support for raw TX3G sidecars or
+  HLS delivery; those capabilities remain separate.
 
 - **mpv appearance controls and override policy form one contract.** Force mode
   keeps the offered TV color/background/edge choices meaningful. Preserving more

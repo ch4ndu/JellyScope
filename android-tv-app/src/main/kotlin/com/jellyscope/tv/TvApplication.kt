@@ -15,6 +15,7 @@ import com.jellyscope.core.domain.platform.NativeDiagnosticLogSource
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.PlaybackHealthGuidancePolicy
 import com.jellyscope.core.download.DownloadLifecycleHost
+import com.jellyscope.core.playback.AndroidLibVlcFontCache
 import com.jellyscope.core.playback.androidPlaybackModule
 import com.jellyscope.core.util.LogBufferStore
 import com.jellyscope.core.util.configureApplicationLogWriters
@@ -65,6 +66,7 @@ class TvApplication : Application() {
             applicationScope = applicationScope,
             isDebugBuild = BuildConfig.DEBUG,
         )
+        applicationScope.launch { AndroidLibVlcFontCache.warmUp(this@TvApplication) }
         if (!preferenceStore.enabled.value) {
             applicationScope.launch {
                 runCatching { nativeDiagnosticLogSource.clear() }

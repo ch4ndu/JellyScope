@@ -58,7 +58,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   its MediaCodec probe and a process-cached, fail-closed check that this shipped
   extension is available and supports E-AC-3. Only that E-AC-3 result is added;
   the extension's broader decoder list is not enumerated.
-- Android's LibVLC path is the in-process libvlc 3.7.5 controller/surface bridge
+- Android's LibVLC path is the in-process libvlc 3.7.7 controller/surface bridge
   and is used only when selected and available. An eligible startup/prepare
   failure in mpv or LibVLC
   while streaming from Jellyfin can end that controller session and request a
@@ -66,6 +66,14 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   offline playback never enters that recovery. Where offline policy permits,
   controller construction may fall back before preparation using the existing
   offline plan; a required offline backend cannot fall back.
+- Android phone and TV startup warm LibVLC’s fontconfig disk cache once per
+  process on `Dispatchers.IO`. First LibVLC prepare joins that same attempt
+  before opening media. A dedicated temporary engine stays alive until the
+  blocking `buildFontCache()` call returns and is released afterward; controller
+  teardown cannot race that engine. Failure or an unwritable cache falls back
+  to normal text-renderer initialization without retrying for every item.
+  Release diagnostics record Started and Ready/NotWritten/Failed, with only a
+  sanitized exception class. This does not establish a measured startup gain.
 - Android mpv uses the project-owned controller and SurfaceView bridge described
   in the [Android mpv contract](android-playback.md#android-mpv-backend). Its source/native input and package/runtime
   gates are owned by the
@@ -99,7 +107,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   never inherits the VLC-specific default.
 - Android LibVLC installs `:dav1d-thread-frames=1` on every fresh native
   `Media` before assigning it to `MediaPlayer`. The option belongs to dav1d and
-  is inert when another decoder module opens, so this is a pinned libvlc 3.7.5
+  is inert when another decoder module opens, so this is a pinned libvlc 3.7.7
   execution-resource policy—not a codec claim, device gate, resolution limit,
   bitrate cap, quality preference, or reason to transcode. The same option
   applies consistently on Android phone and TV, while iOS VLCKit and desktop
@@ -620,6 +628,11 @@ server/user IDs, titles, paths, or raw native errors.
     server.
 
 ## Why
+
+- **Font scanning has process and engine ownership.** The native API blocks and
+  may scan for several seconds. Startup and prepare share one IO attempt, while
+  a temporary engine isolates that work from player release and leaves native
+  font loading available when the disk cache cannot be written.
 
 - **Media3 IDs are container-specific.** Matroska TrackNumber can numerically
   collide with a different Jellyfin stream index. Treating that collision as

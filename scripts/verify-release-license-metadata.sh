@@ -37,7 +37,7 @@ required_files=(
     platform-notices/android/manifest-1.0.0.txt
     platform-notices/ios-vlckit/ATTRIBUTION.md
     platform-notices/ios-vlckit/LGPL-2.1.txt
-    platform-notices/ios-vlckit/manifest-4.0.0a23.txt
+    platform-notices/ios-vlckit/manifest-4.0.0a25.txt
     platform-notices/macos-mpv/ATTRIBUTION.md
     platform-notices/macos-mpv/licenses/mpv/LICENSE.GPL
     platform-notices/macos-mpv/licenses/ffmpeg/COPYING.GPLv3
@@ -91,8 +91,8 @@ diff -qr "$repo_root/scripts/android-mpv-bundle" "$metadata_dir/platform-notices
 cmp -s "$repo_root/scripts/vlckit-bundle/ATTRIBUTION.md" \
     "$metadata_dir/platform-notices/ios-vlckit/ATTRIBUTION.md" \
     || die "Packaged VLCKit attribution differs from the repository notice"
-cmp -s "$repo_root/scripts/vlckit-bundle/manifest-4.0.0a23.txt" \
-    "$metadata_dir/platform-notices/ios-vlckit/manifest-4.0.0a23.txt" \
+cmp -s "$repo_root/scripts/vlckit-bundle/manifest-4.0.0a25.txt" \
+    "$metadata_dir/platform-notices/ios-vlckit/manifest-4.0.0a25.txt" \
     || die "Packaged VLCKit manifest differs from the repository manifest"
 cmp -s "$repo_root/scripts/vlc-bundle/LGPL-2.1.txt" \
     "$metadata_dir/platform-notices/ios-vlckit/LGPL-2.1.txt" \
