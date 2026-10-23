@@ -127,7 +127,7 @@ class DownloadRepositoryQueueCleanupTest {
             val records = FakeRecordStore(mutableListOf(record(state = DownloadState.Downloading, generation = 1L)))
             val artifactStore = FakeArtifactStore()
             val repository = repository(records, artifactStore)
-            val lease = AccountWorkLease(account, boundaryEpoch = 4L, generation = 7L)
+            val lease = accountWorkLease(account, boundaryEpoch = 4L)
             var writerClosed = 0
             val registration =
                 DownloadActiveAttemptRegistration(
@@ -194,7 +194,7 @@ class DownloadRepositoryQueueCleanupTest {
             val records = FakeRecordStore(mutableListOf(record(state = DownloadState.Downloading, generation = 1L)))
             val repository = repository(records, FakeArtifactStore())
             val coordinator = DownloadQueueCoordinator(repository)
-            val lease = AccountWorkLease(account, boundaryEpoch = 4L, generation = 7L)
+            val lease = accountWorkLease(account, boundaryEpoch = 4L)
             var writerClosed = 0
             val registration =
                 DownloadActiveAttemptRegistration(
@@ -249,7 +249,7 @@ class DownloadRepositoryQueueCleanupTest {
             val registration =
                 DownloadActiveAttemptRegistration(
                     accountIdentity = account,
-                    lease = AccountWorkLease(account, boundaryEpoch = 1L, generation = 1L),
+                    lease = accountWorkLease(account, boundaryEpoch = 1L),
                     attempt = attempt,
                     initialFacts = DownloadCheckpointFacts(100L, 100L),
                     checkpointAndCloseWriter = { _ -> DownloadCheckpointFacts(120L, 120L) },
@@ -355,7 +355,7 @@ class DownloadRepositoryQueueCleanupTest {
             val registration =
                 DownloadActiveAttemptRegistration(
                     accountIdentity = account,
-                    lease = AccountWorkLease(account, boundaryEpoch = 1L, generation = 1L),
+                    lease = accountWorkLease(account, boundaryEpoch = 1L),
                     attempt = DownloadAttemptIdentity(DownloadId("download_a"), 4L),
                     initialFacts = DownloadCheckpointFacts(100L, 100L),
                     checkpointAndCloseWriter = { _ ->
@@ -749,6 +749,15 @@ class DownloadRepositoryQueueCleanupTest {
             localResumePositionMs = 0L,
             updatedAtEpochMs = 2L,
         )
+}
+
+private suspend fun accountWorkLease(
+    accountIdentity: AccountIdentity,
+    boundaryEpoch: Long,
+): AccountWorkLease {
+    val registry = ServerScopedStoreRegistry()
+    registry.transitionToAccount(accountIdentity, boundaryEpoch)
+    return checkNotNull(registry.acquireWorkLease(accountIdentity, boundaryEpoch))
 }
 
 private class Gate(

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JellyScope Launcher</string>
+    <string name="launcher_setup_message">Media setup is not available yet. You can open system settings.</string>
+    <string name="system_settings">System settings</string>
+    <string name="settings_unavailable_title">System settings unavailable</string>
+    <string name="settings_unavailable_message">System settings could not be opened on this device. Try again or open Settings using your device remote.</string>
+    <string name="dismiss">Dismiss</string>
+</resources>

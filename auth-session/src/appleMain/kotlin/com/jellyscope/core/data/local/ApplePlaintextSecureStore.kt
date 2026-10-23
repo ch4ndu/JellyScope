@@ -10,6 +10,10 @@ import platform.Foundation.NSUserDefaults
 
 private const val APPLE_PLAINTEXT_SECURE_STORE_KEY = "com.jellyscope.secure-store"
 
+@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+@kotlin.native.HiddenFromObjC
+fun createAppleSecureStore(): SecureStore = ApplePlaintextSecureStore()
+
 /** App-owned plaintext persistence for iOS and tvOS session values. */
 internal class ApplePlaintextSecureStore(
     private val defaults: NSUserDefaults = NSUserDefaults.standardUserDefaults,

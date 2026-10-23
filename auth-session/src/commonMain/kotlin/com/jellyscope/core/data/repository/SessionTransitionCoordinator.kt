@@ -3,11 +3,11 @@
 package com.jellyscope.core.data.repository
 
 import com.jellyscope.core.coroutines.platformIoDispatcher
+import com.jellyscope.core.data.local.AccountStoreCleaner
 import com.jellyscope.core.data.local.AccountTransitionCleanupOutcome
 import com.jellyscope.core.data.local.BoundaryMutation
 import com.jellyscope.core.data.local.CommittedSessionSnapshot
 import com.jellyscope.core.data.local.LogoutCleanupCancellationException
-import com.jellyscope.core.data.local.PersistentAccountStoreCleaner
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.local.SessionStore
 import com.jellyscope.core.data.local.StoreCleanupException
@@ -34,7 +34,7 @@ import kotlinx.coroutines.withContext
  */
 class SessionTransitionCoordinator(
     private val serverScopedStoreRegistry: ServerScopedStoreRegistry,
-    private val persistentAccountStoreCleaner: PersistentAccountStoreCleaner? = null,
+    private val persistentAccountStoreCleaner: AccountStoreCleaner? = null,
     private val sessionStore: SessionStore? = null,
     private val sessionBoundaryParticipant: SessionBoundaryParticipant = NoOpSessionBoundaryParticipant,
     private val ioDispatcher: CoroutineDispatcher = platformIoDispatcher(),
@@ -54,7 +54,7 @@ class SessionTransitionCoordinator(
      * any normal logout/session/account read. A failure installs and publishes
      * a logged-out boundary so cold restoration cannot expose stale credentials.
      */
-    suspend fun resumeIncompleteRemovalOperations(publishLoggedOutOnFailure: suspend () -> Unit) {
+    internal suspend fun resumeIncompleteRemovalOperations(publishLoggedOutOnFailure: suspend () -> Unit) {
         serverScopedStoreRegistry.withBoundaryMutation {
             invalidateAuthenticationAttempts()
             try {
@@ -335,7 +335,7 @@ class SessionTransitionCoordinator(
             result
         }
 
-    suspend fun <T> commitLogout(
+    internal suspend fun <T> commitLogout(
         authorization: SessionRemovalAuthorization = SessionRemovalAuthorization.None,
         publishLoggedOut: suspend () -> Unit,
         publishAccountsCleared: suspend () -> T,

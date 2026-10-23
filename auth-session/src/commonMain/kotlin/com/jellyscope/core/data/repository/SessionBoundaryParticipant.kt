@@ -12,10 +12,14 @@ import com.jellyscope.core.domain.model.AccountIdentity
  * prepare and completion and never interprets its payload.
  */
 class PreparedSessionRemoval internal constructor(
-    internal val participantToken: Any,
+    @OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+    @kotlin.native.HiddenFromObjC
+    val participantToken: Any,
 ) {
     companion object {
-        internal fun create(participantToken: Any): PreparedSessionRemoval = PreparedSessionRemoval(participantToken)
+        @OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+        @kotlin.native.HiddenFromObjC
+        fun create(participantToken: Any): PreparedSessionRemoval = PreparedSessionRemoval(participantToken)
     }
 }
 

@@ -29,6 +29,8 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.util.EnumSet
 import java.util.UUID
 
+fun createJvmSecureStore(file: File): SecureStore = JvmPlainFileSecureStore(file)
+
 internal class JvmPlainFileSecureStore(
     private val file: File,
     private val json: Json = Json,

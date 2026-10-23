@@ -46,6 +46,7 @@ kotlin {
             api(project(":player-runtime"))
             api(project(":storage"))
             api(project(":transport"))
+            api(project(":auth-session"))
             api(libs.kermit)
             api(libs.koin.core)
             api(libs.ktor.client.core)

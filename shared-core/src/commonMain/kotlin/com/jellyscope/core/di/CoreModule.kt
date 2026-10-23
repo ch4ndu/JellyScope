@@ -296,7 +296,7 @@ val coreModule =
         single {
             SessionTransitionCoordinator(
                 serverScopedStoreRegistry = get(),
-                persistentAccountStoreCleaner = get(),
+                persistentAccountStoreCleaner = get<PersistentAccountStoreCleaner>(),
                 sessionStore = get(),
                 sessionBoundaryParticipant =
                     getOrNull<SessionBoundaryParticipant>() ?: NoOpSessionBoundaryParticipant,

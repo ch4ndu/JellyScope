@@ -21,8 +21,8 @@ class PersistentAccountStoreCleaner(
     private val gridSortStore: GridSortStore,
     private val playbackSelectionStore: PlaybackSelectionStore? = null,
     private val playbackTimingStore: PlaybackTimingStore? = null,
-) {
-    suspend fun clearAll() {
+) : AccountStoreCleaner {
+    override suspend fun clearAll() {
         val failures = mutableListOf<Throwable>()
         var credentialsCleared = false
 
@@ -65,7 +65,7 @@ class PersistentAccountStoreCleaner(
         throwIfCleanupFailed(failures)
     }
 
-    suspend fun clearServer(serverId: String) {
+    override suspend fun clearServer(serverId: String) {
         clearOperations(
             listOf(
                 { sessionStore.clearServerScoped(serverId) },
@@ -83,7 +83,7 @@ class PersistentAccountStoreCleaner(
         )
     }
 
-    suspend fun clearAccount(accountIdentity: AccountIdentity) {
+    override suspend fun clearAccount(accountIdentity: AccountIdentity) {
         clearOperations(
             listOf(
                 { recentSearchStore.clearAccount(accountIdentity) },

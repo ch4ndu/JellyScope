@@ -9,11 +9,15 @@ sealed interface SessionRemovalAuthorization {
     data object None : SessionRemovalAuthorization
 
     class Confirmed internal constructor(
-        internal val participantToken: Any,
+        @OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+        @kotlin.native.HiddenFromObjC
+        val participantToken: Any,
     ) : SessionRemovalAuthorization
 
     companion object {
-        internal fun confirmed(participantToken: Any): SessionRemovalAuthorization = Confirmed(participantToken)
+        @OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)
+        @kotlin.native.HiddenFromObjC
+        fun confirmed(participantToken: Any): SessionRemovalAuthorization = Confirmed(participantToken)
     }
 }
 

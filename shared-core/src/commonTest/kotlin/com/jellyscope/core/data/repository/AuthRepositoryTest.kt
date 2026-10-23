@@ -27,6 +27,7 @@ import com.jellyscope.core.domain.action.SignOutAccountAction
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.QuickConnectLoginUpdate
 import com.jellyscope.core.domain.model.ServerInfo
+import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.platform.DeviceInfoProvider
@@ -53,8 +54,11 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -613,7 +617,7 @@ class AuthRepositoryTest {
                     .count { account -> account.isActive },
             )
 
-            fixture.sessionRepository.switchTo(first.toStored().accountId()).getOrThrow()
+            fixture.sessionRepository.switchTo(first.accountIdentity().accountId).getOrThrow()
 
             assertEquals(first, (fixture.sessionRepository.sessionState.value as SessionState.LoggedIn).session)
             assertEquals(
@@ -727,11 +731,11 @@ class AuthRepositoryTest {
             assertIs<SessionRemovalError.DownloadRemovalConfirmationRequired>(logoutFailure)
             assertEquals(
                 listOf(
-                    SessionRemovalScope.Account(first.toDomain().accountIdentity()),
+                    SessionRemovalScope.Account(AccountIdentity(first.serverId, first.userId)),
                     SessionRemovalScope.FullLogout(
                         listOf(
-                            first.toDomain().accountIdentity(),
-                            second.toDomain().accountIdentity(),
+                            AccountIdentity(first.serverId, first.userId),
+                            AccountIdentity(second.serverId, second.userId),
                         ),
                     ),
                 ),
@@ -836,10 +840,21 @@ private suspend fun TestScope.repositoryFixtureWithStoredSessions(
     serverStore: FakeServerScopedStore,
     participant: SessionBoundaryParticipant = NoOpSessionBoundaryParticipant,
 ): AuthRepositoryFixture {
-    val sessionStore = SessionStore(FakeSecureStore(), Json)
-    sessionStore.writeSession(first)
-    sessionStore.writeSession(second)
-    sessionStore.switchActiveAccount(activeAccountId)
+    val secureStore = FakeSecureStore()
+    val sessions = linkedMapOf(first.accountId() to first, second.accountId() to second).values.toList()
+    // Bound to the existing version-1 format; SessionStoreTest owns codec coverage.
+    // Linked-map replacement keeps the first account position and the latest value.
+    secureStore.write(
+        "session_envelope",
+        buildJsonObject {
+            put("version", 1)
+            put("era", "single-envelope")
+            put("sessions", Json.encodeToJsonElement(sessions))
+            put("activeAccountId", activeAccountId)
+            put("logoutPending", false)
+        }.toString(),
+    )
+    val sessionStore = SessionStore(secureStore, Json)
     val registry = ServerScopedStoreRegistry()
     val discoveryCache = DiscoveryCache(registry)
     registry.register(sessionStore)
@@ -1079,4 +1094,30 @@ private fun storedSession(
         userName = "User $userId",
         accessToken = "token-$userId",
         deviceId = "device-1",
+    )
+
+private fun StoredSession.toDomain(): Session =
+    Session(
+        serverUrl = serverUrl,
+        serverId = serverId,
+        serverName = serverName,
+        userId = userId,
+        userName = userName,
+        accessToken = accessToken,
+        deviceId = deviceId,
+        enableContentDownloading = enableContentDownloading,
+        maxParentalRating = maxParentalRating,
+    )
+
+private fun Session.toStored(): StoredSession =
+    StoredSession(
+        serverUrl = serverUrl,
+        serverId = serverId,
+        serverName = serverName,
+        userId = userId,
+        userName = userName,
+        accessToken = accessToken,
+        deviceId = deviceId,
+        enableContentDownloading = enableContentDownloading,
+        maxParentalRating = maxParentalRating,
     )

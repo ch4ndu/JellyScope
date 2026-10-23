@@ -2,8 +2,8 @@
 
 package com.jellyscope.core.di
 
-import com.jellyscope.core.data.local.ApplePlaintextSecureStore
 import com.jellyscope.core.data.local.SecureStore
+import com.jellyscope.core.data.local.createAppleSecureStore
 import com.jellyscope.core.data.local.createJellyfinStoreDatabase
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.platform.AppleDiagnosticsEnvironment
@@ -42,7 +42,7 @@ fun appleCoreModule(
             developerOpenSubtitlesApiKey = developerOpenSubtitlesApiKey,
         )
     }
-    single<SecureStore> { ApplePlaintextSecureStore() }
+    single<SecureStore> { createAppleSecureStore() }
     single<DeviceInfoProvider> { AppleDeviceInfoProvider() }
     single<DiagnosticsEnvironment> { AppleDiagnosticsEnvironment(diagnosticPlatform) }
     single<DeviceProfileProvider> {

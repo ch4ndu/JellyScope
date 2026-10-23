@@ -198,11 +198,12 @@ runtime-only behavior and remain subject to authorization above.
 | Playback policy | `playback-policy/src/commonTest` | Existing capability/backend, stream/track/URL, diagnostic, recovery/health/session and Watch Next decisions |
 | Jellyfin wire contract | `jellyfin-api/src/commonTest` | Existing DTO encoding, media projections, transcode-reason parsing and device-profile mapping |
 | HTTP transport | `transport/src/commonTest` | Existing Jellyfin API, fixed-download HTTP and OpenSubtitles API cases with private MockEngine helpers |
+| Authentication/session | `auth-session/src/commonTest`, `src/androidHostTest`, `src/jvmTest` | Session envelope, account boundaries, cleanup and credential adapters; common tests depend on core production for real cache integration, but only JVM/Android host suites run |
 | Shared domain/data | `shared-core/src/commonTest` | Planning, policy projections, repositories, client-configuration integration, discovery and account coordination |
 | Native player runtime | `player-runtime/src/commonTest`, `src/androidHostTest`, `src/jvmTest`, `src/iosTest` | Existing activation/timing, native controllers, runtime probes, decoder/route mapping and Apple transition cases |
 | Persistence | `storage/src/commonTest`, `src/androidHostTest`, `src/jvmTest`, `src/iosTest` | Existing codecs, Room migrations/recovery, preference/artifact/subtitle stores; Apple cases compile on the build host |
-| Android host | `shared-core/src/androidHostTest` | Credential storage and retained application execution |
-| JVM | `shared-core/src/jvmTest` | Credential file storage and retained application composition |
+| Android host | `shared-core/src/androidHostTest` | Retained application execution |
+| JVM | `shared-core/src/jvmTest` | Retained application composition |
 | Shared UI | `shared-ui/src/commonTest` | Navigation |
 | UI foundation | `ui-foundation/src/commonTest` | Adaptive layout, media cards, image/account caches, and playback-selection memory |
 | Settings/Account | `settings-account/src/commonTest`, `src/jvmTest` | Settings/account state, persistence actions, desktop availability |
@@ -384,6 +385,10 @@ scope:
 - Standalone HTTP API tests follow transport. Client-factory and original-download
   integration suites stay in core so its internal engine overloads remain private
   to that module without changing assertions or setup.
+- Authentication/session tests follow their owner. Their common-test dependency
+  on core production preserves real cache integration without widening internal
+  APIs; it does not change the production dependency graph. Run JVM and Android
+  host suites, not native test binaries with the player-runtime test closure.
 - Existing storage tests follow their persistence owner. The Android host suite
   depends on core production code to retain its registry integration case;
   storage production remains independent of core.

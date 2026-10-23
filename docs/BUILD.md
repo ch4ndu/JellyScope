@@ -101,6 +101,23 @@ settings and starts at zero; it contains no token or media URL. Accepted inputs,
 account checks, and active-player behavior are owned by
 [Playback Links](engineering/tv-ux-behaviors.md#playback-links).
 
+## Android launcher foundation
+
+The independent launcher shell is in development. It currently provides System
+settings access; login, apps, media ribbons and replacement Home behavior are
+not yet delivered. It requires Android API 25 or newer and uses application ID
+`com.udnahc.jellyscope.launcher`, separate from the TV player.
+
+```bash
+./gradlew :android-launcher-app:assembleDebug
+./gradlew :android-launcher-app:assembleRelease
+```
+
+The minified release variant uses debug signing for local verification only.
+It has no release-license metadata/readiness wiring and is not release-ready;
+`scripts/build-release-artifacts.sh` does not collect it. No Home replacement
+capability or device compatibility is established by assembly.
+
 ## Desktop (JVM)
 
 Development:
@@ -396,10 +413,13 @@ to UI, playback, and platform changes.
 - `storage`: file/preferences stores, Room databases, migrations and schemas over
   `diagnostics-runtime`, with existing platform persistence bindings. KSP runs
   here; committed Room schemas live in `storage/schemas`. Account/session
-  coordination and credential adapters remain in core.
+  coordination and credential adapters belong to `auth-session`.
 - `transport`: Jellyfin/OpenSubtitles HTTP execution and bounded download/artwork
   responses over `network`, `jellyfin-api`, `storage` and Ktor client core.
-  Configured client factories, engines and session-backed identity stay in core.
+  Configured client factories and engines stay in core; session-backed identity
+  belongs to `auth-session`.
+- `auth-session`: secure credentials, session/account boundaries, authentication
+  and session-backed headers over transport; independent from native players.
 - `shared-core`: shared data, domain orchestration, root DI, configured HTTP clients,
   playback planning/reporting and account-qualified offline validation over the
   lower model, policy, platform, network, wire, runtime, storage and transport modules.

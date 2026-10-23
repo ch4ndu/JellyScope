@@ -298,8 +298,8 @@ normalization and credential-origin policy. It exposes the existing `platform`
 interface dependency and uses Ktor HTTP internally, without a client engine.
 The encoder remains internal; the credential-query constant is a Kotlin bridge
 hidden from Objective-C for the existing Apple player. Session-backed device-ID
-reads, configured HTTP clients, repositories and DI stay in `shared-core`. The session
-provider retains its public class in a separate upper file. Core exposes network
+reads belong to `auth-session`; configured HTTP clients, feature repositories
+and DI stay in `shared-core`. The session provider retains its public class. Core exposes network
 through API, and both tvOS frameworks explicitly export it; the iOS facade keeps
 no exports.
 
@@ -360,7 +360,8 @@ runtime; Ktor HTTP is an implementation dependency for parsing transcode reasons
 JSON encoding and metadata-mapping tests follow the wire owner. Public mapper
 packages and filenames retain their existing DTO extension identities.
 HTTP execution belongs to `transport`; client factories,
-sessions, repositories and DI remain in `shared-core`. Six necessary request and
+feature repositories and DI remain in `shared-core`; sessions belong to
+`auth-session`. Six necessary request and
 response-mapping Kotlin bridges are hidden from Objective-C. Core exposes the
 module through API, and both tvOS frameworks explicitly export it to preserve
 existing Swift declarations; the narrow iOS facade keeps no exports.
@@ -382,9 +383,9 @@ tvOS frameworks explicitly export it; the narrow iOS facade keeps no exports.
 DAOs, migrations and schemas, plus their existing platform registration bodies.
 It exposes `diagnostics-runtime`, Koin, Room and serialization contracts without
 HTTP execution or native-player dependencies. Core includes the storage modules
-while retaining database singleton construction, credentials, session/account
-coordination, cleanup composition and eager desktop native startup. Cleanup
-contracts cross downward; account leases and their mutation registry stay upper.
+while retaining database singleton construction, cleanup composition and eager
+desktop native startup. Credentials, session/account coordination, account leases
+and their mutation registry belong to `auth-session`, above storage.
 Necessary Kotlin bridges are hidden from Objective-C on common/Apple targets;
 DAOs, entities and implementation constructors remain internal. Core exposes
 storage through API; both tvOS frameworks explicitly export it, and the narrow
@@ -392,13 +393,27 @@ iOS facade keeps no exports. Only storage Android host tests depend on core
 production code to preserve their existing registry case, without a production
 cycle or a test-only API.
 
+`auth-session` owns credential adapters, the secure session envelope, account
+leases and transitions, authentication repositories/actions, and session-backed
+request identity over `transport` and its lower contracts. Existing packages and
+persisted formats remain unchanged. `AccountStoreCleaner` allows each app to
+compose its durable cleanup; the existing player-app cleaner retains its store
+membership and ordering. Download participants remain in core and validate their
+private authorization payloads through narrow Kotlin-only bridges.
+
+Core re-exports this module and tvOS exports it explicitly. Its common tests
+depend on core production solely to preserve real DiscoveryCache integration;
+production has no upward dependency. Run its JVM and Android host suites, not
+native test binaries that would pull the player-runtime test closure. The
+launcher consumes the production module without core or native players.
+
 `transport` owns Jellyfin/OpenSubtitles request execution, bounded original/fixed
 download responses and artwork HTTP reads. It consumes configured `HttpClient`
 instances and the existing `AuthHeaderProvider` contract over `network`,
 `jellyfin-api` and `storage`; artwork bounds retain their storage contract owner.
-`JellyfinClientFactory`, engines, session-backed identity, qualifiers and client
-lifetimes stay in core. Its factory and original-download integration suites
-stay upper with their internal engine overloads; the three standalone API
+`JellyfinClientFactory`, engines, qualifiers and client lifetimes stay in core.
+Session-backed identity belongs to `auth-session`. Client-factory and
+original-download integration suites stay in core with their internal engine overloads; the three standalone API
 suites follow transport with private mocks unchanged. Eight necessary Kotlin
 bridges for upper production callers are hidden from Objective-C. Request DTOs,
 HTTP helpers and stream/resource constructors retain their internal visibility.
@@ -444,8 +459,8 @@ constructor; foundation’s focus policies remain public.
 
 Server entry, discovery UI, credential login and Quick Connect share
 `auth` with their existing ViewModel tests. Root navigation and DI retain
-session startup and constructor parameters; core retains discovery, authentication,
-credentials and session persistence. TV keeps its UI and consumes the same public
+session startup and constructor parameters; core retains discovery, while
+`auth-session` owns authentication, credentials and session persistence. TV keeps its UI and consumes the same public
 state and ViewModels through app composition.
 
 Downloads list/detail state, presentation and their existing ViewModel tests
@@ -669,6 +684,11 @@ gates live in
 
 ### Platform strategy and sharing
 
+- Independent application shells share one credential and account-transition
+  owner without importing native players. A library above transport/storage
+  avoids a dependency cycle while retaining envelope, logout and removal
+  recovery behavior. App composition still chooses concrete cleanup stores.
+
 - Safe diagnostic production and capture schemas form one lower boundary, so
   transport, persistence and native implementations can use the privacy gate
   without depending on application orchestration. Capture and upload lifecycle
@@ -686,7 +706,7 @@ gates live in
 - Authorization syntax and credential-origin policy apply across API, image and
   native playback requests without owning a session or transport lifetime. A
   lower network owner keeps encoding and trust helpers together; session-backed
-  persistence stays in core while HTTP execution belongs to transport.
+  persistence belongs to `auth-session` while HTTP execution belongs to transport.
 - HTTP execution has a distinct owner below application coordination. Existing
   configured clients and session identity remain upper, preserving their
   lifetimes and private factory test seams without new ports or wrappers.
@@ -714,7 +734,7 @@ gates live in
   lifecycle and account cleanup responsibilities.
 - Authentication presentation shares a pre-login journey and dependency closure.
   Keeping it separate from post-login Settings avoids coupling their screens and
-  platform adapters; credentials and session state remain core-owned.
+  platform adapters; credentials and session state belong to `auth-session`.
 - Downloads list/detail presentation forms one boundary over existing core
   operations. It stays separate from transfer/storage ownership and Detail’s
   enqueue dialog, avoiding a dependency between presentation features.
@@ -725,7 +745,8 @@ gates live in
   native cleanup retain their application lifecycle owners.
 - Persistence and its Room generation share one owner below application
   execution. Existing store bindings keep implementation types private; account
-  gates, credentials and cleanup composition retain their upper authority.
+  gates and credentials belong to `auth-session`; app composition retains explicit
+  cleanup membership.
 - Native execution depends on policy, network and platform primitives while
   application planning, account authority and reporting retain their core owner.
   Co-owning native factories, private helpers and whole existing suites avoids

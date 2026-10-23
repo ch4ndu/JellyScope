@@ -210,6 +210,7 @@ kotlin {
             export(project(":player-runtime"))
             export(project(":storage"))
             export(project(":transport"))
+            export(project(":auth-session"))
         }
     }
 
@@ -229,6 +230,7 @@ kotlin {
             export(project(":player-runtime"))
             export(project(":storage"))
             export(project(":transport"))
+            export(project(":auth-session"))
         }
     }
 
@@ -253,6 +255,7 @@ kotlin {
             api(project(":player-runtime"))
             api(project(":storage"))
             api(project(":transport"))
+            api(project(":auth-session"))
             api(project(":shared-core"))
             implementation(libs.kotlinx.coroutines.core)
         }

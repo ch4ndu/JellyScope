@@ -9,9 +9,9 @@ import com.jellyscope.core.data.local.JvmDesktopMpvPresentationStore
 import com.jellyscope.core.data.local.JvmDownloadArtifactStore
 import com.jellyscope.core.data.local.JvmDownloadDatabaseFactory
 import com.jellyscope.core.data.local.JvmFilePreferencesStore
-import com.jellyscope.core.data.local.JvmPlainFileSecureStore
 import com.jellyscope.core.data.local.SecureStore
 import com.jellyscope.core.data.local.createJellyfinStoreDatabase
+import com.jellyscope.core.data.local.createJvmSecureStore
 import com.jellyscope.core.data.local.jellyscopeDataDirectory
 import com.jellyscope.core.domain.action.SetDesktopMpvPresentationAction
 import com.jellyscope.core.domain.model.Session
@@ -48,7 +48,7 @@ fun desktopCoreModule(developerOpenSubtitlesApiKey: String? = null) =
             )
         }
         single<SecureStore> {
-            JvmPlainFileSecureStore(
+            createJvmSecureStore(
                 file = File(jellyscopeDataDirectory(), DESKTOP_PLAINTEXT_SECURE_STORE_FILE_NAME),
             )
         }

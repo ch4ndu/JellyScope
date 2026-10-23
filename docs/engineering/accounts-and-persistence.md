@@ -36,8 +36,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 ## Persistence and account isolation
 
 `storage` owns ordinary file/preferences stores and Room databases, schemas and
-migrations. `shared-core` retains `SessionStore`, credential adapters, the
-account mutation registry, refetchable caches and `PersistentAccountStoreCleaner`.
+migrations. `auth-session` owns `SessionStore`, credential adapters, the account mutation
+registry, session/authentication repositories and `PersistentAccountStoreCleaner`.
+`shared-core` retains feature caches and composes the concrete cleanup membership.
 Root composition constructs databases and includes the lower store bindings;
 this module boundary does not change cleanup ordering or credential authority.
 
@@ -265,7 +266,8 @@ this module boundary does not change cleanup ordering or credential authority.
 
 - Persistence implementations and Room generation stay together without
   importing application execution. Session/account gates and credential
-  authority stay in core, preserving one cleanup and commit owner.
+  authority belong to `auth-session`, preserving one cleanup and commit owner
+  usable by independent application shells.
 
 - **Apple application credentials remain in app-owned plaintext storage by
   policy.** Avoiding Keychain access prevents application-triggered system

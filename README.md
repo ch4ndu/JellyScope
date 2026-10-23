@@ -66,6 +66,12 @@ Intel Macs are unsupported. Local comparison builds can offer restart-required
 runtime is experimental and not distribution-ready. Windows and Linux have experimental source-build
 paths, with no tested or packaged releases yet.
 
+The separate [Android launcher foundation](docs/BUILD.md#android-launcher-foundation)
+is in development. Its independent API-25+ shell provides System settings access;
+login, app/media rows and replacement Home behavior are not yet available.
+Launcher APKs are local verification artifacts without release-license metadata
+and are not release-ready.
+
 ## Getting started
 
 Choose and install the correct artifact by following
