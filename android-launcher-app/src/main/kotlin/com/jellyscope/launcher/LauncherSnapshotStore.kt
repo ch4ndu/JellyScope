@@ -62,9 +62,15 @@ internal class LauncherSnapshotStore(
                 recordCleanupFailure(failure)
                 null
             }
-        snapshot = restored?.takeIf { it.source == source } ?: LauncherSnapshot(version = 1, source = source)
+        snapshot = restored?.takeIf { it.source == source } ?: LauncherSnapshot(version = 2, source = source)
         val status = if (_cleanupPending.value) LauncherRowStatus.Failed else LauncherRowStatus.Cached
-        _state.value = LauncherMediaState(target.key, rows(status))
+        _state.value =
+            LauncherMediaState(
+                target.key,
+                rows(status),
+                configurationStatus =
+                    if (snapshot?.layout == null) LauncherConfigurationStatus.Defaults else LauncherConfigurationStatus.Cached,
+            )
     }
 
     suspend fun beginRefresh(
@@ -92,26 +98,39 @@ internal class LauncherSnapshotStore(
         work: LauncherRowWork,
     ): Boolean =
         guarded(lease) {
-            boundary == target &&
-                generation == work.generation &&
-                refreshGeneration == work.generation &&
-                work.queryKey == work.id.queryKey
+            current(target, work)
         } == true
 
-    suspend fun applyPolicy(
+    suspend fun adoptLayout(
         target: LauncherBoundary,
         lease: AccountWorkLease,
         request: Long,
         policy: String,
-    ): Boolean? =
+        allowedLibraries: Set<String>,
+        configuration: LauncherConfigurationResult,
+    ): LauncherRefreshLayout? =
         guarded(lease) {
             if (boundary != target || generation != request || refreshGeneration != request) return@guarded null
             val current = snapshot ?: return@guarded null
-            val changed = current.policyFingerprint != policy
-            val updated = current.copy(policyFingerprint = policy, rows = if (changed) emptyList() else current.rows)
-            if (changed) {
-                snapshot = updated
-                _state.value = _state.value.copy(rows = rows(LauncherRowStatus.Loading))
+            val changedPolicy = current.policyFingerprint != policy
+            val layout =
+                (configuration.layout ?: current.layout)?.validated()?.let { value ->
+                    value.copy(rows = value.rows.filter { it.libraryId == null || it.libraryId in allowedLibraries })
+                }
+            val effective = (layout ?: defaultLauncherLayout()).rows.filter { it.visible }
+            val retained =
+                if (changedPolicy) {
+                    emptyList()
+                } else {
+                    current.rows.filter { saved -> effective.any { it.id == saved.id && it.queryKey == saved.queryKey } }
+                }
+            val updated = current.copy(version = 2, policyFingerprint = policy, layout = layout, rows = retained)
+            val invalidateArtwork = changedPolicy || retained.size != current.rows.size
+            val previousRows = _state.value.rows
+            // Keep a safe retry candidate, but publish new layout metadata only after its durable write.
+            snapshot = updated
+            if (invalidateArtwork) {
+                _state.value = _state.value.copy(rows = previousRows.map { it.copy(cards = emptyList()) })
             }
             try {
                 write(target.account, updated)
@@ -119,9 +138,43 @@ internal class LauncherSnapshotStore(
                 recordCleanupFailure(failure)
                 throw failure
             }
-            snapshot = updated
-            changed
+            val status =
+                when {
+                    configuration.layout != null -> LauncherConfigurationStatus.Current
+                    configuration.status == LauncherConfigurationStatus.Unavailable && layout != null -> LauncherConfigurationStatus.Cached
+                    else -> configuration.status
+                }
+            _state.value =
+                _state.value.copy(
+                    rows =
+                        rows(LauncherRowStatus.Cached).map { row ->
+                            val previous = previousRows.firstOrNull { it.id == row.id && it.layout.queryKey == row.layout.queryKey }
+                            if (!changedPolicy && previous != null) row.copy(status = previous.status) else row
+                        },
+                    configurationStatus = status,
+                )
+            LauncherRefreshLayout(effective.map { LauncherRowWork(it, it.queryKey, request) }, invalidateArtwork)
         }
+
+    suspend fun failRefresh(
+        target: LauncherBoundary,
+        lease: AccountWorkLease,
+        request: Long,
+        configuration: LauncherConfigurationResult,
+    ) = guarded(lease) {
+        if (boundary == target && generation == request && refreshGeneration == request) {
+            val status =
+                when (configuration.status) {
+                    LauncherConfigurationStatus.Invalid, LauncherConfigurationStatus.Unsupported -> configuration.status
+                    else -> if (snapshot?.layout == null) LauncherConfigurationStatus.Unavailable else LauncherConfigurationStatus.Cached
+                }
+            _state.value =
+                _state.value.copy(
+                    rows = _state.value.rows.map { it.copy(status = LauncherRowStatus.Failed) },
+                    configurationStatus = status,
+                )
+        }
+    }
 
     suspend fun commit(
         target: LauncherBoundary,
@@ -130,13 +183,7 @@ internal class LauncherSnapshotStore(
         cards: List<LauncherCard>?,
         status: LauncherRowStatus,
     ) = guarded(lease) {
-        if (boundary != target ||
-            generation != work.generation ||
-            refreshGeneration != work.generation ||
-            work.queryKey != work.id.queryKey
-        ) {
-            return@guarded
-        }
+        if (!current(target, work)) return@guarded
         val current = snapshot ?: return@guarded
         if (cards != null) {
             val updated =
@@ -294,19 +341,25 @@ internal class LauncherSnapshotStore(
             registry.withGuardedLease(lease) { mutex.withLock { block() } }
         }
 
+    private fun current(
+        target: LauncherBoundary,
+        work: LauncherRowWork,
+    ): Boolean =
+        boundary == target &&
+            generation == work.generation &&
+            refreshGeneration == work.generation &&
+            effectiveRows().any { it.id == work.id && it.queryKey == work.queryKey }
+
+    private fun effectiveRows(): List<LauncherLayoutRow> = (snapshot?.layout ?: defaultLauncherLayout()).rows.filter { it.visible }
+
     private fun rows(status: LauncherRowStatus): List<LauncherRow> =
-        LauncherRowId.entries.map { id ->
-            val saved = snapshot?.rows?.firstOrNull { it.id == id && it.queryKey == id.queryKey }
+        effectiveRows().map { layout ->
+            val saved = snapshot?.rows?.firstOrNull { it.id == layout.id && it.queryKey == layout.queryKey }
             LauncherRow(
-                id,
-                saved?.cards.orEmpty(),
-                if (saved == null &&
-                    status == LauncherRowStatus.Cached
-                ) {
-                    LauncherRowStatus.Loading
-                } else {
-                    status
-                },
+                layout = layout,
+                localTitleResource = if (snapshot?.layout == null) defaultLauncherTitle(layout.id) else null,
+                cards = saved?.cards.orEmpty(),
+                status = if (saved == null && status == LauncherRowStatus.Cached) LauncherRowStatus.Loading else status,
             )
         }
 
@@ -326,17 +379,12 @@ internal class LauncherSnapshotStore(
                     used
                 }
             require(count <= MAX_SNAPSHOT_BYTES)
-            json.decodeFromString<LauncherSnapshot>(bytes.decodeToString(0, count, throwOnInvalidSequence = true)).also { value ->
-                require(value.version == 1 && value.rows.size <= 4 && value.rows.distinctBy { it.id }.size == value.rows.size)
-                require(
-                    value.rows.all { row ->
-                        row.queryKey == row.id.queryKey &&
-                            row.cards.size <= MAX_ROW_ITEMS &&
-                            row.cards.distinctBy { it.id }.size == row.cards.size &&
-                            row.cards.all(::validCard)
-                    },
-                )
+            val value = json.decodeFromString<LauncherSnapshot>(bytes.decodeToString(0, count, throwOnInvalidSequence = true))
+            require(value.version == 1 || value.version == 2)
+            if (value.version == 1) {
+                require(value.layout == null && value.rows.size <= 4)
             }
+            validatedSnapshot(value.copy(version = 2))
         } catch (exception: Exception) {
             launcherFailure("snapshot-read", exception)
             null
@@ -348,7 +396,7 @@ internal class LauncherSnapshotStore(
         value: LauncherSnapshot,
     ) {
         check(directory.isDirectory || directory.mkdirs())
-        val bytes = json.encodeToString(value).toByteArray(Charsets.UTF_8)
+        val bytes = json.encodeToString(validatedSnapshot(value)).toByteArray(Charsets.UTF_8)
         require(bytes.size <= MAX_SNAPSHOT_BYTES)
         val file = atomicFile(account)
         val stream = file.startWrite()
@@ -477,6 +525,25 @@ internal class LauncherSnapshotStore(
 
     private fun fileStem(account: AccountIdentity) = "${launcherHash(account.serverId)}-${launcherAccountKey(account)}"
 
+    private fun validatedSnapshot(value: LauncherSnapshot): LauncherSnapshot {
+        require(value.version == 2 && value.source.matches(Regex("[a-f0-9]{64}")))
+        require(value.policyFingerprint == null || value.policyFingerprint.matches(Regex("[a-f0-9]{64}")))
+        value.layout?.validated()
+        val effective = (value.layout ?: defaultLauncherLayout()).rows.filter { it.visible }
+        require(value.rows.size <= MAX_LAYOUT_ROWS && value.rows.distinctBy { it.id }.size == value.rows.size)
+        require(
+            value.rows.all { saved ->
+                val row = effective.firstOrNull { it.id == saved.id && it.queryKey == saved.queryKey }
+                row != null &&
+                    saved.updatedAtMs >= 0 &&
+                    saved.cards.size <= row.limit &&
+                    saved.cards.distinctBy { it.id }.size == saved.cards.size &&
+                    saved.cards.all(::validCard)
+            },
+        )
+        return value
+    }
+
     private companion object {
         const val MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
         val pendingContent = byteArrayOf(1)
@@ -486,6 +553,8 @@ internal class LauncherSnapshotStore(
                 card.id.length <= 256 &&
                 card.title.length <= 300 &&
                 (card.imageTag?.length ?: 0) <= 256 &&
+                (card.primaryTag?.length ?: 0) <= 256 &&
+                (card.backdropTag?.length ?: 0) <= 256 &&
                 (card.progress == null || card.progress.isFinite() && card.progress in 0f..1f)
     }
 }

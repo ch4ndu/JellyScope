@@ -80,6 +80,16 @@ The pinned upstream GPL/LGPL declarations and source routes are accepted under
 this policy. The scoped gate checks the inventory, and the Android bundle verifier
 checks the final APKs for the recorded native libraries and release metadata.
 
+### Launcher server plugin
+
+Owned `jellyfin-launcher-plugin` source remains MPL-2.0. Its independently built
+artifact depends on `Jellyfin.Controller` 12.3.0 and is treated as a GPL Larger
+Work under this distribution policy, with owned files additionally available
+under the applicable GPL terms through MPL-2.0 Section 3.3. This does not add
+server dependencies to the Android launcher or change third-party licensing.
+Local builds do not establish release compliance, installation compatibility,
+or completion of distribution notices/source obligations.
+
 ### iOS And tvOS
 
 The iOS and tvOS builds use the same pinned VLCKit 4 pre-release

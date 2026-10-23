@@ -23,6 +23,7 @@ internal class LauncherFocus {
     var current by mutableStateOf<String?>(null)
         private set
     var homeRow by mutableStateOf("apps")
+    var homeRowIndex by mutableStateOf(0)
     private val rows = mutableMapOf<String, Pair<String, Int>>()
 
     fun request(key: String) {
@@ -34,8 +35,10 @@ internal class LauncherFocus {
         row: String,
         id: String,
         index: Int,
+        verticalIndex: Int? = null,
     ) {
         homeRow = row
+        if (verticalIndex != null) homeRowIndex = verticalIndex
         rows[row] = id to index
     }
 
@@ -46,6 +49,10 @@ internal class LauncherFocus {
         if (ids.isEmpty()) return null
         val previous = rows[row]
         return previous?.first?.takeIf { it in ids } ?: ids[(previous?.second ?: 0).coerceIn(ids.indices)]
+    }
+
+    fun retainRows(validRows: Set<String>) {
+        rows.keys.retainAll(validRows)
     }
 
     fun attach(
@@ -96,6 +103,7 @@ internal class LauncherFocus {
                     buildList {
                         add(focus.current.orEmpty())
                         add(focus.homeRow)
+                        add("v2:${focus.homeRowIndex}")
                         focus.rows.forEach { (row, position) ->
                             add(row)
                             add(position.first)
@@ -107,7 +115,9 @@ internal class LauncherFocus {
                     LauncherFocus().apply {
                         current = saved.getOrNull(0)?.takeIf(String::isNotEmpty)
                         homeRow = saved.getOrNull(1) ?: "apps"
-                        saved.drop(2).chunked(3).filter { it.size == 3 }.forEach { entry ->
+                        val versioned = saved.getOrNull(2)?.startsWith("v2:") == true
+                        homeRowIndex = if (versioned) saved[2].substringAfter(':').toIntOrNull()?.coerceAtLeast(0) ?: 0 else 0
+                        saved.drop(if (versioned) 3 else 2).chunked(3).filter { it.size == 3 }.forEach { entry ->
                             rows[entry[0]] = entry[1] to (entry[2].toIntOrNull() ?: 0)
                         }
                     }

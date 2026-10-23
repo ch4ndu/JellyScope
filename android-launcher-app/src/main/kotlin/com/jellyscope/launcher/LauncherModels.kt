@@ -5,32 +5,11 @@ package com.jellyscope.launcher
 import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import com.jellyscope.core.domain.model.AccountIdentity
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.security.MessageDigest
 
 internal const val MAX_ROW_ITEMS = 20
 internal const val MAX_APP_PINS = 24
-
-@Serializable
-internal enum class LauncherRowId(
-    val stableId: String,
-) {
-    @SerialName("continue-watching")
-    ContinueWatching("continue-watching"),
-
-    @SerialName("next-up")
-    NextUp("next-up"),
-
-    @SerialName("recently-added")
-    RecentlyAdded("recently-added"),
-
-    @SerialName("favorites")
-    Favorites("favorites"),
-    ;
-
-    val queryKey: String get() = "$stableId:v1:20"
-}
 
 @Serializable
 internal data class LauncherCard(
@@ -39,11 +18,13 @@ internal data class LauncherCard(
     val imageTag: String? = null,
     val backdrop: Boolean = false,
     val progress: Float? = null,
+    val primaryTag: String? = null,
+    val backdropTag: String? = null,
 )
 
 @Serializable
 internal data class LauncherRowSnapshot(
-    val id: LauncherRowId,
+    val id: String,
     val queryKey: String,
     val cards: List<LauncherCard>,
     val updatedAtMs: Long,
@@ -55,15 +36,20 @@ internal data class LauncherSnapshot(
     val source: String,
     val policyFingerprint: String? = null,
     val rows: List<LauncherRowSnapshot> = emptyList(),
+    val layout: LauncherLayout? = null,
 )
 
 internal enum class LauncherRowStatus { Loading, Fresh, Cached, Failed, Denied }
 
 internal data class LauncherRow(
-    val id: LauncherRowId,
+    val layout: LauncherLayoutRow,
+    val localTitleResource: Int? = null,
     val cards: List<LauncherCard> = emptyList(),
     val status: LauncherRowStatus = LauncherRowStatus.Loading,
-)
+) {
+    val id: String get() = layout.id
+    val focusKey: String get() = "row:$id"
+}
 
 internal data class LauncherBoundary(
     val account: AccountIdentity,
@@ -73,16 +59,26 @@ internal data class LauncherBoundary(
 }
 
 internal data class LauncherRowWork(
-    val id: LauncherRowId,
+    val layout: LauncherLayoutRow,
     val queryKey: String,
     val generation: Long,
+) {
+    val id: String get() = layout.id
+}
+
+internal data class LauncherRefreshLayout(
+    val work: List<LauncherRowWork>,
+    val invalidateArtwork: Boolean,
 )
+
+internal enum class LauncherConfigurationStatus { Current, Cached, Defaults, Unavailable, Invalid, Unsupported }
 
 internal data class LauncherMediaState(
     val boundaryKey: String? = null,
     val rows: List<LauncherRow> = emptyList(),
     val refreshing: Boolean = false,
     val lastRefreshMs: Long? = null,
+    val configurationStatus: LauncherConfigurationStatus = LauncherConfigurationStatus.Defaults,
 )
 
 internal data class LauncherApp(

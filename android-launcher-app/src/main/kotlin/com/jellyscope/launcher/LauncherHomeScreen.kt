@@ -67,17 +67,15 @@ internal fun LauncherHomeScreen(
 ) {
     val appKeys = state.apps.pins.map { "apps:${it.componentKey}" } + "apps:+"
     val mediaRows = state.media.rows.filter { it.cards.isNotEmpty() }
-    val rowKeys = listOf("apps") + mediaRows.map { it.id.name }
-    val ids = mapOf("apps" to appKeys) + mediaRows.associate { row -> row.id.name to row.cards.map { "${row.id.name}:${it.id}" } }
+    val rowKeys = listOf("apps") + mediaRows.map { it.focusKey }
+    val ids = mapOf("apps" to appKeys) + mediaRows.associate { row -> row.focusKey to row.cards.map { "${row.focusKey}:${it.id}" } }
     val allKeys = ids.values.flatten() + listOf("catalog", "settings", "system")
 
     fun fallback(): String =
         focus.rowTarget(focus.homeRow, ids[focus.homeRow].orEmpty())
-            ?: LauncherRowId.entries
-                .dropWhile {
-                    it.name != focus.homeRow
-                }.drop(1)
-                .firstNotNullOfOrNull { focus.rowTarget(it.name, ids[it.name].orEmpty()) }
+            ?: mediaRows.getOrNull(focus.homeRowIndex.coerceIn(0, (mediaRows.size - 1).coerceAtLeast(0)))?.let {
+                focus.rowTarget(it.focusKey, ids[it.focusKey].orEmpty())
+            }
             ?: focus.rowTarget("apps", appKeys) ?: "apps:+"
     val removedFocusTarget = if (focus.current != null && focus.current !in allKeys) fallback() else null
     LaunchedEffect(state.focusGeneration) {
@@ -90,6 +88,15 @@ internal fun LauncherHomeScreen(
     // Content removal also rescues focus using the previous semantic index.
     LaunchedEffect(allKeys) {
         removedFocusTarget?.let(focus::request)
+    }
+    LaunchedEffect(rowKeys) {
+        val index = mediaRows.indexOfFirst { it.focusKey == focus.homeRow }
+        if (index >= 0) focus.homeRowIndex = index
+        focus.retainRows(
+            state.media.rows
+                .map { it.focusKey }
+                .toSet() + "apps",
+        )
     }
 
     fun direction(
@@ -149,9 +156,12 @@ internal fun LauncherHomeScreen(
             )
         }
         state.media.rows.forEach { row ->
-            key(row.id) {
+            key(row.focusKey) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(stringResource(row.id.titleResource()), style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        row.localTitleResource?.let { stringResource(it) } ?: row.layout.title,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
                     Text(stringResource(row.status.statusResource()), style = MaterialTheme.typography.bodyMedium)
                 }
                 if (row.cards.isEmpty()) {
@@ -173,13 +183,14 @@ internal fun LauncherHomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     row.cards.forEachIndexed { index, card ->
-                        key(card.id) {
-                            val target = "${row.id.name}:${card.id}"
+                        val target = "${row.focusKey}:${card.id}"
+                        key(target) {
                             LauncherTile(card.title, focus, target, {
-                                focus.rememberRow(row.id.name, target, index)
-                            }, { direction(row.id.name, index, it) }, { onMedia(target) }) {
+                                focus.rememberRow(row.focusKey, target, index, mediaRows.indexOfFirst { it.id == row.id })
+                            }, { direction(row.focusKey, index, it) }, { onMedia(target) }, row.layout.aspect) {
                                 val context = LocalContext.current
-                                val request = remember(images, card) { images?.request(context, card) }
+                                val request =
+                                    remember(images, card, row.layout.aspect) { images?.request(context, card, row.layout.aspect) }
                                 if (request != null &&
                                     images != null
                                 ) {
@@ -212,6 +223,7 @@ private fun LauncherTile(
     onFocused: () -> Unit,
     direction: (Key) -> Boolean,
     onClick: () -> Unit,
+    aspect: LauncherAspect = LauncherAspect.Landscape,
     image: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -220,7 +232,7 @@ private fun LauncherTile(
     val scope = rememberCoroutineScope()
     Column(
         Modifier
-            .width(176.dp)
+            .width(aspect.width.dp)
             .launcherFocus(focus, target) {
                 onFocused()
                 scope.launch { reveal.bringIntoView() }
@@ -231,7 +243,7 @@ private fun LauncherTile(
     ) {
         Box(
             Modifier
-                .size(176.dp, 99.dp)
+                .size(aspect.width.dp, aspect.height.dp)
                 .graphicsLayer {
                     scaleX = scale
                     scaleY = scale
@@ -249,14 +261,6 @@ private fun LauncherTile(
         )
     }
 }
-
-internal fun LauncherRowId.titleResource(): Int =
-    when (this) {
-        LauncherRowId.ContinueWatching -> R.string.continue_watching
-        LauncherRowId.NextUp -> R.string.next_up
-        LauncherRowId.RecentlyAdded -> R.string.recently_added
-        LauncherRowId.Favorites -> R.string.favorites
-    }
 
 internal fun LauncherRowStatus.statusResource(): Int =
     when (this) {

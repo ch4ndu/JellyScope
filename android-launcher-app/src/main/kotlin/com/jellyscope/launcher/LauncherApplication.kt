@@ -57,14 +57,16 @@ class LauncherApplication : Application() {
                     }
                 }
             }
+        val authorization = SessionAuthHeaderProvider(store, device, clientInfo)
         val api =
             KtorJellyfinApi(
                 client,
-                SessionAuthHeaderProvider(store, device, clientInfo),
+                authorization,
                 preserveForbiddenStatus = true,
             )
         val auth = DefaultAuthRepository(api, store, sessions, coordinator, device)
-        val media = LauncherMediaRepository(api, sessions, registry, snapshots, images, scope)
+        val configurations = LauncherConfigurationRepository(client, authorization, json)
+        val media = LauncherMediaRepository(api, sessions, registry, snapshots, images, configurations, scope)
         val apps = LauncherAppsRepository(this, json)
         val authMutation = Mutex()
         startKoin {

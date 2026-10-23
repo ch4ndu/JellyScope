@@ -40,6 +40,7 @@ internal class LauncherMediaRepository(
     private val registry: ServerScopedStoreRegistry,
     private val snapshots: LauncherSnapshotStore,
     private val images: LauncherImages,
+    private val configurations: LauncherConfigurationRepository,
     private val scope: CoroutineScope,
 ) {
     val state = snapshots.state
@@ -111,7 +112,7 @@ internal class LauncherMediaRepository(
         request: Long,
     ): Boolean {
         val context = session.requestContext()
-        val work = LauncherRowId.entries.map { LauncherRowWork(it, it.queryKey, request) }
+        val configuration = configurations.fetch(session)
         val policy =
             try {
                 val user = api.getCurrentUser(context)
@@ -120,10 +121,10 @@ internal class LauncherMediaRepository(
                     api
                         .getUserViews(context)
                         .items
-                        .mapNotNull { it.id }
+                        .mapNotNull { it.id?.let(::canonicalLauncherLibraryId) }
                         .distinct()
                         .sorted()
-                launcherHash("${user.policy?.maxParentalRating}:${views.joinToString { "${it.length}:$it" }}")
+                launcherHash("${user.policy?.maxParentalRating}:${views.joinToString { "${it.length}:$it" }}") to views.toSet()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -132,52 +133,61 @@ internal class LauncherMediaRepository(
                     invalidateArtwork(boundary, lease)
                     confirmInvalid(session, boundary, lease, request)
                 } else {
-                    work.forEach { snapshots.commit(boundary, lease, it, null, LauncherRowStatus.Failed) }
+                    snapshots.failRefresh(boundary, lease, request, configuration)
                 }
                 launcherFailure("policy-refresh", failure)
                 return false
             }
-        val changed =
+        val layout =
             try {
-                snapshots.applyPolicy(boundary, lease, request, policy) ?: return false
+                snapshots.adoptLayout(boundary, lease, request, policy.first, policy.second, configuration) ?: return false
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
                 invalidateArtwork(boundary, lease)
                 throw failure
             }
-        prepareImages(session, boundary, lease, reset = changed)
+        prepareImages(session, boundary, lease, reset = layout.invalidateArtwork)
         val permits = Semaphore(2)
         return supervisorScope {
-            work
+            layout.work
                 .map { row ->
                     async {
                         permits.withPermit {
                             if (!snapshots.isCurrent(boundary, lease, row)) return@withPermit false
                             try {
                                 val items =
-                                    when (row.id) {
-                                        LauncherRowId.ContinueWatching -> api.getResumeItems(context, limit = MAX_ROW_ITEMS).items
-                                        LauncherRowId.NextUp ->
+                                    when (row.layout.query) {
+                                        LauncherQuery.Resume ->
+                                            api.getResumeItems(context, limit = row.layout.limit, parentId = row.layout.libraryId).items
+                                        LauncherQuery.NextUp ->
                                             api
                                                 .getNextUp(
                                                     context,
-                                                    limit = MAX_ROW_ITEMS,
+                                                    limit = row.layout.limit,
+                                                    parentId = row.layout.libraryId,
                                                     includeResumable = false,
                                                 ).items
-                                        LauncherRowId.RecentlyAdded -> api.getLatestItems(context, limit = MAX_ROW_ITEMS)
-                                        LauncherRowId.Favorites ->
+                                        LauncherQuery.Latest ->
+                                            api.getLatestItems(context, limit = row.layout.limit, parentId = row.layout.libraryId)
+                                        LauncherQuery.Favorites, LauncherQuery.Library ->
                                             api
                                                 .getItems(
                                                     context,
                                                     ItemsQuery(
                                                         recursive = true,
                                                         includeItemTypes = listOf("Movie", "Episode"),
-                                                        limit = MAX_ROW_ITEMS,
+                                                        limit = row.layout.limit,
+                                                        parentId = row.layout.libraryId,
                                                         sortBy = "DateCreated",
                                                         sortOrder = "Descending",
                                                         enableTotalRecordCount = false,
-                                                        filters = listOf(ItemFilter.IsFavorite),
+                                                        filters =
+                                                            if (row.layout.query == LauncherQuery.Favorites) {
+                                                                listOf(ItemFilter.IsFavorite)
+                                                            } else {
+                                                                emptyList()
+                                                            },
                                                     ),
                                                 ).items
                                     }
@@ -186,7 +196,7 @@ internal class LauncherMediaRepository(
                                         .asSequence()
                                         .mapNotNull(::card)
                                         .distinctBy { it.id }
-                                        .take(MAX_ROW_ITEMS)
+                                        .take(row.layout.limit)
                                         .toList()
                                 snapshots.commit(boundary, lease, row, cards, LauncherRowStatus.Fresh)
                                 true
@@ -272,7 +282,6 @@ internal class LauncherMediaRepository(
         if (item.id.length > 256) return null
         val backdrop = item.imageRefs.backdropTag?.takeIf { it.isNotBlank() && it.length <= 256 }
         val primary = item.imageRefs.primaryTag?.takeIf { it.isNotBlank() && it.length <= 256 }
-        val tag = backdrop ?: primary
         val progress =
             dto.runTimeTicks?.takeIf { it > 0L }?.let { duration ->
                 dto.userData?.playbackPositionTicks?.let {
@@ -283,7 +292,13 @@ internal class LauncherMediaRepository(
                         ?.toFloat()
                 }
             }
-        return LauncherCard(item.id, item.name.take(300), tag, backdrop != null, progress)
+        return LauncherCard(
+            id = item.id,
+            title = item.name.take(300),
+            progress = progress,
+            primaryTag = primary,
+            backdropTag = backdrop,
+        )
     }
 
     private fun Session.requestContext() = AuthenticatedRequestContext(serverUrl, userId, accessToken)

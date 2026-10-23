@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JellyScope Launcher</title>
+</head>
+<body>
+    <div id="JellyScopeLauncherPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button">
+        <div data-role="content">
+            <div class="content-primary">
+                <h1>JellyScope Launcher</h1>
+                <p>Choose the shared media rows for signed-in launchers. Each user sees only available libraries. Apps, pins and settings stay on the device.</p>
+                <p id="LauncherStatus" role="status" aria-live="polite"></p>
+                <p id="LauncherRecovery" role="alert"></p>
+                <form id="LauncherForm">
+                    <fieldset id="LauncherFields" disabled>
+                        <legend>Media layout</legend>
+                        <label for="LauncherPlayback">Playback app</label>
+                        <select id="LauncherPlayback"><option value="jellyscope">JellyScope</option></select>
+                        <p>An empty layout shows Apps and settings only.</p>
+                        <div id="LauncherRows"></div>
+                        <button id="LauncherAdd" type="button" class="raised emby-button">Add row</button>
+                        <button id="LauncherLibraries" type="button" class="raised emby-button">Refresh libraries</button>
+                        <button type="submit" class="raised button-submit emby-button">Save</button>
+                    </fieldset>
+                </form>
+                <button id="LauncherReload" type="button" class="raised emby-button">Reload saved layout</button>
+            </div>
+        </div>
+        <script>
+            (function () {
+                'use strict';
+                var pluginId = '29172c40-7d54-4d15-9673-a772a14d5f3c';
+                var page = document.querySelector('#JellyScopeLauncherPage');
+                var form = page.querySelector('#LauncherForm');
+                var fields = page.querySelector('#LauncherFields');
+                var rowsElement = page.querySelector('#LauncherRows');
+                var status = page.querySelector('#LauncherStatus');
+                var recovery = page.querySelector('#LauncherRecovery');
+                var add = page.querySelector('#LauncherAdd');
+                var reload = page.querySelector('#LauncherReload');
+                var draft = null;
+                var libraries = [];
+                var busy = false;
+                var invalidStored = false;
+
+                function message(text) {
+                    status.textContent = text;
+                }
+
+                function setBusy(value) {
+                    busy = value;
+                    fields.disabled = value || draft === null;
+                    reload.disabled = value;
+                    add.disabled = value || draft === null || draft.rows.length >= 12;
+                }
+
+                // The generic host API is PascalCase; /Launcher uses camelCase.
+                function fromHost(config) {
+                    return {
+                        schemaVersion: config.SchemaVersion,
+                        revision: config.Revision,
+                        playbackPreference: config.PlaybackPreference,
+                        rows: Array.isArray(config.Rows) ? config.Rows.map(function (row) {
+                            return { id: row.Id, title: row.Title, visible: row.Visible, aspect: row.Aspect,
+                                query: row.Query, libraryId: row.LibraryId, limit: row.Limit };
+                        }) : null
+                    };
+                }
+
+                function toHost(config) {
+                    return {
+                        SchemaVersion: config.schemaVersion,
+                        Revision: config.revision,
+                        PlaybackPreference: config.playbackPreference,
+                        Rows: config.rows.map(function (row) {
+                            return { Id: row.id, Title: row.title, Visible: row.visible, Aspect: row.aspect,
+                                Query: row.query, LibraryId: row.libraryId, Limit: row.limit };
+                        })
+                    };
+                }
+
+                function validate(config) {
+                    if (config.schemaVersion !== 1 || config.playbackPreference !== 'jellyscope' ||
+                        typeof config.revision !== 'string' || config.revision.length !== 64 || !/^[a-fA-F0-9]{64}$/.test(config.revision) ||
+                        !Array.isArray(config.rows) || config.rows.length > 12) {
+                        throw new Error('The layout is unsupported or invalid. Reload the saved layout.');
+                    }
+                    var ids = new Set();
+                    config.rows.forEach(function (row, index) {
+                        if (typeof row.id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(row.id) || row.id.trim() !== row.id || ids.has(row.id) ||
+                            typeof row.title !== 'string' || row.title.length < 1 || row.title.length > 80 ||
+                            /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(row.title) || typeof row.visible !== 'boolean' ||
+                            ['landscape', 'poster', 'square'].indexOf(row.aspect) < 0 ||
+                            ['resume', 'nextUp', 'latest', 'favorites', 'library'].indexOf(row.query) < 0 ||
+                            !Number.isInteger(row.limit) || row.limit < 1 || row.limit > 20 ||
+                            !(row.libraryId === null || typeof row.libraryId === 'string' && row.libraryId.length === 32 && /^[a-f0-9]{32}$/.test(row.libraryId)) ||
+                            row.query === 'library' && row.libraryId === null) {
+                            throw new Error('Row ' + (index + 1) + ': enter a title, a supported query and aspect, a library when required, and a limit from 1 to 20.');
+                        }
+                        ids.add(row.id);
+                    });
+                }
+
+                function option(select, value, title) {
+                    var node = document.createElement('option');
+                    node.value = value;
+                    node.textContent = title;
+                    select.appendChild(node);
+                }
+
+                function control(parent, title, input) {
+                    var label = document.createElement('label');
+                    var text = document.createElement('span');
+                    text.textContent = title + ' ';
+                    label.appendChild(text);
+                    label.appendChild(input);
+                    var container = document.createElement('p');
+                    container.appendChild(label);
+                    parent.appendChild(container);
+                    return input;
+                }
+
+                function select(parent, title, values, selected, changed) {
+                    var input = document.createElement('select');
+                    values.forEach(function (value) { option(input, value[0], value[1]); });
+                    input.value = selected;
+                    input.addEventListener('change', function () { changed(input.value); });
+                    return control(parent, title, input);
+                }
+
+                function action(parent, title, disabled, clicked) {
+                    var button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'raised emby-button';
+                    button.textContent = title;
+                    button.disabled = disabled;
+                    button.addEventListener('click', clicked);
+                    parent.appendChild(button);
+                }
+
+                function render() {
+                    rowsElement.replaceChildren();
+                    draft.rows.forEach(function (row, index) {
+                        var container = document.createElement('fieldset');
+                        var legend = document.createElement('legend');
+                        legend.textContent = 'Row ' + (index + 1);
+                        container.appendChild(legend);
+                        var title = document.createElement('input');
+                        title.type = 'text';
+                        title.maxLength = 80;
+                        title.required = true;
+                        title.value = row.title;
+                        title.addEventListener('input', function () { row.title = title.value; });
+                        control(container, 'Title', title);
+                        var visible = document.createElement('input');
+                        visible.type = 'checkbox';
+                        visible.checked = row.visible;
+                        visible.addEventListener('change', function () { row.visible = visible.checked; });
+                        control(container, 'Visible', visible);
+                        select(container, 'Query', [['resume', 'Continue Watching'], ['nextUp', 'Next Up'],
+                            ['latest', 'Recently Added'], ['favorites', 'Favorites'], ['library', 'Library']], row.query,
+                            function (value) { row.query = value; });
+                        var choices = [['', 'All available libraries']].concat(libraries.map(function (library) {
+                            return [library.id, library.name];
+                        }));
+                        if (row.libraryId !== null && !libraries.some(function (library) { return library.id === row.libraryId; })) {
+                            choices.push([row.libraryId, 'Unavailable library (' + row.libraryId + ')']);
+                        }
+                        select(container, 'Library', choices, row.libraryId || '', function (value) { row.libraryId = value || null; });
+                        select(container, 'Aspect', [['landscape', 'Landscape'], ['poster', 'Poster'], ['square', 'Square']],
+                            row.aspect, function (value) { row.aspect = value; });
+                        var limit = document.createElement('input');
+                        limit.type = 'number';
+                        limit.min = '1';
+                        limit.max = '20';
+                        limit.step = '1';
+                        limit.required = true;
+                        limit.value = String(row.limit);
+                        limit.addEventListener('input', function () { row.limit = Number(limit.value); });
+                        control(container, 'Limit', limit);
+                        action(container, 'Up', index === 0, function () {
+                            draft.rows.splice(index - 1, 0, draft.rows.splice(index, 1)[0]);
+                            render();
+                        });
+                        action(container, 'Down', index === draft.rows.length - 1, function () {
+                            draft.rows.splice(index + 1, 0, draft.rows.splice(index, 1)[0]);
+                            render();
+                        });
+                        action(container, 'Remove', false, function () { draft.rows.splice(index, 1); render(); });
+                        rowsElement.appendChild(container);
+                    });
+                    setBusy(busy);
+                }
+
+                function readLibraries() {
+                    // Omitting includeAuthorization preserves the host's full authentication header.
+                    return ApiClient.getJSON(ApiClient.getUrl('Launcher/Libraries'));
+                }
+
+                async function load() {
+                    if (busy) return;
+                    setBusy(true);
+                    message('Loading layout and libraries…');
+                    try {
+                        var results = await Promise.all([ApiClient.getPluginConfiguration(pluginId), readLibraries()]);
+                        var snapshot = results[1];
+                        invalidStored = snapshot.configurationStatus === 'invalid';
+                        var candidate = invalidStored ? snapshot.configuration : fromHost(results[0]);
+                        validate(candidate);
+                        draft = candidate;
+                        libraries = snapshot.libraries;
+                        recovery.textContent = invalidStored ? 'The stored configuration is invalid. This is a default recovery draft. Save explicitly to replace it.' : '';
+                        render();
+                        message('Layout loaded. Changes apply after Save and launcher refresh.');
+                    } catch (_) {
+                        draft = null;
+                        recovery.textContent = '';
+                        rowsElement.replaceChildren();
+                        message('The layout could not be loaded. Check your administrator session and reload.');
+                    } finally {
+                        setBusy(false);
+                    }
+                }
+
+                add.addEventListener('click', function () {
+                    if (busy || draft === null || draft.rows.length >= 12) return;
+                    try {
+                        var bytes = new Uint8Array(16);
+                        window.crypto.getRandomValues(bytes);
+                        var id = 'row-' + Array.from(bytes, function (value) { return value.toString(16).padStart(2, '0'); }).join('');
+                        draft.rows.push({ id: id, title: 'New row', visible: true, aspect: 'landscape',
+                            query: 'latest', libraryId: null, limit: 20 });
+                        render();
+                    } catch (_) {
+                        message('A row could not be added. Reload and try again.');
+                    }
+                });
+                page.querySelector('#LauncherLibraries').addEventListener('click', async function () {
+                    if (busy || draft === null) return;
+                    setBusy(true);
+                    message('Loading libraries…');
+                    try {
+                        libraries = (await readLibraries()).libraries;
+                        render();
+                        message('Libraries updated. Unavailable configured libraries are kept until you change or remove them.');
+                    } catch (_) {
+                        message('Libraries could not be refreshed. Your draft is kept.');
+                    } finally {
+                        setBusy(false);
+                    }
+                });
+                form.addEventListener('submit', async function (event) {
+                    event.preventDefault();
+                    if (busy || draft === null) return;
+                    try {
+                        validate(draft);
+                    } catch (error) {
+                        message(error.message);
+                        return;
+                    }
+                    setBusy(true);
+                    message('Saving layout…');
+                    try {
+                        await ApiClient.updatePluginConfiguration(pluginId, toHost(draft));
+                        invalidStored = false;
+                        recovery.textContent = '';
+                        message('Layout saved. Refresh signed-in launchers to apply it.');
+                    } catch (_) {
+                        message('The layout was not saved. Check the fields, administrator session and server, then try again. Your draft is kept.');
+                    } finally {
+                        setBusy(false);
+                    }
+                });
+                reload.addEventListener('click', load);
+                page.addEventListener('pageshow', load);
+            }());
+        </script>
+    </div>
+</body>
+</html>

@@ -63,6 +63,7 @@ internal fun LauncherSettingsScreen(
         Text(stringResource(R.string.launcher_settings), style = MaterialTheme.typography.headlineMedium)
         Text(if (state.signedIn) state.accountLabel else stringResource(if (state.restoring) R.string.restoring else R.string.signed_out))
         if (state.serverUrl.isNotEmpty()) Text(state.serverUrl)
+        Text(stringResource(state.media.configurationStatus.resource()))
         if (state.cleanupPending) {
             Text(stringResource(R.string.cleanup_failed_message), color = MaterialTheme.colorScheme.error)
         }
@@ -121,3 +122,13 @@ internal fun LauncherSettingsScreen(
         Text(stringResource(R.string.home_pending))
     }
 }
+
+private fun LauncherConfigurationStatus.resource(): Int =
+    when (this) {
+        LauncherConfigurationStatus.Current -> R.string.layout_current
+        LauncherConfigurationStatus.Cached -> R.string.layout_cached
+        LauncherConfigurationStatus.Defaults -> R.string.layout_defaults
+        LauncherConfigurationStatus.Unavailable -> R.string.layout_unavailable
+        LauncherConfigurationStatus.Invalid -> R.string.layout_invalid
+        LauncherConfigurationStatus.Unsupported -> R.string.layout_unsupported
+    }

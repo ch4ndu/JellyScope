@@ -192,16 +192,21 @@ internal class LauncherImageScope(
     fun request(
         context: Context,
         card: LauncherCard,
+        aspect: LauncherAspect,
     ): ImageRequest? {
-        if (retired || card.imageTag == null) return null
+        if (retired) return null
+        val primary = card.primaryTag ?: card.imageTag?.takeUnless { card.backdrop }
+        val backdrop = card.backdropTag ?: card.imageTag?.takeIf { card.backdrop }
+        val useBackdrop = aspect == LauncherAspect.Landscape && !backdrop.isNullOrBlank()
+        val tag = (if (useBackdrop) backdrop else primary)?.takeIf { it.isNotBlank() } ?: return null
         if (!card.id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }) return null
         val url =
             JellyfinImageUrlBuilder().build(
                 serverUrl = session.serverUrl,
                 itemId = encodeComponent(card.id),
-                type = if (card.backdrop) JellyfinImageType.Backdrop else JellyfinImageType.Primary,
-                tag = encodeComponent(card.imageTag),
-                maxWidth = 480,
+                type = if (useBackdrop) JellyfinImageType.Backdrop else JellyfinImageType.Primary,
+                tag = encodeComponent(tag),
+                maxWidth = aspect.width,
             )
         if (!CredentialOriginGuard(session.serverUrl).mayAttachCredentials(url)) return null
         if (session.accessToken.isBlank()) return null

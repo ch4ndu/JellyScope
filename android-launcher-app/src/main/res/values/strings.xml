@@ -42,6 +42,12 @@
     <string name="cache_status">%1$d media cards cached on this device</string>
     <string name="last_refresh">Last successful refresh: %1$s</string>
     <string name="no_refresh_yet">No successful refresh in this session</string>
+    <string name="layout_current">Layout: Current server configuration</string>
+    <string name="layout_cached">Layout: Cached server configuration</string>
+    <string name="layout_defaults">Layout: Default media rows</string>
+    <string name="layout_unavailable">Layout: Server configuration unavailable. Using default media rows.</string>
+    <string name="layout_invalid">Layout: Invalid server configuration. Keeping the saved layout or default media rows.</string>
+    <string name="layout_unsupported">Layout: Unsupported server configuration. Keeping the saved layout or default media rows.</string>
     <string name="continue_watching">Continue Watching</string>
     <string name="next_up">Next Up</string>
     <string name="recently_added">Recently Added</string>

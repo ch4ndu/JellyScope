@@ -265,7 +265,13 @@ an account work lease and current query generation. Lock order is registry gate
 then store mutex; network work never holds that gate. Cold restoration may load
 an existing snapshot; account transitions invalidate refetchable state.
 
-A synced pending-refresh marker is established before policy or row requests.
+Snapshot version 2 adds the validated last-good layout and up to 12 row snapshots.
+The bounded version-1 reader preserves default row IDs/query keys and legacy
+artwork tags; writes use version 2. Configuration shares the existing account
+cache participant and cleanup paths. Unknown/corrupt snapshots fall back to empty
+cache and local defaults; credentials and local app pins require no migration.
+
+A synced pending-refresh marker is established before configuration, policy or row requests.
 Startup refuses marked snapshots, including AtomicFile backups. The marker is
 removed only after a complete safe snapshot or empty tombstone is durably written
 and verified, or all snapshot artifacts are verifiably removed. Persistence

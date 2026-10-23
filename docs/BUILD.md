@@ -105,8 +105,10 @@ account checks, and active-player behavior are owned by
 
 The independent launcher is in development. It provides lightweight login, local
 app pinning and ordering, cached direct Jellyfin media rows, and System settings.
-Server-managed layouts, playback handoff and replacement Home behavior remain
-in development. It requires Android API 25 or newer and uses application ID
+Server-managed layouts use the independently built
+[configuration plugin](../jellyfin-launcher-plugin/README.md). Live plugin
+qualification, playback handoff and replacement Home behavior remain in development.
+It requires Android API 25 or newer and uses application ID
 `com.udnahc.jellyscope.launcher`, separate from the TV player.
 
 ```bash

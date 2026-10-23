@@ -268,6 +268,13 @@ trailing `+` opens the full launchable-app list with remote-focusable Open,
 Pin/Unpin and ordering actions. Unavailable packages produce a visible error and
 fall back to a surviving component or `+`.
 
+Server-configured visible media rows follow their declared order, title and
+landscape (176×99), poster (128×192), or square (160×160) shape. Media focus keys
+use `row:<id>` and `row:<id>:<itemId>` so remote IDs cannot alias local controls.
+Settings reports current, cached, default, unavailable, invalid or unsupported
+configuration. Removing or emptying the focused row uses its saved clamped
+vertical position among surviving media rows, then Apps.
+
 Each row remembers its stable item identity and semantic index. Vertical movement
 restores the destination row; missing items use the clamped index, next available
 row, then Apps. Horizontal movement reveals the focused card without changing
