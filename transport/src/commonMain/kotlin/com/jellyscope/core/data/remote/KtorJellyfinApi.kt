@@ -48,6 +48,7 @@ class KtorJellyfinApi(
     private val client: HttpClient,
     private val authHeaderProvider: AuthHeaderProvider,
     private val downloadClient: HttpClient = client,
+    private val preserveForbiddenStatus: Boolean = false,
 ) : JellyfinApi {
     override suspend fun getCurrentUser(context: AuthenticatedRequestContext): UserDto =
         authenticatedGet(context, "/Users/${context.userId}") {}
@@ -1422,6 +1423,8 @@ class KtorJellyfinApi(
                 response.status.value in 200..299 -> response.body()
                 response.status == HttpStatusCode.Unauthorized ->
                     throw JellyfinApiException.Unauthorized
+                preserveForbiddenStatus && response.status == HttpStatusCode.Forbidden ->
+                    throw JellyfinApiException.ServerError(response.status.value)
                 response.status.value >= 500 ->
                     throw JellyfinApiException.ServerError(response.status.value)
                 else ->

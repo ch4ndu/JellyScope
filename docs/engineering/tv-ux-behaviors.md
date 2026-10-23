@@ -259,6 +259,30 @@ download, settings, and recovery focus behavior.
 - Diagnostics follow the shared
   [privacy policy](diagnostics.md#diagnostics-logging-and-privacy).
 
+## Independent Android launcher
+
+The launcher uses Apps-first rows, not the player application's drawer and hero
+contracts above. Apps, launcher settings and Android System settings remain
+reachable before login and during media errors. Pins are device-local; the
+trailing `+` opens the full launchable-app list with remote-focusable Open,
+Pin/Unpin and ordering actions. Unavailable packages produce a visible error and
+fall back to a surviving component or `+`.
+
+Each row remembers its stable item identity and semantic index. Vertical movement
+restores the destination row; missing items use the clamped index, next available
+row, then Apps. Horizontal movement reveals the focused card without changing
+row identity. Modal controls trap focus and restore their invoker. Return from
+System settings restores the control that opened it, including the settings
+screen entry, rather than forcing focus to the Home button.
+
+Back dismisses a dialog first, then returns from Apps/settings to its Home
+invoker. Login Back cancels outstanding work, clears password input and returns
+to settings; a login already durably committed remains reflected in session
+state. Home Back below Apps returns to Apps; at Apps it retains ordinary activity
+exit behavior. Home-role suppression and device qualification are separate work.
+Media selection currently explains that playback is not configured; it does not
+send a playback command or claim successful playback.
+
 ## Why
 
 - Background clipping avoids painting beneath opaque browse content while
@@ -279,3 +303,6 @@ download, settings, and recovery focus behavior.
 - Paging errors preserve pending restore and require explicit Retry because a
   failed page does not prove a target absent; search uses request identity for
   the same stale-result reason.
+
+- Launcher row identity and explicit invoker restoration keep Apps and recovery
+  controls usable without importing the player UI or its navigation drawer.

@@ -3,6 +3,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.plugin.compose)
+    alias(libs.plugins.kotlin.plugin.serialization)
 }
 
 android {
@@ -28,6 +29,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     buildTypes {
@@ -60,6 +62,11 @@ dependencies {
     implementation("org.jetbrains.compose.ui:ui:${libs.versions.composeMultiplatform.get()}")
     implementation(libs.androidx.activity.compose)
     implementation(libs.koin.android)
+    implementation(libs.jetbrains.lifecycle.runtime.compose)
+    implementation(libs.jetbrains.lifecycle.viewmodel.compose)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.ktor3)
+    implementation(libs.ktor.client.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.tv.material)
 }

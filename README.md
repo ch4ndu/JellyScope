@@ -67,8 +67,9 @@ runtime is experimental and not distribution-ready. Windows and Linux have exper
 paths, with no tested or packaged releases yet.
 
 The separate [Android launcher foundation](docs/BUILD.md#android-launcher-foundation)
-is in development. Its independent API-25+ shell provides System settings access;
-login, app/media rows and replacement Home behavior are not yet available.
+is in development. Its independent API-25+ application provides lightweight login,
+local app pins, cached Jellyfin rows and System settings access. Server-managed
+layouts, playback handoff and replacement Home behavior remain in development.
 Launcher APKs are local verification artifacts without release-license metadata
 and are not release-ready.
 

@@ -384,7 +384,9 @@ scope:
   interaction cannot be established by compilation or shared fakes.
 - Standalone HTTP API tests follow transport. Client-factory and original-download
   integration suites stay in core so its internal engine overloads remain private
-  to that module without changing assertions or setup.
+  to that module without changing assertions or setup. Shared HTTP policy is
+  exercised through the retained factory integration tests; moving configuration
+  does not justify a second set of equivalent test seams.
 - Authentication/session tests follow their owner. Their common-test dependency
   on core production preserves real cache integration without widening internal
   APIs; it does not change the production dependency graph. Run JVM and Android

@@ -411,7 +411,11 @@ launcher consumes the production module without core or native players.
 download responses and artwork HTTP reads. It consumes configured `HttpClient`
 instances and the existing `AuthHeaderProvider` contract over `network`,
 `jellyfin-api` and `storage`; artwork bounds retain their storage contract owner.
-`JellyfinClientFactory`, engines, qualifiers and client lifetimes stay in core.
+Shared non-inline Kotlin HTTP configuration policies live in transport; they
+preserve JSON, timeout, redirect and sanitized-logging behavior without exposing
+an Objective-C API. `JellyfinClientFactory`, its internal engine overloads,
+qualifiers and existing client lifetimes stay in core. The launcher composes
+its own clients with the same ordinary policy, redirects and logging disabled.
 Session-backed identity belongs to `auth-session`. Client-factory and
 original-download integration suites stay in core with their internal engine overloads; the three standalone API
 suites follow transport with private mocks unchanged. Eight necessary Kotlin

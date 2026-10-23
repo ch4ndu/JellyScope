@@ -249,6 +249,42 @@ this module boundary does not change cleanup ordering or credential authority.
   clear at both boundaries implements both and has a focused check for each.
   `PlaybackDiagnosticsContext`, `DiscoveryCache`, and `DetailRelatedCache` do so.
 
+## Independent Android launcher state
+
+The launcher has its own application sandbox and Keystore credentials. It uses
+`auth-session` for login, restoration and logout; it never imports credentials
+from the player application. Apps and settings remain usable while restoration
+or authentication is pending. Passwords are transient editor values, not saved
+instance state or preferences.
+
+Launcher media snapshots are bounded, versioned atomic JSON files under
+`noBackupFilesDir`, scoped by credential-free server/user identity. The store
+registers as both a refetchable and account-scoped cache before the session
+repository starts restoration. Cache commits and visible publication require
+an account work lease and current query generation. Lock order is registry gate
+then store mutex; network work never holds that gate. Cold restoration may load
+an existing snapshot; account transitions invalidate refetchable state.
+
+A synced pending-refresh marker is established before policy or row requests.
+Startup refuses marked snapshots, including AtomicFile backups. The marker is
+removed only after a complete safe snapshot or empty tombstone is durably written
+and verified, or all snapshot artifacts are verifiably removed. Persistence
+failures surface through cleanup status. An interrupted refresh can therefore
+make old offline rows unavailable until safe refresh or cleanup; it must not
+restore potentially revoked content. Normal transient failures with healthy
+storage retain the prior allowed rows.
+
+The launcher durable cleaner includes `SessionStore`: logout clears the session
+first and clears the pending flag only after credential removal succeeds. It
+attempts remaining cleanup and aggregates failures. A failed cleanup exposes
+Retry sign out even when the shared session is already logged out, including
+pending-logout recovery at cold start. Application-owned authentication ordering
+serializes login, logout and confirmed-invalid-session handling across Activity
+recreation. Server/account removal calls
+the matching session-store operations. Registry cleanup is idempotent and never
+reacquires its gate. Component-key app pins and their order are separate device
+preferences, survive logout, and are not remote media configuration.
+
 ## Why
 
 ### Persistence and transfer recovery
@@ -297,3 +333,7 @@ this module boundary does not change cleanup ordering or credential authority.
 - Direct persistent-store cleanup avoids lazy-DI ordering. Removal and commit
   tails are atomic/non-cancellable because partial durable mutation cannot
   represent an unchanged session.
+
+- Launcher snapshot files keep the small bounded row cache independent of the
+  player database. Shared account leases preserve cleanup ordering without
+  coupling local app pins to a media account.

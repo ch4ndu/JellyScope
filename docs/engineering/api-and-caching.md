@@ -5,8 +5,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 
 `network` owns shared authorization syntax, server-URL normalization and
 credential-origin policy. `transport` owns HTTP request execution with configured
-clients and the existing auth-header interface. Session-backed identity reads,
-client factories/engine configuration and repositories remain in `shared-core`. `jellyfin-api` owns Jellyfin wire DTOs,
+clients and the existing auth-header interface, plus shared HTTP configuration
+policies. Session-backed identity belongs to `auth-session`; the existing client
+factory and its engine overloads remain in `shared-core`. The launcher composes
+its own clients over the same policies. `jellyfin-api` owns Jellyfin wire DTOs,
 metadata-to-domain mapping, device-profile mapping and typed API failures; JSON
 encoding and media-mapping tests follow that owner. The [architecture guide](architecture.md) defines the dependency and
 export boundary.
@@ -217,6 +219,34 @@ export boundary.
 
 - Multi-server support should not be added accidentally; treat it as an explicit
   product decision.
+
+## Android launcher queries and artwork
+
+The launcher queries Continue Watching, non-resumable Next Up, Recently Added
+and Favorites directly through `JellyfinApi`, with at most 20 cards per row and
+two concurrent row requests. Successful empty results replace cached rows;
+transient failures retain the last snapshot with a stale indication. Foreground
+refresh requests coalesce, automatic refresh has a 30-second minimum interval,
+and a 15-minute timer runs only while the activity is started. This is not a
+background execution guarantee.
+
+The launcher opts into preserving HTTP 403 as `ServerError(403)` for ordinary
+authenticated reads. Default transport behavior for existing callers is
+unchanged. A scoped denial clears the rejected row; an unauthorized response is
+checked against the current-user endpoint before signing out. Temporary probe
+failure never proves invalid credentials. A policy fingerprint uses only maximum
+parental rating and sorted accessible user-view IDs; confirmed changes invalidate
+cached media and artwork. Offline caches cannot discover remote policy changes.
+
+Artwork uses an explicit account-owned Coil loader, not the player UI singleton.
+Disk keys use stable account identity and effective tagged URL; runtime epochs
+isolate loaders and may appear in memory keys, but do not invalidate disk hits on
+cold restart. Logout retires requests/loaders and clears account artwork. Image
+path/query components are encoded and the credential-origin guard validates the
+final URL before attaching authorization. Redirects and HTTP logging are off;
+tokens never enter URLs or cache keys. Missing artwork leaves a focusable local
+placeholder. Account cleanup is owned by the
+[account persistence contract](accounts-and-persistence.md#independent-android-launcher-state).
 
 ## Why
 
