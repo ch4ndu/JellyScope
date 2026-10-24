@@ -460,6 +460,7 @@ private fun LauncherDialogContent(
             LauncherDialog.HomeSettingsUnavailable -> R.string.home_settings_unavailable_title
             LauncherDialog.AppUnavailable -> R.string.app_unavailable_title
             LauncherDialog.PlaybackUnavailable -> R.string.playback_unavailable_title
+            LauncherDialog.DetailsUnsupported -> R.string.details_unsupported_title
             LauncherDialog.PlaybackFailed -> R.string.playback_failed_title
             LauncherDialog.PlaybackStale -> R.string.playback_stale_title
             LauncherDialog.Logout -> R.string.sign_out
@@ -471,6 +472,7 @@ private fun LauncherDialogContent(
             LauncherDialog.HomeSettingsUnavailable -> R.string.home_settings_unavailable_message
             LauncherDialog.AppUnavailable -> R.string.app_unavailable_message
             LauncherDialog.PlaybackUnavailable -> R.string.playback_unavailable_message
+            LauncherDialog.DetailsUnsupported -> R.string.details_unsupported_message
             LauncherDialog.PlaybackFailed -> R.string.playback_failed_message
             LauncherDialog.PlaybackStale -> R.string.playback_stale_message
             LauncherDialog.Logout -> R.string.sign_out_message

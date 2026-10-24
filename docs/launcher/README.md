@@ -48,11 +48,12 @@ Select a field to open the keyboard; Back hides it before cancelling.
 Passwords are transient; the launcher keeps its own saved session, separate from
 JellyScope's player account.
 
-For playback, install/enable JellyScope TV and sign into the **same server and
-user in both apps**. Selecting a media card hands it to that player. Player Back
-returns to JellyScope's prior screen; use device navigation to return to the
-launcher. A missing player or mismatched account needs setup and a fresh selection;
-opening the player does not itself prove playback succeeded.
+Install/update JellyScope TV and sign into the **same server and user in both
+apps**. Selecting a series opens its seasons/episodes; other media opens Details.
+Choose Resume there to continue from the saved position, or restart explicitly.
+An older TV app shows update guidance instead of starting playback. Back returns
+to the prior JellyScope screen; use device navigation to return to the launcher.
+Missing apps or mismatched accounts need setup and a fresh selection.
 
 **Choose default Home app** opens Android's selector when firmware permits it.
 Device Home selects Home and Apps. Back from Jellyfin content first returns

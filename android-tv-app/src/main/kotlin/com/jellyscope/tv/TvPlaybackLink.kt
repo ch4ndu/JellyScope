@@ -8,21 +8,30 @@ import com.jellyscope.core.util.diagnosticLogger
 
 internal val tvPlaybackLinkLogger = diagnosticLogger(DiagnosticTag.TvPlaybackLink)
 
-internal enum class TvPlaybackLinkRejection { LoginRequired, AccountMismatch, PlayerActive }
+internal enum class TvPlaybackLinkRejection { LoginRequired, AccountMismatch, PlayerActive, DetailsUnavailable }
+
+internal enum class TvPlaybackLinkKind { Play, Details }
 
 // A parsed instance is one delivery. Equal URIs must still retrigger the one-shot
 // effect when a second intent arrives before Compose observes the cleared value.
 internal class TvPlaybackLink(
+    val kind: TvPlaybackLinkKind,
     val serverId: String,
     val userId: String,
     val itemId: String,
 )
 
-// Receiver enforcement copy of android-launcher-app/JellyScopePlaybackContract.kt v1.
+// Receiver enforcement copy of android-launcher-app/JellyScopePlaybackContract.kt.
 // Keep the wire and identifier rules synchronized with docs/engineering/tv-ux-behaviors.md.
 internal fun Intent.playbackLink(): TvPlaybackLink? {
     val uri = data ?: return null
-    if (action != Intent.ACTION_VIEW || uri.scheme != "jellyscope" || uri.host != "play") return null
+    if (action != Intent.ACTION_VIEW || uri.scheme != "jellyscope") return null
+    val kind =
+        when (uri.host) {
+            "play" -> TvPlaybackLinkKind.Play
+            "details" -> TvPlaybackLinkKind.Details
+            else -> return null
+        }
     val validShape =
         uri.isHierarchical &&
             uri.port == -1 &&
@@ -44,7 +53,7 @@ internal fun Intent.playbackLink(): TvPlaybackLink? {
         return null
     }
     tvPlaybackLinkLogger.i { "stage=playback-link event=received" }
-    return TvPlaybackLink(serverId = serverId, userId = userId, itemId = itemId)
+    return TvPlaybackLink(kind = kind, serverId = serverId, userId = userId, itemId = itemId)
 }
 
 private fun String.isPlaybackLinkId(): Boolean =

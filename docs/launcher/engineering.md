@@ -73,9 +73,10 @@ below Apps returns to Apps; at Apps it retains ordinary activity
 exit behavior unless the public resolver reports this Activity as the default Home;
 in that case root Back is consumed without navigation. Device qualification is
 separate from this source behavior.
-Media selection uses the explicit JellyScope [playback link contract](../engineering/tv-ux-behaviors.md#playback-links). The Settings message
-explains matching-account setup and the return path; it does not claim playback
-success from an Activity launch.
+Media selection uses the JellyScope [details link contract](../engineering/tv-ux-behaviors.md#playback-links).
+An implicit package-limited capability match precedes explicit dispatch; older
+receivers show update guidance. The TV app resolves kind and opens its existing
+Series or Detail screen, whose own data and Resume decisions remain authoritative.
 
 ### Launcher tabs and connection flow
 

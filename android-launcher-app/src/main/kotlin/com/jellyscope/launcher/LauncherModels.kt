@@ -150,6 +150,7 @@ internal enum class LauncherDialog {
     HomeSettingsUnavailable,
     AppUnavailable,
     PlaybackUnavailable,
+    DetailsUnsupported,
     PlaybackFailed,
     PlaybackStale,
     Logout,

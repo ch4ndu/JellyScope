@@ -19,6 +19,20 @@ do not transfer a result to another firmware/model or equate installation with
 Home replacement. Emulator evidence, if later authorized, is separate from physical
 TV/Fire TV evidence.
 
+## Details handoff qualification
+
+Both Release apps installed successfully on the TiVo on 2026-10-24. Source review,
+final verification, formatting, compilation, Release lint and assembly passed.
+The new launcher against the old TV receiver showed Update JellyScope without
+playback. After updating TV, a media selection opened Details with Resume from
+0:41; choosing it reached the player paused at 0:41. A Recently Added series
+opened Series with Seasons and no autoplay. Back restored the prior TV details
+screen. These are observed paths, not blanket playback qualification.
+
+Account/delivery races, active-player rejection and lookup-failure retry remain
+source-reviewed; logged-out/mismatched-account device checks were not repeated.
+No parser test was added. Both app sessions were preserved.
+
 ## Account and sign-in dialog candidate
 
 The current source replaces account/Login pages with focus-isolated dialogs,

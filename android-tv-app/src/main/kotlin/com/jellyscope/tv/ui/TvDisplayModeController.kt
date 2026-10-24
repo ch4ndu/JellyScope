@@ -11,7 +11,9 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.Display
 import android.view.Window
+import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.jellyscope.core.domain.playback.PlaybackDiagnostic
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticDisplayResult
@@ -342,12 +344,14 @@ private class AndroidTvDisplayModePlatform(
         window.attributes = attributes
     }
 
+    @OptIn(UnstableApi::class)
     override fun disablePlayerFrameRateSwitching() {
         (playerController.platformPlayer as? ExoPlayer)?.setVideoChangeFrameRateStrategy(
             C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF,
         )
     }
 
+    @OptIn(UnstableApi::class)
     override fun restorePlayerFrameRateSwitching() {
         (playerController.platformPlayer as? ExoPlayer)?.setVideoChangeFrameRateStrategy(
             C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS,

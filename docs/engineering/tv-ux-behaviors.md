@@ -243,11 +243,27 @@ download, settings, and recovery focus behavior.
   the user to matching-account setup and a fresh launcher selection. They never
   select an account, sign in, or replay after login/switching. Notices reset on
   session-state changes; requested identifiers are not displayed.
-- Matching links from browsing open the ordinary player at zero with current
+- Legacy `play` links from browsing open the ordinary player at zero with current
   backend, quality and track preferences. Normal authenticated item lookup and
   visible Retry/Cancel error handling apply. A link received while a player is
   open is consumed with a notice, preserving the existing player. Each parsed
   delivery has distinct identity, including repeated identical URIs.
+- Launcher card selection uses `jellyscope://details/ITEM_ID?serverId=SERVER_ID&userId=USER_ID`,
+  with the same strict identifier/query rules as `play`. The receiver declares a
+  separate DEFAULT/BROWSABLE filter. Before explicit dispatch, the launcher checks
+  the expected enabled/exported component and resolves the package-limited implicit
+  details intent with MATCH_DEFAULT_ONLY. Missing/disabled targets retain setup
+  guidance; an installed receiver without support shows update guidance, never a
+  direct-play fallback.
+- Details uses an account-bound, cancellable kind-only lookup with playback fields
+  disabled. Series opens Series; Movie/Episode/Other open Detail. Those screens
+  fetch their own metadata and retain saved-position Resume decisions. Display
+  progress from the launcher is never converted to playback ticks.
+- Before and after lookup, current delivery/account/epoch and active-player guards
+  apply. A changed route or route-entry discards navigation. Cancellation propagates;
+  canonical identity-checked consumption cannot clear a newer delivery. Ordinary
+  lookup failure shows a generic dismissible notice; a fresh selection retries.
+  These timing properties are source-review evidence, not proven by rapid D-pad tests.
 - Consumed data is cleared from the current Activity intent to avoid rehandling
   it during ordinary recreation; this is not durable process-death deduplication.
   Notice Back only dismisses it. Player Back returns to JellyScope's prior route,

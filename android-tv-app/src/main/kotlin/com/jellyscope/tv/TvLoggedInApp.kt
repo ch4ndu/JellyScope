@@ -35,9 +35,14 @@ import com.jellyscope.core.domain.model.Library
 import com.jellyscope.core.domain.model.LibraryCollectionType
 import com.jellyscope.core.domain.model.LibraryFilterSelection
 import com.jellyscope.core.domain.model.LibraryItemFilter
+import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.SessionState
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
+import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
 import com.jellyscope.core.domain.usecase.GetUserLibrariesUseCase
+import com.jellyscope.core.domain.usecase.ObserveSessionStateUseCase
 import com.jellyscope.tv.ui.LocalTvHostedRailController
 import com.jellyscope.tv.ui.TvCollectionScreen
 import com.jellyscope.tv.ui.TvDiscoverScreen
@@ -78,7 +83,10 @@ import com.jellyscope.ui.screen.library.LibraryBrowseViewModel
 import com.jellyscope.ui.screen.library.LibraryHubViewModel
 import com.jellyscope.ui.screen.player.PlayerLaunchOptions
 import com.jellyscope.ui.theme.LocalAppBackgroundBrush
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import org.koin.android.ext.android.get
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -87,14 +95,18 @@ import org.koin.core.parameter.parametersOf
 @Composable
 internal fun TvLoggedInApp(
     session: Session,
+    boundaryEpoch: Long,
     pendingWatchNextItemId: String?,
     onWatchNextItemHandled: () -> Unit,
     pendingPlaybackLink: TvPlaybackLink?,
-    onPlaybackLinkHandled: () -> Unit,
+    onPlaybackLinkHandled: (TvPlaybackLink) -> Boolean,
     onPlaybackLinkRejected: (TvPlaybackLinkRejection) -> Unit,
     onPlaybackStopped: () -> Unit,
 ) {
+    val getItemDetailUseCase = koinInject<GetItemDetailUseCase>()
     val getUserLibrariesUseCase = koinInject<GetUserLibrariesUseCase>()
+    val observeSessionStateUseCase = koinInject<ObserveSessionStateUseCase>()
+    val currentPlaybackLink by rememberUpdatedState(pendingPlaybackLink)
     val focusCoordinator = rememberTvFocusCoordinator()
     val topLevelViewModelStoreOwner =
         remember(session.serverId, session.userId) { TvTopLevelViewModelStoreOwner() }
@@ -433,17 +445,79 @@ internal fun TvLoggedInApp(
 
     LaunchedEffect(pendingPlaybackLink) {
         val link = pendingPlaybackLink ?: return@LaunchedEffect
-        // A link starts a new route; it must not create overlapping native player owners.
-        val playerActive = route == TvRoute.Player.name
-        if (playerActive) {
-            tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=player-active" }
-        } else {
-            openPlayer(itemId = link.itemId, startTicks = 0L, mediaSourceId = null)
-            tvPlaybackLinkLogger.i { "stage=playback-link event=handed-off" }
+
+        fun isCurrentDelivery(): Boolean {
+            val current = observeSessionStateUseCase().value as? SessionState.LoggedIn ?: return false
+            return currentPlaybackLink === link &&
+                current.boundaryEpoch == boundaryEpoch &&
+                current.session.accountIdentity() == session.accountIdentity()
         }
-        // Handling clears an older notice; publish this delivery's rejection afterward.
-        onPlaybackLinkHandled()
-        if (playerActive) onPlaybackLinkRejected(TvPlaybackLinkRejection.PlayerActive)
+
+        if (!isCurrentDelivery()) return@LaunchedEffect
+        // A link starts a new route; it must not create overlapping native player owners.
+        if (route == TvRoute.Player.name) {
+            if (onPlaybackLinkHandled(link)) {
+                tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=player-active" }
+                onPlaybackLinkRejected(TvPlaybackLinkRejection.PlayerActive)
+            }
+            return@LaunchedEffect
+        }
+        if (link.kind == TvPlaybackLinkKind.Play) {
+            if (onPlaybackLinkHandled(link)) {
+                openPlayer(itemId = link.itemId, startTicks = 0L, mediaSourceId = null)
+                tvPlaybackLinkLogger.i { "stage=playback-link event=handed-off" }
+            }
+            return@LaunchedEffect
+        }
+
+        val originRoute = route
+        val originEntryId = focusCoordinator.activeRouteEntryId
+        tvPlaybackLinkLogger.i { "stage=details-link event=lookup-started" }
+        val kindResult: Result<MediaKind> =
+            try {
+                val detail = getItemDetailUseCase(link.itemId, includePlaybackFields = false).getOrThrow()
+                Result.success(detail.item.kind)
+            } catch (cancelled: CancellationException) {
+                tvPlaybackLinkLogger.i { "stage=details-link event=cancelled" }
+                throw cancelled
+            } catch (failure: Exception) {
+                Result.failure(failure)
+            }
+        currentCoroutineContext().ensureActive()
+        if (!isCurrentDelivery()) {
+            tvPlaybackLinkLogger.i { "stage=details-link event=discarded reason=stale-delivery" }
+            return@LaunchedEffect
+        }
+        if (route == TvRoute.Player.name) {
+            if (onPlaybackLinkHandled(link)) {
+                tvPlaybackLinkLogger.i { "stage=details-link event=rejected reason=player-active" }
+                onPlaybackLinkRejected(TvPlaybackLinkRejection.PlayerActive)
+            }
+            return@LaunchedEffect
+        }
+        if (route != originRoute || focusCoordinator.activeRouteEntryId != originEntryId) {
+            tvPlaybackLinkLogger.i { "stage=details-link event=discarded reason=route-changed" }
+            return@LaunchedEffect
+        }
+        val mediaKind =
+            kindResult.getOrElse { failure ->
+                if (onPlaybackLinkHandled(link)) {
+                    tvPlaybackLinkLogger.i { "stage=details-link event=failed exceptionType=${failure::class.simpleName}" }
+                    onPlaybackLinkRejected(TvPlaybackLinkRejection.DetailsUnavailable)
+                }
+                return@LaunchedEffect
+            }
+        val kind =
+            when (mediaKind) {
+                MediaKind.Movie -> MediaCardKind.Movie
+                MediaKind.Series -> MediaCardKind.Series
+                MediaKind.Episode -> MediaCardKind.Episode
+                MediaKind.Other -> MediaCardKind.Other
+            }
+        if (onPlaybackLinkHandled(link)) {
+            openTvItem(link.itemId, kind)
+            tvPlaybackLinkLogger.i { "stage=details-link event=handed-off" }
+        }
     }
 
     fun openCollection(

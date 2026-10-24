@@ -308,8 +308,15 @@ internal fun TvPlayerLocalMenuOverlay(
     val menuListState = rememberLazyListState()
     val currentChapterIndex =
         if (menu == TvPlayerLocalMenu.Chapters) {
-            val initialIndex = content.chapters.currentChapterIndex(playbackStateFlow.value.positionMs)
-            playbackStateFlow.chapterIndexFlow(content.chapters).collectAsState(initial = initialIndex).value
+            val initialIndex =
+                remember(playbackStateFlow, content.chapters) {
+                    content.chapters.currentChapterIndex(playbackStateFlow.value.positionMs)
+                }
+            val chapterIndexFlow =
+                remember(playbackStateFlow, content.chapters) {
+                    playbackStateFlow.chapterIndexFlow(content.chapters)
+                }
+            chapterIndexFlow.collectAsState(initial = initialIndex).value
         } else {
             -1
         }

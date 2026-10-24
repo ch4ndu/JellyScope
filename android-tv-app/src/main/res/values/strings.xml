@@ -569,4 +569,6 @@
     <string name="tv_playback_link_account_message">Open Settings → Switch account and sign in to the same server and account used by the launcher. Then return to the launcher and select the media again.</string>
     <string name="tv_playback_link_active_title">Playback already open</string>
     <string name="tv_playback_link_active_message">A player is already open. Press Back to return to it, then exit playback before selecting another item from the launcher.</string>
+    <string name="tv_playback_link_details_title">Details unavailable</string>
+    <string name="tv_playback_link_details_message">Media details could not be opened. Try selecting the item again from the launcher.</string>
 </resources>

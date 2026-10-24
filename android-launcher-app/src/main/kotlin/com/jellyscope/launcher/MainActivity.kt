@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
@@ -97,14 +98,23 @@ class MainActivity : ComponentActivity() {
         boundaryKey: String?,
     ) {
         val session = playbackSession(itemId, boundaryKey)
-        val intent = session?.let { JellyScopePlaybackContract.intent(it.serverId, it.userId, itemId) }
+        val intent = session?.let { JellyScopePlaybackContract.detailsIntent(it.serverId, it.userId, itemId) }
         if (session == null || intent == null) {
             model.showDialog(LauncherDialog.PlaybackStale)
             return
         }
         try {
-            if (packageManager.resolveActivity(intent, 0) == null) {
+            val expected = ComponentName(JellyScopePlaybackContract.PLAYER_PACKAGE, JellyScopePlaybackContract.PLAYER_ACTIVITY)
+            val target = packageManager.getActivityInfo(expected, 0)
+            if (!target.enabled || !target.applicationInfo.enabled || !target.exported) {
+                Log.i("Launcher", "stage=details-resolve event=rejected reason=target-unavailable")
                 model.showDialog(LauncherDialog.PlaybackUnavailable)
+                return
+            }
+            val resolved = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo
+            if (resolved == null || ComponentName(resolved.packageName, resolved.name) != expected) {
+                Log.i("Launcher", "stage=details-resolve event=rejected reason=details-unsupported")
+                model.showDialog(LauncherDialog.DetailsUnsupported)
                 return
             }
             // Resolution may block. Recheck current authority immediately before dispatch,
@@ -114,9 +124,12 @@ class MainActivity : ComponentActivity() {
                 model.showDialog(LauncherDialog.PlaybackStale)
                 return
             }
-            if (!launch(intent, "playback-launch")) model.showDialog(LauncherDialog.PlaybackFailed)
+            if (!launch(intent.setComponent(expected), "details-launch")) model.showDialog(LauncherDialog.PlaybackFailed)
+        } catch (failure: PackageManager.NameNotFoundException) {
+            launcherFailure("details-target", failure)
+            model.showDialog(LauncherDialog.PlaybackUnavailable)
         } catch (failure: SecurityException) {
-            launcherFailure("playback-resolve", failure)
+            launcherFailure("details-resolve", failure)
             model.showDialog(LauncherDialog.PlaybackFailed)
         }
     }

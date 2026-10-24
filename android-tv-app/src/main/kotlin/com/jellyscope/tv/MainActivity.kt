@@ -135,10 +135,16 @@ class MainActivity : ComponentActivity() {
                         pendingWatchNextPayload = pendingWatchNextPayload,
                         onWatchNextItemHandled = { pendingWatchNextPayload = null },
                         pendingPlaybackLink = pendingPlaybackLink,
-                        onPlaybackLinkHandled = {
-                            pendingPlaybackLink = null
-                            // A consumed launch must not replay after Activity recreation.
-                            setIntent(Intent(intent).setData(null))
+                        onPlaybackLinkHandled = { handled ->
+                            // A newer intent may arrive before Compose updates the running effect.
+                            if (pendingPlaybackLink !== handled) {
+                                false
+                            } else {
+                                pendingPlaybackLink = null
+                                // A consumed launch must not replay after Activity recreation.
+                                setIntent(Intent(intent).setData(null))
+                                true
+                            }
                         },
                         onPlaybackStopped = { WatchNextScheduler.enqueueImmediate(this@MainActivity) },
                     )
@@ -163,7 +169,7 @@ private fun TvApp(
     pendingWatchNextPayload: String?,
     onWatchNextItemHandled: () -> Unit,
     pendingPlaybackLink: TvPlaybackLink?,
-    onPlaybackLinkHandled: () -> Unit,
+    onPlaybackLinkHandled: (TvPlaybackLink) -> Boolean,
     onPlaybackStopped: () -> Unit,
 ) {
     val sessionState by observeSessionStateUseCase().collectAsStateWithLifecycle()
@@ -179,9 +185,11 @@ private fun TvApp(
         }
         is SessionState.LoggedOut -> {
             LaunchedEffect(pendingPlaybackLink, state) {
-                if (pendingPlaybackLink != null) {
+                if (pendingPlaybackLink != null &&
+                    observeSessionStateUseCase().value == state &&
+                    onPlaybackLinkHandled(pendingPlaybackLink)
+                ) {
                     tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=logged-out" }
-                    onPlaybackLinkHandled()
                     playbackRejection = TvPlaybackLinkRejection.LoginRequired
                 }
             }
@@ -224,9 +232,12 @@ private fun TvApp(
                     link.serverId == state.session.serverId && link.userId == state.session.userId
                 }
             LaunchedEffect(pendingPlaybackLink, state) {
-                if (pendingPlaybackLink != null && acceptedPlaybackLink == null) {
+                if (pendingPlaybackLink != null &&
+                    acceptedPlaybackLink == null &&
+                    observeSessionStateUseCase().value == state &&
+                    onPlaybackLinkHandled(pendingPlaybackLink)
+                ) {
                     tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=account-mismatch" }
-                    onPlaybackLinkHandled()
                     playbackRejection = TvPlaybackLinkRejection.AccountMismatch
                 }
             }
@@ -244,12 +255,14 @@ private fun TvApp(
                 )
                 TvLoggedInApp(
                     session = state.session,
+                    boundaryEpoch = state.boundaryEpoch,
                     pendingWatchNextItemId = pendingItemId,
                     onWatchNextItemHandled = onWatchNextItemHandled,
                     pendingPlaybackLink = acceptedPlaybackLink,
-                    onPlaybackLinkHandled = {
-                        playbackRejection = null
-                        onPlaybackLinkHandled()
+                    onPlaybackLinkHandled = { link ->
+                        val handled = onPlaybackLinkHandled(link)
+                        if (handled) playbackRejection = null
+                        handled
                     },
                     onPlaybackLinkRejected = { playbackRejection = it },
                     onPlaybackStopped = onPlaybackStopped,
@@ -266,6 +279,8 @@ private fun TvApp(
                     R.string.tv_playback_link_account_title to R.string.tv_playback_link_account_message
                 TvPlaybackLinkRejection.PlayerActive ->
                     R.string.tv_playback_link_active_title to R.string.tv_playback_link_active_message
+                TvPlaybackLinkRejection.DetailsUnavailable ->
+                    R.string.tv_playback_link_details_title to R.string.tv_playback_link_details_message
             }
         TvSettingsDetailDialog(
             title = stringResource(title),

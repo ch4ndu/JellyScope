@@ -70,6 +70,8 @@
     <string name="no_items">No items available</string>
     <string name="playback_unavailable_title">JellyScope player unavailable</string>
     <string name="playback_unavailable_message">Install or enable JellyScope on this device, then select the media again. Apps and launcher settings remain available.</string>
+    <string name="details_unsupported_title">Update JellyScope</string>
+    <string name="details_unsupported_message">This version of JellyScope cannot open media details from the launcher. Update JellyScope on this device, then try again.</string>
     <string name="playback_failed_title">Could not open JellyScope</string>
     <string name="playback_failed_message">Open JellyScope directly to check that it is available, then return to the launcher and try again.</string>
     <string name="playback_stale_title">Media selection changed</string>
