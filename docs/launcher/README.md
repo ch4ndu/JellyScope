@@ -14,9 +14,10 @@ contracts live in [engineering](engineering.md) and the [plugin reference](plugi
   ARMv7, ARM64 and x86_64 builds. Vega OS and Fire OS 5/API 22 are excluded.
 - Plugin source targets **Jellyfin Server 12.3**, `Jellyfin.Controller` **12.3.0**,
   and **.NET 10**. This does not establish compatibility with every 12.x release.
-- Source review, host builds, launcher lint and package checks passed. Device
-  installation, remote interaction, replacement Home, live plugin loading and
-  cross-app playback remain unqualified.
+- Source review, host builds, launcher lint and package checks passed. TiVo installation and cold launch passed after the user removed its
+  auto-uninstalling CoreService; see [qualification](qualification.md#tivo-stream-4k-installation-attempt--2026-10-23).
+  Remote interaction, replacement Home, live plugin loading and cross-app playback
+  remain unqualified.
 - Current APKs are debug-signed local verification artifacts. They lack release
   license/readiness wiring and are not collected by `scripts/build-release-artifacts.sh`.
   Final visual mockups are pending.
@@ -78,7 +79,8 @@ adb -s DEVICE_SERIAL install -r android-launcher-app/build/outputs/apk/release/a
 
 Replace `DEVICE_SERIAL` with that device's serial, open **JellyScope Launcher** from
 its apps list, then connect. Select it as Home only if desired and supported.
-These installation instructions have not been executed during qualification.
+On tested TiVo firmware, CoreService automatically removed the package until
+the user removed that service; installation and startup then passed. See qualification.
 
 ## Install the Jellyfin plugin
 

@@ -2,23 +2,85 @@
 
 The launcher targets Android TV/Google TV and Android-based Fire OS at API 25 or
 newer. Vega OS, Fire OS 5/API 22, and older Android are excluded. These are support
-targets, not a list of qualified devices. No device has been operated for this
-implementation; hardware/firmware details and device-action authorization are
-pending. Local APKs are debug-signed verification artifacts, not releases.
+targets, not a list of qualified devices. An authorized TiVo installation and cold launch passed after user removal of
+CoreService; full ordinary-app and replacement-Home behavior remain unqualified. Local APKs are debug-signed verification artifacts, not releases.
 
 ## Evidence levels
 
 | Level | What must be established | Current device result |
 | --- | --- | --- |
-| Installation | Install/update on the identified API/ABI/firmware | Not run |
-| Ordinary app | Login, Apps/pins, media/cache, remote focus, settings and playback handoff | Not run |
+| Installation | Install/update on the identified API/ABI/firmware | TiVo: install passed after CoreService removal; update/reboot not tested |
+| Ordinary app | Login, Apps/pins, media/cache, remote focus, settings and playback handoff | Cold launch/Essentials screen passed; remaining flows not run |
 | Replacement Home | Selector support, actual default, cold/repeated Home and Back/task behavior | Not run |
 
-Device model, firmware/OS, API level, ABI, remote model, artifact hash and setup
-steps are currently **unknown**. Record those values alongside each future result;
+Device identity and artifact details for the first attempt are recorded below;
+remote model remains unknown. Record these values alongside each future result;
 do not transfer a result to another firmware/model or equate installation with
 Home replacement. Emulator evidence, if later authorized, is separate from physical
 TV/Fire TV evidence.
+
+## TiVo Stream 4K installation attempt — 2026-10-23
+
+User authorized installing the Release APK and investigating the missing-activity
+error. Device: TiVo Stream 4K / SEI400TV, Android 12/API 31,
+firmware `SC.1272 release-keys`, ARMv7 (`armeabi-v7a,armeabi`).
+Source revision: `32898a1a`; launcher version 0.1.0/versionCode 1.
+Release APK SHA-256:
+`43065384dc8117ba53b7b4061e9fef3a2995294cefcf2e5aceb207d5728302ac`.
+
+`assembleRelease` passed. `adb install -r` reported Success, but subsequent
+package lookup was empty and explicit `am start -W` returned Error type 3 for
+`com.udnahc.jellyscope.launcher/com.jellyscope.launcher.MainActivity`.
+The packaged manifest declares that exact activity. Device logs show
+`EvoBlackListAppsFun` identifying the non-system launcher, followed by
+`AppUtil: uninstallAsUser` for its package and package-removal events.
+
+This establishes firmware-driven removal after installation, not a missing
+Activity declaration or an app startup crash. Home eligibility is the suspected
+trigger; a build without that eligibility has not yet been tested. No vendor
+services were disabled, no default Home was changed, and no ordinary-app,
+login, playback, remote or live-server behavior was validated. The user requested device debloating instead of an ordinary-app variant.
+After explicit risk/rollback approval, firmware rejected disabling
+`com.nes.coreservice` with “Warning! This command is illegal!”. It also rejected
+ordinary TiVo `sageservice` and `tvlaunchercustomization` disable commands.
+At that checkpoint the core service remained enabled; disabled-package lists were identical.
+A subsequently authorized `pm uninstall -k --user 0 com.nes.coreservice` attempt
+was also rejected because the firmware identifies it as a core application. Those attempts changed no existing device packages; the launcher remained absent
+until the subsequent user intervention below.
+
+### Authorized Shizuku and Canta attempt
+
+Official Shizuku 13.6.0 (r1086) and Canta 4.0.0 were installed. Canta's APK
+certificate matched its published developer fingerprint. Shizuku started with
+its displayed ADB command, and Canta received Shizuku access. Only
+`com.nes.coreservice` was selected and confirmed for removal.
+
+Canta logged `DELETE_FAILED_INTERNAL_ERROR` (status 1). Subsequent package
+inspection still reported `installed=true`, default enabled state, and the same
+running CoreService process. No more specific cause appeared in the inspected
+package-manager log. Disabled-package state was unchanged, ADB remained connected,
+and Google TV Home remained the default. This attempt does not establish that
+all direct-API approaches fail; it establishes that this Canta removal failed.
+The launcher was not reinstalled because its removal service remained active.
+Shizuku and Canta remain installed; no reboot or alternate launcher variant was used.
+
+### Successful installation after user intervention
+
+The user subsequently reported uninstalling CoreService; their removal method
+was not observed. ADB verified `installed=false`, `stopped=true`, and no running
+`com.nes.coreservice` process for user 0. The unchanged Release APK identified
+above then installed successfully. Explicit cold launch returned `Status: ok`,
+with 667 ms reported Activity launch time. This single startup measurement is not
+a performance qualification.
+
+The launcher remained installed and running during follow-up checks. The resumed
+Activity was `com.jellyscope.launcher.MainActivity`; the UI hierarchy showed
+Essentials, Jellyfin, Apps/Add apps, All apps, Launcher settings and System settings.
+Package flags did not include DEBUGGABLE. No fatal exception or fatal signal was
+found in the inspected launcher-process log. This verifies installation and basic
+signed-out startup on this modified device, not login, playback or full remote UX.
+Google TV Home remained default; no reboot/default selection was performed.
+Retention across reboot or future firmware updates remains unverified.
 
 ## Implemented host-side boundary
 
@@ -63,5 +125,6 @@ owned by [launcher engineering](engineering.md#standard-home-integration).
    Jellyfin login success/cancel returns to Jellyfin, actual Home selects Essentials,
    and logout preserves the tab with a reachable action.
 
-No steps above have been executed. Device selection/default changes and any
+Only the installation/launch attempt documented above has been executed; the
+remaining manual checks have not run. Device selection/default changes and any
 install/launch/input/log collection require explicit authorization before use.
