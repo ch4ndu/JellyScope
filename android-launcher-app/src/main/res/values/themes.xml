@@ -4,7 +4,7 @@
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowIsTranslucent">false</item>
-        <item name="android:windowBackground">#081420</item>
-        <item name="android:colorAccent">#22B8D4</item>
+        <item name="android:windowBackground">#28182F</item>
+        <item name="android:colorAccent">#E9D9F4</item>
     </style>
 </resources>

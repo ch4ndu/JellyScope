@@ -2,6 +2,7 @@
 
 package com.jellyscope.launcher
 
+import androidx.compose.foundation.focusGroup
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -19,17 +21,51 @@ import androidx.compose.ui.layout.onGloballyPositioned
 internal class LauncherFocus {
     private val attached = mutableMapOf<String, FocusRequester>()
     private var pending: String? = null
-    private var focusedKey: String? = null
-    var current by mutableStateOf<String?>(null)
-        private set
+    private var focusedKey by mutableStateOf<String?>(null)
+    private var remembered by mutableStateOf<String?>(null)
+    private var header: LauncherFocus? = null
+    private var headerKeys: Set<String> = emptySet()
+    val entryRequester = FocusRequester()
+    val hasFocus: Boolean get() = focusedKey != null
+    val parentFocused: Boolean get() = header?.hasFocus == true
+
+    // Login's existing restore effect also sees the active header, so resume
+    // cannot pull focus back into a field while the gear/account owns it.
+    val current: String? get() = if (parentFocused) header?.current else remembered
     var homeRow by mutableStateOf("apps")
     var homeRowIndex by mutableStateOf(0)
     private val rows = mutableMapOf<String, Pair<String, Int>>()
 
+    fun bindHeader(
+        owner: LauncherFocus,
+        keys: Set<String>,
+    ) {
+        header = owner
+        headerKeys = keys
+    }
+
+    fun isParentTarget(key: String?): Boolean = key != null && key in headerKeys
+
+    fun awaitingTarget(keys: List<String>): Boolean = pending?.let { it in keys } == true
+
     fun request(key: String) {
+        if (isParentTarget(key)) {
+            pending = null
+            header?.request(key)
+            return
+        }
         pending = key
         attempt(key)
     }
+
+    fun requestEntry(fallbackKeys: List<String>): Boolean {
+        val candidates = (listOfNotNull(pending, remembered).filter { it in fallbackKeys } + fallbackKeys).distinct()
+        val accepted = candidates.any { key -> runCatching { attached[key]?.requestFocus() ?: false }.getOrDefault(false) }
+        if (accepted) pending = null
+        return accepted
+    }
+
+    fun enter(): Boolean = runCatching { entryRequester.requestFocus() }.getOrDefault(false) && hasFocus
 
     fun rememberRow(
         row: String,
@@ -76,21 +112,21 @@ internal class LauncherFocus {
         attached.clear()
         pending = null
         focusedKey = null
-        current = null
+        remembered = null
     }
 
     fun focused(key: String) {
         focusedKey = key
-        current = key
+        remembered = key
         if (pending == key) pending = null
     }
 
     private fun attempt(key: String) {
         if (pending == key) {
             val accepted = runCatching { attached[key]?.requestFocus() ?: false }.getOrDefault(false)
-            if (!accepted) {
-                pending = key
-            } else if (focusedKey == key) {
+            // A container's onEnter may redirect and clear this request itself.
+            // Do not reinstate it just because the outer request was redirected.
+            if (accepted && focusedKey == key) {
                 pending = null
             }
         }
@@ -113,7 +149,7 @@ internal class LauncherFocus {
                 },
                 restore = { saved ->
                     LauncherFocus().apply {
-                        current = saved.getOrNull(0)?.takeIf(String::isNotEmpty)
+                        remembered = saved.getOrNull(0)?.takeIf(String::isNotEmpty)
                         homeRow = saved.getOrNull(1) ?: "apps"
                         val versioned = saved.getOrNull(2)?.startsWith("v2:") == true
                         homeRowIndex = if (versioned) saved[2].substringAfter(':').toIntOrNull()?.coerceAtLeast(0) ?: 0 else 0
@@ -125,6 +161,15 @@ internal class LauncherFocus {
             )
     }
 }
+
+internal fun Modifier.launcherFocusScope(
+    focus: LauncherFocus,
+    fallbackKeys: () -> List<String>,
+): Modifier =
+    focusRequester(focus.entryRequester)
+        .focusProperties {
+            onEnter = { if (!focus.requestEntry(fallbackKeys())) cancelFocusChange() }
+        }.focusGroup()
 
 internal fun Modifier.launcherFocus(
     focus: LauncherFocus,

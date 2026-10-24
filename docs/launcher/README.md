@@ -16,28 +16,32 @@ contracts live in [engineering](engineering.md) and the [plugin reference](plugi
   and **.NET 10**. This does not establish compatibility with every 12.x release.
 - Source review, host builds, launcher lint and package checks passed. TiVo installation and cold launch passed after the user removed its
   auto-uninstalling CoreService; see [qualification](qualification.md#tivo-stream-4k-installation-attempt--2026-10-23).
-  Remote interaction, replacement Home, live plugin loading and cross-app playback
-  remain unqualified.
+  Targeted Ocean ADB navigation and Move persistence passed; physical-remote timing,
+  replacement Home, live plugin loading and cross-app playback remain unqualified.
 - Current APKs are debug-signed local verification artifacts. They lack release
   license/readiness wiring and are not collected by `scripts/build-release-artifacts.sh`.
-  Final visual mockups are pending.
+  See [device qualification](qualification.md) for tested paths and current Dusk status.
 
 ## Screens and everyday use
 
 | View | Purpose |
 | --- | --- |
-| Essentials | Apps first; default media rows are Play Next, Up Next and Favorites |
+| Home | Apps first; default media rows are Play Next, Up Next and Favorites |
 | Jellyfin | Media only; default Recently Added, or a connection prompt when signed out |
-| All apps | Open, pin/unpin and reorder launchable installed apps |
+| All apps | Installed-app grid with long-press actions |
 | Launcher settings | Refresh, layout/cache status, account cleanup, Home selection and System settings |
 | Connect / Login | Server URL, username and password |
 
-On the tab strip, Left/Right moves focus, Center selects, Down enters content and
-Up returns to the header. Tabs retain separate focus/scroll positions. Apps and
-System settings remain reachable without login and during media failures.
+Tabs select after 250 ms of focus; Center selects immediately. Left/Right traverses
+tabs and icons; Down enters content. The Jellyfin icon opens account controls;
+the gear opens Android **System settings** directly. **All apps** remains in
+launcher settings, reached through the Jellyfin icon.
 
-Choose **+** in Apps or **All apps** to manage up to **24 pins**. Use **Move earlier**
-and **Move later** to reorder them. Pins belong to the device and survive sign-out.
+**Apps** automatically lists every launchable app. Long-press for Open or **Move**;
+Left/Right reorders inline, and Select or Back finishes with each step saved.
+Existing favorites seed the order; other apps append. Order survives sign-out.
+New apps appear after resume/Refresh; pruned/reinstalled apps append. Back from
+the All apps grid returns to Home.
 
 Open **Jellyfin → Connect to server**, enter the server URL and credentials, then
 choose **Sign in**. HTTPS is preferred; HTTP is unencrypted. Success and Cancel
@@ -52,8 +56,8 @@ launcher. A missing player or mismatched account needs setup and a fresh selecti
 opening the player does not itself prove playback succeeded.
 
 **Choose default Home app** opens Android's selector when firmware permits it.
-Device Home selects Essentials and Apps. Back from Jellyfin content first returns
-to its tab, then Essentials. At Essentials root, Back stays when this app is the
+Device Home selects Home and Apps. Back from Jellyfin content first returns
+to its tab, then Home. At Home root, Back stays when this app is the
 reported default Home, otherwise ordinary Activity exit applies. Some firmware,
 including Fire TV variants, may not allow replacement Home. System settings is
 always a separate action.
@@ -142,7 +146,7 @@ user. Changes take effect after **Save** and launcher **Refresh**.
 | Add row / Remove | 0–12 rows total across both tabs, including hidden rows |
 | Title | 1–80 characters; control characters/line separators are rejected |
 | Visible | Show/hide a row without deleting its configuration |
-| Tab | Essentials or Jellyfin for any media row |
+| Tab | Dashboard Essentials means Home; Jellyfin means Jellyfin |
 | Query | Play Next, Up Next, Recently Added, Favorites or Library |
 | Library | All available libraries or one accessible library; Library query requires one |
 | Aspect | Landscape, Poster or Square artwork |
@@ -157,7 +161,7 @@ newest-first by creation date. These are Jellyfin queries, not Android's
 cross-app Watch Next feed.
 
 Example: add a row titled **New Movies**, choose Jellyfin, Library, your Movies
-library, Poster and limit 12. Add **Family Favorites** on Essentials using Favorites
+library, Poster and limit 12. Add **Family Favorites** on Home using Favorites
 and a selected library. Save, then Refresh the launcher. The Apps row stays first.
 
 New rows start on Jellyfin with Recently Added, landscape artwork and limit 20.
@@ -167,7 +171,7 @@ Save failures preserve the draft. Unavailable libraries remain selectable as
 unavailable entries until replaced or removed. Saving zero rows intentionally
 removes media rows; it does not remove Apps or the Jellyfin empty-state actions.
 
-The plugin cannot change app pins, tab names/count, login, system settings,
+The plugin cannot change app order, tab names/count, login, system settings,
 wallpaper/theme, arbitrary filters/scripts/URLs, or per-device/per-user layouts.
 Stored administrator titles remain unchanged after upgrades.
 
@@ -179,7 +183,7 @@ Stored administrator titles remain unchanged after upgrades.
   downloaded video. Empty successful results replace old cards.
 - A signed-in empty Jellyfin tab offers Refresh/Settings, not another login prompt.
   Check row visibility, tab assignment, library access and available media.
-- **Retry sign out** finishes failed account cleanup; pins are retained. Interrupted
+- **Retry sign out** finishes failed account cleanup; app order is retained. Interrupted
   refresh/storage failures can withhold old cached rows until safe refresh/cleanup.
 - Recheck permissions when rows disappear. Offline data cannot discover new remote
   access restrictions until a server check succeeds.

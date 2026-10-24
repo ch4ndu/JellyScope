@@ -66,8 +66,8 @@ Intel Macs are unsupported. Local comparison builds can offer restart-required
 runtime is experimental and not distribution-ready. Windows and Linux have experimental source-build
 paths, with no tested or packaged releases yet.
 
-The separate **JellyScope Launcher**, currently in development, provides Essentials/Jellyfin tabs, local app
-pins, direct Jellyfin browsing and server-configured media rows. See the dedicated
+The separate **JellyScope Launcher**, currently in development, provides Home/Jellyfin tabs, an automatically populated Apps row with saved
+ordering, direct Jellyfin browsing and server-configured media rows. See the dedicated
 [launcher guide](docs/launcher/README.md) for app setup, plugin installation,
 customizations and current qualification limits.
 

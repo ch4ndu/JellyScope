@@ -3,21 +3,24 @@
 package com.jellyscope.launcher
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,16 +29,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -44,10 +57,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.tv.material3.Button
-import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import androidx.tv.material3.darkColorScheme
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -64,6 +75,7 @@ internal fun LauncherShell(
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val imageScope by images.active.collectAsStateWithLifecycle()
+    val headerFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
     val essentialsFocus =
         rememberSaveable(state.boundaryKey, state.homeResetGeneration, saver = LauncherFocus.saver) { LauncherFocus() }
     val jellyfinFocus =
@@ -89,33 +101,51 @@ internal fun LauncherShell(
             LauncherRoute.Settings -> settingsFocus
             LauncherRoute.Login -> loginFocus
         }
-    val appKeys = state.apps.pins.map { "apps:${it.componentKey}" } + "apps:+"
+    listOf(essentialsFocus, jellyfinFocus, appsFocus, settingsFocus, loginFocus).forEach {
+        it.bindHeader(headerFocus, launcherHeaderKeys)
+    }
+    val contentKeys =
+        when (state.route) {
+            LauncherRoute.Home -> state.homeContentKeys(state.selectedTab)
+            LauncherRoute.Apps -> state.apps.catalog.map { "${it.componentKey}:open" }
+            LauncherRoute.Settings -> state.settingsControls
+            LauncherRoute.Login ->
+                listOf("server", "username", "password", "cancel") +
+                    if (!state.busy && !state.restoring && !state.signedIn && !state.cleanupPending) listOf("submit") else emptyList()
+        }
+    val appKeys = state.apps.catalog.map { "apps:${it.componentKey}" }
     val belowApps =
         state.route == LauncherRoute.Home &&
             state.selectedTab == LauncherTab.Essentials &&
             homeFocus.current?.startsWith("row:") == true
     val jellyfinHome = state.route == LauncherRoute.Home && state.selectedTab == LauncherTab.Jellyfin
-    val homeRootKeys = LauncherTab.entries.map { it.focusKey } + listOf("catalog", "settings", "system")
     val selectedHomeRoot = state.route == LauncherRoute.Home && !jellyfinHome && !belowApps && isDefaultHome
+    val moving = state.appEdit is LauncherAppEdit.Moving
+    val appModal = state.appEdit is LauncherAppEdit.Menu
     BackHandler(
         enabled =
             state.dialog == null &&
+                !appModal &&
                 (
-                    state.route == LauncherRoute.Apps ||
+                    moving ||
+                        state.route == LauncherRoute.Apps ||
                         state.route == LauncherRoute.Settings ||
                         belowApps ||
                         jellyfinHome ||
                         selectedHomeRoot
                 ),
     ) {
-        if (jellyfinHome) {
-            if (homeFocus.current != null && homeFocus.current !in homeRootKeys) {
-                homeFocus.request(LauncherTab.Jellyfin.focusKey)
+        if (moving) {
+            model.finishMoving()
+        } else if (jellyfinHome) {
+            if (!homeFocus.parentFocused) {
+                headerFocus.request(LauncherTab.Jellyfin.focusKey)
             } else {
                 model.selectTab(LauncherTab.Essentials)
             }
         } else if (belowApps) {
-            homeFocus.request(homeFocus.rowTarget("apps", appKeys) ?: "apps:+")
+            val app = homeFocus.rowTarget("apps", appKeys)
+            if (app != null) homeFocus.request(app) else headerFocus.request(LauncherTab.Essentials.focusKey)
         } else if (state.route != LauncherRoute.Home) {
             model.backToHome()
         }
@@ -129,83 +159,33 @@ internal fun LauncherShell(
         model.navigate(route, invoker)
     }
 
-    fun settings() {
-        if (state.route == LauncherRoute.Home) model.rememberInvoker("system")
-        systemSettings()
+    fun accountSettings() {
+        if (state.route == LauncherRoute.Login) model.cancelLogin()
+        model.openSettings(account = true)
     }
-    CompositionLocalProvider(LocalContentColor provides Color.White) {
-        MaterialTheme(colorScheme = launcherColors) {
-            Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium)
-                    Spacer(Modifier.weight(1f))
-                    LauncherClock()
-                }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(
-                            rememberScrollState(),
-                        ).padding(horizontal = 32.dp, vertical = 12.dp)
-                        .focusGroup()
-                        .onPreviewKeyEvent {
-                            if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionDown) {
-                                val target =
-                                    when (state.route) {
-                                        LauncherRoute.Home -> state.selectedTab.focusKey
-                                        LauncherRoute.Apps ->
-                                            state.apps.catalog
-                                                .firstOrNull()
-                                                ?.let { "${it.componentKey}:open" } ?: "system"
-                                        LauncherRoute.Settings -> if (state.busy || state.restoring) "refresh" else "account"
-                                        LauncherRoute.Login -> "server"
-                                    }
-                                focus.request(target)
-                                true
-                            } else if (it.type == KeyEventType.KeyDown &&
-                                it.key in listOf(Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp)
-                            ) {
-                                val controls = listOf("catalog", "settings", "system")
-                                val index = controls.indexOf(focus.current).coerceAtLeast(0)
-                                val destination =
-                                    if (it.key == Key.DirectionLeft) {
-                                        index - 1
-                                    } else if (it.key == Key.DirectionRight) {
-                                        index + 1
-                                    } else {
-                                        index
-                                    }
-                                focus.request(controls[destination.coerceIn(controls.indices)])
-                                true
-                            } else {
-                                false
-                            }
-                        },
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Button(
-                        onClick = { navigate(LauncherRoute.Apps, "catalog") },
-                        modifier = Modifier.launcherFocus(focus, "catalog"),
-                    ) { Text(stringResource(R.string.all_apps)) }
-                    Button(
-                        onClick = { navigate(LauncherRoute.Settings, "settings") },
-                        modifier = Modifier.launcherFocus(focus, "settings"),
-                    ) { Text(stringResource(R.string.launcher_settings)) }
-                    Button(
-                        onClick = ::settings,
-                        modifier = Modifier.launcherFocus(focus, "system"),
-                    ) { Text(stringResource(R.string.system_settings)) }
-                }
+
+    fun selectTab(
+        tab: LauncherTab,
+        enterContent: Boolean,
+    ) {
+        if (state.route == LauncherRoute.Login) model.cancelLogin()
+        model.selectTab(tab, enterContent)
+    }
+    LauncherTheme {
+        Column(
+            Modifier.fillMaxSize().background(LauncherStyle.background).background(LauncherStyle.backgroundDepth).onPreviewKeyEvent {
+                it.isRepeatedLauncherActivation
+            },
+        ) {
+            LauncherHeader(state, headerFocus, focus, model, ::selectTab, ::accountSettings, systemSettings)
+            Box(Modifier.weight(1f).fillMaxWidth().launcherFocusScope(focus) { contentKeys }) {
                 when (state.route) {
                     LauncherRoute.Home ->
                         LauncherHomeScreen(
                             state,
                             homeFocus,
+                            model,
                             imageScope?.takeIf { it.boundary.key == state.boundaryKey },
-                            onApps = { navigate(LauncherRoute.Apps, "apps:+") },
                             onApp = {
                                 model.rememberInvoker("apps:$it")
                                 openApp(it)
@@ -215,7 +195,6 @@ internal fun LauncherShell(
                                 openMedia(itemId, state.boundaryKey)
                             },
                             pages = homePages,
-                            onTab = model::selectTab,
                             onContentEntry = model::homeContentEntered,
                             onConnect = { model.beginLogin(LauncherLoginOrigin.Jellyfin) },
                             onSettings = {
@@ -225,23 +204,229 @@ internal fun LauncherShell(
                                 )
                             },
                             onRefresh = model::refresh,
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            modifier = Modifier.fillMaxSize(),
                         )
-                    LauncherRoute.Apps -> LauncherAppsScreen(state, appsFocus, model, openApp, Modifier.weight(1f).fillMaxWidth())
+                    LauncherRoute.Apps -> LauncherAppsScreen(state, appsFocus, model, openApp, Modifier.fillMaxSize())
                     LauncherRoute.Settings ->
                         LauncherSettingsScreen(
                             state,
                             settingsFocus,
                             model,
-                            ::settings,
+                            systemSettings,
                             isDefaultHome,
                             homeSettings,
-                            Modifier.weight(1f).fillMaxWidth(),
+                            Modifier.fillMaxSize(),
                         )
-                    LauncherRoute.Login -> LauncherLoginScreen(state, loginFocus, model, Modifier.weight(1f).fillMaxWidth())
+                    LauncherRoute.Login -> LauncherLoginScreen(state, loginFocus, model, Modifier.fillMaxSize())
                 }
             }
-            state.dialog?.let { LauncherDialogContent(it, model::dismissDialog, model::logout) }
+        }
+        LauncherAppActions(state, model) { model.menuAppToOpen()?.let(openApp) }
+        state.dialog?.let { LauncherDialogContent(it, model::dismissDialog, model::logout) }
+    }
+}
+
+@Composable
+private fun LauncherHeader(
+    state: LauncherUiState,
+    focus: LauncherFocus,
+    content: LauncherFocus,
+    model: LauncherViewModel,
+    selectTab: (LauncherTab, Boolean) -> Unit,
+    account: () -> Unit,
+    systemSettings: () -> Unit,
+) {
+    val controls = LauncherTab.entries.map { it.focusKey } + listOf("header-account", "settings")
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(
+                LauncherStyle.headerHeight,
+            ).padding(horizontal = LauncherStyle.inset)
+            .launcherFocusScope(focus) { controls }
+            .onPreviewKeyEvent {
+                if (it.type != KeyEventType.KeyDown ||
+                    it.key !in listOf(Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp, Key.DirectionDown)
+                ) {
+                    false
+                } else if (state.appEdit is LauncherAppEdit.Moving) {
+                    true
+                } else if (it.key == Key.DirectionDown) {
+                    val tab = LauncherTab.entries.firstOrNull { tab -> tab.focusKey == focus.current }
+                    if (tab != null) {
+                        val available = state.homeContentKeys(tab).isNotEmpty()
+                        if (state.route == LauncherRoute.Home && tab == state.selectedTab && available && content.enter()) {
+                            model.homeContentEntered()
+                        } else if (state.route != LauncherRoute.Home || tab != state.selectedTab || available) {
+                            // One update owns both tab selection and deferred entry.
+                            selectTab(tab, available)
+                        }
+                    } else {
+                        content.enter()
+                    }
+                    true
+                } else {
+                    val index = controls.indexOf(focus.current).coerceAtLeast(0)
+                    val destination =
+                        when (it.key) {
+                            Key.DirectionLeft -> index - 1
+                            Key.DirectionRight -> index + 1
+                            else -> index
+                        }
+                    focus.request(controls[destination.coerceIn(controls.indices)])
+                    true
+                }
+            },
+        horizontalArrangement = Arrangement.spacedBy(LauncherStyle.headerGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LauncherTab.entries.forEach { tab ->
+            LauncherHeaderControl(
+                stringResource(if (tab == LauncherTab.Essentials) R.string.home else R.string.jellyfin),
+                focus,
+                tab.focusKey,
+                state,
+                model,
+                tab = tab,
+                active = state.selectedTab == tab,
+            ) { selectTab(tab, false) }
+        }
+        Spacer(Modifier.weight(1f))
+        LauncherHeaderControl(
+            stringResource(R.string.server_account),
+            focus,
+            "header-account",
+            state,
+            model,
+            icon = R.drawable.launcher_jellyfin,
+            click = account,
+        )
+        LauncherHeaderControl(
+            stringResource(R.string.system_settings),
+            focus,
+            "settings",
+            state,
+            model,
+            icon = R.drawable.launcher_settings,
+            click = systemSettings,
+        )
+        LauncherClock()
+    }
+}
+
+@Composable
+private fun LauncherHeaderControl(
+    label: String,
+    focus: LauncherFocus,
+    target: String,
+    state: LauncherUiState,
+    model: LauncherViewModel,
+    active: Boolean = false,
+    tab: LauncherTab? = null,
+    icon: Int? = null,
+    click: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    var entryEpoch by remember { mutableStateOf<Triple<Int, Int, Boolean>?>(null) }
+    LaunchedEffect(
+        focused,
+        state.focusGeneration,
+        state.appEditEpoch,
+        state.route,
+        state.selectedTab,
+        state.dialog,
+        state.boundaryKey,
+        state.restoring,
+    ) {
+        val epoch = entryEpoch
+        if (focused &&
+            tab != null &&
+            !active &&
+            state.route == LauncherRoute.Home &&
+            state.dialog == null &&
+            state.appEdit == null &&
+            state.appFocusTarget == null &&
+            epoch == Triple(state.focusGeneration, state.appEditEpoch, state.restoring)
+        ) {
+            delay(LauncherStyle.TAB_DWELL_MILLIS)
+            val latest = model.state.value
+            if (focus.hasFocus &&
+                focus.current == target &&
+                latest.route == LauncherRoute.Home &&
+                latest.dialog == null &&
+                latest.appEdit == null &&
+                latest.appFocusTarget == null &&
+                latest.selectedTab != tab &&
+                epoch == Triple(latest.focusGeneration, latest.appEditEpoch, latest.restoring)
+            ) {
+                model.selectTab(tab)
+            }
+        }
+    }
+    Box(
+        (if (icon == null) Modifier.height(LauncherStyle.headerControl) else Modifier.size(LauncherStyle.headerControl))
+            .launcherFocus(focus, target)
+            .onFocusChanged {
+                if (it.isFocused && !focused) {
+                    entryEpoch =
+                        if (state.appFocusTarget == null) Triple(state.focusGeneration, state.appEditEpoch, state.restoring) else null
+                }
+                if (!it.isFocused) entryEpoch = null
+                focused = it.isFocused
+            }.drawBehind {
+                if (active || focused) {
+                    val thickness = (if (focused) LauncherStyle.focusedUnderline else LauncherStyle.tabUnderline).toPx()
+                    drawLine(
+                        if (focused) LauncherStyle.text else LauncherStyle.muted,
+                        Offset(0f, size.height - thickness / 2),
+                        Offset(size.width, size.height - thickness / 2),
+                        thickness,
+                    )
+                }
+            }.semantics {
+                contentDescription = label
+                if (tab != null) selected = active
+            }.combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = if (tab != null) Role.Tab else Role.Button,
+                onClick = {
+                    focus.request(target)
+                    click()
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (icon == null) {
+            Text(
+                label,
+                color = if (focused || active) LauncherStyle.text else LauncherStyle.muted,
+                style =
+                    LauncherStyle.header.copy(
+                        fontWeight =
+                            if (focused) {
+                                FontWeight.Bold
+                            } else if (active) {
+                                FontWeight.Medium
+                            } else {
+                                FontWeight.Normal
+                            },
+                    ),
+            )
+        } else {
+            Image(
+                painterResource(icon),
+                null,
+                Modifier.size(LauncherStyle.headerIcon),
+                colorFilter =
+                    if (icon ==
+                        R.drawable.launcher_jellyfin
+                    ) {
+                        null
+                    } else {
+                        ColorFilter.tint(if (focused) LauncherStyle.text else LauncherStyle.headerIconTint)
+                    },
+            )
         }
     }
 }
@@ -257,7 +442,7 @@ private fun LauncherClock() {
             }
         }
     }
-    Text(clock, style = MaterialTheme.typography.titleLarge)
+    Text(clock, style = LauncherStyle.header, color = LauncherStyle.text)
 }
 
 @Composable
@@ -297,7 +482,8 @@ private fun LauncherDialogContent(
                     max = 520.dp,
                 ).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
                 .padding(24.dp)
-                .focusGroup(),
+                .focusGroup()
+                .onPreviewKeyEvent { it.isRepeatedLauncherActivation },
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(stringResource(title), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.headlineSmall)
@@ -331,13 +517,3 @@ private fun LauncherDialogContent(
         }
     }
 }
-
-private val launcherColors =
-    darkColorScheme(
-        primary = Color(0xFF22B8D4),
-        onPrimary = Color(0xFF081420),
-        background = Color(0xFF081420),
-        onBackground = Color.White,
-        surface = Color(0xFF12293D),
-        onSurface = Color.White,
-    )

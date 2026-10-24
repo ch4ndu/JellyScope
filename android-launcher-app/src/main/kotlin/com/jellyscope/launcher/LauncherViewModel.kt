@@ -2,6 +2,7 @@
 
 package com.jellyscope.launcher
 
+import androidx.compose.ui.geometry.Rect
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.data.repository.SessionRepository
@@ -62,11 +63,18 @@ internal class LauncherViewModel(
                         homeInvoker =
                             when {
                                 current.boundaryKey == key -> current.homeInvoker
-                                current.selectedTab == LauncherTab.Essentials -> "apps:+"
+                                current.selectedTab == LauncherTab.Essentials -> HOME_CONTENT
                                 loggedIn == null -> JELLYFIN_CONNECT
                                 else -> LauncherTab.Jellyfin.focusKey
                             },
                         homeTabActivation = current.homeTabActivation && current.boundaryKey == key,
+                        appEdit = current.appEdit.takeIf { current.boundaryKey == key },
+                        appEditEpoch = current.appEditEpoch + if (current.boundaryKey == key) 0 else 1,
+                        appFocusTarget =
+                            current.appFocusTarget.takeIf {
+                                current.boundaryKey == key || it is LauncherAppFocusTarget.HomeContent && it.appsOnly
+                            },
+                        settingsFocusTarget = current.settingsFocusTarget.takeIf { current.boundaryKey == key },
                         media =
                             media.state.value.takeIf { it.boundaryKey == key && !suppressMedia }
                                 ?: LauncherMediaState(),
@@ -87,7 +95,20 @@ internal class LauncherViewModel(
             }
         }
         viewModelScope.launch {
-            apps.state.collect { value -> _state.update { it.copy(apps = value) } }
+            apps.state.collect { value ->
+                _state.update { current ->
+                    val edit = current.appEdit
+                    val missing =
+                        when (edit) {
+                            is LauncherAppEdit.Menu ->
+                                value.catalog.none { it.componentKey == edit.target.componentKey }
+                            is LauncherAppEdit.Moving -> value.catalog.none { it.componentKey == edit.componentKey }
+                            else -> false
+                        }
+                    val updated = current.copy(apps = value)
+                    if (missing) updated.closeAppEdit() else updated
+                }
+            }
         }
         viewModelScope.launch {
             cleaner.cleanupPending.collect { value -> _state.update { it.copy(cleanupPending = value) } }
@@ -138,14 +159,46 @@ internal class LauncherViewModel(
         _state.update { it.copy(homeInvoker = key, homeTabActivation = false) }
     }
 
-    fun selectTab(tab: LauncherTab) {
+    fun selectTab(
+        tab: LauncherTab,
+        enterContent: Boolean = false,
+    ) {
         _state.update {
-            if (it.route != LauncherRoute.Home) {
-                it
-            } else {
-                it.copy(selectedTab = tab, homeInvoker = tab.focusKey, homeTabActivation = true, focusGeneration = it.focusGeneration + 1)
-            }
+            it.copy(
+                route = LauncherRoute.Home,
+                selectedTab = tab,
+                homeInvoker = if (enterContent) HOME_CONTENT else tab.focusKey,
+                homeTabActivation = !enterContent,
+                loginOrigin = null,
+                authError = null,
+                appEdit = null,
+                appEditEpoch = it.appEditEpoch + 1,
+                appFocusTarget = if (enterContent) LauncherAppFocusTarget.HomeContent(it.focusGeneration + 1) else null,
+                settingsFocusTarget = null,
+                focusGeneration = it.focusGeneration + 1,
+            )
         }
+    }
+
+    fun openSettings(account: Boolean) {
+        _state.update {
+            it.copy(
+                route = LauncherRoute.Settings,
+                homeInvoker = if (it.route == LauncherRoute.Home) (if (account) "header-account" else "settings") else it.homeInvoker,
+                homeTabActivation = false,
+                loginOrigin = null,
+                authError = null,
+                appEdit = null,
+                appEditEpoch = it.appEditEpoch + 1,
+                appFocusTarget = null,
+                settingsFocusTarget = if (account) LauncherSettingsFocusTarget(it.focusGeneration + 1) else null,
+                focusGeneration = it.focusGeneration + 1,
+            )
+        }
+    }
+
+    fun settingsFocusHandled(target: LauncherSettingsFocusTarget) {
+        _state.update { if (it.settingsFocusTarget == target) it.copy(settingsFocusTarget = null) else it }
     }
 
     fun homeContentEntered() {
@@ -168,6 +221,10 @@ internal class LauncherViewModel(
                 loginOrigin = origin,
                 authError = null,
                 homeTabActivation = false,
+                appEdit = null,
+                appEditEpoch = it.appEditEpoch + 1,
+                appFocusTarget = null,
+                settingsFocusTarget = null,
                 focusGeneration = it.focusGeneration + 1,
             )
         }
@@ -189,6 +246,15 @@ internal class LauncherViewModel(
                 authError = null,
                 loginOrigin = if (route == LauncherRoute.Login) it.loginOrigin else null,
                 homeTabActivation = false,
+                appEdit = null,
+                appEditEpoch = it.appEditEpoch + 1,
+                appFocusTarget =
+                    if (route == LauncherRoute.Home && (invoker ?: it.homeInvoker) in launcherHeaderKeys) {
+                        LauncherAppFocusTarget.Header(invoker ?: it.homeInvoker, it.focusGeneration + 1)
+                    } else {
+                        null
+                    },
+                settingsFocusTarget = null,
                 focusGeneration = it.focusGeneration + 1,
             )
         }
@@ -210,10 +276,14 @@ internal class LauncherViewModel(
                 route = LauncherRoute.Home,
                 dialog = null,
                 authError = null,
-                homeInvoker = "apps:+",
+                homeInvoker = HOME_CONTENT,
                 selectedTab = LauncherTab.Essentials,
                 homeTabActivation = false,
                 loginOrigin = null,
+                appEdit = null,
+                appEditEpoch = it.appEditEpoch + 1,
+                appFocusTarget = LauncherAppFocusTarget.HomeContent(it.focusGeneration + 1, appsOnly = true),
+                settingsFocusTarget = null,
                 focusGeneration = it.focusGeneration + 1,
                 homeResetGeneration = it.homeResetGeneration + 1,
             )
@@ -221,7 +291,7 @@ internal class LauncherViewModel(
     }
 
     fun showDialog(dialog: LauncherDialog) {
-        _state.update { it.copy(dialog = dialog) }
+        _state.update { it.copy(dialog = dialog, appEdit = null, appEditEpoch = it.appEditEpoch + 1) }
     }
 
     fun dismissDialog() {
@@ -324,10 +394,14 @@ internal class LauncherViewModel(
         _state.update {
             it.copy(
                 route = LauncherRoute.Home,
-                homeInvoker = if (it.selectedTab == LauncherTab.Essentials) "apps:+" else JELLYFIN_CONNECT,
+                homeInvoker = if (it.selectedTab == LauncherTab.Essentials) HOME_CONTENT else JELLYFIN_CONNECT,
                 homeTabActivation = false,
                 loginOrigin = null,
                 media = LauncherMediaState(),
+                appEdit = null,
+                appEditEpoch = it.appEditEpoch + 1,
+                appFocusTarget = null,
+                settingsFocusTarget = null,
                 busy = true,
             )
         }
@@ -345,14 +419,116 @@ internal class LauncherViewModel(
         }
     }
 
-    fun pin(key: String) = editApps { apps.pin(key) }
-
-    fun unpin(key: String) = editApps { apps.unpin(key) }
-
-    fun move(
+    fun showAppMenu(
         key: String,
-        delta: Int,
-    ) = editApps { apps.move(key, delta) }
+        origin: LauncherAppOrigin,
+        anchor: Rect,
+    ) {
+        val current = _state.value
+        if (current.dialog != null || current.apps.catalog.none { it.componentKey == key }) return
+        if (origin == LauncherAppOrigin.Home &&
+            (
+                current.route != LauncherRoute.Home ||
+                    current.selectedTab != LauncherTab.Essentials ||
+                    current.apps.catalog.none { it.componentKey == key }
+            )
+        ) {
+            return
+        }
+        if (origin == LauncherAppOrigin.Catalog && current.route != LauncherRoute.Apps) return
+        _state.update {
+            it.copy(
+                appEdit = LauncherAppEdit.Menu(LauncherAppTarget(key, origin, anchor)),
+                appEditEpoch = it.appEditEpoch + 1,
+                appFocusTarget = null,
+            )
+        }
+    }
+
+    fun dismissAppEdit() {
+        _state.update { it.closeAppEdit() }
+    }
+
+    fun menuAppToOpen(): String? {
+        val menu = _state.value.appEdit as? LauncherAppEdit.Menu ?: return null
+        if (_state.value.apps.catalog
+                .none { it.componentKey == menu.target.componentKey }
+        ) {
+            appUnavailable()
+            return null
+        }
+        dismissAppEdit()
+        return menu.target.componentKey
+    }
+
+    fun startMoving() {
+        val current = _state.value
+        val menu = current.appEdit as? LauncherAppEdit.Menu ?: return
+        val key = menu.target.componentKey
+        if (current.orderWriting || current.apps.catalog.size < 2 || current.apps.catalog.none { it.componentKey == key }) return
+        _state.update {
+            it
+                .copy(
+                    route = LauncherRoute.Home,
+                    selectedTab = LauncherTab.Essentials,
+                    appEdit = LauncherAppEdit.Moving(key),
+                    appEditEpoch =
+                        it.appEditEpoch + 1,
+                ).withAppFocus(LauncherAppOrigin.Home, key)
+        }
+    }
+
+    fun finishMoving() {
+        if (_state.value.appEdit is LauncherAppEdit.Moving) dismissAppEdit()
+    }
+
+    fun moveApp(delta: Int) {
+        val current = _state.value
+        val move = current.appEdit as? LauncherAppEdit.Moving ?: return
+        val index = current.apps.catalog.indexOfFirst { it.componentKey == move.componentKey }
+        if (current.orderWriting || delta !in listOf(-1, 1) || index < 0 || index + delta !in current.apps.catalog.indices) return
+        writeOrder({
+            apps.move(move.componentKey, delta)
+            check(
+                apps.state.value.catalog
+                    .any { it.componentKey == move.componentKey },
+            )
+        }) { it.withAppFocus(LauncherAppOrigin.Home, move.componentKey) }
+    }
+
+    fun appFocusHandled(target: LauncherAppFocusTarget) {
+        _state.update { if (it.appFocusTarget == target) it.copy(appFocusTarget = null) else it }
+    }
+
+    private fun LauncherUiState.withAppFocus(
+        origin: LauncherAppOrigin,
+        key: String,
+    ): LauncherUiState {
+        val target = LauncherAppFocusTarget.App(origin, key, focusGeneration + 1)
+        return copy(
+            appFocusTarget = target,
+            focusGeneration = target.generation,
+            homeTabActivation = false,
+            homeInvoker =
+                if (origin ==
+                    LauncherAppOrigin.Home
+                ) {
+                    target.key
+                } else {
+                    homeInvoker
+                },
+        )
+    }
+
+    private fun LauncherUiState.closeAppEdit(): LauncherUiState {
+        val edit = appEdit ?: return this
+        val (origin, key) =
+            when (edit) {
+                is LauncherAppEdit.Menu -> edit.target.origin to edit.target.componentKey
+                is LauncherAppEdit.Moving -> LauncherAppOrigin.Home to edit.componentKey
+            }
+        return copy(appEdit = null, appEditEpoch = appEditEpoch + 1).withAppFocus(origin, key)
+    }
 
     private suspend fun refreshApps() {
         try {
@@ -364,15 +540,29 @@ internal class LauncherViewModel(
         }
     }
 
-    private fun editApps(block: suspend () -> Unit) {
+    private fun writeOrder(
+        block: suspend () -> Unit,
+        success: (LauncherUiState) -> LauncherUiState,
+    ) {
+        if (_state.value.orderWriting) return
+        val epoch = _state.value.appEditEpoch
+        _state.update { it.copy(orderWriting = true) }
         viewModelScope.launch {
             try {
                 block()
+                val actual = apps.state.value
+                _state.update {
+                    val updated = it.copy(apps = actual)
+                    if (it.appEditEpoch == epoch) success(updated) else updated
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                launcherFailure("pins-write", failure)
+                launcherFailure("app-order-move-save", failure)
+                dismissAppEdit()
                 showDialog(LauncherDialog.AppUnavailable)
+            } finally {
+                _state.update { it.copy(orderWriting = false) }
             }
         }
     }

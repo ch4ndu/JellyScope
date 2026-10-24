@@ -34,33 +34,45 @@ internal fun LauncherSettingsScreen(
     homeSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val controls =
-        (if (!state.restoring && !state.busy) listOf("account") else emptyList()) + listOf("refresh", "settings-system", "settings-home")
-    val enabledControls = controls + listOf("catalog", "settings", "system")
-    LaunchedEffect(state.focusGeneration, controls) {
-        focus.request(
-            focus.current?.takeIf { it in enabledControls } ?: controls.first(),
-        )
+    val controls = state.settingsControls
+    val request = state.settingsFocusTarget
+    LaunchedEffect(state.focusGeneration, controls, state.dialog) {
+        if (state.dialog == null) {
+            if (request == null && focus.awaitingTarget(controls)) return@LaunchedEffect
+            val target =
+                if (request != null) {
+                    "account".takeIf { it in controls } ?: controls.first()
+                } else {
+                    focus.current?.takeIf { focus.isParentTarget(it) || it in controls } ?: controls.first()
+                }
+            focus.request(target)
+            request?.let(model::settingsFocusHandled)
+        }
     }
     Column(
-        modifier.verticalScroll(rememberScrollState()).padding(32.dp).focusGroup().onPreviewKeyEvent {
-            val index = controls.indexOf(focus.current)
-            if (it.type != KeyEventType.KeyDown || index < 0) {
-                false
-            } else {
-                when (it.key) {
-                    Key.DirectionUp -> {
-                        focus.request(controls.getOrNull(index - 1) ?: "settings")
-                        true
+        modifier
+            .verticalScroll(
+                rememberScrollState(),
+            ).padding(horizontal = LauncherStyle.inset, vertical = LauncherStyle.contentTop)
+            .focusGroup()
+            .onPreviewKeyEvent {
+                val index = controls.indexOf(focus.current)
+                if (it.type != KeyEventType.KeyDown || index < 0) {
+                    false
+                } else {
+                    when (it.key) {
+                        Key.DirectionUp -> {
+                            focus.request(controls.getOrNull(index - 1) ?: "settings")
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            controls.getOrNull(index + 1)?.let(focus::request)
+                            true
+                        }
+                        else -> false
                     }
-                    Key.DirectionDown -> {
-                        controls.getOrNull(index + 1)?.let(focus::request)
-                        true
-                    }
-                    else -> false
                 }
-            }
-        },
+            },
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(stringResource(R.string.launcher_settings), style = MaterialTheme.typography.headlineMedium)
@@ -118,6 +130,9 @@ internal fun LauncherSettingsScreen(
             )
         }
         Button(onClick = model::refresh, modifier = Modifier.launcherFocus(focus, "refresh")) { Text(stringResource(R.string.refresh)) }
+        Button(onClick = { model.navigate(LauncherRoute.Apps, "settings") }, modifier = Modifier.launcherFocus(focus, "settings-catalog")) {
+            Text(stringResource(R.string.all_apps))
+        }
         Button(onClick = systemSettings, modifier = Modifier.launcherFocus(focus, "settings-system")) {
             Text(stringResource(R.string.system_settings))
         }

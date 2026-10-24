@@ -2,30 +2,21 @@
 
 package com.jellyscope.launcher
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
-import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 
 @Composable
@@ -37,149 +28,84 @@ internal fun LauncherAppsScreen(
     modifier: Modifier = Modifier,
 ) {
     val catalog = state.apps.catalog
-    val openKeys = catalog.map { "${it.componentKey}:open" }
-    val current = focus.current
-    val focusedApp = catalog.firstOrNull { current?.startsWith("${it.componentKey}:") == true }
-    val focusedPinIndex = state.apps.pins.indexOfFirst { it.componentKey == focusedApp?.componentKey }
-    val restoreTarget =
-        when {
-            focusedApp == null && current !in listOf(null, "catalog", "settings", "system") ->
-                focus.rowTarget("catalog", openKeys)
-                    ?: "system"
-            focusedApp != null &&
-                (
-                    current == "${focusedApp.componentKey}:earlier" &&
-                        focusedPinIndex <= 0 ||
-                        current == "${focusedApp.componentKey}:later" &&
-                        focusedPinIndex !in 0 until state.apps.pins.lastIndex ||
-                        current == "${focusedApp.componentKey}:pin" &&
-                        focusedPinIndex < 0 &&
-                        state.apps.pins.size >= MAX_APP_PINS
-                ) -> "${focusedApp.componentKey}:open"
-            else -> null
+    val keys = catalog.map { "${it.componentKey}:open" }
+    val allKeys = keys
+    val request = (state.appFocusTarget as? LauncherAppFocusTarget.App)?.takeIf { it.origin == LauncherAppOrigin.Catalog }
+    val restore =
+        focus.current?.takeIf { !focus.isParentTarget(it) && it !in allKeys }?.let {
+            focus.rowTarget("catalog", keys)
+                ?: "settings"
         }
-    LaunchedEffect(state.focusGeneration) { focus.request(focus.current ?: openKeys.firstOrNull() ?: "system") }
-    LaunchedEffect(state.apps) {
-        restoreTarget?.let(focus::request)
+    val modal = state.dialog != null || state.appEdit is LauncherAppEdit.Menu
+    // Consuming a typed target must not supersede its pending attach request.
+    LaunchedEffect(state.focusGeneration, focus, modal) {
+        if (!modal) {
+            if (request == null && focus.awaitingTarget(keys)) return@LaunchedEffect
+            focus.request(
+                request?.key?.takeIf { it in allKeys } ?: focus.current?.takeIf { focus.isParentTarget(it) || it in allKeys }
+                    ?: focus.rowTarget("catalog", keys)
+                    ?: "settings",
+            )
+            request?.let(model::appFocusHandled)
+        }
     }
-    Column(
-        modifier.verticalScroll(rememberScrollState()).padding(horizontal = 32.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        Text(stringResource(R.string.apps), style = MaterialTheme.typography.headlineMedium)
-        Text(stringResource(R.string.pin_limit, MAX_APP_PINS))
-        if (catalog.isEmpty()) Text(stringResource(R.string.apps_empty))
-        catalog.forEachIndexed { catalogIndex, app ->
-            key(app.componentKey) {
-                val pinIndex = state.apps.pins.indexOfFirst { it.componentKey == app.componentKey }
-                val controls =
-                    buildList {
-                        add("${app.componentKey}:open")
-                        if (pinIndex >= 0 || state.apps.pins.size < MAX_APP_PINS) add("${app.componentKey}:pin")
-                        if (pinIndex > 0) add("${app.componentKey}:earlier")
-                        if (pinIndex >= 0 && pinIndex < state.apps.pins.lastIndex) add("${app.componentKey}:later")
-                    }
-                val rememberApp = { focus.rememberRow("catalog", "${app.componentKey}:open", catalogIndex) }
-                Column(
-                    Modifier.fillMaxWidth().focusGroup().onPreviewKeyEvent {
-                        if (it.type != KeyEventType.KeyDown) {
-                            false
-                        } else {
-                            when (it.key) {
-                                Key.DirectionUp -> {
-                                    focus.request(openKeys.getOrNull(catalogIndex - 1) ?: "settings")
-                                    true
-                                }
-                                Key.DirectionDown -> {
-                                    openKeys.getOrNull(catalogIndex + 1)?.let(focus::request)
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                    },
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        app.icon?.let { Image(it, null, Modifier.size(40.dp)) }
-                        Text(app.label, style = MaterialTheme.typography.titleLarge)
-                    }
-                    Row(
-                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp).onPreviewKeyEvent {
-                            val index = controls.indexOf(focus.current)
-                            if (it.type != KeyEventType.KeyDown || index < 0) {
-                                false
-                            } else {
-                                when (it.key) {
-                                    Key.DirectionLeft -> {
-                                        focus.request(controls[(index - 1).coerceAtLeast(0)])
+    LaunchedEffect(keys, modal) { if (!modal && request == null && !focus.awaitingTarget(keys)) restore?.let(focus::request) }
+    BoxWithConstraints(modifier) {
+        val columns =
+            ((maxWidth - LauncherStyle.inset * 2 + LauncherStyle.appGap) / (LauncherStyle.appWidth + LauncherStyle.appGap))
+                .toInt()
+                .coerceAtLeast(
+                    1,
+                )
+        val rows = remember(catalog, columns) { catalog.chunked(columns) }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(
+                    rememberScrollState(),
+                ).padding(horizontal = LauncherStyle.inset, vertical = LauncherStyle.appRowPadding),
+            verticalArrangement = Arrangement.spacedBy(LauncherStyle.appRowPadding),
+        ) {
+            Text(stringResource(R.string.all_apps), color = LauncherStyle.text, style = LauncherStyle.heading)
+            if (catalog.isEmpty()) Text(stringResource(R.string.apps_empty), style = LauncherStyle.body)
+            rows.forEachIndexed { rowIndex, row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(LauncherStyle.appGap)) {
+                    row.forEachIndexed { column, app ->
+                        val index = rowIndex * columns + column
+                        key(app.componentKey) {
+                            LauncherAppTile(
+                                app,
+                                app.label,
+                                focus,
+                                keys[index],
+                                index,
+                                state.appEditEpoch,
+                                clickLabel = stringResource(R.string.open_app),
+                                onFocused = { focus.rememberRow("catalog", keys[index], index) },
+                                direction = { direction ->
+                                    if (direction == Key.DirectionDown && rowIndex == rows.lastIndex) {
                                         true
-                                    }
-                                    Key.DirectionRight -> {
-                                        focus.request(controls[(index + 1).coerceAtMost(controls.lastIndex)])
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            }
-                        },
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Button(
-                            onClick = {
-                                open(app.componentKey)
-                            },
-                            modifier =
-                                Modifier.launcherFocus(
-                                    focus,
-                                    "${app.componentKey}:open",
-                                    rememberApp,
-                                ),
-                        ) { Text(stringResource(R.string.open_app)) }
-                        Button(
-                            onClick = {
-                                if (pinIndex >=
-                                    0
-                                ) {
-                                    model.unpin(app.componentKey)
-                                } else {
-                                    model.pin(app.componentKey)
-                                }
-                            },
-                            enabled =
-                                pinIndex >= 0 || state.apps.pins.size < MAX_APP_PINS,
-                            modifier = Modifier.launcherFocus(focus, "${app.componentKey}:pin", rememberApp),
-                        ) {
-                            Text(
-                                stringResource(
-                                    if (pinIndex >=
-                                        0
-                                    ) {
-                                        R.string.unpin
                                     } else {
-                                        R.string.pin
-                                    },
-                                ),
+                                        val destination =
+                                            when (direction) {
+                                                Key.DirectionLeft -> (index - 1).coerceAtLeast(rowIndex * columns)
+                                                Key.DirectionRight -> (index + 1).coerceAtMost((rowIndex * columns + row.lastIndex))
+                                                Key.DirectionUp -> index - columns
+                                                Key.DirectionDown -> (index + columns).coerceAtMost(catalog.lastIndex)
+                                                else -> null
+                                            }
+                                        if (destination == null) {
+                                            false
+                                        } else {
+                                            focus.request(keys.getOrNull(destination) ?: "settings")
+                                            true
+                                        }
+                                    }
+                                },
+                                onClick = { open(app.componentKey) },
+                                onLongClick = { model.showAppMenu(app.componentKey, LauncherAppOrigin.Catalog, it) },
+                                selected = (state.appEdit as? LauncherAppEdit.Menu)?.target?.componentKey == app.componentKey,
                             )
-                        }
-                        Button(onClick = {
-                            model.move(app.componentKey, -1)
-                        }, enabled = pinIndex > 0, modifier = Modifier.launcherFocus(focus, "${app.componentKey}:earlier", rememberApp)) {
-                            Text(stringResource(R.string.move_earlier))
-                        }
-                        Button(
-                            onClick = {
-                                model.move(app.componentKey, 1)
-                            },
-                            enabled = pinIndex >= 0 && pinIndex < state.apps.pins.lastIndex,
-                            modifier =
-                                Modifier.launcherFocus(
-                                    focus,
-                                    "${app.componentKey}:later",
-                                    rememberApp,
-                                ),
-                        ) {
-                            Text(stringResource(R.string.move_later))
                         }
                     }
                 }

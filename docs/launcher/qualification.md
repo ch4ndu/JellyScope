@@ -9,8 +9,8 @@ CoreService; full ordinary-app and replacement-Home behavior remain unqualified.
 
 | Level | What must be established | Current device result |
 | --- | --- | --- |
-| Installation | Install/update on the identified API/ABI/firmware | TiVo: install passed after CoreService removal; update/reboot not tested |
-| Ordinary app | Login, Apps/pins, media/cache, remote focus, settings and playback handoff | Cold launch/Essentials screen passed; remaining flows not run |
+| Installation | Install/update on the identified API/ABI/firmware | TiVo: install and Ocean update passed after CoreService removal; reboot not tested |
+| Ordinary app | Login, Apps/order, media/cache, remote focus, settings and playback handoff | Ocean startup, Apps/Move and targeted ADB navigation passed; authenticated media/playback and physical remote remain unqualified |
 | Replacement Home | Selector support, actual default, cold/repeated Home and Back/task behavior | Not run |
 
 Device identity and artifact details for the first attempt are recorded below;
@@ -18,6 +18,83 @@ remote model remains unknown. Record these values alongside each future result;
 do not transfer a result to another firmware/model or equate installation with
 Home replacement. Emulator evidence, if later authorized, is separate from physical
 TV/Fire TV evidence.
+
+## Dusk header refinement
+
+Dusk replaces the Ocean background and the gear opens Android System settings
+directly; the Jellyfin icon retains launcher account/settings entry. Source review,
+formatting, debug compilation, Release lint and minified assembly passed. The
+Release installed successfully on the same TiVo on 2026-10-24; APK SHA-256:
+`c588b330899d105ef18897ed44687b82a31359cd428a46e16aeba2060ef3b141`.
+
+Screenshots confirmed the plum/coral background and readable pale header icons.
+ADB D-pad activation of the gear opened `com.android.tv.settings/.MainSettings`
+from Home, Jellyfin, internal account Settings and Login. Back preserved the
+origin; screenshots confirmed gear focus on Home, Jellyfin and the empty Login
+form. The account icon focused Sign in internally, and Jellyfin Connect remained
+reachable. No credentials were entered or app order changed. Cold launch reported
+683 ms, a single observation rather than a performance qualification. Physical
+remote timing and reboot behavior remain unverified; earlier Ocean results below
+cover unchanged paths.
+
+## Ocean/Home candidate
+
+The earlier Ocean candidate replaced favorites with the complete ordered Apps catalog,
+adds Ocean colors/quiet focus, and uses stable header/container focus with delayed
+tab selection. Host checks and review are recorded separately from device results.
+The reviewed minified Release installed with `adb install -r` on the TiVo described
+below on 2026-10-24. APK SHA-256:
+`954f070647c376f7f3c750454b4d35ebc507d221151a47b64318c83a9df90d99`.
+Cold launch reported 846 ms; this is a single observation, not a performance result.
+Source review, formatting, debug compilation, Release lint and assembly passed.
+
+ADB D-pad input and screenshots confirmed:
+
+- Ocean background, Home/Jellyfin underline tabs, quiet app focus, updated icons,
+  seven automatically listed apps and no normal instructional subtitle.
+- Long-press Open/Move, a one-position move persisting after force-stop/relaunch,
+  and restoration of the original order without accidental app launches.
+- Dwell selection, Down to Connect, and rapid Right/Down reaching Connect.
+  Traversing Jellyfin to the account icon without dwelling kept Home selected.
+  Exact event timing relative to the 250 ms delay was not measured.
+- Right from Jellyfin through account and gear; the account shortcut focused
+  Sign in. Connect opened the empty sign-in form; Back returned to Jellyfin,
+  with Down reaching Connect again. No credentials were entered.
+- Settings, the seven-app grid, Android System settings, and return focus on
+  the System settings control. An explicit MAIN/HOME intent returned to Apps.
+
+This is targeted ordinary-app verification, not full device qualification.
+Physical-remote hold/repeat timing, accessibility announcements, injected write
+failures, complete migration edge cases, authenticated media and playback remain
+unverified. No default change or reboot was performed by these checks.
+
+### Saved Home selection versus effective routing — 2026-10-24
+
+The user reported selecting JellyScope as default. Read-only inspection of the
+same TiVo found the chooser selected JellyScope, `dumpsys role` reported
+`android.app.role.HOME` holder `com.udnahc.jellyscope.launcher`, and
+`dumpsys package preferred-xml` named its MainActivity. However,
+`cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME`
+resolved `com.google.android.tvlauncher/.MainActivity`; a Home key press also
+opened Google TV. The stock privileged launcher advertises HOME priority 2,
+compared with JellyScope's 0. Selection is saved but effective routing differs.
+No package/default changes were made during this inspection. The launcher status
+currently checks effective resolution, so it cannot distinguish this case from
+not being selected. This device limitation remains unresolved.
+
+## Earlier favorites UX device check
+
+Stock Home, app-menu and favorites-picker screenshots informed the compact
+header and banner geometry. After reconnection, the reviewed minified Release installed successfully and
+cold-launched in 1,006 ms on the same TiVo. ADB D-pad input and screenshots
+confirmed the favorites picker, adding two temporary pins, long-press menus,
+inline leftward Move, Back finishing with the new order retained, and removal
+with focus falling back to the surviving pin and then plus. The original empty
+favorites list was restored. These checks did not launch an app accidentally.
+
+Physical-remote timing, sustained held-key transitions, accessibility announcements,
+grid scrolling, settings return, login cancellation and Home cancellation remain
+unqualified for this redesign. Earlier installation evidence below is separate.
 
 ## TiVo Stream 4K installation attempt — 2026-10-23
 
@@ -79,7 +156,9 @@ Essentials, Jellyfin, Apps/Add apps, All apps, Launcher settings and System sett
 Package flags did not include DEBUGGABLE. No fatal exception or fatal signal was
 found in the inspected launcher-process log. This verifies installation and basic
 signed-out startup on this modified device, not login, playback or full remote UX.
-Google TV Home remained default; no reboot/default selection was performed.
+At that earlier checkpoint Google TV Home was the observed default; no reboot
+or default selection was performed by the check. The later role/resolver
+discrepancy is recorded above.
 Retention across reboot or future firmware updates remains unverified.
 
 ## Implemented host-side boundary
@@ -105,7 +184,9 @@ owned by [launcher engineering](engineering.md#standard-home-integration).
 
 1. Record hardware/firmware/API/ABI/remote and the exact APK hash; verify install,
    update and restart before claiming ordinary-app support.
-2. Open normally and check Apps/pins, login/cancel/password/IME, settings and
+2. Verify the complete installed-app inventory, legacy-order migration and Move
+   persistence across relaunch. Exercise first/last boundaries and restore the
+   starting order after temporary moves. Open normally and check Apps/order, login/cancel/password/IME, settings and
    System settings, disconnected/offline/empty media, cache/account cleanup and
    playback handoff/return. Observe low-memory and process-restart behavior
    separately; no performance or memory result has been measured yet.
@@ -118,13 +199,16 @@ owned by [launcher engineering](engineering.md#standard-home-integration).
    unavailable-selector messaging, selector return focus, device restart and
    external playback return. Record each result and failure independently.
 
-6. Verify Essentials/Jellyfin tab selection, saved focus/scroll and inactive-page
+6. Verify Home/Jellyfin dwell selection and cancellation during rapid traversal,
+   immediate Down before dwell, Jellyfin Down to Connect, Right/Left through
+   header icons, Connect/cancel, and Settings/All apps/System settings return.
+   Check saved focus/scroll and inactive-page
    disposal; assign, reorder and move rows across tabs in the server editor. Check
    old missing/null tab fields, invalid placement, both-tab account cleanup, and
    disconnected/restoring/cleanup/busy/signed-in-empty/offline states. Confirm
-   Jellyfin login success/cancel returns to Jellyfin, actual Home selects Essentials,
+   Jellyfin login success/cancel returns to Jellyfin, actual Home selects Home,
    and logout preserves the tab with a reachable action.
 
-Only the installation/launch attempt documented above has been executed; the
-remaining manual checks have not run. Device selection/default changes and any
+The observations above establish only the named checks; other checklist paths
+remain unverified. Device selection/default changes and any
 install/launch/input/log collection require explicit authorization before use.

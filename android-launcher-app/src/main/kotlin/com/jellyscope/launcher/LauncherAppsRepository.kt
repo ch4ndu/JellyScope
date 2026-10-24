@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +31,7 @@ internal class LauncherAppsRepository(
     private val mutex = Mutex()
     private val _state = MutableStateFlow(LauncherAppsState())
     val state = _state.asStateFlow()
-    private var pins: List<String> = emptyList()
+    private var committedOrder: List<String>? = null
 
     @Suppress("DEPRECATION")
     suspend fun refresh() =
@@ -48,39 +49,42 @@ internal class LauncherAppsRepository(
                                     ?: packageManager.getLaunchIntentForPackage(packageName)
                             intent?.let { packageManager.resolveActivity(it, 0) }?.let(::app)
                         }.sortedWith(compareBy<LauncherApp> { it.label.lowercase(Locale.getDefault()) }.thenBy { it.componentKey })
-                val stored =
-                    try {
-                        json.decodeFromString<List<String>>(preferences.getString("pins", "[]").orEmpty())
-                    } catch (
-                        _: Exception,
-                    ) {
-                        emptyList()
-                    }
-                pins = stored.distinct().filter { key -> catalog.any { it.componentKey == key } }.take(MAX_APP_PINS)
-                persist()
-                publish(catalog)
+                val available = catalog.associateBy { it.componentKey }
+                // Capture the durable source before Editor.commit can change the
+                // preferences' in-memory map even when its disk write fails.
+                val source = committedOrder ?: storedOrder().also { committedOrder = it }
+                val surviving = source.distinct().filter { it in available }
+                val order = surviving + catalog.map { it.componentKey }.filter { it !in surviving }
+                val ordered = order.mapNotNull(available::get)
+                try {
+                    persist(order)
+                    committedOrder = order
+                    _state.value = LauncherAppsState(ordered, loaded = true)
+                } catch (failure: Exception) {
+                    // Discovery remains usable; only a successful commit changes authority.
+                    launcherFailure("app-order-refresh-save", failure)
+                    _state.value = LauncherAppsState(ordered, durable = false, loaded = true)
+                }
             }
         }
-
-    suspend fun pin(key: String) =
-        mutate {
-            if (key !in this &&
-                size < MAX_APP_PINS &&
-                _state.value.catalog.any { it.componentKey == key }
-            ) {
-                add(key)
-            }
-        }
-
-    suspend fun unpin(key: String) = mutate { remove(key) }
 
     suspend fun move(
         key: String,
         delta: Int,
-    ) = mutate {
-        val index = indexOf(key)
-        val destination = index + delta
-        if (index >= 0 && destination in indices && delta in listOf(-1, 1)) add(destination, removeAt(index))
+    ) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val candidate = _state.value.catalog.toMutableList()
+            val index = candidate.indexOfFirst { it.componentKey == key }
+            check(index >= 0)
+            val destination = index + delta
+            if (destination !in candidate.indices || delta !in listOf(-1, 1)) return@withLock
+            candidate.add(destination, candidate.removeAt(index))
+            val order = candidate.map { it.componentKey }
+            // Also makes a previously non-durable refresh snapshot durable.
+            persist(order)
+            committedOrder = order
+            _state.value = LauncherAppsState(candidate, loaded = true)
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -100,27 +104,17 @@ internal class LauncherAppsRepository(
             }
         }
 
-    private suspend fun mutate(change: MutableList<String>.() -> Unit) =
-        withContext(Dispatchers.IO) {
-            mutex.withLock {
-                val previous = pins
-                pins = pins.toMutableList().apply(change).toList()
-                try {
-                    persist()
-                } catch (failure: Exception) {
-                    pins = previous
-                    throw failure
-                }
-                publish(_state.value.catalog)
-            }
+    private fun storedOrder(): List<String> =
+        try {
+            val key = if (preferences.contains("app-order-v1")) "app-order-v1" else "pins"
+            json.decodeFromString<List<String>>(preferences.getString(key, "[]").orEmpty())
+        } catch (failure: Exception) {
+            launcherFailure("app-order-read", failure)
+            emptyList()
         }
 
-    private fun persist() {
-        check(preferences.edit().putString("pins", json.encodeToString(pins)).commit())
-    }
-
-    private fun publish(catalog: List<LauncherApp>) {
-        _state.value = LauncherAppsState(catalog, pins.mapNotNull { key -> catalog.firstOrNull { it.componentKey == key } })
+    private fun persist(order: List<String>) {
+        check(preferences.edit().putString("app-order-v1", json.encodeToString(order)).commit())
     }
 
     private fun app(info: ResolveInfo): LauncherApp? {
@@ -139,17 +133,54 @@ internal class LauncherAppsRepository(
                 launcherFailure("app-label", failure)
                 activity.packageName
             }
+        val banner =
+            try {
+                if (activity.banner ==
+                    0
+                ) {
+                    null
+                } else {
+                    packageManager.getDrawable(activity.packageName, activity.banner, activity.applicationInfo)?.raster(320, 180)
+                }
+            } catch (failure: Exception) {
+                launcherFailure("app-banner", failure)
+                null
+            }
+                ?: try {
+                    val application = activity.applicationInfo
+                    if (application.banner ==
+                        0
+                    ) {
+                        null
+                    } else {
+                        packageManager.getDrawable(activity.packageName, application.banner, application)?.raster(320, 180)
+                    }
+                } catch (failure: Exception) {
+                    launcherFailure("application-banner", failure)
+                    null
+                }
         val icon =
             try {
-                val drawable = info.loadIcon(packageManager)
-                val bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
-                drawable.setBounds(0, 0, 96, 96)
-                drawable.draw(Canvas(bitmap))
-                bitmap.asImageBitmap()
+                info.loadIcon(packageManager).raster(96, 96)
             } catch (failure: Exception) {
                 launcherFailure("app-icon", failure)
                 null
             }
-        return LauncherApp(component, label, icon)
+        return LauncherApp(component, label, icon, banner)
+    }
+
+    private fun Drawable.raster(
+        width: Int,
+        height: Int,
+    ): androidx.compose.ui.graphics.ImageBitmap {
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val scale = minOf(width.toFloat() / intrinsicWidth.coerceAtLeast(1), height.toFloat() / intrinsicHeight.coerceAtLeast(1))
+        val drawWidth = if (intrinsicWidth > 0) (intrinsicWidth * scale).toInt().coerceAtLeast(1) else width
+        val drawHeight = if (intrinsicHeight > 0) (intrinsicHeight * scale).toInt().coerceAtLeast(1) else height
+        val canvas = Canvas(bitmap)
+        canvas.translate((width - drawWidth) / 2f, (height - drawHeight) / 2f)
+        setBounds(0, 0, drawWidth, drawHeight)
+        draw(canvas)
+        return bitmap.asImageBitmap()
     }
 }

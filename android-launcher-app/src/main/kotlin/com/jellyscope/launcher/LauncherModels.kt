@@ -3,17 +3,19 @@
 package com.jellyscope.launcher
 
 import android.util.Log
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ImageBitmap
 import com.jellyscope.core.domain.model.AccountIdentity
 import kotlinx.serialization.Serializable
 import java.security.MessageDigest
 
 internal const val MAX_ROW_ITEMS = 20
-internal const val MAX_APP_PINS = 24
+internal const val HOME_CONTENT = "home:content"
 internal const val JELLYFIN_CONNECT = "jellyfin:connect"
 internal const val JELLYFIN_RECOVERY = "jellyfin:recovery"
 internal const val JELLYFIN_REFRESH = "jellyfin:refresh"
 internal const val JELLYFIN_SETTINGS = "jellyfin:settings"
+internal val launcherHeaderKeys = LauncherTab.entries.map { it.focusKey }.toSet() + setOf("header-account", "settings")
 
 @Serializable
 internal data class LauncherCard(
@@ -89,11 +91,62 @@ internal data class LauncherApp(
     val componentKey: String,
     val label: String,
     val icon: ImageBitmap?,
+    val banner: ImageBitmap? = null,
+)
+
+internal enum class LauncherAppOrigin { Home, Catalog }
+
+internal data class LauncherAppTarget(
+    val componentKey: String,
+    val origin: LauncherAppOrigin,
+    val anchor: Rect,
+)
+
+internal sealed interface LauncherAppEdit {
+    data class Menu(
+        val target: LauncherAppTarget,
+    ) : LauncherAppEdit
+
+    data class Moving(
+        val componentKey: String,
+    ) : LauncherAppEdit
+}
+
+internal sealed interface LauncherAppFocusTarget {
+    val generation: Int
+
+    data class App(
+        val origin: LauncherAppOrigin,
+        val componentKey: String,
+        override val generation: Int,
+    ) : LauncherAppFocusTarget {
+        val key: String
+            get() =
+                when (origin) {
+                    LauncherAppOrigin.Home -> "apps:$componentKey"
+                    LauncherAppOrigin.Catalog -> "$componentKey:open"
+                }
+    }
+
+    data class HomeContent(
+        override val generation: Int,
+        val appsOnly: Boolean = false,
+    ) : LauncherAppFocusTarget
+
+    data class Header(
+        val key: String,
+        override val generation: Int,
+    ) : LauncherAppFocusTarget
+}
+
+internal data class LauncherSettingsFocusTarget(
+    val generation: Int,
 )
 
 internal data class LauncherAppsState(
     val catalog: List<LauncherApp> = emptyList(),
-    val pins: List<LauncherApp> = emptyList(),
+    val durable: Boolean = true,
+    val loaded: Boolean = false,
 )
 
 internal enum class LauncherRoute { Home, Apps, Settings, Login }
@@ -128,13 +181,49 @@ internal data class LauncherUiState(
     val dialog: LauncherDialog? = null,
     val focusGeneration: Int = 0,
     val homeResetGeneration: Int = 0,
-    val homeInvoker: String = "apps:+",
+    val homeInvoker: String = HOME_CONTENT,
     val selectedTab: LauncherTab = LauncherTab.Essentials,
     val homeTabActivation: Boolean = false,
     val loginOrigin: LauncherLoginOrigin? = null,
+    val appEdit: LauncherAppEdit? = null,
+    val appEditEpoch: Int = 0,
+    val appFocusTarget: LauncherAppFocusTarget? = null,
+    val orderWriting: Boolean = false,
+    val settingsFocusTarget: LauncherSettingsFocusTarget? = null,
 ) {
+    val settingsControls: List<String>
+        get() =
+            (if (!restoring && !busy) listOf("account") else emptyList()) +
+                listOf("refresh", "settings-catalog", "settings-system", "settings-home")
+
     val homeRows: List<LauncherRow>
-        get() = if (signedIn) media.rows.filter { it.layout.effectiveTab == selectedTab } else emptyList()
+        get() = rowsFor(selectedTab)
+
+    fun rowsFor(tab: LauncherTab): List<LauncherRow> = if (signedIn) media.rows.filter { it.layout.effectiveTab == tab } else emptyList()
+
+    fun homeActions(tab: LauncherTab): List<String> =
+        when {
+            tab == LauncherTab.Essentials || rowsFor(tab).any { it.cards.isNotEmpty() } || restoring -> emptyList()
+            cleanupPending -> listOf(JELLYFIN_RECOVERY)
+            !signedIn && busy -> listOf(JELLYFIN_SETTINGS)
+            !signedIn -> listOf(JELLYFIN_CONNECT)
+            else -> listOf(JELLYFIN_REFRESH, JELLYFIN_SETTINGS)
+        }
+
+    fun homeContentKeys(tab: LauncherTab): List<String> =
+        (if (tab == LauncherTab.Essentials) apps.catalog.map { "apps:${it.componentKey}" } else emptyList()) +
+            rowsFor(tab).flatMap { row -> row.cards.map { "${row.focusKey}:${it.id}" } } + homeActions(tab)
+
+    val editedApp: LauncherApp?
+        get() {
+            val key =
+                when (val edit = appEdit) {
+                    is LauncherAppEdit.Menu -> edit.target.componentKey
+                    is LauncherAppEdit.Moving -> edit.componentKey
+                    else -> null
+                }
+            return apps.catalog.firstOrNull { it.componentKey == key }
+        }
 }
 
 internal fun launcherHash(value: String): String =

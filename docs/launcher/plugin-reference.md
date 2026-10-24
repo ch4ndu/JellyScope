@@ -58,16 +58,19 @@ PascalCase properties, and the editor maps between those forms.
 | Row `libraryId` | Required nullable field; otherwise 32 lowercase hex GUID, Jellyfin N format |
 | Row `limit` | Integer 1–20 |
 
+The dashboard label **Essentials** and wire value `essentials` map to the launcher
+**Home** tab. The wire value is unchanged for compatibility.
+
 All listed fields except `tab` are required. Unknown additional fields are ignored, but an
 unknown schema, query, aspect or playback preference rejects the complete layout.
 `library` requires a library ID; other queries may optionally be scoped to one.
 No arbitrary URL, intent, script, filter program, credential or user override is
-accepted. Fresh defaults are Play Next, Up Next and Favorites on Essentials, and Recently
-Added on Jellyfin. Apps always stays local on Essentials. The server may assign
+accepted. Fresh defaults are Play Next, Up Next and Favorites on Home, and Recently
+Added on Jellyfin. Apps always stays local on Home. The server may assign
 any media row to either tab; the 12-row limit applies across both. Existing
 stored titles are preserved, including older Continue Watching/Next Up labels.
 
-Absent/null placement maps Resume, Next Up and Favorites to Essentials, and
+Absent/null placement maps Resume, Next Up and Favorites to Home, and
 Latest/Library to Jellyfin. Canonical responses emit explicit placement. This
 additive schema-1 field keeps old configurations and snapshots readable; older
 launchers ignore it and show their flattened row list. Explicit unknown placement

@@ -23,19 +23,31 @@ Home, Apps, Settings and Login. `LauncherLayout` and
 `LauncherConfigurationRepository` own layout validation/fetching;
 `LauncherMediaRepository`, `LauncherSnapshotStore` and `LauncherImages` own media,
 durable snapshots and artwork respectively. `LauncherAppsRepository` owns app
-inventory/pins; `MainActivity` and the vendored `JellyScopePlaybackContract`
+inventory/order; `MainActivity` and the vendored `JellyScopePlaybackContract`
 own the outbound handoff. `LauncherFocus` supports the independent tab focus owners.
 The launcher does not import the player UI or native playback runtime.
 
 ## Independent Android launcher
 
-The launcher has Essentials and Jellyfin tabs, separate from the player
-application's [drawer and hero contracts](../engineering/tv-ux-behaviors.md). Essentials starts with local Apps;
+The launcher has Home and Jellyfin tabs, separate from the player
+application's [drawer and hero contracts](../engineering/tv-ux-behaviors.md). Home starts with local Apps;
 Jellyfin contains media only. Server rows may target either tab. Apps, launcher settings and Android System settings remain
-reachable before login and during media errors. Pins are device-local; the
-trailing `+` opens the full launchable-app list with remote-focusable Open,
-Pin/Unpin and ordering actions. Unavailable packages produce a visible error and
-fall back to a surviving component or `+`.
+reachable before login and during media errors. Apps contains the complete ordered
+launchable catalog, one resolved component per package. Long-press offers Open
+and Move; each Left/Right step saves synchronously, and Select/Back finishes.
+There is no pin prerequisite, plus tile, picker, 24-app ceiling or normal Apps hint.
+All apps remains a grid reached from Settings; Back returns to Home. Missing
+components fall back to a surviving app, then the attached Home tab.
+
+The existing device preferences file uses `app-order-v1`. If absent, surviving
+legacy pins seed the order before remaining catalog entries append. The legacy
+key is preserved. Refresh removes unavailable IDs, deduplicates and appends new
+components without sorting surviving entries. Reinstalled/pruned or renamed
+components append on the next resume/manual refresh. Mutex-protected IO commits
+precede durable authority changes. Failed refresh commits publish discovered apps
+as non-durable, with visible save status and retry on refresh; failed Move commits
+leave the visible order unchanged and report failure. The captured durable source
+is not replaced by SharedPreferences' failed-commit in-memory map.
 
 Server-configured visible media rows follow their declared order, title and
 landscape (176×99), poster (128×192), or square (160×160) shape. Media focus keys
@@ -43,20 +55,22 @@ use `row:<id>` and `row:<id>:<itemId>` so remote IDs cannot alias local controls
 Settings reports current, cached, default, unavailable, invalid or unsupported
 configuration. Removing or emptying the focused row uses its saved clamped
 vertical position among surviving media rows on the active tab, then Apps on
-Essentials or the available action/tab control on Jellyfin.
+Home or the available action/tab control on Jellyfin.
 
 Each row remembers its stable item identity and semantic index. Vertical movement
 restores the destination row; missing items use the clamped index, next available
 row on the active tab, then that tab’s fallback described above. Horizontal
 movement reveals the focused card without changing
 row identity. Modal controls trap focus and restore their invoker. Return from
-System settings restores the control that opened it, including the settings
-screen entry, rather than forcing focus to the Home button.
+System settings restores the control that opened it: the header gear or the
+settings-screen entry. The gear dispatches the existing Android settings callback
+directly, preserving the route, selected tab and any in-progress login. The
+Jellyfin icon opens internal launcher settings with account focus.
 
-Back dismisses a dialog first, then returns from Apps/settings to its Home
+Back dismisses a dialog first, then finishes inline Move, then returns from Apps/settings to its Home
 invoker. Login Back cancels outstanding work, clears password input and returns
 to its origin: Settings or the Jellyfin tab and Connect action. A login already
-durably committed remains reflected in session state. On Essentials, Home Back
+durably committed remains reflected in session state. On Home, Home Back
 below Apps returns to Apps; at Apps it retains ordinary activity
 exit behavior unless the public resolver reports this Activity as the default Home;
 in that case root Back is consumed without navigation. Device qualification is
@@ -67,20 +81,29 @@ success from an Activity launch.
 
 ### Launcher tabs and connection flow
 
-Tab selection lives in the ViewModel. Header Down focuses the selected tab;
-Left/Right moves across the strip and Center selects, keeping focus on the tab.
-Down enters that page's remembered valid content. First-row Up returns to the
-selected tab; tab Up reaches the header. Each page retains separate focus and
-saved scroll state, with inactive requesters detached. Removed or moved rows
-fall back within that page, then Apps for Essentials or an available action/tab
-for Jellyfin. Account/epoch changes discard account-derived focus and scroll.
+Tab selection lives in the ViewModel. The stable header focus owner survives tab,
+route, account and Home-reset changes; separate content owners retain each page's
+row/scroll memory. A local focus container uses `focusRequester`,
+`focusProperties.onEnter` and `focusGroup`, adapting the TV scope pattern without
+importing its coordinator. Immediate entry tries attached valid children;
+explicit deferred targets remain pending separately. Header keys forward through
+content owners, which reflect actual header focus so Login/resume restoration
+cannot steal it. Typed Settings account entry precedes saved focus and falls back
+to an enabled control when account actions are unavailable.
 
-Jellyfin Back moves content focus to its tab, then switches to Essentials. Apps
+Focused inactive tabs select after 250 ms; blur, route/modal/move/Home/account
+changes cancel stale dwell. Center selects immediately. Down-before-dwell selects
+and requests content in one state update. Signed-out Jellyfin enters Connect;
+restoring with no action stays on the tab. Right from Jellyfin traverses account
+then gear; content Up returns to its tab. Focus uses text/underlines for tabs and
+quiet scaling/outline for app tiles over the centralized Dusk plum-to-coral gradient.
+
+Jellyfin Back moves content focus to its tab, then switches to Home. Apps
 and Settings return to the originating tab; playback return preserves tab/item.
-Actual device Home selects Essentials and targets Apps through the Home reset.
+Actual device Home selects Home and targets Apps through the Home reset.
 Logout keeps the selected tab and chooses a reachable disconnected landing.
 
-Signed-out Essentials shows Apps without repeated media sign-in prompts.
+Signed-out Home shows Apps without repeated media sign-in prompts.
 Signed-out Jellyfin offers **Connect to Jellyfin → Connect to server**. Session
 restoration shows a waiting state; pending cleanup directs users to the existing
 Settings recovery action. Busy cancellation does not pretend a connection is
@@ -97,7 +120,7 @@ a committed session remains authoritative. Password/IME disposal is unchanged.
 ### Standard Home integration
 
 The independent launcher declares a separate MAIN/HOME/DEFAULT filter and uses
-singleTask. A new MAIN+HOME intent without data returns to Apps (`apps:+`), clears
+singleTask. A new MAIN+HOME intent without data returns to the Apps content entry, clears
 a modal/auth error and replaces Home focus state. Cold handling runs only without
 saved instance state, so configuration recreation does not replay the original
 Home reset. Ordinary app/Leanback intents and external-app return preserve normal
@@ -191,7 +214,7 @@ Snapshot version 2 adds the validated last-good layout and up to 12 row snapshot
 The bounded version-1 reader preserves default row IDs/query keys and legacy
 artwork tags; writes use version 2. Configuration shares the existing account
 cache participant and cleanup paths. Unknown/corrupt snapshots fall back to empty
-cache and local defaults; credentials and local app pins require no migration.
+cache and local defaults; credentials and local app order require no migration.
 
 A synced pending-refresh marker is established before configuration, policy or row requests.
 Startup refuses marked snapshots, including AtomicFile backups. The marker is
@@ -210,7 +233,7 @@ pending-logout recovery at cold start. Application-owned authentication ordering
 serializes login, logout and confirmed-invalid-session handling across Activity
 recreation. Server/account removal calls
 the matching session-store operations. Registry cleanup is idempotent and never
-reacquires its gate. Component-key app pins and their order are separate device
+reacquires its gate. Component-key app order are separate device
 preferences, survive logout, and are not remote media configuration.
 
 ## Launcher configuration ownership
@@ -230,4 +253,4 @@ owner; shared transport and authentication remain unchanged by this integration.
 
 - Launcher snapshot files keep the small bounded row cache independent of the
   player database. Shared account leases preserve cleanup ordering without
-  coupling local app pins to a media account.
+  coupling local app order to a media account.
