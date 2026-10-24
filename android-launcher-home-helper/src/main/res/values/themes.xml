@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<resources>
+    <style name="HomeHelperTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#20132C</item>
+        <item name="android:colorAccent">#E9D9F4</item>
+        <item name="android:textColorPrimary">#F2F3F5</item>
+        <item name="android:textColorSecondary">#D5CADB</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+</resources>

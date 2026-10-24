@@ -22,6 +22,8 @@ contracts live in [engineering](engineering.md) and the [plugin reference](plugi
   license/readiness wiring and are not collected by `scripts/build-release-artifacts.sh`.
   See [device qualification](qualification.md) for tested paths and current Dusk status.
 
+Optional [Home-button helper setup](home-button-helper.md) covers firmware that ignores Home selection.
+
 ## Screens and everyday use
 
 | View | Purpose |

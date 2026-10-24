@@ -195,7 +195,7 @@ The manifest declares standard Home eligibility while preserving ordinary app
 entry. Settings opens the standard Home selector; an unavailable selector shows
 an error and leaves Android System settings accessible. Public resolver detection
 is best effort and may report a vendor proxy or resolver instead of this Activity.
-There is no vendor-launcher disabling, root flow, accessibility redirect, boot
+The core launcher has no vendor-launcher disabling, root flow, accessibility redirect, boot
 service or automatic default change. Android documents the
 [Home selection action](https://developer.android.com/reference/android/provider/Settings#ACTION_HOME_SETTINGS);
 Amazon describes the Home key as opening its
@@ -240,3 +240,17 @@ owned by [launcher engineering](engineering.md#standard-home-integration).
 The observations above establish only the named checks; other checklist paths
 remain unverified. Device selection/default changes and any
 install/launch/input/log collection require explicit authorization before use.
+
+## Optional Home helper
+
+The separate SDK-only helper passed debug compilation, Release lint, minified
+Release packaging and independent code review. Its Release APK was installed on
+the TiVo; the setup screen rendered, and enabling it through Android accessibility
+settings produced a bound service with key-filter capability and no accessibility
+event subscription. The user confirmed that pressing Home on the physical TiVo
+remote opened JellyScope Launcher. This establishes the observed physical Home
+path on this device; the originating app was not specified. Held/repeated Home,
+Home from another app, Back preservation, disabled-service fallback and the
+helper’s manual Open action remain unverified. Neither manual opening nor
+ADB-injected Home establishes interception. No reboot or stock package changes
+are part of this qualification. See [setup](home-button-helper.md).

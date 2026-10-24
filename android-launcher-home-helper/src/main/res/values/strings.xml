@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<resources>
+    <string name="app_name">JellyScope Home Helper</string>
+    <string name="setup_message">Use the Home button to open JellyScope Launcher. Enable this optional helper in Android accessibility settings. It acts only on Home and does not read screen content.</string>
+    <string name="service_description">Handles Home to open JellyScope Launcher. Does not read screen content or act on other buttons.</string>
+    <string name="launcher_status">JellyScope Launcher: %1$s</string>
+    <string name="launcher_available">Installed and enabled</string>
+    <string name="launcher_missing">Not installed</string>
+    <string name="launcher_disabled">Disabled. Enable JellyScope Launcher in Android settings.</string>
+    <string name="launcher_unavailable">Availability could not be confirmed</string>
+    <string name="service_enabled">Helper enabled in Android accessibility settings</string>
+    <string name="service_disabled">Helper not enabled in Android accessibility settings</string>
+    <string name="open_accessibility">Open accessibility settings</string>
+    <string name="open_launcher">Open JellyScope Launcher</string>
+    <string name="manual_open_notice">Open JellyScope Launcher checks the target app only. It does not confirm Home-button handling. Some devices do not deliver Home to accessibility services; try your physical remote after enabling.</string>
+    <string name="restricted_settings">On Android 13 or later, you may need to allow restricted settings from this helper’s App info before enabling it.</string>
+    <string name="disable_message">To stop handling Home, disable this helper in Android accessibility settings or uninstall it. Enabling does not change your default Home app, and this helper does not open the launcher at boot.</string>
+    <string name="launcher_open_failed">JellyScope Launcher could not be opened. Check that it is installed and enabled, then try again.</string>
+    <string name="settings_unavailable">Accessibility settings could not be opened. Open Android settings with your remote and find Accessibility.</string>
+    <string name="license_notice">Source licensed under the Mozilla Public License 2.0.</string>
+</resources>

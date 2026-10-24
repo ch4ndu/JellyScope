@@ -1,0 +1,7 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:fillColor="#20132C" android:pathData="M0,0h48v48H0z" />
+    <path android:fillColor="#00000000" android:strokeColor="#F2F3F5" android:strokeWidth="2.5"
+        android:strokeLineJoin="round" android:strokeLineCap="round" android:pathData="M8,22L24,9 40,22v18H8zM17,30h14l-5,-5M31,30l-5,5" />
+</vector>

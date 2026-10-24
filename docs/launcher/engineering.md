@@ -9,6 +9,7 @@ The player receiver owns the cross-app [playback link contract](../engineering/t
 
 | Component | Responsibility |
 | --- | --- |
+| `android-launcher-home-helper` | Optional SDK-only APK; physical Home filtering and explicit launcher entry |
 | `android-launcher-app` | Separate APK, Android Home entry, Compose UI and local app management |
 | `auth-session` | Reused authentication/session and account cleanup contracts; separate launcher credentials |
 | `transport` | Reused guarded HTTP transport; launcher composes its own client/session scope |
@@ -125,8 +126,8 @@ singleTask. A new MAIN+HOME intent without data returns to the Apps content entr
 a modal/auth error and replaces Home focus state. Cold handling runs only without
 saved instance state, so configuration recreation does not replay the original
 Home reset. Ordinary app/Leanback intents and external-app return preserve normal
-navigation. No Home key interception, vendor redirect, accessibility service or
-boot receiver is installed.
+navigation. The core launcher has no Home key interception, vendor redirect, accessibility
+service or boot receiver.
 
 Home while Login is visible routes directly to Apps and disposes the password/IME
 UI. The existing cancellation fence invalidates the attempt and joins the old job;
@@ -255,3 +256,13 @@ owner; shared transport and authentication remain unchanged by this integration.
 - Launcher snapshot files keep the small bounded row cache independent of the
   player database. Shared account leases preserve cleanup ordering without
   coupling local app order to a media account.
+
+## Optional Home helper boundary
+
+The separate helper targets the existing launcher Activity with explicit MAIN,
+CATEGORY_HOME and NEW_TASK, reusing the normal Home reset. Its service is exported
+only under BIND_ACCESSIBILITY_SERVICE, requests key filtering and no window content,
+and subscribes to no accessibility events. A synchronous initial Home-down launch
+owns consumption of matching repeats/up; other keys pass through. No shared SDK,
+network/player dependency or core-launcher manifest change is required. Setup and
+removal belong to the [helper guide](home-button-helper.md).
