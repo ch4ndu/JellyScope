@@ -66,19 +66,10 @@ Intel Macs are unsupported. Local comparison builds can offer restart-required
 runtime is experimental and not distribution-ready. Windows and Linux have experimental source-build
 paths, with no tested or packaged releases yet.
 
-The separate [Android launcher foundation](docs/BUILD.md#android-launcher-foundation)
-is in development. Its independent API-25+ application provides lightweight login,
-local app pins, cached Jellyfin rows and System settings access. Essentials keeps
-Apps first, while the Jellyfin tab offers dedicated media browsing and a direct
-Connect to server flow when signed out. Server configuration assigns media rows
-to either tab. The independent
-[server plugin](jellyfin-launcher-plugin/README.md) supplies configurable layouts;
-media selection explicitly hands off to JellyScope with matching-account checks
-and visible setup/failure guidance. Standard Home eligibility and a Home-selection settings action are implemented;
-[live device qualification](docs/operations/android-launcher-qualification.md) and
-live plugin/player qualification remain outstanding.
-Launcher APKs are local verification artifacts without release-license metadata
-and are not release-ready.
+The separate **JellyScope Launcher**, currently in development, provides Essentials/Jellyfin tabs, local app
+pins, direct Jellyfin browsing and server-configured media rows. See the dedicated
+[launcher guide](docs/launcher/README.md) for app setup, plugin installation,
+customizations and current qualification limits.
 
 ## Getting started
 

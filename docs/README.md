@@ -2,7 +2,9 @@
 
 ## User guides
 
-Start with [Using JellyScope](USAGE.md) for task-based instructions and platform limits.
+Start with [Using JellyScope](USAGE.md) for player instructions and platform limits.
+The separate [Launcher guide](launcher/README.md) covers the launcher app, plugin
+installation and server customizations.
 
 ## Engineering
 
@@ -12,6 +14,8 @@ owns audience, size and migration policy.
 
 | Guide | Owns |
 | --- | --- |
+| [launcher contracts](launcher/engineering.md) | Independent launcher navigation, data, persistence and plugin integration |
+| [launcher plugin](launcher/plugin-reference.md) | Server schema, editor persistence and permission projection |
 | [architecture](engineering/architecture.md) | Layers, state, DI, source sets and platform bridges |
 | [accounts-and-persistence](engineering/accounts-and-persistence.md) | Credentials, account boundaries, settings and durable state |
 | [api-and-caching](engineering/api-and-caching.md) | Jellyfin requests, projections, discovery and caches |
@@ -38,7 +42,7 @@ owns audience, size and migration policy.
 ## Build, release and project records
 
 - [Build](BUILD.md): toolchains, local artifacts, installation commands and module map.
-- [Launcher qualification](operations/android-launcher-qualification.md): device inventory and separate install, ordinary-app and replacement-Home evidence.
+- [Launcher qualification](launcher/qualification.md): device inventory and separate install, ordinary-app and replacement-Home evidence.
 - [Release](RELEASE.md): signing, publication commands and acceptance gates.
 - [Native dependencies](operations/android-native-dependencies.md): Android pins, binary verification and source/license obligations.
 - [Licensing and distribution](operations/licensing-and-distribution.md): legal direction and distribution requirements.

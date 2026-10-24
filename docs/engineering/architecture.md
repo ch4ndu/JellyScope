@@ -822,10 +822,4 @@ Android mpv wrapper provenance belongs to
 
 ## Launcher configuration ownership
 
-`jellyfin-launcher-plugin` is an independent .NET server build, with no server
-dependency introduced into Android. It owns the shared dashboard layout and
-authenticated user projection. Launcher-local `LauncherConfigurationRepository`
-fetches the bounded schema, `LauncherLayout` validates it, and the existing
-`LauncherSnapshotStore` owns durable per-account layout/media adoption. The
-[schema and server baseline](../../jellyfin-launcher-plugin/README.md) have one
-owner; shared transport and authentication remain unchanged by this integration.
+See [launcher configuration ownership](../launcher/engineering.md#launcher-configuration-ownership).

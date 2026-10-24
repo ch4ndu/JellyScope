@@ -222,56 +222,7 @@ export boundary.
 
 ## Android launcher queries and artwork
 
-The launcher defaults to Play Next (resume query), Up Next (non-resumable Next Up
-query), Recently Added and Favorites. Existing administrator-authored stored
-titles are preserved. Server layouts may select up to 12 ordered rows using bounded
-typed queries directly through `JellyfinApi`, with at most 20 cards per row and
-two concurrent row requests. Successful empty results replace cached rows;
-transient failures retain the last snapshot with a stale indication. Foreground
-refresh requests coalesce, automatic refresh has a 30-second minimum interval,
-and a 15-minute timer runs only while the activity is started. This is not a
-background execution guarantee.
-
-The independent [configuration plugin](../../jellyfin-launcher-plugin/README.md)
-owns the schema and server baseline. The launcher fetches its fixed endpoint
-only after establishing the durable refresh marker, with full session headers,
-origin validation, no redirects, strict UTF-8 and a 64 KiB response limit. Invalid,
-unsupported or unavailable configuration retains validated last-good settings;
-without those, four defaults apply. A valid empty layout remains empty.
-Configuration 401/403 alone never invalidates the session.
-
-Library IDs normalize to lowercase 32-hex GUIDs before client intersection with
-current user views. The server excludes external views; the client probe's default
-may include them, making its set a conservative superset. Cached configuration is
-also intersected; removed library rows need a later successful configuration fetch
-to return. Layout adoption durably prunes hidden, removed and query-changed row
-snapshots before publishing metadata. Work freezes one effective layout and checks
-account lease, generation, row ID and query fingerprint before commits. The
-fingerprint includes query, library and limit, but excludes title/order/aspect and
-server revision. Metadata changes can therefore reuse cards without accepting old
-query results. Optional row tab placement is presentation metadata too: both tabs
-consume one account-scoped layout, with the same combined 12-row bound and no
-requests caused solely by switching tabs. Absent/null placement is derived from
-the query on every wire/cache path, including existing version-2 snapshots. Landscape artwork selects backdrop then primary; poster/square use
-primary or a placeholder. Legacy tags are used only for their recorded image type.
-
-The launcher opts into preserving HTTP 403 as `ServerError(403)` for ordinary
-authenticated reads. Default transport behavior for existing callers is
-unchanged. A scoped denial clears the rejected row; an unauthorized response is
-checked against the current-user endpoint before signing out. Temporary probe
-failure never proves invalid credentials. A policy fingerprint uses only maximum
-parental rating and sorted accessible user-view IDs; confirmed changes invalidate
-cached media and artwork. Offline caches cannot discover remote policy changes.
-
-Artwork uses an explicit account-owned Coil loader, not the player UI singleton.
-Disk keys use stable account identity and effective tagged URL; runtime epochs
-isolate loaders and may appear in memory keys, but do not invalidate disk hits on
-cold restart. Logout retires requests/loaders and clears account artwork. Image
-path/query components are encoded and the credential-origin guard validates the
-final URL before attaching authorization. Redirects and HTTP logging are off;
-tokens never enter URLs or cache keys. Missing artwork leaves a focusable local
-placeholder. Account cleanup is owned by the
-[account persistence contract](accounts-and-persistence.md#independent-android-launcher-state).
+See the dedicated [launcher data and artwork contract](../launcher/engineering.md#android-launcher-queries-and-artwork).
 
 ## Why
 
