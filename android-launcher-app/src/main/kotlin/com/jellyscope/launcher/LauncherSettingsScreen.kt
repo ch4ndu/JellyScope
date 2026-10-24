@@ -98,7 +98,7 @@ internal fun LauncherSettingsScreen(
                 } else if (state.signedIn) {
                     model.showDialog(LauncherDialog.Logout)
                 } else {
-                    model.navigate(LauncherRoute.Login)
+                    model.beginLogin(LauncherLoginOrigin.Settings)
                 }
             },
             enabled =

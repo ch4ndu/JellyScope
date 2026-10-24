@@ -32,6 +32,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,8 +49,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
@@ -63,39 +68,66 @@ internal fun LauncherHomeScreen(
     onApps: () -> Unit,
     onApp: (String) -> Unit,
     onMedia: (String, String) -> Unit,
+    pages: SaveableStateHolder,
+    onTab: (LauncherTab) -> Unit,
+    onContentEntry: () -> Unit,
+    onConnect: () -> Unit,
+    onSettings: () -> Unit,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val appKeys = state.apps.pins.map { "apps:${it.componentKey}" } + "apps:+"
-    val mediaRows = state.media.rows.filter { it.cards.isNotEmpty() }
-    val rowKeys = listOf("apps") + mediaRows.map { it.focusKey }
-    val ids = mapOf("apps" to appKeys) + mediaRows.associate { row -> row.focusKey to row.cards.map { "${row.focusKey}:${it.id}" } }
-    val allKeys = ids.values.flatten() + listOf("catalog", "settings", "system")
+    val showApps = state.selectedTab == LauncherTab.Essentials
+    val appKeys = if (showApps) state.apps.pins.map { "apps:${it.componentKey}" } + "apps:+" else emptyList()
+    val rows = state.homeRows
+    val mediaRows = rows.filter { it.cards.isNotEmpty() }
+    val actionKeys =
+        when {
+            showApps || mediaRows.isNotEmpty() || state.restoring -> emptyList()
+            state.cleanupPending -> listOf(JELLYFIN_RECOVERY)
+            !state.signedIn && state.busy -> listOf(JELLYFIN_SETTINGS)
+            !state.signedIn -> listOf(JELLYFIN_CONNECT)
+            else -> listOf(JELLYFIN_REFRESH, JELLYFIN_SETTINGS)
+        }
+    val rowKeys =
+        (if (showApps) listOf("apps") else emptyList()) + mediaRows.map { it.focusKey } +
+            if (actionKeys.isNotEmpty()) listOf("jellyfin-actions") else emptyList()
+    val ids =
+        buildMap {
+            if (showApps) put("apps", appKeys)
+            mediaRows.forEach { row -> put(row.focusKey, row.cards.map { "${row.focusKey}:${it.id}" }) }
+            if (actionKeys.isNotEmpty()) put("jellyfin-actions", actionKeys)
+        }
+    val tabKeys = LauncherTab.entries.map { it.focusKey }
+    val allKeys = ids.values.flatten() + tabKeys + listOf("catalog", "settings", "system")
 
     fun fallback(): String =
         focus.rowTarget(focus.homeRow, ids[focus.homeRow].orEmpty())
             ?: mediaRows.getOrNull(focus.homeRowIndex.coerceIn(0, (mediaRows.size - 1).coerceAtLeast(0)))?.let {
                 focus.rowTarget(it.focusKey, ids[it.focusKey].orEmpty())
             }
-            ?: focus.rowTarget("apps", appKeys) ?: "apps:+"
+            ?: if (showApps) focus.rowTarget("apps", appKeys) ?: "apps:+" else actionKeys.firstOrNull() ?: state.selectedTab.focusKey
     val removedFocusTarget = if (focus.current != null && focus.current !in allKeys) fallback() else null
-    LaunchedEffect(state.focusGeneration) {
+    // Selecting a tab keeps focus on its control; Down explicitly enters its page.
+    LaunchedEffect(state.focusGeneration, focus) {
         val target =
-            focus.current?.takeIf { it in allKeys }
-                ?: state.homeInvoker.takeIf { it in allKeys }
-                ?: fallback()
+            if (state.homeTabActivation) {
+                state.selectedTab.focusKey
+            } else {
+                focus.current?.takeIf { it in allKeys } ?: state.homeInvoker.takeIf { it in allKeys } ?: fallback()
+            }
         focus.request(target)
     }
     // Content removal also rescues focus using the previous semantic index.
-    LaunchedEffect(allKeys) {
-        removedFocusTarget?.let(focus::request)
+    LaunchedEffect(allKeys, focus) {
+        if (!state.homeTabActivation) removedFocusTarget?.let(focus::request)
     }
-    LaunchedEffect(rowKeys) {
+    LaunchedEffect(rowKeys, focus) {
         val index = mediaRows.indexOfFirst { it.focusKey == focus.homeRow }
         if (index >= 0) focus.homeRowIndex = index
         focus.retainRows(
-            state.media.rows
+            rows
                 .map { it.focusKey }
-                .toSet() + "apps",
+                .toSet() + listOf("apps", "jellyfin-actions"),
         )
     }
 
@@ -114,7 +146,7 @@ internal fun LauncherHomeScreen(
                     if (rowIndex ==
                         0
                     ) {
-                        "settings"
+                        state.selectedTab.focusKey
                     } else {
                         rowKeys.getOrNull(rowIndex - 1)?.let { focus.rowTarget(it, ids[it].orEmpty()) }
                     }
@@ -124,87 +156,194 @@ internal fun LauncherHomeScreen(
         target?.let(focus::request)
         return true
     }
-    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(stringResource(R.string.apps), Modifier.padding(horizontal = 32.dp), style = MaterialTheme.typography.titleLarge)
+    Column(modifier) {
         Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 32.dp, vertical = 12.dp).focusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            state.apps.pins.forEachIndexed { index, app ->
-                key(app.componentKey) {
-                    LauncherTile(app.label, focus, appKeys[index], {
-                        focus.rememberRow("apps", appKeys[index], index)
-                    }, { direction("apps", index, it) }, { onApp(app.componentKey) }) {
-                        app.icon?.let { Image(it, null, Modifier.size(48.dp).align(Alignment.Center)) }
+            Modifier.padding(horizontal = 32.dp, vertical = 8.dp).focusGroup().onPreviewKeyEvent {
+                if (it.type != KeyEventType.KeyDown) {
+                    false
+                } else {
+                    val index = tabKeys.indexOf(focus.current).coerceAtLeast(0)
+                    when (it.key) {
+                        Key.DirectionLeft -> {
+                            focus.request(tabKeys[(index - 1).coerceAtLeast(0)])
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            focus.request(tabKeys[(index + 1).coerceAtMost(tabKeys.lastIndex)])
+                            true
+                        }
+                        Key.DirectionUp -> {
+                            focus.request("settings")
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            onContentEntry()
+                            focus.request(fallback())
+                            true
+                        }
+                        else -> false
                     }
                 }
-            }
-            LauncherTile(stringResource(R.string.add_apps), focus, "apps:+", {
-                focus.rememberRow("apps", "apps:+", appKeys.lastIndex)
-            }, { direction("apps", appKeys.lastIndex, it) }, onApps) {
-                Text(
-                    stringResource(R.string.add_apps_symbol),
-                    Modifier.align(Alignment.Center),
-                    style = MaterialTheme.typography.headlineLarge,
-                )
-            }
-        }
-        if (!state.signedIn) {
-            Text(
-                stringResource(if (state.restoring) R.string.restoring else R.string.sign_in_for_media),
-                Modifier.padding(horizontal = 32.dp),
-            )
-        }
-        state.media.rows.forEach { row ->
-            key(row.focusKey) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(
-                        row.localTitleResource?.let { stringResource(it) } ?: row.layout.title,
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    Text(stringResource(row.status.statusResource()), style = MaterialTheme.typography.bodyMedium)
-                }
-                if (row.cards.isEmpty()) {
-                    Text(
-                        stringResource(
-                            if (row.status ==
-                                LauncherRowStatus.Loading
-                            ) {
-                                R.string.loading
-                            } else {
-                                R.string.no_items
-                            },
-                        ),
-                        Modifier.padding(horizontal = 32.dp),
-                    )
-                }
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 32.dp, vertical = 12.dp).focusGroup(),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+            },
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            LauncherTab.entries.forEach { tab ->
+                val active = tab == state.selectedTab
+                Button(
+                    onClick = { onTab(tab) },
+                    modifier =
+                        Modifier
+                            .launcherFocus(focus, tab.focusKey)
+                            .semantics {
+                                selected = active
+                                role = Role.Tab
+                            }.border(
+                                if (active) 2.dp else 0.dp,
+                                if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                RoundedCornerShape(12.dp),
+                            ),
                 ) {
-                    row.cards.forEachIndexed { index, card ->
-                        val target = "${row.focusKey}:${card.id}"
-                        key(target) {
-                            LauncherTile(card.title, focus, target, {
-                                focus.rememberRow(row.focusKey, target, index, mediaRows.indexOfFirst { it.id == row.id })
-                            }, { direction(row.focusKey, index, it) }, { onMedia(target, card.id) }, row.layout.aspect) {
-                                val context = LocalContext.current
-                                val request =
-                                    remember(images, card, row.layout.aspect) { images?.request(context, card, row.layout.aspect) }
-                                if (request != null &&
-                                    images != null
-                                ) {
-                                    AsyncImage(request, null, images.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    Text(stringResource(if (tab == LauncherTab.Essentials) R.string.essentials else R.string.jellyfin))
+                }
+            }
+        }
+        pages.SaveableStateProvider("${state.boundaryKey}:${state.homeResetGeneration}:${state.selectedTab.name}") {
+            Column(
+                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (showApps) {
+                    Text(stringResource(R.string.apps), Modifier.padding(horizontal = 32.dp), style = MaterialTheme.typography.titleLarge)
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 32.dp, vertical = 12.dp).focusGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        state.apps.pins.forEachIndexed { index, app ->
+                            key(app.componentKey) {
+                                LauncherTile(app.label, focus, appKeys[index], {
+                                    onContentEntry()
+                                    focus.rememberRow("apps", appKeys[index], index)
+                                }, { direction("apps", index, it) }, { onApp(app.componentKey) }) {
+                                    app.icon?.let { Image(it, null, Modifier.size(48.dp).align(Alignment.Center)) }
                                 }
-                                card.progress?.let { progress ->
-                                    Box(
-                                        Modifier
-                                            .align(
-                                                Alignment.BottomStart,
-                                            ).fillMaxWidth(progress)
-                                            .height(4.dp)
-                                            .background(MaterialTheme.colorScheme.primary),
-                                    )
+                            }
+                        }
+                        LauncherTile(stringResource(R.string.add_apps), focus, "apps:+", {
+                            onContentEntry()
+                            focus.rememberRow("apps", "apps:+", appKeys.lastIndex)
+                        }, { direction("apps", appKeys.lastIndex, it) }, onApps) {
+                            Text(
+                                stringResource(R.string.add_apps_symbol),
+                                Modifier.align(Alignment.Center),
+                                style = MaterialTheme.typography.headlineLarge,
+                            )
+                        }
+                    }
+                    if (state.restoring) Text(stringResource(R.string.restoring), Modifier.padding(horizontal = 32.dp))
+                }
+                if (!showApps && mediaRows.isEmpty()) {
+                    val title =
+                        when {
+                            state.restoring -> R.string.restoring
+                            state.cleanupPending -> R.string.connection_cleanup_title
+                            !state.signedIn && state.busy -> R.string.connection_busy
+                            !state.signedIn -> R.string.connect_jellyfin
+                            state.media.refreshing -> R.string.loading
+                            else -> R.string.jellyfin_empty_title
+                        }
+                    val description =
+                        when {
+                            state.restoring -> null
+                            state.cleanupPending -> R.string.cleanup_failed_message
+                            !state.signedIn && state.busy -> R.string.connection_busy_message
+                            !state.signedIn -> R.string.connect_jellyfin_message
+                            rows.any { it.status == LauncherRowStatus.Failed || it.status == LauncherRowStatus.Denied } ->
+                                R.string.jellyfin_load_failed
+                            else -> R.string.jellyfin_empty_message
+                        }
+                    Text(stringResource(title), Modifier.padding(horizontal = 32.dp), style = MaterialTheme.typography.titleLarge)
+                    description?.let { Text(stringResource(it), Modifier.padding(horizontal = 32.dp)) }
+                    Row(Modifier.padding(horizontal = 32.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        actionKeys.forEachIndexed { index, target ->
+                            Button(
+                                onClick = {
+                                    focus.request(target)
+                                    when (target) {
+                                        JELLYFIN_CONNECT -> onConnect()
+                                        JELLYFIN_REFRESH -> onRefresh()
+                                        else -> onSettings()
+                                    }
+                                },
+                                modifier =
+                                    Modifier
+                                        .launcherFocus(focus, target) {
+                                            onContentEntry()
+                                            focus.rememberRow("jellyfin-actions", target, index)
+                                        }.onPreviewKeyEvent {
+                                            it.type == KeyEventType.KeyDown && direction("jellyfin-actions", index, it.key)
+                                        },
+                            ) {
+                                Text(
+                                    stringResource(
+                                        when (target) {
+                                            JELLYFIN_CONNECT -> R.string.connect_server
+                                            JELLYFIN_REFRESH -> R.string.refresh
+                                            else -> R.string.launcher_settings
+                                        },
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+                (if (!showApps && mediaRows.isEmpty()) emptyList() else rows).forEach { row ->
+                    key(row.focusKey) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text(
+                                row.localTitleResource?.let { stringResource(it) } ?: row.layout.title,
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                            Text(stringResource(row.status.statusResource()), style = MaterialTheme.typography.bodyMedium)
+                        }
+                        if (row.cards.isEmpty()) {
+                            Text(
+                                stringResource(if (row.status == LauncherRowStatus.Loading) R.string.loading else R.string.no_items),
+                                Modifier.padding(horizontal = 32.dp),
+                            )
+                        }
+                        Row(
+                            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 32.dp, vertical = 12.dp).focusGroup(),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        ) {
+                            row.cards.forEachIndexed { index, card ->
+                                val target = "${row.focusKey}:${card.id}"
+                                key(target) {
+                                    LauncherTile(card.title, focus, target, {
+                                        onContentEntry()
+                                        focus.rememberRow(row.focusKey, target, index, mediaRows.indexOfFirst { it.id == row.id })
+                                    }, { direction(row.focusKey, index, it) }, { onMedia(target, card.id) }, row.layout.aspect) {
+                                        val context = LocalContext.current
+                                        val request =
+                                            remember(images, card, row.layout.aspect) { images?.request(context, card, row.layout.aspect) }
+                                        if (request != null && images != null) {
+                                            AsyncImage(
+                                                request,
+                                                null,
+                                                images.loader,
+                                                Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop,
+                                            )
+                                        }
+                                        card.progress?.let { progress ->
+                                            Box(
+                                                Modifier
+                                                    .align(Alignment.BottomStart)
+                                                    .fillMaxWidth(progress)
+                                                    .height(4.dp)
+                                                    .background(MaterialTheme.colorScheme.primary),
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

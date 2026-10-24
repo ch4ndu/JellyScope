@@ -103,6 +103,7 @@ internal class LauncherConfigurationRepository(
             require(visible != null && !visible.isString && visible.booleanOrNull != null)
             require(limit != null && !limit.isString && limit.intOrNull != null)
             require(row["libraryId"] == JsonNull || row.string("libraryId") != null)
+            require("tab" !in row || row["tab"] == JsonNull || row.string("tab") != null)
         }
     }
 

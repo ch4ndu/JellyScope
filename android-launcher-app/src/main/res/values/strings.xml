@@ -2,6 +2,9 @@
 <resources>
     <string name="app_name">JellyScope Launcher</string>
     <string name="apps">Apps</string>
+    <string name="all_apps">All apps</string>
+    <string name="essentials">Essentials</string>
+    <string name="jellyfin">Jellyfin</string>
     <string name="add_apps">Add apps</string>
     <string name="add_apps_symbol">+</string>
     <string name="apps_empty">No launchable apps are available.</string>
@@ -19,7 +22,15 @@
     <string name="app_unavailable_message">The app may have been removed or disabled, or the change could not be saved. Open Apps and try again.</string>
     <string name="restoring">Restoring your saved session…</string>
     <string name="signed_out">Signed out</string>
-    <string name="sign_in_for_media">Open Launcher settings to sign in and load your media.</string>
+    <string name="connect_jellyfin">Connect to Jellyfin</string>
+    <string name="connect_jellyfin_message">Sign in to your Jellyfin server to browse its media here.</string>
+    <string name="connect_server">Connect to server</string>
+    <string name="connection_cleanup_title">Account cleanup required</string>
+    <string name="connection_busy">Finishing account changes…</string>
+    <string name="connection_busy_message">Please wait before connecting. Apps and launcher settings are still available.</string>
+    <string name="jellyfin_empty_title">No media available</string>
+    <string name="jellyfin_empty_message">No media is available on this tab. Refresh or open Launcher settings.</string>
+    <string name="jellyfin_load_failed">Media could not be loaded. Check your connection or library access, then refresh.</string>
     <string name="sign_in">Sign in</string>
     <string name="sign_out">Sign out</string>
     <string name="retry_sign_out">Retry sign out</string>
@@ -48,8 +59,8 @@
     <string name="layout_unavailable">Layout: Server configuration unavailable. Using default media rows.</string>
     <string name="layout_invalid">Layout: Invalid server configuration. Keeping the saved layout or default media rows.</string>
     <string name="layout_unsupported">Layout: Unsupported server configuration. Keeping the saved layout or default media rows.</string>
-    <string name="continue_watching">Continue Watching</string>
-    <string name="next_up">Next Up</string>
+    <string name="play_next">Play Next</string>
+    <string name="up_next">Up Next</string>
     <string name="recently_added">Recently Added</string>
     <string name="favorites">Favorites</string>
     <string name="loading">Loading</string>

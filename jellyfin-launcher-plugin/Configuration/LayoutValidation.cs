@@ -10,8 +10,8 @@ internal static class LayoutValidation
 {
     public static LauncherRowConfiguration[] DefaultRows() =>
     [
-        DefaultRow("continue-watching", "Continue Watching", "resume"),
-        DefaultRow("next-up", "Next Up", "nextUp"),
+        DefaultRow("continue-watching", "Play Next", "resume"),
+        DefaultRow("next-up", "Up Next", "nextUp"),
         DefaultRow("recently-added", "Recently Added", "latest"),
         DefaultRow("favorites", "Favorites", "favorites")
     ];
@@ -35,11 +35,12 @@ internal static class LayoutValidation
                 row.Title is null || row.Title.Length is < 1 or > 80 || row.Title.Any(c => char.IsControl(c) || c is '\u2028' or '\u2029') ||
                 row.Aspect is not ("landscape" or "poster" or "square") ||
                 row.Query is not ("resume" or "nextUp" or "latest" or "favorites" or "library") ||
+                row.Tab is not (null or "essentials" or "jellyfin") ||
                 row.Limit is < 1 or > 20 ||
                 (row.LibraryId is not null && !ValidLibraryId(row.LibraryId)) ||
                 (row.Query == "library" && row.LibraryId is null))
             {
-                throw new ArgumentException("Invalid launcher row. Check its ID, title, query, library, aspect and limit.");
+                throw new ArgumentException("Invalid launcher row. Check its ID, title, query, tab, library, aspect and limit.");
             }
 
             rows.Add(new LauncherRowConfiguration
@@ -49,6 +50,7 @@ internal static class LayoutValidation
                 Visible = row.Visible,
                 Aspect = row.Aspect,
                 Query = row.Query,
+                Tab = row.Tab ?? DefaultTab(row.Query),
                 LibraryId = row.LibraryId is null ? null : Guid.ParseExact(row.LibraryId, "N").ToString("N"),
                 Limit = row.Limit
             });
@@ -69,7 +71,9 @@ internal static class LayoutValidation
         configuration.Revision,
         configuration.PlaybackPreference,
         configuration.Rows.Select(row => new RowResponse(
-            row.Id, row.Title, row.Visible, row.Aspect, row.Query, row.LibraryId, row.Limit)).ToArray());
+            row.Id, row.Title, row.Visible, row.Aspect, row.Query, row.Tab ?? DefaultTab(row.Query), row.LibraryId, row.Limit)).ToArray());
+
+    private static string DefaultTab(string query) => query is "resume" or "nextUp" or "favorites" ? "essentials" : "jellyfin";
 
     private static bool ValidLibraryId(string value) =>
         Regex.IsMatch(value, "\\A[a-f0-9]{32}\\z") && Guid.TryParseExact(value, "N", out _);
@@ -81,6 +85,7 @@ internal static class LayoutValidation
         Visible = true,
         Aspect = "landscape",
         Query = query,
+        Tab = DefaultTab(query),
         LibraryId = null,
         Limit = 20
     };
@@ -102,6 +107,7 @@ internal static class LayoutValidation
                 writer.WriteBoolean("visible", row.Visible);
                 writer.WriteString("aspect", row.Aspect);
                 writer.WriteString("query", row.Query);
+                writer.WriteString("tab", row.Tab ?? DefaultTab(row.Query));
                 writer.WriteString("libraryId", row.LibraryId);
                 writer.WriteNumber("limit", row.Limit);
                 writer.WriteEndObject();

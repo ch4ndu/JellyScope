@@ -68,7 +68,10 @@ paths, with no tested or packaged releases yet.
 
 The separate [Android launcher foundation](docs/BUILD.md#android-launcher-foundation)
 is in development. Its independent API-25+ application provides lightweight login,
-local app pins, cached Jellyfin rows and System settings access. The independent
+local app pins, cached Jellyfin rows and System settings access. Essentials keeps
+Apps first, while the Jellyfin tab offers dedicated media browsing and a direct
+Connect to server flow when signed out. Server configuration assigns media rows
+to either tab. The independent
 [server plugin](jellyfin-launcher-plugin/README.md) supplies configurable layouts;
 media selection explicitly hands off to JellyScope with matching-account checks
 and visible setup/failure guidance. Standard Home eligibility and a Home-selection settings action are implemented;

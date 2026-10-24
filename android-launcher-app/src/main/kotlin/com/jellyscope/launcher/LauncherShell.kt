@@ -20,9 +20,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -61,8 +64,21 @@ internal fun LauncherShell(
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val imageScope by images.active.collectAsStateWithLifecycle()
-    val homeFocus =
+    val essentialsFocus =
         rememberSaveable(state.boundaryKey, state.homeResetGeneration, saver = LauncherFocus.saver) { LauncherFocus() }
+    val jellyfinFocus =
+        rememberSaveable(state.boundaryKey, state.homeResetGeneration, saver = LauncherFocus.saver) { LauncherFocus() }
+    val homeFocus = if (state.selectedTab == LauncherTab.Essentials) essentialsFocus else jellyfinFocus
+    val homePages = rememberSaveableStateHolder()
+    val pageScope = "${state.boundaryKey}:${state.homeResetGeneration}:"
+    // Keep ordinary recreation/route returns, but drop both pages on a boundary or Home reset.
+    var savedPageScope by rememberSaveable { mutableStateOf(pageScope) }
+    LaunchedEffect(pageScope, homePages) {
+        if (savedPageScope != pageScope) {
+            LauncherTab.entries.forEach { homePages.removeState("$savedPageScope${it.name}") }
+            savedPageScope = pageScope
+        }
+    }
     val appsFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
     val settingsFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
     val loginFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
@@ -74,14 +90,31 @@ internal fun LauncherShell(
             LauncherRoute.Login -> loginFocus
         }
     val appKeys = state.apps.pins.map { "apps:${it.componentKey}" } + "apps:+"
-    val belowApps = state.route == LauncherRoute.Home && homeFocus.homeRow !in listOf("apps", "header")
-    val selectedHomeRoot = state.route == LauncherRoute.Home && !belowApps && isDefaultHome
+    val belowApps =
+        state.route == LauncherRoute.Home &&
+            state.selectedTab == LauncherTab.Essentials &&
+            homeFocus.current?.startsWith("row:") == true
+    val jellyfinHome = state.route == LauncherRoute.Home && state.selectedTab == LauncherTab.Jellyfin
+    val homeRootKeys = LauncherTab.entries.map { it.focusKey } + listOf("catalog", "settings", "system")
+    val selectedHomeRoot = state.route == LauncherRoute.Home && !jellyfinHome && !belowApps && isDefaultHome
     BackHandler(
         enabled =
             state.dialog == null &&
-                (state.route == LauncherRoute.Apps || state.route == LauncherRoute.Settings || belowApps || selectedHomeRoot),
+                (
+                    state.route == LauncherRoute.Apps ||
+                        state.route == LauncherRoute.Settings ||
+                        belowApps ||
+                        jellyfinHome ||
+                        selectedHomeRoot
+                ),
     ) {
-        if (belowApps) {
+        if (jellyfinHome) {
+            if (homeFocus.current != null && homeFocus.current !in homeRootKeys) {
+                homeFocus.request(LauncherTab.Jellyfin.focusKey)
+            } else {
+                model.selectTab(LauncherTab.Essentials)
+            }
+        } else if (belowApps) {
             homeFocus.request(homeFocus.rowTarget("apps", appKeys) ?: "apps:+")
         } else if (state.route != LauncherRoute.Home) {
             model.backToHome()
@@ -122,7 +155,7 @@ internal fun LauncherShell(
                             if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionDown) {
                                 val target =
                                     when (state.route) {
-                                        LauncherRoute.Home -> homeFocus.rowTarget("apps", appKeys) ?: "apps:+"
+                                        LauncherRoute.Home -> state.selectedTab.focusKey
                                         LauncherRoute.Apps ->
                                             state.apps.catalog
                                                 .firstOrNull()
@@ -155,26 +188,15 @@ internal fun LauncherShell(
                 ) {
                     Button(
                         onClick = { navigate(LauncherRoute.Apps, "catalog") },
-                        modifier =
-                            Modifier.launcherFocus(focus, "catalog") {
-                                focus.homeRow =
-                                    "header"
-                            },
-                    ) { Text(stringResource(R.string.apps)) }
+                        modifier = Modifier.launcherFocus(focus, "catalog"),
+                    ) { Text(stringResource(R.string.all_apps)) }
                     Button(
                         onClick = { navigate(LauncherRoute.Settings, "settings") },
-                        modifier =
-                            Modifier.launcherFocus(focus, "settings") {
-                                focus.homeRow =
-                                    "header"
-                            },
+                        modifier = Modifier.launcherFocus(focus, "settings"),
                     ) { Text(stringResource(R.string.launcher_settings)) }
                     Button(
                         onClick = ::settings,
-                        modifier =
-                            Modifier.launcherFocus(focus, "system") {
-                                focus.homeRow = "header"
-                            },
+                        modifier = Modifier.launcherFocus(focus, "system"),
                     ) { Text(stringResource(R.string.system_settings)) }
                 }
                 when (state.route) {
@@ -192,6 +214,17 @@ internal fun LauncherShell(
                                 model.rememberInvoker(target)
                                 openMedia(itemId, state.boundaryKey)
                             },
+                            pages = homePages,
+                            onTab = model::selectTab,
+                            onContentEntry = model::homeContentEntered,
+                            onConnect = { model.beginLogin(LauncherLoginOrigin.Jellyfin) },
+                            onSettings = {
+                                navigate(
+                                    LauncherRoute.Settings,
+                                    if (state.cleanupPending) JELLYFIN_RECOVERY else JELLYFIN_SETTINGS,
+                                )
+                            },
+                            onRefresh = model::refresh,
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                         )
                     LauncherRoute.Apps -> LauncherAppsScreen(state, appsFocus, model, openApp, Modifier.weight(1f).fillMaxWidth())

@@ -64,7 +64,7 @@
                         playbackPreference: config.PlaybackPreference,
                         rows: Array.isArray(config.Rows) ? config.Rows.map(function (row) {
                             return { id: row.Id, title: row.Title, visible: row.Visible, aspect: row.Aspect,
-                                query: row.Query, libraryId: row.LibraryId, limit: row.Limit };
+                                query: row.Query, tab: row.Tab, libraryId: row.LibraryId, limit: row.Limit };
                         }) : null
                     };
                 }
@@ -76,9 +76,13 @@
                         PlaybackPreference: config.playbackPreference,
                         Rows: config.rows.map(function (row) {
                             return { Id: row.id, Title: row.title, Visible: row.visible, Aspect: row.aspect,
-                                Query: row.query, LibraryId: row.libraryId, Limit: row.limit };
+                                Query: row.query, Tab: effectiveTab(row), LibraryId: row.libraryId, Limit: row.limit };
                         })
                     };
+                }
+
+                function effectiveTab(row) {
+                    return row.tab == null ? (['resume', 'nextUp', 'favorites'].indexOf(row.query) >= 0 ? 'essentials' : 'jellyfin') : row.tab;
                 }
 
                 function validate(config) {
@@ -94,10 +98,11 @@
                             /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(row.title) || typeof row.visible !== 'boolean' ||
                             ['landscape', 'poster', 'square'].indexOf(row.aspect) < 0 ||
                             ['resume', 'nextUp', 'latest', 'favorites', 'library'].indexOf(row.query) < 0 ||
+                            row.tab != null && (typeof row.tab !== 'string' || ['essentials', 'jellyfin'].indexOf(row.tab) < 0) ||
                             !Number.isInteger(row.limit) || row.limit < 1 || row.limit > 20 ||
                             !(row.libraryId === null || typeof row.libraryId === 'string' && row.libraryId.length === 32 && /^[a-f0-9]{32}$/.test(row.libraryId)) ||
                             row.query === 'library' && row.libraryId === null) {
-                            throw new Error('Row ' + (index + 1) + ': enter a title, a supported query and aspect, a library when required, and a limit from 1 to 20.');
+                            throw new Error('Row ' + (index + 1) + ': enter a title, a supported query, tab and aspect, a library when required, and a limit from 1 to 20.');
                         }
                         ids.add(row.id);
                     });
@@ -159,7 +164,9 @@
                         visible.checked = row.visible;
                         visible.addEventListener('change', function () { row.visible = visible.checked; });
                         control(container, 'Visible', visible);
-                        select(container, 'Query', [['resume', 'Continue Watching'], ['nextUp', 'Next Up'],
+                        select(container, 'Tab', [['essentials', 'Essentials'], ['jellyfin', 'Jellyfin']], effectiveTab(row),
+                            function (value) { row.tab = value; });
+                        select(container, 'Query', [['resume', 'Play Next'], ['nextUp', 'Up Next'],
                             ['latest', 'Recently Added'], ['favorites', 'Favorites'], ['library', 'Library']], row.query,
                             function (value) { row.query = value; });
                         var choices = [['', 'All available libraries']].concat(libraries.map(function (library) {
@@ -209,6 +216,7 @@
                         invalidStored = snapshot.configurationStatus === 'invalid';
                         var candidate = invalidStored ? snapshot.configuration : fromHost(results[0]);
                         validate(candidate);
+                        candidate.rows.forEach(function (row) { row.tab = effectiveTab(row); });
                         draft = candidate;
                         libraries = snapshot.libraries;
                         recovery.textContent = invalidStored ? 'The stored configuration is invalid. This is a default recovery draft. Save explicitly to replace it.' : '';
@@ -231,7 +239,7 @@
                         window.crypto.getRandomValues(bytes);
                         var id = 'row-' + Array.from(bytes, function (value) { return value.toString(16).padStart(2, '0'); }).join('');
                         draft.rows.push({ id: id, title: 'New row', visible: true, aspect: 'landscape',
-                            query: 'latest', libraryId: null, limit: 20 });
+                            query: 'latest', tab: 'jellyfin', libraryId: null, limit: 20 });
                         render();
                     } catch (_) {
                         message('A row could not be added. Reload and try again.');

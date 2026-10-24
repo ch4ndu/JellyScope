@@ -280,8 +280,9 @@ download, settings, and recovery focus behavior.
 
 ## Independent Android launcher
 
-The launcher uses Apps-first rows, not the player application's drawer and hero
-contracts above. Apps, launcher settings and Android System settings remain
+The launcher has Essentials and Jellyfin tabs, separate from the player
+application's drawer and hero contracts above. Essentials starts with local Apps;
+Jellyfin contains media only. Server rows may target either tab. Apps, launcher settings and Android System settings remain
 reachable before login and during media errors. Pins are device-local; the
 trailing `+` opens the full launchable-app list with remote-focusable Open,
 Pin/Unpin and ordering actions. Unavailable packages produce a visible error and
@@ -292,25 +293,57 @@ landscape (176×99), poster (128×192), or square (160×160) shape. Media focus 
 use `row:<id>` and `row:<id>:<itemId>` so remote IDs cannot alias local controls.
 Settings reports current, cached, default, unavailable, invalid or unsupported
 configuration. Removing or emptying the focused row uses its saved clamped
-vertical position among surviving media rows, then Apps.
+vertical position among surviving media rows on the active tab, then Apps on
+Essentials or the available action/tab control on Jellyfin.
 
 Each row remembers its stable item identity and semantic index. Vertical movement
 restores the destination row; missing items use the clamped index, next available
-row, then Apps. Horizontal movement reveals the focused card without changing
+row on the active tab, then that tab’s fallback described above. Horizontal
+movement reveals the focused card without changing
 row identity. Modal controls trap focus and restore their invoker. Return from
 System settings restores the control that opened it, including the settings
 screen entry, rather than forcing focus to the Home button.
 
 Back dismisses a dialog first, then returns from Apps/settings to its Home
 invoker. Login Back cancels outstanding work, clears password input and returns
-to settings; a login already durably committed remains reflected in session
-state. Home Back below Apps returns to Apps; at Apps it retains ordinary activity
+to its origin: Settings or the Jellyfin tab and Connect action. A login already
+durably committed remains reflected in session state. On Essentials, Home Back
+below Apps returns to Apps; at Apps it retains ordinary activity
 exit behavior unless the public resolver reports this Activity as the default Home;
 in that case root Back is consumed without navigation. Device qualification is
 separate from this source behavior.
 Media selection uses the explicit JellyScope handoff above. The Settings message
 explains matching-account setup and the return path; it does not claim playback
 success from an Activity launch.
+
+### Launcher tabs and connection flow
+
+Tab selection lives in the ViewModel. Header Down focuses the selected tab;
+Left/Right moves across the strip and Center selects, keeping focus on the tab.
+Down enters that page's remembered valid content. First-row Up returns to the
+selected tab; tab Up reaches the header. Each page retains separate focus and
+saved scroll state, with inactive requesters detached. Removed or moved rows
+fall back within that page, then Apps for Essentials or an available action/tab
+for Jellyfin. Account/epoch changes discard account-derived focus and scroll.
+
+Jellyfin Back moves content focus to its tab, then switches to Essentials. Apps
+and Settings return to the originating tab; playback return preserves tab/item.
+Actual device Home selects Essentials and targets Apps through the Home reset.
+Logout keeps the selected tab and chooses a reachable disconnected landing.
+
+Signed-out Essentials shows Apps without repeated media sign-in prompts.
+Signed-out Jellyfin offers **Connect to Jellyfin → Connect to server**. Session
+restoration shows a waiting state; pending cleanup directs users to the existing
+Settings recovery action. Busy cancellation does not pretend a connection is
+available. Signed-in empty content offers Refresh/Settings; offline content uses
+the existing cached/stale or retry state rather than showing a login prompt.
+
+Login started from Jellyfin returns to that tab after success or cancellation;
+cancel targets Connect without a Home-reset generation bump. Settings-origin
+cancel still returns Settings. Session publication and login-action completion
+consume the same login origin once, so either arrival order gives the same
+result. Actual Home clears origin and wins over a cancelled attempt's UI result;
+a committed session remains authoritative. Password/IME disposal is unchanged.
 
 ### Standard Home integration
 

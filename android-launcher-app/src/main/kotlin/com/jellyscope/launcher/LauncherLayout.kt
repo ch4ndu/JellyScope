@@ -42,6 +42,18 @@ internal enum class LauncherQuery {
 }
 
 @Serializable
+internal enum class LauncherTab {
+    @SerialName("essentials")
+    Essentials,
+
+    @SerialName("jellyfin")
+    Jellyfin,
+    ;
+
+    val focusKey: String get() = if (this == Essentials) "tab:essentials" else "tab:jellyfin"
+}
+
+@Serializable
 internal data class LauncherLayoutRow(
     val id: String,
     val title: String,
@@ -50,7 +62,16 @@ internal data class LauncherLayoutRow(
     val query: LauncherQuery,
     val libraryId: String?,
     val limit: Int,
+    val tab: LauncherTab? = null,
 ) {
+    // Old wire responses and snapshots derive the same placement without migration.
+    val effectiveTab: LauncherTab
+        get() =
+            tab ?: when (query) {
+                LauncherQuery.Resume, LauncherQuery.NextUp, LauncherQuery.Favorites -> LauncherTab.Essentials
+                LauncherQuery.Latest, LauncherQuery.Library -> LauncherTab.Jellyfin
+            }
+
     val queryKey: String
         get() {
             val legacy =
@@ -106,8 +127,8 @@ internal fun defaultLauncherLayout(): LauncherLayout =
 
 internal fun defaultLauncherTitle(id: String): Int? =
     when (id) {
-        "continue-watching" -> R.string.continue_watching
-        "next-up" -> R.string.next_up
+        "continue-watching" -> R.string.play_next
+        "next-up" -> R.string.up_next
         "recently-added" -> R.string.recently_added
         "favorites" -> R.string.favorites
         else -> null

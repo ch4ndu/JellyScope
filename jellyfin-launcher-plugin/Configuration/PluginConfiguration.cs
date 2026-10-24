@@ -46,6 +46,10 @@ public sealed class LauncherRowConfiguration
     [JsonRequired, JsonPropertyName("Query")]
     public string Query { get; set; } = string.Empty;
 
+    // Optional for pre-tab schema1 admin JSON and stored XML.
+    [JsonPropertyName("Tab")]
+    public string? Tab { get; set; }
+
     [JsonRequired, JsonPropertyName("LibraryId")]
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? LibraryId { get; set; }
@@ -67,5 +71,6 @@ public sealed record RowResponse(
     [property: JsonPropertyName("visible"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] bool Visible,
     [property: JsonPropertyName("aspect")] string Aspect,
     [property: JsonPropertyName("query")] string Query,
+    [property: JsonPropertyName("tab")] string Tab,
     [property: JsonPropertyName("libraryId"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? LibraryId,
     [property: JsonPropertyName("limit")] int Limit);

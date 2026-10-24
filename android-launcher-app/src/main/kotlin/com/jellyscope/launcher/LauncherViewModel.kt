@@ -59,12 +59,20 @@ internal class LauncherViewModel(
                             loggedIn?.session?.serverUrl
                                 ?: (sessionState as? SessionState.LoggedOut)?.serverUrl.orEmpty(),
                         boundaryKey = key,
+                        homeInvoker =
+                            when {
+                                current.boundaryKey == key -> current.homeInvoker
+                                current.selectedTab == LauncherTab.Essentials -> "apps:+"
+                                loggedIn == null -> JELLYFIN_CONNECT
+                                else -> LauncherTab.Jellyfin.focusKey
+                            },
+                        homeTabActivation = current.homeTabActivation && current.boundaryKey == key,
                         media =
                             media.state.value.takeIf { it.boundaryKey == key && !suppressMedia }
                                 ?: LauncherMediaState(),
-                        route = if (loggedIn != null && current.route == LauncherRoute.Login) LauncherRoute.Home else current.route,
                     )
                 }
+                if (loggedIn != null) completeLogin(loginGeneration)
             }
         }
         viewModelScope.launch {
@@ -114,7 +122,7 @@ internal class LauncherViewModel(
     }
 
     fun resumed(externalReturn: Boolean = false) {
-        _state.update { it.copy(focusGeneration = it.focusGeneration + 1) }
+        _state.update { it.copy(focusGeneration = it.focusGeneration + 1, homeTabActivation = false) }
         viewModelScope.launch {
             refreshApps()
             media.refresh(manual = externalReturn)
@@ -127,7 +135,42 @@ internal class LauncherViewModel(
     }
 
     fun rememberInvoker(key: String) {
-        _state.update { it.copy(homeInvoker = key) }
+        _state.update { it.copy(homeInvoker = key, homeTabActivation = false) }
+    }
+
+    fun selectTab(tab: LauncherTab) {
+        _state.update {
+            if (it.route != LauncherRoute.Home) {
+                it
+            } else {
+                it.copy(selectedTab = tab, homeInvoker = tab.focusKey, homeTabActivation = true, focusGeneration = it.focusGeneration + 1)
+            }
+        }
+    }
+
+    fun homeContentEntered() {
+        _state.update { if (it.homeTabActivation) it.copy(homeTabActivation = false) else it }
+    }
+
+    fun beginLogin(origin: LauncherLoginOrigin) {
+        val current = _state.value
+        if (current.busy ||
+            current.restoring ||
+            current.signedIn ||
+            current.cleanupPending ||
+            sessions.sessionState.value !is SessionState.LoggedOut
+        ) {
+            return
+        }
+        _state.update {
+            it.copy(
+                route = LauncherRoute.Login,
+                loginOrigin = origin,
+                authError = null,
+                homeTabActivation = false,
+                focusGeneration = it.focusGeneration + 1,
+            )
+        }
     }
 
     fun appUnavailable() {
@@ -144,6 +187,8 @@ internal class LauncherViewModel(
                 route = route,
                 homeInvoker = invoker ?: it.homeInvoker,
                 authError = null,
+                loginOrigin = if (route == LauncherRoute.Login) it.loginOrigin else null,
+                homeTabActivation = false,
                 focusGeneration = it.focusGeneration + 1,
             )
         }
@@ -153,7 +198,7 @@ internal class LauncherViewModel(
 
     fun homeInvoked() {
         if (_state.value.route == LauncherRoute.Login) {
-            cancelLogin(LauncherRoute.Home)
+            cancelLogin(homeReset = true)
         } else {
             resetHome()
         }
@@ -166,6 +211,9 @@ internal class LauncherViewModel(
                 dialog = null,
                 authError = null,
                 homeInvoker = "apps:+",
+                selectedTab = LauncherTab.Essentials,
+                homeTabActivation = false,
+                loginOrigin = null,
                 focusGeneration = it.focusGeneration + 1,
                 homeResetGeneration = it.homeResetGeneration + 1,
             )
@@ -195,7 +243,7 @@ internal class LauncherViewModel(
                         if (generation != loginGeneration || sessions.sessionState.value is SessionState.LoggedIn) return@withLock
                         val validated = validateServer(server).getOrThrow()
                         loginAction(validated.serverUrl, user, password).getOrThrow()
-                        if (generation == loginGeneration) navigate(LauncherRoute.Home)
+                        completeLogin(generation)
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -207,13 +255,51 @@ internal class LauncherViewModel(
             }
     }
 
-    fun cancelLogin() = cancelLogin(LauncherRoute.Settings)
+    // Session publication may precede the action return. Consume the origin once
+    // so both success paths agree without navigating again after cancellation.
+    private fun completeLogin(generation: Long) {
+        if (generation != loginGeneration || sessions.sessionState.value !is SessionState.LoggedIn) return
+        _state.update { current ->
+            val origin = current.loginOrigin
+            if (current.route != LauncherRoute.Login || origin == null) {
+                current
+            } else {
+                val tab = if (origin == LauncherLoginOrigin.Jellyfin) LauncherTab.Jellyfin else current.selectedTab
+                current.copy(
+                    route = LauncherRoute.Home,
+                    selectedTab = tab,
+                    homeInvoker = tab.focusKey,
+                    homeTabActivation = true,
+                    loginOrigin = null,
+                    authError = null,
+                    focusGeneration = current.focusGeneration + 1,
+                )
+            }
+        }
+    }
 
-    private fun cancelLogin(destination: LauncherRoute) {
+    fun cancelLogin() = cancelLogin(homeReset = false)
+
+    private fun cancelLogin(homeReset: Boolean) {
         loginGeneration += 1
         val cancelledJob = loginJob
         cancelledJob?.cancel()
-        if (destination == LauncherRoute.Home) resetHome() else navigate(destination)
+        if (homeReset) {
+            resetHome()
+        } else {
+            _state.update {
+                val jellyfin = it.loginOrigin == LauncherLoginOrigin.Jellyfin
+                it.copy(
+                    route = if (jellyfin) LauncherRoute.Home else LauncherRoute.Settings,
+                    selectedTab = if (jellyfin) LauncherTab.Jellyfin else it.selectedTab,
+                    homeInvoker = if (jellyfin) JELLYFIN_CONNECT else it.homeInvoker,
+                    homeTabActivation = false,
+                    loginOrigin = null,
+                    authError = null,
+                    focusGeneration = it.focusGeneration + 1,
+                )
+            }
+        }
         // Exit UI immediately. Ordering invalidation with the old job prevents
         // it from cancelling a newer login; a commit that already won is honored.
         _state.update { it.copy(busy = true) }
@@ -236,7 +322,14 @@ internal class LauncherViewModel(
     private suspend fun logoutLocked() {
         suppressMedia = true
         _state.update {
-            it.copy(route = LauncherRoute.Home, homeInvoker = "apps:+", media = LauncherMediaState(), busy = true)
+            it.copy(
+                route = LauncherRoute.Home,
+                homeInvoker = if (it.selectedTab == LauncherTab.Essentials) "apps:+" else JELLYFIN_CONNECT,
+                homeTabActivation = false,
+                loginOrigin = null,
+                media = LauncherMediaState(),
+                busy = true,
+            )
         }
         try {
             logoutAction().getOrThrow()

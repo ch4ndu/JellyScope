@@ -56,5 +56,12 @@ owned by [TV UX](../engineering/tv-ux-behaviors.md#standard-home-integration).
    unavailable-selector messaging, selector return focus, device restart and
    external playback return. Record each result and failure independently.
 
+6. Verify Essentials/Jellyfin tab selection, saved focus/scroll and inactive-page
+   disposal; assign, reorder and move rows across tabs in the server editor. Check
+   old missing/null tab fields, invalid placement, both-tab account cleanup, and
+   disconnected/restoring/cleanup/busy/signed-in-empty/offline states. Confirm
+   Jellyfin login success/cancel returns to Jellyfin, actual Home selects Essentials,
+   and logout preserves the tab with a reachable action.
+
 No steps above have been executed. Device selection/default changes and any
 install/launch/input/log collection require explicit authorization before use.

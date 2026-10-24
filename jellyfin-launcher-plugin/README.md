@@ -29,9 +29,9 @@ installation on an explicitly authorized 12.3 server before deployment.
 ## Dashboard editing
 
 Open **JellyScope Launcher** in the plugin dashboard. Add a row, edit its title,
-query, library, visibility, aspect and item limit, then use Up/Down to order it.
-Remove deletes a row; saving no rows intentionally leaves only the launcher's
-local controls. Save validates the draft and reports success only after the
+query, tab, library, visibility, aspect and item limit, then use Up/Down to order it.
+Remove deletes a row; saving no rows intentionally leaves the launcher's
+local controls and Jellyfin empty state. Save validates the draft and reports success only after the
 server update succeeds. Errors preserve the draft. An unavailable configured
 library remains visible as an unavailable option so it can be replaced or removed.
 
@@ -68,15 +68,27 @@ PascalCase properties, and the editor maps between those forms.
 | Row `title` | 1–80 characters, without controls or line separators |
 | Row `visible` | Boolean |
 | Row `aspect` | `landscape`, `poster`, or `square` |
+| Row `tab` | Optional `essentials` or `jellyfin`; absent/null uses the query default |
 | Row `query` | `resume`, `nextUp`, `latest`, `favorites`, or `library` |
 | Row `libraryId` | Required nullable field; otherwise 32 lowercase hex GUID, Jellyfin N format |
 | Row `limit` | Integer 1–20 |
 
-All listed fields are required. Unknown additional fields are ignored, but an
+All listed fields except `tab` are required. Unknown additional fields are ignored, but an
 unknown schema, query, aspect or playback preference rejects the complete layout.
 `library` requires a library ID; other queries may optionally be scoped to one.
 No arbitrary URL, intent, script, filter program, credential or user override is
-accepted. Defaults are Continue Watching, Next Up, Recently Added and Favorites.
+accepted. Fresh defaults are Play Next, Up Next and Favorites on Essentials, and Recently
+Added on Jellyfin. Apps always stays local on Essentials. The server may assign
+any media row to either tab; the 12-row limit applies across both. Existing
+stored titles are preserved, including older Continue Watching/Next Up labels.
+
+Absent/null placement maps Resume, Next Up and Favorites to Essentials, and
+Latest/Library to Jellyfin. Canonical responses emit explicit placement. This
+additive schema-1 field keeps old configurations and snapshots readable; older
+launchers ignore it and show their flattened row list. Explicit unknown placement
+is invalid. Moving a row changes the canonical revision but not its media-query
+identity, so compatible cards remain cached. Revisions may change across plugin
+versions as canonical fields expand; they are not stable cross-version IDs.
 
 `library` queries recursive Movie/Episode items ordered by DateCreated descending.
 `latest` uses Jellyfin's Latest endpoint, including its episode grouping. Next Up

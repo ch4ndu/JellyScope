@@ -222,8 +222,9 @@ export boundary.
 
 ## Android launcher queries and artwork
 
-The launcher defaults to Continue Watching, non-resumable Next Up, Recently Added
-and Favorites. Server layouts may select up to 12 ordered rows using bounded
+The launcher defaults to Play Next (resume query), Up Next (non-resumable Next Up
+query), Recently Added and Favorites. Existing administrator-authored stored
+titles are preserved. Server layouts may select up to 12 ordered rows using bounded
 typed queries directly through `JellyfinApi`, with at most 20 cards per row and
 two concurrent row requests. Successful empty results replace cached rows;
 transient failures retain the last snapshot with a stale indication. Foreground
@@ -248,7 +249,10 @@ snapshots before publishing metadata. Work freezes one effective layout and chec
 account lease, generation, row ID and query fingerprint before commits. The
 fingerprint includes query, library and limit, but excludes title/order/aspect and
 server revision. Metadata changes can therefore reuse cards without accepting old
-query results. Landscape artwork selects backdrop then primary; poster/square use
+query results. Optional row tab placement is presentation metadata too: both tabs
+consume one account-scoped layout, with the same combined 12-row bound and no
+requests caused solely by switching tabs. Absent/null placement is derived from
+the query on every wire/cache path, including existing version-2 snapshots. Landscape artwork selects backdrop then primary; poster/square use
 primary or a placeholder. Legacy tags are used only for their recorded image type.
 
 The launcher opts into preserving HTTP 403 as `ServerError(403)` for ordinary

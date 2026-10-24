@@ -10,6 +10,10 @@ import java.security.MessageDigest
 
 internal const val MAX_ROW_ITEMS = 20
 internal const val MAX_APP_PINS = 24
+internal const val JELLYFIN_CONNECT = "jellyfin:connect"
+internal const val JELLYFIN_RECOVERY = "jellyfin:recovery"
+internal const val JELLYFIN_REFRESH = "jellyfin:refresh"
+internal const val JELLYFIN_SETTINGS = "jellyfin:settings"
 
 @Serializable
 internal data class LauncherCard(
@@ -94,6 +98,8 @@ internal data class LauncherAppsState(
 
 internal enum class LauncherRoute { Home, Apps, Settings, Login }
 
+internal enum class LauncherLoginOrigin { Settings, Jellyfin }
+
 internal enum class LauncherDialog {
     SystemSettings,
     HomeSettingsUnavailable,
@@ -123,7 +129,13 @@ internal data class LauncherUiState(
     val focusGeneration: Int = 0,
     val homeResetGeneration: Int = 0,
     val homeInvoker: String = "apps:+",
-)
+    val selectedTab: LauncherTab = LauncherTab.Essentials,
+    val homeTabActivation: Boolean = false,
+    val loginOrigin: LauncherLoginOrigin? = null,
+) {
+    val homeRows: List<LauncherRow>
+        get() = if (signedIn) media.rows.filter { it.layout.effectiveTab == selectedTab } else emptyList()
+}
 
 internal fun launcherHash(value: String): String =
     MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
