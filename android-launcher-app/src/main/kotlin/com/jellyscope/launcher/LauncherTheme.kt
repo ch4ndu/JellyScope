@@ -42,6 +42,7 @@ internal object LauncherStyle {
     val appWidth = 116.dp
     val appHeight = 65.dp
     val appGap = 8.dp
+    val mediaGap = 24.dp
     val appIcon = 36.dp
     val appLabelHeight = 36.dp
     val appLabelGap = 8.dp

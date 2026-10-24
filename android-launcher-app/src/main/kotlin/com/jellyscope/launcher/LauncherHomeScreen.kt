@@ -45,6 +45,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,14 +87,9 @@ internal fun LauncherHomeScreen(
         }
     val allKeys = ids.values.flatten()
     val moving = state.appEdit as? LauncherAppEdit.Moving
-    val modal = state.dialog != null || state.appEdit is LauncherAppEdit.Menu
-    val request =
-        state.appFocusTarget.takeIf {
-            it is LauncherAppFocusTarget.HomeContent ||
-                it is LauncherAppFocusTarget.Header ||
-                it is LauncherAppFocusTarget.App &&
-                it.origin == LauncherAppOrigin.Home
-        }
+    val modal = state.backgroundSuppressed
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    val request = state.appFocusTarget
 
     fun fallback(): String? =
         focus.rowTarget(focus.homeRow, ids[focus.homeRow].orEmpty())
@@ -104,9 +100,12 @@ internal fun LauncherHomeScreen(
     val removedFocus = focus.current != null && !focus.isParentTarget(focus.current) && focus.current !in allKeys
     // The generation owns this one-shot request. Consuming it must not rerun the
     // effect and replace a request whose tile is still waiting to attach.
-    LaunchedEffect(state.focusGeneration, focus, modal, state.apps.loaded) {
-        if (!modal) {
-            if (request == null && focus.awaitingTarget(allKeys)) return@LaunchedEffect
+    LaunchedEffect(state.focusGeneration, focus, modal, state.apps.loaded, windowFocused) {
+        if (!modal && windowFocused) {
+            if (request == null && focus.awaitingTarget(allKeys)) {
+                focus.retryPending()
+                return@LaunchedEffect
+            }
             val target =
                 when (request) {
                     is LauncherAppFocusTarget.App ->
@@ -131,12 +130,13 @@ internal fun LauncherHomeScreen(
         }
     }
     // Content removal also rescues focus using the previous semantic index.
-    LaunchedEffect(allKeys, focus, modal) {
-        if (!modal && request == null && !focus.awaitingTarget(allKeys) && !state.homeTabActivation && removedFocus) {
+    LaunchedEffect(allKeys, focus, modal, windowFocused) {
+        if (!modal && windowFocused && request == null && !focus.awaitingTarget(allKeys) && !state.homeTabActivation && removedFocus) {
             focus.request(fallback() ?: state.selectedTab.focusKey)
         }
     }
-    LaunchedEffect(rowKeys, focus) {
+    LaunchedEffect(rowKeys, focus, modal) {
+        if (modal) return@LaunchedEffect
         val index = mediaRows.indexOfFirst { it.focusKey == focus.homeRow }
         if (index >= 0) focus.homeRowIndex = index
         focus.retainRows(
@@ -151,6 +151,7 @@ internal fun LauncherHomeScreen(
         index: Int,
         key: Key,
     ): Boolean {
+        if (modal) return false
         val keys = ids[row].orEmpty()
         val rowIndex = rowKeys.indexOf(row)
         val target =
@@ -206,8 +207,10 @@ internal fun LauncherHomeScreen(
                                     state.appEditEpoch,
                                     clickLabel = stringResource(if (moving != null) R.string.finish_move else R.string.open_app),
                                     onFocused = {
-                                        onContentEntry()
-                                        focus.rememberRow("apps", appKeys[index], index)
+                                        if (!modal) {
+                                            onContentEntry()
+                                            focus.rememberRow("apps", appKeys[index], index)
+                                        }
                                     },
                                     direction = {
                                         if (moving != null) {
@@ -230,7 +233,7 @@ internal fun LauncherHomeScreen(
                                     onClick = { if (moving != null) model.finishMoving() else onApp(app.componentKey) },
                                     onLongClick =
                                         if (moving == null) {
-                                            { anchor -> model.showAppMenu(app.componentKey, LauncherAppOrigin.Home, anchor) }
+                                            { anchor -> model.showAppMenu(app.componentKey, anchor) }
                                         } else {
                                             null
                                         },
@@ -323,8 +326,10 @@ internal fun LauncherHomeScreen(
                                 modifier =
                                     Modifier
                                         .launcherFocus(focus, target) {
-                                            onContentEntry()
-                                            focus.rememberRow("jellyfin-actions", target, index)
+                                            if (!modal) {
+                                                onContentEntry()
+                                                focus.rememberRow("jellyfin-actions", target, index)
+                                            }
                                         }.onPreviewKeyEvent {
                                             it.type == KeyEventType.KeyDown && direction("jellyfin-actions", index, it.key)
                                         },
@@ -352,7 +357,9 @@ internal fun LauncherHomeScreen(
                                 row.localTitleResource?.let { stringResource(it) } ?: row.layout.title,
                                 style = MaterialTheme.typography.titleLarge,
                             )
-                            Text(stringResource(row.status.statusResource()), style = MaterialTheme.typography.bodyMedium)
+                            row.status.statusResource()?.let {
+                                Text(stringResource(it), style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                         if (row.cards.isEmpty()) {
                             Text(
@@ -366,14 +373,16 @@ internal fun LauncherHomeScreen(
                                     rememberScrollState(),
                                 ).padding(horizontal = LauncherStyle.inset, vertical = LauncherStyle.appRowPadding)
                                 .focusGroup(),
-                            horizontalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
+                            horizontalArrangement = Arrangement.spacedBy(LauncherStyle.mediaGap),
                         ) {
                             row.cards.forEachIndexed { index, card ->
                                 val target = "${row.focusKey}:${card.id}"
                                 key(target) {
                                     LauncherTile(card.title, focus, target, {
-                                        onContentEntry()
-                                        focus.rememberRow(row.focusKey, target, index, mediaRows.indexOfFirst { it.id == row.id })
+                                        if (!modal) {
+                                            onContentEntry()
+                                            focus.rememberRow(row.focusKey, target, index, mediaRows.indexOfFirst { it.id == row.id })
+                                        }
                                     }, { direction(row.focusKey, index, it) }, { onMedia(target, card.id) }, row.layout.aspect) {
                                         val context = LocalContext.current
                                         val request =
@@ -454,17 +463,17 @@ private fun LauncherTile(
         Text(
             title,
             Modifier.padding(top = LauncherStyle.mediaLabelGap),
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodyMedium,
         )
     }
 }
 
-internal fun LauncherRowStatus.statusResource(): Int =
+internal fun LauncherRowStatus.statusResource(): Int? =
     when (this) {
         LauncherRowStatus.Loading -> R.string.loading
-        LauncherRowStatus.Fresh -> R.string.up_to_date
+        LauncherRowStatus.Fresh -> null
         LauncherRowStatus.Cached -> R.string.cached
         LauncherRowStatus.Failed -> R.string.refresh_failed
         LauncherRowStatus.Denied -> R.string.access_denied

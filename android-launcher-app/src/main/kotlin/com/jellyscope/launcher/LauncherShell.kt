@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -42,9 +43,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -91,28 +94,13 @@ internal fun LauncherShell(
             savedPageScope = pageScope
         }
     }
-    val appsFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
-    val settingsFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
-    val loginFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
-    val focus =
-        when (state.route) {
-            LauncherRoute.Home -> homeFocus
-            LauncherRoute.Apps -> appsFocus
-            LauncherRoute.Settings -> settingsFocus
-            LauncherRoute.Login -> loginFocus
-        }
-    listOf(essentialsFocus, jellyfinFocus, appsFocus, settingsFocus, loginFocus).forEach {
+    val suppressed = state.backgroundSuppressed
+    headerFocus.enabled = !suppressed
+    listOf(essentialsFocus, jellyfinFocus).forEach {
+        it.enabled = !suppressed
         it.bindHeader(headerFocus, launcherHeaderKeys)
     }
-    val contentKeys =
-        when (state.route) {
-            LauncherRoute.Home -> state.homeContentKeys(state.selectedTab)
-            LauncherRoute.Apps -> state.apps.catalog.map { "${it.componentKey}:open" }
-            LauncherRoute.Settings -> state.settingsControls
-            LauncherRoute.Login ->
-                listOf("server", "username", "password", "cancel") +
-                    if (!state.busy && !state.restoring && !state.signedIn && !state.cleanupPending) listOf("submit") else emptyList()
-        }
+    val contentKeys = state.homeContentKeys(state.selectedTab)
     val appKeys = state.apps.catalog.map { "apps:${it.componentKey}" }
     val belowApps =
         state.route == LauncherRoute.Home &&
@@ -121,15 +109,11 @@ internal fun LauncherShell(
     val jellyfinHome = state.route == LauncherRoute.Home && state.selectedTab == LauncherTab.Jellyfin
     val selectedHomeRoot = state.route == LauncherRoute.Home && !jellyfinHome && !belowApps && isDefaultHome
     val moving = state.appEdit is LauncherAppEdit.Moving
-    val appModal = state.appEdit is LauncherAppEdit.Menu
     BackHandler(
         enabled =
-            state.dialog == null &&
-                !appModal &&
+            !suppressed &&
                 (
                     moving ||
-                        state.route == LauncherRoute.Apps ||
-                        state.route == LauncherRoute.Settings ||
                         belowApps ||
                         jellyfinHome ||
                         selectedHomeRoot
@@ -146,78 +130,90 @@ internal fun LauncherShell(
         } else if (belowApps) {
             val app = homeFocus.rowTarget("apps", appKeys)
             if (app != null) homeFocus.request(app) else headerFocus.request(LauncherTab.Essentials.focusKey)
-        } else if (state.route != LauncherRoute.Home) {
-            model.backToHome()
         }
     }
 
-    fun navigate(
-        route: LauncherRoute,
-        invoker: String,
-    ) {
-        if (state.route == LauncherRoute.Login) model.cancelLogin()
-        model.navigate(route, invoker)
-    }
-
-    fun accountSettings() {
-        if (state.route == LauncherRoute.Login) model.cancelLogin()
-        model.openSettings(account = true)
-    }
-
-    fun selectTab(
-        tab: LauncherTab,
-        enterContent: Boolean,
-    ) {
-        if (state.route == LauncherRoute.Login) model.cancelLogin()
-        model.selectTab(tab, enterContent)
-    }
     LauncherTheme {
         Column(
-            Modifier.fillMaxSize().background(LauncherStyle.background).background(LauncherStyle.backgroundDepth).onPreviewKeyEvent {
-                it.isRepeatedLauncherActivation
-            },
+            Modifier
+                .fillMaxSize()
+                .background(LauncherStyle.background)
+                .background(LauncherStyle.backgroundDepth)
+                .then(if (suppressed) Modifier.clearAndSetSemantics {} else Modifier)
+                .onPreviewKeyEvent { suppressed || it.isRepeatedLauncherActivation },
         ) {
-            LauncherHeader(state, headerFocus, focus, model, ::selectTab, ::accountSettings, systemSettings)
-            Box(Modifier.weight(1f).fillMaxWidth().launcherFocusScope(focus) { contentKeys }) {
-                when (state.route) {
-                    LauncherRoute.Home ->
-                        LauncherHomeScreen(
-                            state,
-                            homeFocus,
-                            model,
-                            imageScope?.takeIf { it.boundary.key == state.boundaryKey },
-                            onApp = {
-                                model.rememberInvoker("apps:$it")
-                                openApp(it)
-                            },
-                            onMedia = { target, itemId ->
-                                model.rememberInvoker(target)
-                                openMedia(itemId, state.boundaryKey)
-                            },
-                            pages = homePages,
-                            onContentEntry = model::homeContentEntered,
-                            onConnect = { model.beginLogin(LauncherLoginOrigin.Jellyfin) },
-                            onSettings = {
-                                navigate(
-                                    LauncherRoute.Settings,
-                                    if (state.cleanupPending) JELLYFIN_RECOVERY else JELLYFIN_SETTINGS,
-                                )
-                            },
-                            onRefresh = model::refresh,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    LauncherRoute.Apps -> LauncherAppsScreen(state, appsFocus, model, openApp, Modifier.fillMaxSize())
-                    LauncherRoute.Settings ->
-                        LauncherSettingsScreen(
-                            state,
-                            settingsFocus,
-                            model,
-                            systemSettings,
-                            isDefaultHome,
-                            homeSettings,
-                            Modifier.fillMaxSize(),
-                        )
-                    LauncherRoute.Login -> LauncherLoginScreen(state, loginFocus, model, Modifier.fillMaxSize())
+            LauncherHeader(state, headerFocus, homeFocus, model, model::selectTab, { model.openSettings(account = true) }, systemSettings)
+            Box(Modifier.weight(1f).fillMaxWidth().launcherFocusScope(homeFocus) { contentKeys }) {
+                LauncherHomeScreen(
+                    state,
+                    homeFocus,
+                    model,
+                    imageScope?.takeIf { it.boundary.key == state.boundaryKey },
+                    onApp = {
+                        if (!suppressed) {
+                            model.rememberInvoker("apps:$it")
+                            openApp(it)
+                        }
+                    },
+                    onMedia = { target, itemId ->
+                        if (!suppressed) {
+                            model.rememberInvoker(target)
+                            openMedia(itemId, state.boundaryKey)
+                        }
+                    },
+                    pages = homePages,
+                    onContentEntry = { if (!suppressed) model.homeContentEntered() },
+                    onConnect = { if (!suppressed) model.beginLogin(LauncherLoginOrigin.Jellyfin) },
+                    onSettings = {
+                        if (!suppressed) {
+                            model.navigate(
+                                LauncherRoute.Settings,
+                                if (state.cleanupPending) JELLYFIN_RECOVERY else JELLYFIN_SETTINGS,
+                            )
+                        }
+                    },
+                    onRefresh = { if (!suppressed) model.refresh() },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        if (state.route != LauncherRoute.Home) {
+            val modalFocus = remember(state.route) { LauncherFocus() }
+            modalFocus.enabled = state.dialog == null
+            val dismiss: () -> Unit = {
+                if (state.route == LauncherRoute.Login) model.cancelLogin() else model.backToHome()
+            }
+            Dialog(
+                onDismissRequest = dismiss,
+                properties =
+                    DialogProperties(
+                        usePlatformDefaultWidth = false,
+                        decorFitsSystemWindows = false,
+                        dismissOnClickOutside = false,
+                        dismissOnBackPress = false,
+                    ),
+            ) {
+                Box(
+                    Modifier
+                        .widthIn(max = 640.dp)
+                        .heightIn(max = 480.dp)
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                        .then(if (state.dialog != null) Modifier.clearAndSetSemantics {} else Modifier)
+                        .onPreviewKeyEvent { state.dialog != null || it.isRepeatedLauncherActivation },
+                ) {
+                    when (state.route) {
+                        LauncherRoute.Settings ->
+                            LauncherSettingsScreen(
+                                state,
+                                modalFocus,
+                                model,
+                                isDefaultHome,
+                                homeSettings,
+                                Modifier.fillMaxWidth(),
+                            )
+                        LauncherRoute.Login -> LauncherLoginScreen(state, modalFocus, model, Modifier.fillMaxWidth())
+                        LauncherRoute.Home -> Unit
+                    }
                 }
             }
         }
@@ -245,7 +241,9 @@ private fun LauncherHeader(
             ).padding(horizontal = LauncherStyle.inset)
             .launcherFocusScope(focus) { controls }
             .onPreviewKeyEvent {
-                if (it.type != KeyEventType.KeyDown ||
+                if (state.backgroundSuppressed) {
+                    true
+                } else if (it.type != KeyEventType.KeyDown ||
                     it.key !in listOf(Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp, Key.DirectionDown)
                 ) {
                     false
@@ -337,12 +335,13 @@ private fun LauncherHeaderControl(
         state.dialog,
         state.boundaryKey,
         state.restoring,
+        state.backgroundSuppressed,
     ) {
         val epoch = entryEpoch
         if (focused &&
             tab != null &&
             !active &&
-            state.route == LauncherRoute.Home &&
+            !state.backgroundSuppressed &&
             state.dialog == null &&
             state.appEdit == null &&
             state.appFocusTarget == null &&
@@ -352,7 +351,7 @@ private fun LauncherHeaderControl(
             val latest = model.state.value
             if (focus.hasFocus &&
                 focus.current == target &&
-                latest.route == LauncherRoute.Home &&
+                !latest.backgroundSuppressed &&
                 latest.dialog == null &&
                 latest.appEdit == null &&
                 latest.appFocusTarget == null &&
@@ -387,12 +386,15 @@ private fun LauncherHeaderControl(
                 contentDescription = label
                 if (tab != null) selected = active
             }.combinedClickable(
+                enabled = !state.backgroundSuppressed,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 role = if (tab != null) Role.Tab else Role.Button,
                 onClick = {
-                    focus.request(target)
-                    click()
+                    if (!state.backgroundSuppressed) {
+                        focus.request(target)
+                        click()
+                    }
                 },
             ),
         contentAlignment = Alignment.Center,
@@ -475,7 +477,8 @@ private fun LauncherDialogContent(
             LauncherDialog.CleanupFailed -> R.string.cleanup_failed_message
         }
     Dialog(onDismissRequest = dismiss, properties = DialogProperties(dismissOnClickOutside = false)) {
-        LaunchedEffect(dialog) { focus.request("dismiss") }
+        val windowFocused = LocalWindowInfo.current.isWindowFocused
+        LaunchedEffect(dialog, windowFocused) { if (windowFocused) focus.request("dismiss") }
         Column(
             Modifier
                 .widthIn(

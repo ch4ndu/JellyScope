@@ -25,12 +25,12 @@ internal class LauncherFocus {
     private var remembered by mutableStateOf<String?>(null)
     private var header: LauncherFocus? = null
     private var headerKeys: Set<String> = emptySet()
+    var enabled by mutableStateOf(true)
     val entryRequester = FocusRequester()
     val hasFocus: Boolean get() = focusedKey != null
     val parentFocused: Boolean get() = header?.hasFocus == true
 
-    // Login's existing restore effect also sees the active header, so resume
-    // cannot pull focus back into a field while the gear/account owns it.
+    // Only Home content shares header restoration. Modal owners remain isolated.
     val current: String? get() = if (parentFocused) header?.current else remembered
     var homeRow by mutableStateOf("apps")
     var homeRowIndex by mutableStateOf(0)
@@ -48,7 +48,12 @@ internal class LauncherFocus {
 
     fun awaitingTarget(keys: List<String>): Boolean = pending?.let { it in keys } == true
 
+    fun retryPending() {
+        pending?.let(::attempt)
+    }
+
     fun request(key: String) {
+        if (!enabled) return
         if (isParentTarget(key)) {
             pending = null
             header?.request(key)
@@ -59,13 +64,14 @@ internal class LauncherFocus {
     }
 
     fun requestEntry(fallbackKeys: List<String>): Boolean {
+        if (!enabled) return false
         val candidates = (listOfNotNull(pending, remembered).filter { it in fallbackKeys } + fallbackKeys).distinct()
         val accepted = candidates.any { key -> runCatching { attached[key]?.requestFocus() ?: false }.getOrDefault(false) }
         if (accepted) pending = null
         return accepted
     }
 
-    fun enter(): Boolean = runCatching { entryRequester.requestFocus() }.getOrDefault(false) && hasFocus
+    fun enter(): Boolean = enabled && runCatching { entryRequester.requestFocus() }.getOrDefault(false) && hasFocus
 
     fun rememberRow(
         row: String,
@@ -122,7 +128,7 @@ internal class LauncherFocus {
     }
 
     private fun attempt(key: String) {
-        if (pending == key) {
+        if (enabled && pending == key) {
             val accepted = runCatching { attached[key]?.requestFocus() ?: false }.getOrDefault(false)
             // A container's onEnter may redirect and clear this request itself.
             // Do not reinstate it just because the outer request was redirected.
@@ -179,7 +185,8 @@ internal fun Modifier.launcherFocus(
     composed {
         val requester = remember(focus, key) { FocusRequester() }
         DisposableEffect(focus, key) { onDispose { focus.detach(key) } }
-        focusRequester(requester)
+        focusProperties { if (!focus.enabled) canFocus = false }
+            .focusRequester(requester)
             .onGloballyPositioned { focus.attach(key, requester) }
             .onFocusChanged {
                 if (it.isFocused) {

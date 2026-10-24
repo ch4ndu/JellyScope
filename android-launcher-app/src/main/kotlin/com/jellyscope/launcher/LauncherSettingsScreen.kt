@@ -2,6 +2,7 @@
 
 package com.jellyscope.launcher
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
@@ -29,53 +31,56 @@ internal fun LauncherSettingsScreen(
     state: LauncherUiState,
     focus: LauncherFocus,
     model: LauncherViewModel,
-    systemSettings: () -> Unit,
     isDefaultHome: Boolean,
     homeSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val controls = state.settingsControls
     val request = state.settingsFocusTarget
-    LaunchedEffect(state.focusGeneration, controls, state.dialog) {
-        if (state.dialog == null) {
-            if (request == null && focus.awaitingTarget(controls)) return@LaunchedEffect
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(state.focusGeneration, controls, state.dialog, windowFocused) {
+        if (state.dialog == null && windowFocused) {
             val target =
                 if (request != null) {
-                    "account".takeIf { it in controls } ?: controls.first()
+                    "account".takeIf { it in controls } ?: "close"
                 } else {
-                    focus.current?.takeIf { focus.isParentTarget(it) || it in controls } ?: controls.first()
+                    focus.current?.takeIf { it in controls } ?: "account".takeIf { it in controls } ?: "close"
                 }
             focus.request(target)
             request?.let(model::settingsFocusHandled)
         }
     }
+    BackHandler(enabled = state.dialog == null, onBack = model::backToHome)
     Column(
         modifier
             .verticalScroll(
                 rememberScrollState(),
-            ).padding(horizontal = LauncherStyle.inset, vertical = LauncherStyle.contentTop)
+            ).padding(24.dp)
             .focusGroup()
             .onPreviewKeyEvent {
                 val index = controls.indexOf(focus.current)
-                if (it.type != KeyEventType.KeyDown || index < 0) {
+                if (it.isRepeatedLauncherActivation) {
+                    true
+                } else if (it.type != KeyEventType.KeyDown || index < 0) {
                     false
                 } else {
                     when (it.key) {
                         Key.DirectionUp -> {
-                            focus.request(controls.getOrNull(index - 1) ?: "settings")
+                            focus.request(controls.getOrNull(index - 1) ?: controls.first())
                             true
                         }
                         Key.DirectionDown -> {
                             controls.getOrNull(index + 1)?.let(focus::request)
                             true
                         }
+                        Key.DirectionLeft, Key.DirectionRight -> true
                         else -> false
                     }
                 }
             },
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(stringResource(R.string.launcher_settings), style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(R.string.server_account), style = MaterialTheme.typography.headlineMedium)
         Text(if (state.signedIn) state.accountLabel else stringResource(if (state.restoring) R.string.restoring else R.string.signed_out))
         if (state.serverUrl.isNotEmpty()) Text(state.serverUrl)
         Text(stringResource(state.media.configurationStatus.resource()))
@@ -114,7 +119,7 @@ internal fun LauncherSettingsScreen(
                 }
             },
             enabled =
-                !state.restoring && !state.busy,
+                !state.restoring && !state.busy && state.dialog == null,
             modifier = Modifier.launcherFocus(focus, "account"),
         ) {
             Text(
@@ -129,19 +134,18 @@ internal fun LauncherSettingsScreen(
                 ),
             )
         }
-        Button(onClick = model::refresh, modifier = Modifier.launcherFocus(focus, "refresh")) { Text(stringResource(R.string.refresh)) }
-        Button(onClick = { model.navigate(LauncherRoute.Apps, "settings") }, modifier = Modifier.launcherFocus(focus, "settings-catalog")) {
-            Text(stringResource(R.string.all_apps))
-        }
-        Button(onClick = systemSettings, modifier = Modifier.launcherFocus(focus, "settings-system")) {
-            Text(stringResource(R.string.system_settings))
+        Button(onClick = model::refresh, enabled = state.dialog == null, modifier = Modifier.launcherFocus(focus, "refresh")) {
+            Text(stringResource(R.string.refresh))
         }
         Text(stringResource(if (isDefaultHome) R.string.home_selected else R.string.home_not_selected))
-        Button(onClick = homeSettings, modifier = Modifier.launcherFocus(focus, "settings-home")) {
+        Button(onClick = homeSettings, enabled = state.dialog == null, modifier = Modifier.launcherFocus(focus, "settings-home")) {
             Text(stringResource(R.string.choose_home))
         }
         Text(stringResource(R.string.home_support))
         Text(stringResource(R.string.playback_pending))
+        Button(onClick = model::backToHome, enabled = state.dialog == null, modifier = Modifier.launcherFocus(focus, "close")) {
+            Text(stringResource(R.string.close))
+        }
     }
 }
 

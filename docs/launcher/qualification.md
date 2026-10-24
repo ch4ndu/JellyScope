@@ -19,7 +19,21 @@ do not transfer a result to another firmware/model or equate installation with
 Home replacement. Emulator evidence, if later authorized, is separate from physical
 TV/Fire TV evidence.
 
-## Dusk header refinement
+## Account and sign-in dialog candidate
+
+The current source replaces account/Login pages with focus-isolated dialogs,
+removes the redundant account buttons and Apps grid, and hides Fresh ribbon
+status labels. Tile titles use one line with ellipsis; media rows have a 24 dp gap.
+Debug compilation, formatting, independent review, Release lint/assembly and final
+source verification passed. The Release update installed on the TiVo. Device
+checks confirmed account-dialog focus after Refresh/Right, Close restoring the
+account icon, and single-line media titles with clearance beside a focused
+landscape card. Login field entry/IME/Back and Connect-origin cancellation remain
+unverified because the existing signed-in session was preserved. Transition
+clearance for all card shapes is source-calculated, not frame-by-frame device proof.
+Earlier Dusk tests established form visibility only, not editable-field behavior.
+
+## Dusk header refinement (before dialogs)
 
 Dusk replaces the Ocean background and the gear opens Android System settings
 directly; the Jellyfin icon retains launcher account/settings entry. Source review,
@@ -201,7 +215,7 @@ owned by [launcher engineering](engineering.md#standard-home-integration).
 
 6. Verify Home/Jellyfin dwell selection and cancellation during rapid traversal,
    immediate Down before dwell, Jellyfin Down to Connect, Right/Left through
-   header icons, Connect/cancel, and Settings/All apps/System settings return.
+   header icons, Connect/cancel, and account-dialog/System settings return.
    Check saved focus/scroll and inactive-page
    disposal; assign, reorder and move rows across tabs in the server editor. Check
    old missing/null tab fields, invalid placement, both-tab account cleanup, and

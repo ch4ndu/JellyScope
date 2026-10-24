@@ -94,11 +94,8 @@ internal data class LauncherApp(
     val banner: ImageBitmap? = null,
 )
 
-internal enum class LauncherAppOrigin { Home, Catalog }
-
 internal data class LauncherAppTarget(
     val componentKey: String,
-    val origin: LauncherAppOrigin,
     val anchor: Rect,
 )
 
@@ -116,16 +113,11 @@ internal sealed interface LauncherAppFocusTarget {
     val generation: Int
 
     data class App(
-        val origin: LauncherAppOrigin,
         val componentKey: String,
         override val generation: Int,
     ) : LauncherAppFocusTarget {
         val key: String
-            get() =
-                when (origin) {
-                    LauncherAppOrigin.Home -> "apps:$componentKey"
-                    LauncherAppOrigin.Catalog -> "$componentKey:open"
-                }
+            get() = "apps:$componentKey"
     }
 
     data class HomeContent(
@@ -149,7 +141,7 @@ internal data class LauncherAppsState(
     val loaded: Boolean = false,
 )
 
-internal enum class LauncherRoute { Home, Apps, Settings, Login }
+internal enum class LauncherRoute { Home, Settings, Login }
 
 internal enum class LauncherLoginOrigin { Settings, Jellyfin }
 
@@ -191,10 +183,16 @@ internal data class LauncherUiState(
     val orderWriting: Boolean = false,
     val settingsFocusTarget: LauncherSettingsFocusTarget? = null,
 ) {
+    val backgroundSuppressed: Boolean
+        get() = route != LauncherRoute.Home || appEdit is LauncherAppEdit.Menu || dialog != null
+
     val settingsControls: List<String>
         get() =
-            (if (!restoring && !busy) listOf("account") else emptyList()) +
-                listOf("refresh", "settings-catalog", "settings-system", "settings-home")
+            if (dialog != null) {
+                emptyList()
+            } else {
+                (if (!restoring && !busy) listOf("account") else emptyList()) + listOf("refresh", "settings-home", "close")
+            }
 
     val homeRows: List<LauncherRow>
         get() = rowsFor(selectedTab)

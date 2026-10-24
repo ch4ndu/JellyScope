@@ -155,7 +155,7 @@ internal fun LauncherAppTile(
                 Modifier.padding(top = LauncherStyle.appLabelGap).height(LauncherStyle.appLabelHeight),
                 color = LauncherStyle.text,
                 style = LauncherStyle.label,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }

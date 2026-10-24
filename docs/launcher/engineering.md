@@ -19,7 +19,7 @@ Launcher production files live under
 `android-launcher-app/src/main/kotlin/com/jellyscope/launcher/`:
 `MainActivity` owns Android entry/Home handling, `LauncherApplication` composes
 DI, `LauncherViewModel` owns UI/session operations, and `LauncherShell` routes
-Home, Apps, Settings and Login. `LauncherLayout` and
+Home with Settings and Login dialogs. `LauncherLayout` and
 `LauncherConfigurationRepository` own layout validation/fetching;
 `LauncherMediaRepository`, `LauncherSnapshotStore` and `LauncherImages` own media,
 durable snapshots and artwork respectively. `LauncherAppsRepository` owns app
@@ -36,8 +36,7 @@ reachable before login and during media errors. Apps contains the complete order
 launchable catalog, one resolved component per package. Long-press offers Open
 and Move; each Left/Right step saves synchronously, and Select/Back finishes.
 There is no pin prerequisite, plus tile, picker, 24-app ceiling or normal Apps hint.
-All apps remains a grid reached from Settings; Back returns to Home. Missing
-components fall back to a surviving app, then the attached Home tab.
+Apps has no separate grid route. Missing components fall back to a surviving app, then the attached Home tab.
 
 The existing device preferences file uses `app-order-v1`. If absent, surviving
 legacy pins seed the order before remaining catalog entries append. The legacy
@@ -62,13 +61,12 @@ restores the destination row; missing items use the clamped index, next availabl
 row on the active tab, then that tab’s fallback described above. Horizontal
 movement reveals the focused card without changing
 row identity. Modal controls trap focus and restore their invoker. Return from
-System settings restores the control that opened it: the header gear or the
-settings-screen entry. The gear dispatches the existing Android settings callback
-directly, preserving the route, selected tab and any in-progress login. The
-Jellyfin icon opens internal launcher settings with account focus.
+System settings restores the header gear that opened it. The gear dispatches
+the Android settings callback directly, preserving the selected tab. The Jellyfin
+icon opens the account dialog; the background header is inactive while modal.
 
-Back dismisses a dialog first, then finishes inline Move, then returns from Apps/settings to its Home
-invoker. Login Back cancels outstanding work, clears password input and returns
+Back dismisses a dialog first, then finishes inline Move. Login Back hides the
+keyboard first; another Back cancels outstanding work, clears password and returns
 to its origin: Settings or the Jellyfin tab and Connect action. A login already
 durably committed remains reflected in session state. On Home, Home Back
 below Apps returns to Apps; at Apps it retains ordinary activity
@@ -87,9 +85,11 @@ row/scroll memory. A local focus container uses `focusRequester`,
 `focusProperties.onEnter` and `focusGroup`, adapting the TV scope pattern without
 importing its coordinator. Immediate entry tries attached valid children;
 explicit deferred targets remain pending separately. Header keys forward through
-content owners, which reflect actual header focus so Login/resume restoration
-cannot steal it. Typed Settings account entry precedes saved focus and falls back
-to an enabled control when account actions are unavailable.
+Home content owners, which reflect actual header focus. Settings/Login use a
+route-local dialog focus owner without header binding. Home stays composed, but
+background focus, actions, dwell and restoration are suppressed while modal.
+Account entry targets its enabled account control or Close; login enters Server
+URL. Select opens the field keyboard, and IME insets keep the form scrollable.
 
 Focused inactive tabs select after 250 ms; blur, route/modal/move/Home/account
 changes cancel stale dwell. Center selects immediately. Down-before-dwell selects
@@ -98,8 +98,8 @@ restoring with no action stays on the tab. Right from Jellyfin traverses account
 then gear; content Up returns to its tab. Focus uses text/underlines for tabs and
 quiet scaling/outline for app tiles over the centralized Dusk plum-to-coral gradient.
 
-Jellyfin Back moves content focus to its tab, then switches to Home. Apps
-and Settings return to the originating tab; playback return preserves tab/item.
+Jellyfin Back moves content focus to its tab, then switches to Home. Closing
+Settings restores its invoker; playback return preserves tab/item.
 Actual device Home selects Home and targets Apps through the Home reset.
 Logout keeps the selected tab and chooses a reachable disconnected landing.
 

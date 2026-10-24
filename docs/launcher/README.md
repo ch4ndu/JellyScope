@@ -28,24 +28,23 @@ contracts live in [engineering](engineering.md) and the [plugin reference](plugi
 | --- | --- |
 | Home | Apps first; default media rows are Play Next, Up Next and Favorites |
 | Jellyfin | Media only; default Recently Added, or a connection prompt when signed out |
-| All apps | Installed-app grid with long-press actions |
-| Launcher settings | Refresh, layout/cache status, account cleanup, Home selection and System settings |
-| Connect / Login | Server URL, username and password |
+| Account dialog | Refresh, layout/cache status, account cleanup and Home selection |
+| Sign-in dialog | Server URL, username and password |
 
 Tabs select after 250 ms of focus; Center selects immediately. Left/Right traverses
 tabs and icons; Down enters content. The Jellyfin icon opens account controls;
-the gear opens Android **System settings** directly. **All apps** remains in
-launcher settings, reached through the Jellyfin icon.
+the gear opens Android **System settings** directly. Account and sign-in dialogs
+keep focus inside until closed; Close returns to the invoking control.
 
 **Apps** automatically lists every launchable app. Long-press for Open or **Move**;
 Left/Right reorders inline, and Select or Back finishes with each step saved.
 Existing favorites seed the order; other apps append. Order survives sign-out.
-New apps appear after resume/Refresh; pruned/reinstalled apps append. Back from
-the All apps grid returns to Home.
+New apps appear after resume/Refresh; pruned/reinstalled apps append.
 
 Open **Jellyfin → Connect to server**, enter the server URL and credentials, then
 choose **Sign in**. HTTPS is preferred; HTTP is unencrypted. Success and Cancel
 both return to Jellyfin. Login opened from Settings cancels back to Settings.
+Select a field to open the keyboard; Back hides it before cancelling.
 Passwords are transient; the launcher keeps its own saved session, separate from
 JellyScope's player account.
 

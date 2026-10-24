@@ -5,6 +5,7 @@ package com.jellyscope.launcher
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +37,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -59,7 +61,7 @@ internal fun LauncherLoginScreen(
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
-    val canSubmit = !state.restoring && !state.busy && !state.signedIn && !state.cleanupPending
+    val canSubmit = !state.restoring && !state.busy && !state.signedIn && !state.cleanupPending && state.dialog == null
     val cancel = {
         password = ""
         keyboard?.hide()
@@ -78,22 +80,41 @@ internal fun LauncherLoginScreen(
             focus.reset()
         }
     }
-    LaunchedEffect(state.focusGeneration) { focus.request(focus.current ?: "server") }
-    LaunchedEffect(canSubmit) {
-        if (!canSubmit && focus.current == "submit") focus.request("cancel")
-    }
-    BackHandler(enabled = WindowInsets.ime.getBottom(LocalDensity.current) == 0, onBack = cancel)
     val fields = listOf("server", "username", "password")
+    val actions = (if (canSubmit) listOf("submit") else emptyList()) + "cancel"
+    val controls = fields + actions
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(state.focusGeneration, canSubmit, state.dialog, windowFocused) {
+        if (state.dialog == null && windowFocused) {
+            focus.request(focus.current?.takeIf { it in controls } ?: if (focus.current == "submit") "cancel" else "server")
+        }
+    }
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    BackHandler(enabled = state.dialog == null) {
+        if (imeVisible) keyboard?.hide() else cancel()
+    }
     Column(
-        modifier.imePadding().verticalScroll(rememberScrollState()).padding(32.dp).widthIn(max = 640.dp).onPreviewKeyEvent {
-            if (it.type != KeyEventType.KeyDown) {
+        modifier.imePadding().verticalScroll(rememberScrollState()).padding(24.dp).focusGroup().onPreviewKeyEvent {
+            if (it.isRepeatedLauncherActivation) {
+                true
+            } else if (it.type != KeyEventType.KeyDown) {
                 false
             } else {
                 val index = fields.indexOf(focus.current)
                 when (it.key) {
                     Key.DirectionUp -> {
-                        focus.request(if (index >= 0) fields.getOrNull(index - 1) ?: "settings" else "password")
+                        focus.request(if (index >= 0) fields.getOrNull(index - 1) ?: "server" else "password")
                         true
+                    }
+                    Key.DirectionLeft, Key.DirectionRight -> {
+                        val action = actions.indexOf(focus.current)
+                        if (action < 0) {
+                            false
+                        } else {
+                            val step = if (it.key == Key.DirectionLeft) -1 else 1
+                            focus.request(actions[(action + step).coerceIn(actions.indices)])
+                            true
+                        }
                     }
                     Key.DirectionDown -> {
                         if (index >= 0) focus.request(fields.getOrNull(index + 1) ?: if (canSubmit) "submit" else "cancel")
@@ -118,7 +139,9 @@ internal fun LauncherLoginScreen(
                 enabled = canSubmit,
                 modifier = Modifier.launcherFocus(focus, "submit"),
             ) { Text(stringResource(R.string.sign_in)) }
-            Button(onClick = cancel, modifier = Modifier.launcherFocus(focus, "cancel")) { Text(stringResource(R.string.cancel)) }
+            Button(onClick = cancel, enabled = state.dialog == null, modifier = Modifier.launcherFocus(focus, "cancel")) {
+                Text(stringResource(R.string.cancel))
+            }
         }
     }
 }
@@ -134,6 +157,7 @@ private fun LauncherLoginField(
     submit: (() -> Unit)? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label)
         BasicTextField(
@@ -144,7 +168,14 @@ private fun LauncherLoginField(
                     .widthIn(min = 320.dp)
                     .launcherFocus(focus, key)
                     .onFocusChanged { focused = it.isFocused }
-                    .semantics {
+                    .onPreviewKeyEvent {
+                        if (it.key in listOf(Key.DirectionCenter, Key.Enter, Key.NumPadEnter)) {
+                            if (it.type == KeyEventType.KeyDown) keyboard?.show()
+                            it.type == KeyEventType.KeyDown || it.type == KeyEventType.KeyUp
+                        } else {
+                            false
+                        }
+                    }.semantics {
                         contentDescription =
                             label
                     }.background(
