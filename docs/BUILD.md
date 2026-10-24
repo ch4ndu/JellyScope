@@ -107,7 +107,8 @@ The independent launcher is in development. It provides lightweight login, local
 app pinning and ordering, cached direct Jellyfin media rows, and System settings.
 Server-managed layouts use the independently built
 [configuration plugin](../jellyfin-launcher-plugin/README.md). Live plugin
-qualification and replacement Home behavior remain in development. Media selection
+qualification remains outstanding. Standard Home eligibility, selection settings
+and conditional root-Back handling are implemented. Media selection
 uses the explicit JellyScope playback contract; host builds do not establish
 actual cross-app delivery, playback, remote focus or return behavior.
 It requires Android API 25 or newer and uses application ID
@@ -120,8 +121,9 @@ It requires Android API 25 or newer and uses application ID
 
 The minified release variant uses debug signing for local verification only.
 It has no release-license metadata/readiness wiring and is not release-ready;
-`scripts/build-release-artifacts.sh` does not collect it. No Home replacement
-capability or device compatibility is established by assembly.
+`scripts/build-release-artifacts.sh` does not collect it. Assembly establishes neither replacement-Home behavior nor device compatibility.
+See [launcher qualification](operations/android-launcher-qualification.md) for
+separate installation, ordinary-app and Home evidence levels.
 
 ## Desktop (JVM)
 

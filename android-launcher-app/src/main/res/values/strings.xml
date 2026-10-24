@@ -65,7 +65,12 @@
     <string name="playback_stale_title">Media selection changed</string>
     <string name="playback_stale_message">Refresh the launcher and select the media again. Check that you are still signed in to the intended server and account.</string>
     <string name="playback_pending">Select media to open JellyScope. Sign in to the same server and account in both apps. Player Back returns to JellyScope; use device navigation to return to the launcher.</string>
-    <string name="home_pending">Using this app as the device Home screen has not been verified.</string>
+    <string name="choose_home">Choose default Home app</string>
+    <string name="home_selected">Selected as default Home</string>
+    <string name="home_not_selected">Not selected or not reported by this device</string>
+    <string name="home_support">Home selection depends on your device software. Some devices do not expose a default Home selector.</string>
+    <string name="home_settings_unavailable_title">Home selection unavailable</string>
+    <string name="home_settings_unavailable_message">This device may not expose a default Home selector. You can still open Android System settings from this launcher.</string>
     <string name="cancel">Cancel</string>
     <string name="dismiss">Dismiss</string>
 </resources>

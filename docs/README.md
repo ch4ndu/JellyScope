@@ -38,6 +38,7 @@ owns audience, size and migration policy.
 ## Build, release and project records
 
 - [Build](BUILD.md): toolchains, local artifacts, installation commands and module map.
+- [Launcher qualification](operations/android-launcher-qualification.md): device inventory and separate install, ordinary-app and replacement-Home evidence.
 - [Release](RELEASE.md): signing, publication commands and acceptance gates.
 - [Native dependencies](operations/android-native-dependencies.md): Android pins, binary verification and source/license obligations.
 - [Licensing and distribution](operations/licensing-and-distribution.md): legal direction and distribution requirements.

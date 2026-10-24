@@ -56,10 +56,13 @@ internal fun LauncherShell(
     openApp: (String) -> Unit,
     systemSettings: () -> Unit,
     openMedia: (String, String?) -> Unit,
+    isDefaultHome: Boolean,
+    homeSettings: () -> Unit,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val imageScope by images.active.collectAsStateWithLifecycle()
-    val homeFocus = rememberSaveable(state.boundaryKey, saver = LauncherFocus.saver) { LauncherFocus() }
+    val homeFocus =
+        rememberSaveable(state.boundaryKey, state.homeResetGeneration, saver = LauncherFocus.saver) { LauncherFocus() }
     val appsFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
     val settingsFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
     val loginFocus = rememberSaveable(saver = LauncherFocus.saver) { LauncherFocus() }
@@ -72,10 +75,17 @@ internal fun LauncherShell(
         }
     val appKeys = state.apps.pins.map { "apps:${it.componentKey}" } + "apps:+"
     val belowApps = state.route == LauncherRoute.Home && homeFocus.homeRow !in listOf("apps", "header")
+    val selectedHomeRoot = state.route == LauncherRoute.Home && !belowApps && isDefaultHome
     BackHandler(
-        enabled = state.dialog == null && (state.route == LauncherRoute.Apps || state.route == LauncherRoute.Settings || belowApps),
+        enabled =
+            state.dialog == null &&
+                (state.route == LauncherRoute.Apps || state.route == LauncherRoute.Settings || belowApps || selectedHomeRoot),
     ) {
-        if (belowApps) homeFocus.request(homeFocus.rowTarget("apps", appKeys) ?: "apps:+") else model.backToHome()
+        if (belowApps) {
+            homeFocus.request(homeFocus.rowTarget("apps", appKeys) ?: "apps:+")
+        } else if (state.route != LauncherRoute.Home) {
+            model.backToHome()
+        }
     }
 
     fun navigate(
@@ -191,6 +201,8 @@ internal fun LauncherShell(
                             settingsFocus,
                             model,
                             ::settings,
+                            isDefaultHome,
+                            homeSettings,
                             Modifier.weight(1f).fillMaxWidth(),
                         )
                     LauncherRoute.Login -> LauncherLoginScreen(state, loginFocus, model, Modifier.weight(1f).fillMaxWidth())
@@ -225,6 +237,7 @@ private fun LauncherDialogContent(
     val title =
         when (dialog) {
             LauncherDialog.SystemSettings -> R.string.settings_unavailable_title
+            LauncherDialog.HomeSettingsUnavailable -> R.string.home_settings_unavailable_title
             LauncherDialog.AppUnavailable -> R.string.app_unavailable_title
             LauncherDialog.PlaybackUnavailable -> R.string.playback_unavailable_title
             LauncherDialog.PlaybackFailed -> R.string.playback_failed_title
@@ -235,6 +248,7 @@ private fun LauncherDialogContent(
     val message =
         when (dialog) {
             LauncherDialog.SystemSettings -> R.string.settings_unavailable_message
+            LauncherDialog.HomeSettingsUnavailable -> R.string.home_settings_unavailable_message
             LauncherDialog.AppUnavailable -> R.string.app_unavailable_message
             LauncherDialog.PlaybackUnavailable -> R.string.playback_unavailable_message
             LauncherDialog.PlaybackFailed -> R.string.playback_failed_message

@@ -30,9 +30,12 @@ internal fun LauncherSettingsScreen(
     focus: LauncherFocus,
     model: LauncherViewModel,
     systemSettings: () -> Unit,
+    isDefaultHome: Boolean,
+    homeSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val controls = (if (!state.restoring && !state.busy) listOf("account") else emptyList()) + listOf("refresh", "settings-system")
+    val controls =
+        (if (!state.restoring && !state.busy) listOf("account") else emptyList()) + listOf("refresh", "settings-system", "settings-home")
     val enabledControls = controls + listOf("catalog", "settings", "system")
     LaunchedEffect(state.focusGeneration, controls) {
         focus.request(
@@ -118,8 +121,12 @@ internal fun LauncherSettingsScreen(
         Button(onClick = systemSettings, modifier = Modifier.launcherFocus(focus, "settings-system")) {
             Text(stringResource(R.string.system_settings))
         }
+        Text(stringResource(if (isDefaultHome) R.string.home_selected else R.string.home_not_selected))
+        Button(onClick = homeSettings, modifier = Modifier.launcherFocus(focus, "settings-home")) {
+            Text(stringResource(R.string.choose_home))
+        }
+        Text(stringResource(R.string.home_support))
         Text(stringResource(R.string.playback_pending))
-        Text(stringResource(R.string.home_pending))
     }
 }
 

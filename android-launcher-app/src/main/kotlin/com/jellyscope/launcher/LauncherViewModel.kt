@@ -151,6 +151,27 @@ internal class LauncherViewModel(
 
     fun backToHome() = navigate(LauncherRoute.Home)
 
+    fun homeInvoked() {
+        if (_state.value.route == LauncherRoute.Login) {
+            cancelLogin(LauncherRoute.Home)
+        } else {
+            resetHome()
+        }
+    }
+
+    private fun resetHome() {
+        _state.update {
+            it.copy(
+                route = LauncherRoute.Home,
+                dialog = null,
+                authError = null,
+                homeInvoker = "apps:+",
+                focusGeneration = it.focusGeneration + 1,
+                homeResetGeneration = it.homeResetGeneration + 1,
+            )
+        }
+    }
+
     fun showDialog(dialog: LauncherDialog) {
         _state.update { it.copy(dialog = dialog) }
     }
@@ -186,11 +207,13 @@ internal class LauncherViewModel(
             }
     }
 
-    fun cancelLogin() {
+    fun cancelLogin() = cancelLogin(LauncherRoute.Settings)
+
+    private fun cancelLogin(destination: LauncherRoute) {
         loginGeneration += 1
         val cancelledJob = loginJob
         cancelledJob?.cancel()
-        navigate(LauncherRoute.Settings)
+        if (destination == LauncherRoute.Home) resetHome() else navigate(destination)
         // Exit UI immediately. Ordering invalidation with the old job prevents
         // it from cancelling a newer login; a commit that already won is honored.
         _state.update { it.copy(busy = true) }

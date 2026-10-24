@@ -96,6 +96,7 @@ internal enum class LauncherRoute { Home, Apps, Settings, Login }
 
 internal enum class LauncherDialog {
     SystemSettings,
+    HomeSettingsUnavailable,
     AppUnavailable,
     PlaybackUnavailable,
     PlaybackFailed,
@@ -120,6 +121,7 @@ internal data class LauncherUiState(
     val authError: LauncherAuthError? = null,
     val dialog: LauncherDialog? = null,
     val focusGeneration: Int = 0,
+    val homeResetGeneration: Int = 0,
     val homeInvoker: String = "apps:+",
 )
 

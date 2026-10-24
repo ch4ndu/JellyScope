@@ -248,7 +248,8 @@ download, settings, and recovery focus behavior.
   visible Retry/Cancel error handling apply. A link received while a player is
   open is consumed with a notice, preserving the existing player. Each parsed
   delivery has distinct identity, including repeated identical URIs.
-- Consumed data is cleared from the Activity intent to prevent recreation replay.
+- Consumed data is cleared from the current Activity intent to avoid rehandling
+  it during ordinary recreation; this is not durable process-death deduplication.
   Notice Back only dismisses it. Player Back returns to JellyScope's prior route,
   not necessarily immediately to the launcher. When the launcher actually resumes
   after external dispatch, its existing focus restoration and manual Jellyfin
@@ -304,10 +305,36 @@ Back dismisses a dialog first, then returns from Apps/settings to its Home
 invoker. Login Back cancels outstanding work, clears password input and returns
 to settings; a login already durably committed remains reflected in session
 state. Home Back below Apps returns to Apps; at Apps it retains ordinary activity
-exit behavior. Home-role suppression and device qualification are separate work.
+exit behavior unless the public resolver reports this Activity as the default Home;
+in that case root Back is consumed without navigation. Device qualification is
+separate from this source behavior.
 Media selection uses the explicit JellyScope handoff above. The Settings message
 explains matching-account setup and the return path; it does not claim playback
 success from an Activity launch.
+
+### Standard Home integration
+
+The independent launcher declares a separate MAIN/HOME/DEFAULT filter and uses
+singleTask. A new MAIN+HOME intent without data returns to Apps (`apps:+`), clears
+a modal/auth error and replaces Home focus state. Cold handling runs only without
+saved instance state, so configuration recreation does not replay the original
+Home reset. Ordinary app/Leanback intents and external-app return preserve normal
+navigation. No Home key interception, vendor redirect, accessibility service or
+boot receiver is installed.
+
+Home while Login is visible routes directly to Apps and disposes the password/IME
+UI. The existing cancellation fence invalidates the attempt and joins the old job;
+a login commit that already won remains authoritative. Account actions can remain
+briefly busy while that fence finishes; Apps and System settings stay accessible.
+
+Settings offers **Choose default Home app** through Android's standard selector.
+Return restores the settings button's focus and rechecks the default using public
+intent resolution with exact component equality. Resolver/unknown/error results
+show conservative not-selected status. Missing/blocked selectors produce a focused
+message; System settings remains separately available. Firmware may not expose or
+honor third-party Home selection. See the
+[qualification record](../operations/android-launcher-qualification.md) for evidence
+levels and the unrun device checks.
 
 ## Why
 

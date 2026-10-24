@@ -3,11 +3,16 @@
 package com.jellyscope.launcher
 
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.model.Session
@@ -21,11 +26,21 @@ import org.koin.androidx.viewmodel.ext.android.viewModel
 class MainActivity : ComponentActivity() {
     private val model: LauncherViewModel by viewModel()
     private var externalReturn = false
+    private var isDefaultHome by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && intent.isHomeDelivery()) model.homeInvoked()
         val images = get<LauncherImages>()
-        setContent { LauncherShell(model, images, ::openApp, ::openSystemSettings, ::openMedia) }
+        setContent {
+            LauncherShell(model, images, ::openApp, ::openSystemSettings, ::openMedia, isDefaultHome, ::openHomeSettings)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.isHomeDelivery()) model.homeInvoked()
     }
 
     override fun onStart() {
@@ -35,6 +50,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        isDefaultHome =
+            try {
+                val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                val resolved = packageManager.resolveActivity(home, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo
+                resolved?.let { ComponentName(it.packageName, it.name) == componentName } == true
+            } catch (failure: Exception) {
+                launcherFailure("home-default", failure)
+                false
+            }
         model.resumed(externalReturn)
         externalReturn = false
     }
@@ -61,6 +85,12 @@ class MainActivity : ComponentActivity() {
     private fun openSystemSettings() {
         if (!launch(Intent(Settings.ACTION_SETTINGS), "system-settings")) model.showDialog(LauncherDialog.SystemSettings)
     }
+
+    private fun openHomeSettings() {
+        if (!launch(Intent(Settings.ACTION_HOME_SETTINGS), "home-settings")) model.showDialog(LauncherDialog.HomeSettingsUnavailable)
+    }
+
+    private fun Intent.isHomeDelivery(): Boolean = action == Intent.ACTION_MAIN && hasCategory(Intent.CATEGORY_HOME) && data == null
 
     private fun openMedia(
         itemId: String,

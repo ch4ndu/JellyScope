@@ -71,8 +71,9 @@ is in development. Its independent API-25+ application provides lightweight logi
 local app pins, cached Jellyfin rows and System settings access. The independent
 [server plugin](jellyfin-launcher-plugin/README.md) supplies configurable layouts;
 media selection explicitly hands off to JellyScope with matching-account checks
-and visible setup/failure guidance. Live plugin/player qualification and
-replacement Home behavior remain in development.
+and visible setup/failure guidance. Standard Home eligibility and a Home-selection settings action are implemented;
+[live device qualification](docs/operations/android-launcher-qualification.md) and
+live plugin/player qualification remain outstanding.
 Launcher APKs are local verification artifacts without release-license metadata
 and are not release-ready.
 
