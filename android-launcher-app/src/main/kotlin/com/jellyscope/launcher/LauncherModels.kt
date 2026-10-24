@@ -94,7 +94,15 @@ internal data class LauncherAppsState(
 
 internal enum class LauncherRoute { Home, Apps, Settings, Login }
 
-internal enum class LauncherDialog { SystemSettings, AppUnavailable, PlaybackPending, Logout, CleanupFailed }
+internal enum class LauncherDialog {
+    SystemSettings,
+    AppUnavailable,
+    PlaybackUnavailable,
+    PlaybackFailed,
+    PlaybackStale,
+    Logout,
+    CleanupFailed,
+}
 
 internal enum class LauncherAuthError { InvalidServer, Unreachable, Credentials, Server, Cleanup }
 

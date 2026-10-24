@@ -14,6 +14,7 @@ import com.jellyscope.core.data.remote.SessionAuthHeaderProvider
 import com.jellyscope.core.data.remote.configureJellyfinApi
 import com.jellyscope.core.data.repository.DefaultAuthRepository
 import com.jellyscope.core.data.repository.DefaultSessionRepository
+import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.data.repository.SessionTransitionCoordinator
 import com.jellyscope.core.domain.action.LoginAction
 import com.jellyscope.core.domain.action.LogoutAction
@@ -73,6 +74,7 @@ class LauncherApplication : Application() {
             androidContext(this@LauncherApplication)
             modules(
                 module {
+                    single<SessionRepository> { sessions }
                     single { images }
                     single { apps }
                     viewModel {

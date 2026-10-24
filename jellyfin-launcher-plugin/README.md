@@ -62,7 +62,7 @@ PascalCase properties, and the editor maps between those forms.
 | --- | --- |
 | `schemaVersion` | Integer `1` |
 | `revision` | 64 hexadecimal characters; server SHA-256 of canonical content |
-| `playbackPreference` | `jellyscope`; playback handoff remains a later slice |
+| `playbackPreference` | `jellyscope`; explicit matching-account handoff to the JellyScope TV app |
 | `rows` | Ordered array of 0–12 rows with unique IDs |
 | Row `id` | `[a-z0-9][a-z0-9_-]{0,63}` |
 | Row `title` | 1–80 characters, without controls or line separators |

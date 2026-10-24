@@ -91,6 +91,7 @@ internal fun TvLoggedInApp(
     onWatchNextItemHandled: () -> Unit,
     pendingPlaybackLink: TvPlaybackLink?,
     onPlaybackLinkHandled: () -> Unit,
+    onPlaybackLinkRejected: (TvPlaybackLinkRejection) -> Unit,
     onPlaybackStopped: () -> Unit,
 ) {
     val getUserLibrariesUseCase = koinInject<GetUserLibrariesUseCase>()
@@ -433,13 +434,16 @@ internal fun TvLoggedInApp(
     LaunchedEffect(pendingPlaybackLink) {
         val link = pendingPlaybackLink ?: return@LaunchedEffect
         // A link starts a new route; it must not create overlapping native player owners.
-        if (route == TvRoute.Player.name) {
+        val playerActive = route == TvRoute.Player.name
+        if (playerActive) {
             tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=player-active" }
         } else {
             openPlayer(itemId = link.itemId, startTicks = 0L, mediaSourceId = null)
             tvPlaybackLinkLogger.i { "stage=playback-link event=handed-off" }
         }
+        // Handling clears an older notice; publish this delivery's rejection afterward.
         onPlaybackLinkHandled()
+        if (playerActive) onPlaybackLinkRejected(TvPlaybackLinkRejection.PlayerActive)
     }
 
     fun openCollection(

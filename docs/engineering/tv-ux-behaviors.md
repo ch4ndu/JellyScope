@@ -223,22 +223,40 @@ download, settings, and recovery focus behavior.
 
 ## Playback Links
 
-- Android TV accepts `ACTION_VIEW` links shaped as
-  `jellyscope://play/ITEM_ID?serverId=SERVER_ID&userId=USER_ID` on cold launch
-  and through `onNewIntent`. Each identifier must contain 1–128 ASCII letters,
-  digits, hyphens, or underscores. Extra or duplicate parameters are rejected.
-- Links wait for session restoration, then require the signed-in server and
-  user to match. Logged-out and mismatched-account links are discarded; they
-  never select a server, sign in, or carry credentials or media URLs.
-- From a browsing screen, an accepted link opens the ordinary player at zero
-  with the current backend, quality, and track preferences. Normal authenticated
-  planning and error handling apply. Back returns to the originating screen.
-- Exit playback before invoking the next link. Links received while the player
-  is open are discarded rather than creating overlapping native player owners.
-  Consumed links are removed from the Activity intent to prevent recreation
-  from replaying them. Watch Next continues to open item details.
-- `TvPlaybackLink` records received, rejected, and handed-off outcomes without
-  logging the URI or identifiers. A handoff is not proof of successful playback.
+- Contract v1 is the existing unversioned `ACTION_VIEW` URI
+  `jellyscope://play/ITEM_ID?serverId=SERVER_ID&userId=USER_ID`. Each identifier
+  contains 1–128 ASCII letters, digits, hyphens or underscores. Extra/duplicate
+  parameters, additional path segments, port, user info and fragment are rejected.
+  Do not add a version query parameter to this strict v1 shape.
+- The launcher-owned vendored `JellyScopePlaybackContract.kt` builds the URI;
+  `android-tv-app/TvPlaybackLink.kt` owns receiver enforcement. Keep these two
+  app-local copies and this guide synchronized; compare the exact URI shape,
+  identifier rules and component when either changes. There is no contract SDK.
+- The launcher explicitly targets package `com.udnahc.jellyscope`, Activity
+  `com.jellyscope.tv.MainActivity`, and declares package visibility. It validates
+  the current account/epoch and selected visible item before resolution and again
+  immediately before synchronous dispatch. Credentials and media/server URLs
+  never enter the intent. Missing/disabled player, failed launch and stale
+  selection use focused local dialogs; Apps and settings remain available.
+- The receiver handles cold launch and `onNewIntent`, waiting for restoration.
+  Logged-out or mismatched-account links are consumed and show a notice directing
+  the user to matching-account setup and a fresh launcher selection. They never
+  select an account, sign in, or replay after login/switching. Notices reset on
+  session-state changes; requested identifiers are not displayed.
+- Matching links from browsing open the ordinary player at zero with current
+  backend, quality and track preferences. Normal authenticated item lookup and
+  visible Retry/Cancel error handling apply. A link received while a player is
+  open is consumed with a notice, preserving the existing player. Each parsed
+  delivery has distinct identity, including repeated identical URIs.
+- Consumed data is cleared from the Activity intent to prevent recreation replay.
+  Notice Back only dismisses it. Player Back returns to JellyScope's prior route,
+  not necessarily immediately to the launcher. When the launcher actually resumes
+  after external dispatch, its existing focus restoration and manual Jellyfin
+  refresh run. Playback progress depends on the player's server reporting.
+- Dispatch is not a playback-success acknowledgement. Diagnostics record only
+  received/rejected/handed-off stages, not URI or identifiers. Watch Next continues
+  to open item details. Actual delivery, dialog focus, playback and return behavior
+  remain device qualification items, separate from source and host checks.
 
 ## Tiles And Cross-Cutting Rules
 
@@ -287,8 +305,9 @@ invoker. Login Back cancels outstanding work, clears password input and returns
 to settings; a login already durably committed remains reflected in session
 state. Home Back below Apps returns to Apps; at Apps it retains ordinary activity
 exit behavior. Home-role suppression and device qualification are separate work.
-Media selection currently explains that playback is not configured; it does not
-send a playback command or claim successful playback.
+Media selection uses the explicit JellyScope handoff above. The Settings message
+explains matching-account setup and the return path; it does not claim playback
+success from an Activity launch.
 
 ## Why
 

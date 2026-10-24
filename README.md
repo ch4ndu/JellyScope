@@ -70,8 +70,9 @@ The separate [Android launcher foundation](docs/BUILD.md#android-launcher-founda
 is in development. Its independent API-25+ application provides lightweight login,
 local app pins, cached Jellyfin rows and System settings access. The independent
 [server plugin](jellyfin-launcher-plugin/README.md) supplies configurable layouts;
-live plugin qualification, playback handoff and replacement Home behavior remain
-in development.
+media selection explicitly hands off to JellyScope with matching-account checks
+and visible setup/failure guidance. Live plugin/player qualification and
+replacement Home behavior remain in development.
 Launcher APKs are local verification artifacts without release-license metadata
 and are not release-ready.
 

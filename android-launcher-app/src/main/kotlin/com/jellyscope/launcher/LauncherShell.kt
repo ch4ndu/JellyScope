@@ -55,6 +55,7 @@ internal fun LauncherShell(
     images: LauncherImages,
     openApp: (String) -> Unit,
     systemSettings: () -> Unit,
+    openMedia: (String, String?) -> Unit,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val imageScope by images.active.collectAsStateWithLifecycle()
@@ -177,9 +178,9 @@ internal fun LauncherShell(
                                 model.rememberInvoker("apps:$it")
                                 openApp(it)
                             },
-                            onMedia = {
-                                model.rememberInvoker(it)
-                                model.showDialog(LauncherDialog.PlaybackPending)
+                            onMedia = { target, itemId ->
+                                model.rememberInvoker(target)
+                                openMedia(itemId, state.boundaryKey)
                             },
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                         )
@@ -225,7 +226,9 @@ private fun LauncherDialogContent(
         when (dialog) {
             LauncherDialog.SystemSettings -> R.string.settings_unavailable_title
             LauncherDialog.AppUnavailable -> R.string.app_unavailable_title
-            LauncherDialog.PlaybackPending -> R.string.playback_title
+            LauncherDialog.PlaybackUnavailable -> R.string.playback_unavailable_title
+            LauncherDialog.PlaybackFailed -> R.string.playback_failed_title
+            LauncherDialog.PlaybackStale -> R.string.playback_stale_title
             LauncherDialog.Logout -> R.string.sign_out
             LauncherDialog.CleanupFailed -> R.string.cleanup_failed_title
         }
@@ -233,7 +236,9 @@ private fun LauncherDialogContent(
         when (dialog) {
             LauncherDialog.SystemSettings -> R.string.settings_unavailable_message
             LauncherDialog.AppUnavailable -> R.string.app_unavailable_message
-            LauncherDialog.PlaybackPending -> R.string.playback_pending
+            LauncherDialog.PlaybackUnavailable -> R.string.playback_unavailable_message
+            LauncherDialog.PlaybackFailed -> R.string.playback_failed_message
+            LauncherDialog.PlaybackStale -> R.string.playback_stale_message
             LauncherDialog.Logout -> R.string.sign_out_message
             LauncherDialog.CleanupFailed -> R.string.cleanup_failed_message
         }

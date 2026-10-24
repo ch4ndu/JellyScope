@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.ServerInfo
@@ -41,6 +42,7 @@ import com.jellyscope.tv.ui.LocalTvFocusZoomEnabled
 import com.jellyscope.tv.ui.TvLoginScreen
 import com.jellyscope.tv.ui.TvSafeAreaContent
 import com.jellyscope.tv.ui.TvServerEntryScreen
+import com.jellyscope.tv.ui.TvSettingsDetailDialog
 import com.jellyscope.tv.watchnext.WatchNextContract
 import com.jellyscope.tv.watchnext.WatchNextScheduler
 import com.jellyscope.ui.adaptive.LocalTileScale
@@ -166,6 +168,8 @@ private fun TvApp(
 ) {
     val sessionState by observeSessionStateUseCase().collectAsStateWithLifecycle()
     var validatedServerInfo by remember { mutableStateOf<ServerInfo?>(null) }
+    // A notice belongs only to this full session state, including logout and epoch transitions.
+    var playbackRejection by remember(sessionState) { mutableStateOf<TvPlaybackLinkRejection?>(null) }
 
     when (val state = sessionState) {
         SessionState.Restoring -> {
@@ -174,10 +178,11 @@ private fun TvApp(
             }
         }
         is SessionState.LoggedOut -> {
-            LaunchedEffect(pendingPlaybackLink) {
+            LaunchedEffect(pendingPlaybackLink, state) {
                 if (pendingPlaybackLink != null) {
                     tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=logged-out" }
                     onPlaybackLinkHandled()
+                    playbackRejection = TvPlaybackLinkRejection.LoginRequired
                 }
             }
             AmbientLaunchScaffold(
@@ -218,10 +223,11 @@ private fun TvApp(
                 pendingPlaybackLink?.takeIf { link ->
                     link.serverId == state.session.serverId && link.userId == state.session.userId
                 }
-            LaunchedEffect(pendingPlaybackLink, state.session.serverId, state.session.userId) {
+            LaunchedEffect(pendingPlaybackLink, state) {
                 if (pendingPlaybackLink != null && acceptedPlaybackLink == null) {
                     tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=account-mismatch" }
                     onPlaybackLinkHandled()
+                    playbackRejection = TvPlaybackLinkRejection.AccountMismatch
                 }
             }
             LaunchedEffect(pendingWatchNextPayload, state.session.serverId, state.session.userId) {
@@ -241,10 +247,30 @@ private fun TvApp(
                     pendingWatchNextItemId = pendingItemId,
                     onWatchNextItemHandled = onWatchNextItemHandled,
                     pendingPlaybackLink = acceptedPlaybackLink,
-                    onPlaybackLinkHandled = onPlaybackLinkHandled,
+                    onPlaybackLinkHandled = {
+                        playbackRejection = null
+                        onPlaybackLinkHandled()
+                    },
+                    onPlaybackLinkRejected = { playbackRejection = it },
                     onPlaybackStopped = onPlaybackStopped,
                 )
             }
         }
+    }
+    playbackRejection?.let { rejection ->
+        val (title, detail) =
+            when (rejection) {
+                TvPlaybackLinkRejection.LoginRequired ->
+                    R.string.tv_playback_link_login_title to R.string.tv_playback_link_login_message
+                TvPlaybackLinkRejection.AccountMismatch ->
+                    R.string.tv_playback_link_account_title to R.string.tv_playback_link_account_message
+                TvPlaybackLinkRejection.PlayerActive ->
+                    R.string.tv_playback_link_active_title to R.string.tv_playback_link_active_message
+            }
+        TvSettingsDetailDialog(
+            title = stringResource(title),
+            detail = stringResource(detail),
+            onDismiss = { playbackRejection = null },
+        )
     }
 }

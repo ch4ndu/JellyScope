@@ -58,8 +58,13 @@
     <string name="refresh_failed">Refresh failed · showing available cached items</string>
     <string name="access_denied">Access unavailable</string>
     <string name="no_items">No items available</string>
-    <string name="playback_title">Playback not configured</string>
-    <string name="playback_pending">Playback is not configured yet. Open JellyScope directly to watch media.</string>
+    <string name="playback_unavailable_title">JellyScope player unavailable</string>
+    <string name="playback_unavailable_message">Install or enable JellyScope on this device, then select the media again. Apps and launcher settings remain available.</string>
+    <string name="playback_failed_title">Could not open JellyScope</string>
+    <string name="playback_failed_message">Open JellyScope directly to check that it is available, then return to the launcher and try again.</string>
+    <string name="playback_stale_title">Media selection changed</string>
+    <string name="playback_stale_message">Refresh the launcher and select the media again. Check that you are still signed in to the intended server and account.</string>
+    <string name="playback_pending">Select media to open JellyScope. Sign in to the same server and account in both apps. Player Back returns to JellyScope; use device navigation to return to the launcher.</string>
     <string name="home_pending">Using this app as the device Home screen has not been verified.</string>
     <string name="cancel">Cancel</string>
     <string name="dismiss">Dismiss</string>

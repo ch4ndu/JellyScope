@@ -8,12 +8,18 @@ import com.jellyscope.core.util.diagnosticLogger
 
 internal val tvPlaybackLinkLogger = diagnosticLogger(DiagnosticTag.TvPlaybackLink)
 
-internal data class TvPlaybackLink(
+internal enum class TvPlaybackLinkRejection { LoginRequired, AccountMismatch, PlayerActive }
+
+// A parsed instance is one delivery. Equal URIs must still retrigger the one-shot
+// effect when a second intent arrives before Compose observes the cleared value.
+internal class TvPlaybackLink(
     val serverId: String,
     val userId: String,
     val itemId: String,
 )
 
+// Receiver enforcement copy of android-launcher-app/JellyScopePlaybackContract.kt v1.
+// Keep the wire and identifier rules synchronized with docs/engineering/tv-ux-behaviors.md.
 internal fun Intent.playbackLink(): TvPlaybackLink? {
     val uri = data ?: return null
     if (action != Intent.ACTION_VIEW || uri.scheme != "jellyscope" || uri.host != "play") return null

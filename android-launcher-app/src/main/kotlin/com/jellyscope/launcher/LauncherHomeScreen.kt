@@ -62,7 +62,7 @@ internal fun LauncherHomeScreen(
     images: LauncherImageScope?,
     onApps: () -> Unit,
     onApp: (String) -> Unit,
-    onMedia: (String) -> Unit,
+    onMedia: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val appKeys = state.apps.pins.map { "apps:${it.componentKey}" } + "apps:+"
@@ -187,7 +187,7 @@ internal fun LauncherHomeScreen(
                         key(target) {
                             LauncherTile(card.title, focus, target, {
                                 focus.rememberRow(row.focusKey, target, index, mediaRows.indexOfFirst { it.id == row.id })
-                            }, { direction(row.focusKey, index, it) }, { onMedia(target) }, row.layout.aspect) {
+                            }, { direction(row.focusKey, index, it) }, { onMedia(target, card.id) }, row.layout.aspect) {
                                 val context = LocalContext.current
                                 val request =
                                     remember(images, card, row.layout.aspect) { images?.request(context, card, row.layout.aspect) }

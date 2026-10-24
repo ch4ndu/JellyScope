@@ -563,4 +563,10 @@
     <string name="tv_image_quality_low">Low</string>
     <string name="tv_image_quality_medium">Medium</string>
     <string name="tv_image_quality_high">High</string>
+    <string name="tv_playback_link_login_title">Sign in to JellyScope</string>
+    <string name="tv_playback_link_login_message">Sign in to the same Jellyfin server and account used by the launcher. Then return to the launcher and select the media again.</string>
+    <string name="tv_playback_link_account_title">Account does not match</string>
+    <string name="tv_playback_link_account_message">Open Settings → Switch account and sign in to the same server and account used by the launcher. Then return to the launcher and select the media again.</string>
+    <string name="tv_playback_link_active_title">Playback already open</string>
+    <string name="tv_playback_link_active_message">A player is already open. Press Back to return to it, then exit playback before selecting another item from the launcher.</string>
 </resources>
