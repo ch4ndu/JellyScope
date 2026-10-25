@@ -69,7 +69,7 @@ movement reveals the focused card without changing
 row identity. Modal controls trap focus and restore their invoker. Return from
 System settings restores the header gear that opened it. The gear dispatches
 the Android settings callback directly, preserving the selected tab. The Jellyfin
-icon opens the account dialog; the background header is inactive while modal.
+icon opens the right-side Jellyfin account panel; the background header is inactive while modal.
 
 Back dismisses a dialog first, then finishes inline Move. Login Back hides the
 keyboard first; another Back cancels outstanding work, clears password and returns
@@ -97,8 +97,15 @@ explicit deferred targets remain pending separately. Header keys forward through
 Home content owners, which reflect actual header focus. Settings/Login use a
 route-local dialog focus owner without header binding. Home stays composed, but
 background focus, actions, dwell and restoration are suppressed while modal.
-Account entry targets its enabled account control or Close; login enters Server
-URL. Select opens the field keyboard, and IME insets keep the form scrollable.
+The account panel has a fixed header and Close footer around a scrolling body,
+within safe-drawing insets and a 16 dp overscan margin. Connection details and
+Launcher preferences are local subpages; their initial Back to account target
+restores the originating main action. Read-only focusable groups allow D-pad
+scrolling through long text. Main entry targets enabled cleanup Retry, signed-in
+Refresh, signed-out Sign in, or Close during restoring/busy states. Refresh remains
+focusable while running, and completion does not move focus. Only stored-session
+status is shown, not inferred server reachability. Confirmation disables underlying
+nodes. Login retains its centered geometry and enters Server URL. Select opens the field keyboard, and IME insets keep the form scrollable.
 
 Focused inactive tabs select after 250 ms; blur, route/modal/move/Home/account
 changes cancel stale dwell. Center selects immediately. Down-before-dwell selects

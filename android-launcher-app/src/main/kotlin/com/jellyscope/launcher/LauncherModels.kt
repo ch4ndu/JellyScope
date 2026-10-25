@@ -187,14 +187,6 @@ internal data class LauncherUiState(
     val backgroundSuppressed: Boolean
         get() = route != LauncherRoute.Home || appEdit is LauncherAppEdit.Menu || dialog != null
 
-    val settingsControls: List<String>
-        get() =
-            if (dialog != null) {
-                emptyList()
-            } else {
-                (if (!restoring && !busy) listOf("account") else emptyList()) + listOf("refresh", "settings-home", "close")
-            }
-
     val homeRows: List<LauncherRow>
         get() = rowsFor(selectedTab)
 

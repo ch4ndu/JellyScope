@@ -13,13 +13,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -193,13 +197,21 @@ internal fun LauncherShell(
                         dismissOnBackPress = false,
                     ),
             ) {
+                val settingsPanel = state.route == LauncherRoute.Settings
+                val modalModifier =
+                    if (settingsPanel) {
+                        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp)
+                    } else {
+                        Modifier
+                            .widthIn(max = 640.dp)
+                            .heightIn(max = 480.dp)
+                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                    }
                 Box(
-                    Modifier
-                        .widthIn(max = 640.dp)
-                        .heightIn(max = 480.dp)
-                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                    modalModifier
                         .then(if (state.dialog != null) Modifier.clearAndSetSemantics {} else Modifier)
                         .onPreviewKeyEvent { state.dialog != null || it.isRepeatedLauncherActivation },
+                    contentAlignment = if (settingsPanel) Alignment.CenterEnd else Alignment.TopStart,
                 ) {
                     when (state.route) {
                         LauncherRoute.Settings ->
@@ -209,7 +221,11 @@ internal fun LauncherShell(
                                 model,
                                 isDefaultHome,
                                 homeSettings,
-                                Modifier.fillMaxWidth(),
+                                Modifier
+                                    .widthIn(max = 360.dp)
+                                    .fillMaxWidth()
+                                    .fillMaxHeight()
+                                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)),
                             )
                         LauncherRoute.Login -> LauncherLoginScreen(state, modalFocus, model, Modifier.fillMaxWidth())
                         LauncherRoute.Home -> Unit

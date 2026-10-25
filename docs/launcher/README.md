@@ -25,7 +25,7 @@ Optional [Home-button helper setup](home-button-helper.md) covers firmware that 
 | --- | --- |
 | Home | Apps first; default media rows are Play Next, Up Next and Favorites |
 | Jellyfin | Media only; default Recently Added, or a connection prompt when signed out |
-| Account dialog | Refresh, layout/cache status, account cleanup and Home selection |
+| Jellyfin account panel | Refresh library, Connection details, Launcher preferences and sign-out |
 | Sign-in dialog | Server URL, username and password |
 
 Tabs select after 250 ms of focus; Center selects immediately. Left/Right traverses
@@ -33,8 +33,8 @@ tabs and icons; Down enters content. Switching tabs resets ribbon scroll and foc
 to the beginning. Cached rows remain visible while fresh data loads; rows update
 as responses arrive. Refresh also runs roughly every 30 minutes, including in
 the background when Android permits and a network is available. The Jellyfin icon opens account controls;
-the gear opens Android **System settings** directly. Account and sign-in dialogs
-keep focus inside until closed; Close returns to the invoking control.
+the gear opens Android **System settings**. The right-side account panel keeps
+focus inside. Back leaves a subsection; Close returns to its invoking control.
 
 **Apps** automatically lists every launchable app. Long-press for Open or **Move**;
 Left/Right reorders inline, and Select or Back finishes with each step saved.
@@ -121,7 +121,7 @@ accepting it. The updated launcher also supports the previous plugin.
    If absent or failed, inspect server startup logs, version and file permissions.
    `meta.json` is not packaged; 12.3 loader behavior remains unqualified.
    Copying the DLL does not prove loading. Never force incompatible plugins Active.
-5. Save a small layout, then use **Refresh** in Launcher settings. Confirm
+5. Save a small layout, then use **Refresh library** in Jellyfin account. Confirm
    **Current server configuration** and the expected rows. Also check a restricted
    user's library visibility before deploying broadly.
 
@@ -182,7 +182,7 @@ wallpaper/theme, arbitrary filters/scripts/URLs, or per-device/per-user layouts.
 ## Offline use and troubleshooting
 
 - Missing/invalid/unavailable plugin configuration uses a validated saved layout,
-  or defaults if none exists. Check the layout status in Settings.
+  or defaults if none exists. Check the layout status in Jellyfin account → Connection details.
 - Cached media may remain visible offline with a stale indicator; it is not
   downloaded video. Empty successful results replace old cards.
 - A signed-in empty Jellyfin tab offers Refresh/Settings, not another login prompt.
