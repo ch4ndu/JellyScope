@@ -87,8 +87,10 @@ Series or Detail screen, whose own data and Resume decisions remain authoritativ
 ### Launcher tabs and connection flow
 
 Tab selection lives in the ViewModel. The stable header focus owner survives tab,
-route, account and Home-reset changes; separate content owners retain each page's
-row/scroll memory. A local focus container uses `focusRequester`,
+route, account and Home-reset changes. Actual tab changes reset both content
+owners and saved pages: ribbons, Apps and vertical scroll restart, with no
+remembered row/item focus. Same-tab actions, dialog returns and data updates do
+not reset this state. A local focus container uses `focusRequester`,
 `focusProperties.onEnter` and `focusGroup`, adapting the TV scope pattern without
 importing its coordinator. Immediate entry tries attached valid children;
 explicit deferred targets remain pending separately. Header keys forward through
@@ -155,10 +157,24 @@ query), Recently Added and Favorites. Existing administrator-authored stored
 titles are preserved. Server layouts may select up to 12 ordered rows using bounded
 typed queries directly through `JellyfinApi`, with at most 20 cards per row and
 two concurrent row requests. Successful empty results replace cached rows;
-transient failures retain the last snapshot with a stale indication. Foreground
-refresh requests coalesce, automatic refresh has a 30-second minimum interval,
-and a 15-minute timer runs only while the activity is started. This is not a
-background execution guarantee.
+transient failures retain the last snapshot with a stale indication. Account
+activation publishes cached rows before any network request. Startup and actual
+tab changes request fresh data; concurrent callers share one refresh, and each
+completed row is published independently. Manual Refresh and external-app return
+may queue one follow-up. Ordinary resume and timer requests skip a durable success
+less than 30 seconds old.
+
+A foreground timer and one network-constrained WorkManager job request refresh
+every 30 minutes. Android may defer periodic work. The account-agnostic job is
+updated when signed in and cancelled when signed out; it stores no credentials
+or account identifiers. The Worker waits for restored account/cache readiness and
+awaits the exact refresh outcome. Cancellation detaches its waiter and stops only
+background-only work; foreground-attached work continues. Account changes cancel
+and fence stale work regardless of origin. Cached activation alone starts no
+network work in a headless process. One application-owned invalid-session consumer
+uses the auth mutex and exact account/epoch check; failed logout remains visible
+through cleanup status. WorkManager supplies its own rescheduling components;
+the launcher adds no custom boot receiver.
 
 The independent [configuration plugin](plugin-reference.md)
 owns the schema and server baseline. The launcher fetches its fixed endpoint
@@ -178,8 +194,8 @@ account lease, generation, row ID and query fingerprint before commits. The
 fingerprint includes query, library and limit, but excludes title/order/aspect and
 server revision. Metadata changes can therefore reuse cards without accepting old
 query results. Optional row tab placement is presentation metadata too: both tabs
-consume one account-scoped layout, with the same combined 12-row bound and no
-requests caused solely by switching tabs. Absent/null placement is derived from
+consume one account-scoped layout with the same combined 12-row bound. Switching
+tabs refreshes this shared layout rather than starting competing per-tab generations. Absent/null placement is derived from
 the query on every wire/cache path, including existing version-2 snapshots. Landscape artwork selects backdrop then primary; poster/square use
 primary or a placeholder. Legacy tags are used only for their recorded image type.
 

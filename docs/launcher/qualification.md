@@ -254,3 +254,17 @@ Home from another app, Back preservation, disabled-service fallback and the
 helper’s manual Open action remain unverified. Neither manual opening nor
 ADB-injected Home establishes interception. No reboot or stock package changes
 are part of this qualification. See [setup](home-button-helper.md).
+
+## Background refresh and tab reset
+
+The minified Release passed compilation, lint, independent review and final
+verification, then installed and launched on the TiVo. Scrolling Apps and a
+Jellyfin media ribbon, switching tabs and returning reset each ribbon to its
+first item; Down focused that first item. WorkManager logged one successful
+launcher refresh after installation and registered a network-constrained job
+with an approximately 30-minute next-run delay. An early forced scheduler attempt
+did not produce another Worker run; it was rescheduled. This does not establish
+a full background interval, reboot recovery or cancellation-race behavior.
+Cached cards remained visible in the inspected screens; exact first-frame and
+incremental response timing were not measured. Account-switch/logout and Worker
+cancellation paths were source-reviewed, without changing the device account.

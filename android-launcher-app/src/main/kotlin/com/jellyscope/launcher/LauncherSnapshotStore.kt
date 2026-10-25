@@ -570,6 +570,10 @@ internal class LauncherAccountStoreCleaner(
             logoutFailure || cacheFailure
         }
 
+    fun markLogoutFailed() {
+        _cleanupPending.value = true
+    }
+
     override suspend fun clearAll() {
         val failures = mutableListOf<Throwable>()
         var credentialsCleared = false

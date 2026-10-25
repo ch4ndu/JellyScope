@@ -34,7 +34,10 @@ Optional [Home-button helper setup](home-button-helper.md) covers firmware that 
 | Sign-in dialog | Server URL, username and password |
 
 Tabs select after 250 ms of focus; Center selects immediately. Left/Right traverses
-tabs and icons; Down enters content. The Jellyfin icon opens account controls;
+tabs and icons; Down enters content. Switching tabs resets ribbon scroll and focus
+to the beginning. Cached rows remain visible while fresh data loads; rows update
+as responses arrive. Refresh also runs roughly every 30 minutes, including in
+the background when Android permits and a network is available. The Jellyfin icon opens account controls;
 the gear opens Android **System settings** directly. Account and sign-in dialogs
 keep focus inside until closed; Close returns to the invoking control.
 

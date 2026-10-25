@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
 internal class LauncherViewModel(
     private val sessions: SessionRepository,
@@ -50,7 +51,8 @@ internal class LauncherViewModel(
             sessions.sessionState.collect { sessionState ->
                 val loggedIn = sessionState as? SessionState.LoggedIn
                 val key = loggedIn?.let { LauncherBoundary(it.session.accountIdentity(), it.boundaryEpoch).key }
-                if (_state.value.boundaryKey != key) suppressMedia = false
+                val boundaryChanged = _state.value.boundaryKey != key
+                if (boundaryChanged) suppressMedia = false
                 _state.update { current ->
                     current.copy(
                         restoring = sessionState == SessionState.Restoring,
@@ -80,7 +82,10 @@ internal class LauncherViewModel(
                                 ?: LauncherMediaState(),
                     )
                 }
-                if (loggedIn != null) completeLogin(loginGeneration)
+                if (loggedIn != null) {
+                    completeLogin(loginGeneration)
+                    if (boundaryChanged) media.refresh(fresh = true)
+                }
             }
         }
         viewModelScope.launch {
@@ -113,19 +118,6 @@ internal class LauncherViewModel(
         viewModelScope.launch {
             cleaner.cleanupPending.collect { value -> _state.update { it.copy(cleanupPending = value) } }
         }
-        viewModelScope.launch {
-            media.invalidSessions.collect { expected ->
-                authMutation.withLock {
-                    val current = sessions.sessionState.value as? SessionState.LoggedIn
-                    if (current != null &&
-                        current.session.accountIdentity() == expected.account &&
-                        current.boundaryEpoch == expected.epoch
-                    ) {
-                        logoutLocked()
-                    }
-                }
-            }
-        }
     }
 
     fun foreground(started: Boolean) {
@@ -135,7 +127,7 @@ internal class LauncherViewModel(
             foregroundJob =
                 viewModelScope.launch {
                     while (true) {
-                        delay(15L * 60 * 1000)
+                        delay(TimeUnit.MINUTES.toMillis(LAUNCHER_REFRESH_INTERVAL_MINUTES))
                         media.refresh()
                     }
                 }
@@ -144,10 +136,8 @@ internal class LauncherViewModel(
 
     fun resumed(externalReturn: Boolean = false) {
         _state.update { it.copy(focusGeneration = it.focusGeneration + 1, homeTabActivation = false) }
-        viewModelScope.launch {
-            refreshApps()
-            media.refresh(manual = externalReturn)
-        }
+        media.refresh(manual = externalReturn)
+        viewModelScope.launch { refreshApps() }
     }
 
     fun refresh() {
@@ -163,6 +153,7 @@ internal class LauncherViewModel(
         tab: LauncherTab,
         enterContent: Boolean = false,
     ) {
+        val previousTab = _state.value.selectedTab
         _state.update {
             it.copy(
                 route = LauncherRoute.Home,
@@ -176,8 +167,10 @@ internal class LauncherViewModel(
                 appFocusTarget = if (enterContent) LauncherAppFocusTarget.HomeContent(it.focusGeneration + 1) else null,
                 settingsFocusTarget = null,
                 focusGeneration = it.focusGeneration + 1,
+                homeResetGeneration = it.homeResetGeneration + if (it.selectedTab != tab) 1 else 0,
             )
         }
+        if (previousTab != tab) media.refresh(fresh = true)
     }
 
     fun openSettings(account: Boolean) {

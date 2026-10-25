@@ -19,12 +19,18 @@ import com.jellyscope.core.data.repository.SessionTransitionCoordinator
 import com.jellyscope.core.domain.action.LoginAction
 import com.jellyscope.core.domain.action.LogoutAction
 import com.jellyscope.core.domain.action.ValidateServerAction
+import com.jellyscope.core.domain.model.SessionState
+import com.jellyscope.core.domain.model.accountIdentity
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -66,6 +72,7 @@ class LauncherApplication : Application() {
                 preserveForbiddenStatus = true,
             )
         val auth = DefaultAuthRepository(api, store, sessions, coordinator, device)
+        val logoutAction = LogoutAction(auth)
         val configurations = LauncherConfigurationRepository(client, authorization, json)
         val media = LauncherMediaRepository(api, sessions, registry, snapshots, images, configurations, scope)
         val apps = LauncherAppsRepository(this, json)
@@ -77,13 +84,14 @@ class LauncherApplication : Application() {
                     single<SessionRepository> { sessions }
                     single { images }
                     single { apps }
+                    single { media }
                     viewModel {
                         LauncherViewModel(
                             sessions,
                             coordinator,
                             LoginAction(auth),
                             ValidateServerAction(auth),
-                            LogoutAction(auth),
+                            logoutAction,
                             media,
                             apps,
                             cleaner,
@@ -92,6 +100,41 @@ class LauncherApplication : Application() {
                     }
                 },
             )
+        }
+        scope.launch {
+            media.invalidSessions.collect { expected ->
+                authMutation.withLock {
+                    val current = sessions.sessionState.value as? SessionState.LoggedIn
+                    if (current != null &&
+                        current.session.accountIdentity() == expected.account &&
+                        current.boundaryEpoch == expected.epoch
+                    ) {
+                        try {
+                            logoutAction().getOrThrow()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            cleaner.markLogoutFailed()
+                            launcherFailure("invalid-session-logout", failure)
+                        }
+                    }
+                }
+            }
+        }
+        scope.launch {
+            sessions.sessionState.collect { state ->
+                try {
+                    when (state) {
+                        is SessionState.LoggedIn -> LauncherRefreshScheduler.schedule(this@LauncherApplication)
+                        is SessionState.LoggedOut -> LauncherRefreshScheduler.cancel(this@LauncherApplication)
+                        SessionState.Restoring -> Unit
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    launcherFailure("refresh-schedule", failure)
+                }
+            }
         }
     }
 }

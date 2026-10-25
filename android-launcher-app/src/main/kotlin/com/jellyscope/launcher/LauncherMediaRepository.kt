@@ -3,6 +3,7 @@
 package com.jellyscope.launcher
 
 import android.os.SystemClock
+import android.util.Log
 import com.jellyscope.core.data.local.AccountWorkLease
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.remote.AuthenticatedRequestContext
@@ -17,15 +18,22 @@ import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.model.toDomainMediaItem
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -33,6 +41,9 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+internal enum class LauncherRefreshOutcome { Success, Retry, NoSession, BoundaryChanged, Invalid }
 
 internal class LauncherMediaRepository(
     private val api: JellyfinApi,
@@ -46,71 +57,197 @@ internal class LauncherMediaRepository(
     val state = snapshots.state
     private val invalid = Channel<LauncherBoundary>(Channel.BUFFERED)
     val invalidSessions = invalid.receiveAsFlow()
+    // Coordination stays on Main; IO returns per-run outcomes instead of mutating these fields.
     private var active: Pair<Session, LauncherBoundary>? = null
-    private var refreshJob: Job? = null
-    private var followUpRequested = false
+    private val ready = MutableStateFlow<Pair<LauncherBoundary, LauncherRefreshOutcome>?>(null)
+    private var flight: RefreshFlight? = null
     private var lastSuccessElapsed = 0L
 
     init {
         scope.launch {
             sessions.sessionState.collectLatest { sessionState ->
                 active = null
-                followUpRequested = false
-                refreshJob?.cancelAndJoin()
-                refreshJob = null
-                registry.withBoundaryMutation { snapshots.hide() }
+                ready.value = null
+                val previous = flight
+                previous?.followUpRequested = false
+                previous?.completion?.complete(
+                    if (sessionState is SessionState.LoggedOut) LauncherRefreshOutcome.NoSession else LauncherRefreshOutcome.BoundaryChanged,
+                )
+                previous?.job?.cancelAndJoin()
                 lastSuccessElapsed = 0L
-                if (sessionState is SessionState.LoggedIn) {
-                    val session = sessionState.session
-                    val boundary = LauncherBoundary(session.accountIdentity(), sessionState.boundaryEpoch)
-                    val lease = registry.acquireWorkLease(boundary.account, boundary.epoch) ?: return@collectLatest
-                    active = session to boundary
-                    snapshots.activate(boundary, launcherHash("${launcherAccountKey(boundary.account)}:${session.serverUrl}"), lease)
-                    prepareImages(session, boundary, lease, reset = false)
-                    refresh(manual = true)
+                val loggedIn = sessionState as? SessionState.LoggedIn
+                val boundary = loggedIn?.let { LauncherBoundary(it.session.accountIdentity(), it.boundaryEpoch) }
+                try {
+                    registry.withBoundaryMutation { snapshots.hide() }
+                    if (loggedIn != null && boundary != null) {
+                        val session = loggedIn.session
+                        val lease = registry.acquireWorkLease(boundary.account, boundary.epoch)
+                        if (lease == null ||
+                            snapshots.activate(boundary, launcherHash("${launcherAccountKey(boundary.account)}:${session.serverUrl}"), lease) == null
+                        ) {
+                            ready.value = boundary to LauncherRefreshOutcome.BoundaryChanged
+                            return@collectLatest
+                        }
+                        prepareImages(session, boundary, lease, reset = false)
+                        active = session to boundary
+                        ready.value = boundary to LauncherRefreshOutcome.Success
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    launcherFailure("media-activate", failure)
+                    if (boundary != null) ready.value = boundary to LauncherRefreshOutcome.NoSession
                 }
             }
         }
     }
 
-    fun refresh(manual: Boolean = false) {
-        val (session, boundary) = active ?: return
-        if (refreshJob?.isActive == true) {
-            followUpRequested = followUpRequested || manual
-            return
+    fun refresh(
+        manual: Boolean = false,
+        fresh: Boolean = false,
+    ) {
+        scope.launch {
+            val expected = currentBoundary() ?: return@launch
+            requestRefresh(expected, foreground = true, fresh = manual || fresh, followUp = manual)
         }
-        if (!manual && lastSuccessElapsed != 0L && SystemClock.elapsedRealtime() - lastSuccessElapsed < 30_000L) return
-        refreshJob =
-            scope.launch {
-                val lease = registry.acquireWorkLease(boundary.account, boundary.epoch) ?: return@launch
-                val request = snapshots.beginRefresh(boundary, lease) ?: return@launch
-                var success = false
-                try {
-                    success = withContext(Dispatchers.IO) { refreshRows(session, boundary, lease, request) }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Exception) {
-                    launcherFailure("media-refresh", failure)
-                } finally {
-                    try {
-                        val durable = snapshots.finish(boundary, lease, request, success)
-                        if (success && durable) lastSuccessElapsed = SystemClock.elapsedRealtime()
-                    } finally {
-                        refreshJob = null
-                        val requested = followUpRequested
-                        followUpRequested = false
-                        if (requested && currentCoroutineContext().isActive) refresh(manual = true)
+    }
+
+    suspend fun refreshAndAwait(expected: LauncherBoundary): LauncherRefreshOutcome =
+        withContext(Dispatchers.Main.immediate) {
+            requestRefresh(expected, foreground = false, fresh = false, followUp = false)
+        }
+
+    private suspend fun requestRefresh(
+        expected: LauncherBoundary,
+        foreground: Boolean,
+        fresh: Boolean,
+        followUp: Boolean,
+    ): LauncherRefreshOutcome {
+        val available =
+            withTimeoutOrNull(10_000L) {
+                combine(sessions.sessionState, ready) { sessionState, activated ->
+                    when {
+                        sessionState == SessionState.Restoring -> null
+                        sessionState !is SessionState.LoggedIn -> LauncherRefreshOutcome.NoSession
+                        LauncherBoundary(sessionState.session.accountIdentity(), sessionState.boundaryEpoch) != expected ->
+                            LauncherRefreshOutcome.BoundaryChanged
+                        else -> activated?.takeIf { it.first == expected }?.second
+                    }
+                }.filterNotNull().first()
+            } ?: return LauncherRefreshOutcome.Retry
+        if (available != LauncherRefreshOutcome.Success) return available
+        while (true) {
+            val current =
+                active?.takeIf { it.second == expected && currentBoundary() == expected }
+                    ?: return boundaryOutcome()
+            val previous = flight
+            if (previous != null && !previous.job.isActive) {
+                previous.job.join()
+                continue
+            }
+            if (previous == null && !fresh && lastSuccessElapsed != 0L && SystemClock.elapsedRealtime() - lastSuccessElapsed < 30_000L) {
+                return LauncherRefreshOutcome.Success
+            }
+            val run = previous ?: startRefresh(current.first, expected, foreground)
+            run.foregroundAttached = run.foregroundAttached || foreground
+            if (followUp && previous != null) run.followUpRequested = true
+            if (foreground) return run.completion.await()
+            run.workerWaiters += 1
+            try {
+                return run.completion.await()
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    run.workerWaiters -= 1
+                    if (run.workerWaiters == 0 && !run.foregroundAttached && !run.completion.isCompleted && flight === run) {
+                        Log.i("Launcher", "stage=media-refresh event=cancelled reason=worker-detached")
+                        run.job.cancel()
                     }
                 }
             }
+        }
     }
+
+    private fun startRefresh(
+        session: Session,
+        boundary: LauncherBoundary,
+        foreground: Boolean,
+    ): RefreshFlight {
+        val run = RefreshFlight(foreground)
+        flight = run
+        run.job =
+            scope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    val outcome = performRefresh(session, boundary)
+                    currentCoroutineContext().ensureActive()
+                    Log.i("Launcher", "stage=media-refresh event=completed outcome=${outcome.name}")
+                    run.completion.complete(outcome)
+                } catch (cancelled: CancellationException) {
+                    run.completion.cancel(cancelled)
+                    throw cancelled
+                } catch (failure: Exception) {
+                    launcherFailure("media-refresh", failure)
+                    run.completion.complete(if (currentBoundary() == boundary) LauncherRefreshOutcome.Retry else boundaryOutcome())
+                } finally {
+                    if (flight === run) flight = null
+                    if (run.followUpRequested && currentBoundary() == boundary && currentCoroutineContext().isActive) {
+                        refresh(manual = true)
+                    }
+                }
+            }
+        run.job.start()
+        return run
+    }
+
+    private suspend fun performRefresh(
+        session: Session,
+        boundary: LauncherBoundary,
+    ): LauncherRefreshOutcome {
+        val lease = registry.acquireWorkLease(boundary.account, boundary.epoch) ?: return boundaryOutcome()
+        // Once a pending marker is established, retain its generation even if the Worker stops.
+        val request = withContext(NonCancellable) { snapshots.beginRefresh(boundary, lease) }
+        var outcome = LauncherRefreshOutcome.Retry
+        var durable = false
+        if (request != null) {
+            try {
+                outcome = withContext(Dispatchers.IO) { refreshRows(session, boundary, lease, request) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                launcherFailure("media-refresh", failure)
+            } finally {
+                withContext(NonCancellable) {
+                    try {
+                        durable = snapshots.finish(boundary, lease, request, outcome == LauncherRefreshOutcome.Success)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        launcherFailure("media-finish", failure)
+                    }
+                }
+            }
+        }
+        if (currentBoundary() != boundary || active?.second != boundary || registry.withGuardedLease(lease) { true } != true) {
+            return boundaryOutcome()
+        }
+        if (outcome == LauncherRefreshOutcome.Success) {
+            if (!durable) return LauncherRefreshOutcome.Retry
+            lastSuccessElapsed = SystemClock.elapsedRealtime()
+        }
+        return outcome
+    }
+
+    private fun currentBoundary(): LauncherBoundary? =
+        (sessions.sessionState.value as? SessionState.LoggedIn)?.let { LauncherBoundary(it.session.accountIdentity(), it.boundaryEpoch) }
+
+    private fun boundaryOutcome(): LauncherRefreshOutcome =
+        if (sessions.sessionState.value is SessionState.LoggedOut) LauncherRefreshOutcome.NoSession else LauncherRefreshOutcome.BoundaryChanged
 
     private suspend fun refreshRows(
         session: Session,
         boundary: LauncherBoundary,
         lease: AccountWorkLease,
         request: Long,
-    ): Boolean {
+    ): LauncherRefreshOutcome {
         val context = session.requestContext()
         val configuration = configurations.fetch(session)
         val policy =
@@ -131,16 +268,17 @@ internal class LauncherMediaRepository(
                 if (failure.isDenied()) {
                     snapshots.rejectAll(boundary, lease, request)
                     invalidateArtwork(boundary, lease)
-                    confirmInvalid(session, boundary, lease, request)
+                    if (confirmInvalid(session, boundary, lease, request)) return LauncherRefreshOutcome.Invalid
                 } else {
                     snapshots.failRefresh(boundary, lease, request, configuration)
                 }
                 launcherFailure("policy-refresh", failure)
-                return false
+                return LauncherRefreshOutcome.Retry
             }
         val layout =
             try {
-                snapshots.adoptLayout(boundary, lease, request, policy.first, policy.second, configuration) ?: return false
+                snapshots.adoptLayout(boundary, lease, request, policy.first, policy.second, configuration)
+                    ?: return LauncherRefreshOutcome.BoundaryChanged
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -154,7 +292,7 @@ internal class LauncherMediaRepository(
                 .map { row ->
                     async {
                         permits.withPermit {
-                            if (!snapshots.isCurrent(boundary, lease, row)) return@withPermit false
+                            if (!snapshots.isCurrent(boundary, lease, row)) return@withPermit LauncherRefreshOutcome.BoundaryChanged
                             try {
                                 val items =
                                     when (row.layout.query) {
@@ -199,7 +337,7 @@ internal class LauncherMediaRepository(
                                         .take(row.layout.limit)
                                         .toList()
                                 snapshots.commit(boundary, lease, row, cards, LauncherRowStatus.Fresh)
-                                true
+                                LauncherRefreshOutcome.Success
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (failure: Exception) {
@@ -212,17 +350,35 @@ internal class LauncherMediaRepository(
                                         launcherFailure("denied-row-cleanup", cleanupFailure)
                                     }
                                     prepareImages(session, boundary, lease, reset = true)
-                                    if (failure is JellyfinApiException.Unauthorized) confirmInvalid(session, boundary, lease, request)
+                                    if (failure is JellyfinApiException.Unauthorized && confirmInvalid(session, boundary, lease, request)) {
+                                        return@withPermit LauncherRefreshOutcome.Invalid
+                                    }
                                 } else {
                                     snapshots.commit(boundary, lease, row, null, LauncherRowStatus.Failed)
                                 }
                                 launcherFailure("row-refresh", failure)
-                                false
+                                LauncherRefreshOutcome.Retry
                             }
                         }
                     }
-                }.awaitAll()
-                .all { it }
+                }.map { result ->
+                    try {
+                        result.await()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        launcherFailure("row-refresh", failure)
+                        LauncherRefreshOutcome.Retry
+                    }
+                }
+                .let { outcomes ->
+                    when {
+                        LauncherRefreshOutcome.Invalid in outcomes -> LauncherRefreshOutcome.Invalid
+                        LauncherRefreshOutcome.BoundaryChanged in outcomes -> LauncherRefreshOutcome.BoundaryChanged
+                        outcomes.all { it == LauncherRefreshOutcome.Success } -> LauncherRefreshOutcome.Success
+                        else -> LauncherRefreshOutcome.Retry
+                    }
+                }
         }
     }
 
@@ -231,7 +387,7 @@ internal class LauncherMediaRepository(
         boundary: LauncherBoundary,
         lease: AccountWorkLease,
         request: Long,
-    ) {
+    ): Boolean {
         try {
             val user = api.getCurrentUser(session.requestContext())
             if (user.id != session.userId) throw JellyfinApiException.Unauthorized
@@ -241,9 +397,11 @@ internal class LauncherMediaRepository(
             if (failure.isDenied()) {
                 snapshots.rejectAll(boundary, lease, request)
                 invalidateArtwork(boundary, lease)
-                registry.withGuardedLease(lease) { invalid.trySend(boundary) }
+                Log.i("Launcher", "stage=media-refresh event=rejected reason=invalid-session")
+                return registry.withGuardedLease(lease) { invalid.trySend(boundary).isSuccess } == true
             }
         }
+        return false
     }
 
     private suspend fun invalidateArtwork(
@@ -302,4 +460,13 @@ internal class LauncherMediaRepository(
     }
 
     private fun Session.requestContext() = AuthenticatedRequestContext(serverUrl, userId, accessToken)
+
+    private class RefreshFlight(
+        var foregroundAttached: Boolean,
+    ) {
+        val completion = CompletableDeferred<LauncherRefreshOutcome>()
+        lateinit var job: Job
+        var workerWaiters = 0
+        var followUpRequested = false
+    }
 }
