@@ -17,7 +17,7 @@ internal enum class LauncherAspect(
     Landscape(176, 99),
 
     @SerialName("poster")
-    Poster(128, 192),
+    Poster(96, 144),
 
     @SerialName("square")
     Square(160, 160),

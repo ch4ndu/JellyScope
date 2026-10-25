@@ -50,7 +50,7 @@ leave the visible order unchanged and report failure. The captured durable sourc
 is not replaced by SharedPreferences' failed-commit in-memory map.
 
 Server-configured visible media rows follow their declared order, title and
-landscape (176×99), poster (128×192), or square (160×160) shape. Media focus keys
+landscape (176×99), poster (96×144), or square (160×160) shape. Media focus keys
 use `row:<id>` and `row:<id>:<itemId>` so remote IDs cannot alias local controls.
 Settings reports current, cached, default, unavailable, invalid or unsupported
 configuration. Removing or emptying the focused row uses its saved clamped
