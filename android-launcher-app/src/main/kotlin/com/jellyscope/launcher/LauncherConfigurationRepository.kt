@@ -76,7 +76,7 @@ internal class LauncherConfigurationRepository(
             val body = bytes.decodeToString(0, count, throwOnInvalidSequence = true)
             val root = json.parseToJsonElement(body) as? JsonObject ?: error("Invalid layout object")
             val schema = (root["schemaVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
-            if (schema != null && schema != 1) {
+            if (schema != null && schema !in 1..2) {
                 LauncherConfigurationResult(LauncherConfigurationStatus.Unsupported)
             } else {
                 validateWireTypes(root)
@@ -93,7 +93,7 @@ internal class LauncherConfigurationRepository(
     private fun validateWireTypes(root: JsonObject) {
         require(root.string("revision") != null && root.string("playbackPreference") != null)
         val schema = root["schemaVersion"] as? JsonPrimitive
-        require(schema != null && !schema.isString && schema.intOrNull == 1)
+        require(schema != null && !schema.isString && (schema.intOrNull == 1 || schema.intOrNull == 2))
         val rows = root["rows"] as? JsonArray ?: error("Missing layout rows")
         rows.forEach { value ->
             val row = value as? JsonObject ?: error("Invalid row object")

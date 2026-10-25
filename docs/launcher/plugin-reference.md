@@ -45,7 +45,7 @@ PascalCase properties, and the editor maps between those forms.
 
 | Field | Contract |
 | --- | --- |
-| `schemaVersion` | Integer `1` |
+| `schemaVersion` | Integer `2`; launcher also accepts legacy `1` |
 | `revision` | 64 hexadecimal characters; server SHA-256 of canonical content |
 | `playbackPreference` | `jellyscope`; explicit matching-account handoff to the JellyScope TV app |
 | `rows` | Ordered array of 0–12 rows with unique IDs |
@@ -54,7 +54,7 @@ PascalCase properties, and the editor maps between those forms.
 | Row `visible` | Boolean |
 | Row `aspect` | `landscape`, `poster`, or `square` |
 | Row `tab` | Optional `essentials` or `jellyfin`; absent/null uses the query default |
-| Row `query` | `resume`, `nextUp`, `latest`, `favorites`, or `library` |
+| Row `query` | `resume`, `nextUp`, `latest`, `favorites`, `library`, `latestMovies`, `latestEpisodes`, or `latestSeries` |
 | Row `libraryId` | Required nullable field; otherwise 32 lowercase hex GUID, Jellyfin N format |
 | Row `limit` | Integer 1–20 |
 
@@ -71,12 +71,24 @@ any media row to either tab; the 12-row limit applies across both. Existing
 stored titles are preserved, including older Continue Watching/Next Up labels.
 
 Absent/null placement maps Resume, Next Up and Favorites to Home, and
-Latest/Library to Jellyfin. Canonical responses emit explicit placement. This
-additive schema-1 field keeps old configurations and snapshots readable; older
-launchers ignore it and show their flattened row list. Explicit unknown placement
+Latest/Library and the three typed Latest queries to Jellyfin. Canonical responses emit explicit placement. The optional tab field remains readable in legacy schema-1 configurations and
+snapshots. Explicit unknown placement
 is invalid. Moving a row changes the canonical revision but not its media-query
 identity, so compatible cards remain cached. Revisions may change across plugin
 versions as canonical fields expand; they are not stable cross-version IDs.
+
+Plugin 0.2.0 accepts valid stored schema 1 or 2 and emits canonical schema 2,
+preserving administrator rows and titles. The editor saves schema 2. Schema 1
+permits only the five original queries; typed queries require schema 2 on both
+wire and nested cache validation. Snapshot container version 2 is unchanged.
+Unknown future schemas are unsupported. Install the updated launcher first:
+older launchers reject all schema-2 responses and retain cached/default layouts.
+
+`latestMovies`, `latestEpisodes` and `latestSeries` use recursive `/Items` requests
+with exactly Movie, Episode or Series, DateCreated descending, the configured
+limit and optional parent library. Episodes are individual items; Series orders
+series creation, not the addition of episodes to an existing series. Their query
+identities isolate their card caches from the original mixed `latest` query.
 
 `library` queries recursive Movie/Episode items ordered by DateCreated descending.
 `latest` uses Jellyfin's Latest endpoint, including its episode grouping. Next Up

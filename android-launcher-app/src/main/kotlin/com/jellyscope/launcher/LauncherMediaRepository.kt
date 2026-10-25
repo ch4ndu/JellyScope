@@ -57,6 +57,7 @@ internal class LauncherMediaRepository(
     val state = snapshots.state
     private val invalid = Channel<LauncherBoundary>(Channel.BUFFERED)
     val invalidSessions = invalid.receiveAsFlow()
+
     // Coordination stays on Main; IO returns per-run outcomes instead of mutating these fields.
     private var active: Pair<Session, LauncherBoundary>? = null
     private val ready = MutableStateFlow<Pair<LauncherBoundary, LauncherRefreshOutcome>?>(null)
@@ -71,7 +72,13 @@ internal class LauncherMediaRepository(
                 val previous = flight
                 previous?.followUpRequested = false
                 previous?.completion?.complete(
-                    if (sessionState is SessionState.LoggedOut) LauncherRefreshOutcome.NoSession else LauncherRefreshOutcome.BoundaryChanged,
+                    if (
+                        sessionState is SessionState.LoggedOut
+                    ) {
+                        LauncherRefreshOutcome.NoSession
+                    } else {
+                        LauncherRefreshOutcome.BoundaryChanged
+                    },
                 )
                 previous?.job?.cancelAndJoin()
                 lastSuccessElapsed = 0L
@@ -83,7 +90,11 @@ internal class LauncherMediaRepository(
                         val session = loggedIn.session
                         val lease = registry.acquireWorkLease(boundary.account, boundary.epoch)
                         if (lease == null ||
-                            snapshots.activate(boundary, launcherHash("${launcherAccountKey(boundary.account)}:${session.serverUrl}"), lease) == null
+                            snapshots.activate(
+                                boundary,
+                                launcherHash("${launcherAccountKey(boundary.account)}:${session.serverUrl}"),
+                                lease,
+                            ) == null
                         ) {
                             ready.value = boundary to LauncherRefreshOutcome.BoundaryChanged
                             return@collectLatest
@@ -240,7 +251,13 @@ internal class LauncherMediaRepository(
         (sessions.sessionState.value as? SessionState.LoggedIn)?.let { LauncherBoundary(it.session.accountIdentity(), it.boundaryEpoch) }
 
     private fun boundaryOutcome(): LauncherRefreshOutcome =
-        if (sessions.sessionState.value is SessionState.LoggedOut) LauncherRefreshOutcome.NoSession else LauncherRefreshOutcome.BoundaryChanged
+        if (
+            sessions.sessionState.value is SessionState.LoggedOut
+        ) {
+            LauncherRefreshOutcome.NoSession
+        } else {
+            LauncherRefreshOutcome.BoundaryChanged
+        }
 
     private suspend fun refreshRows(
         session: Session,
@@ -308,13 +325,24 @@ internal class LauncherMediaRepository(
                                                 ).items
                                         LauncherQuery.Latest ->
                                             api.getLatestItems(context, limit = row.layout.limit, parentId = row.layout.libraryId)
-                                        LauncherQuery.Favorites, LauncherQuery.Library ->
+                                        LauncherQuery.Favorites,
+                                        LauncherQuery.Library,
+                                        LauncherQuery.LatestMovies,
+                                        LauncherQuery.LatestEpisodes,
+                                        LauncherQuery.LatestSeries,
+                                        ->
                                             api
                                                 .getItems(
                                                     context,
                                                     ItemsQuery(
                                                         recursive = true,
-                                                        includeItemTypes = listOf("Movie", "Episode"),
+                                                        includeItemTypes =
+                                                            when (row.layout.query) {
+                                                                LauncherQuery.LatestMovies -> listOf("Movie")
+                                                                LauncherQuery.LatestEpisodes -> listOf("Episode")
+                                                                LauncherQuery.LatestSeries -> listOf("Series")
+                                                                else -> listOf("Movie", "Episode")
+                                                            },
                                                         limit = row.layout.limit,
                                                         parentId = row.layout.libraryId,
                                                         sortBy = "DateCreated",
@@ -370,8 +398,7 @@ internal class LauncherMediaRepository(
                         launcherFailure("row-refresh", failure)
                         LauncherRefreshOutcome.Retry
                     }
-                }
-                .let { outcomes ->
+                }.let { outcomes ->
                     when {
                         LauncherRefreshOutcome.Invalid in outcomes -> LauncherRefreshOutcome.Invalid
                         LauncherRefreshOutcome.BoundaryChanged in outcomes -> LauncherRefreshOutcome.BoundaryChanged

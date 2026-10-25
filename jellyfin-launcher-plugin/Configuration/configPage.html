@@ -19,6 +19,8 @@
                         <label for="LauncherPlayback">Playback app</label>
                         <select id="LauncherPlayback"><option value="jellyscope">JellyScope</option></select>
                         <p>An empty layout shows Apps and settings only.</p>
+                        <p>Recently Added Movies, Episodes and Series use Date Created order and can be limited to a library. Episodes appear individually. Series lists newly added series, not older series with new episodes. Recently Added keeps Jellyfin's mixed, grouped latest results.</p>
+                        <p>Newest items in library lists movies and episodes from the selected library. A library is required for that query.</p>
                         <div id="LauncherRows"></div>
                         <button id="LauncherAdd" type="button" class="raised emby-button">Add row</button>
                         <button id="LauncherLibraries" type="button" class="raised emby-button">Refresh libraries</button>
@@ -71,7 +73,7 @@
 
                 function toHost(config) {
                     return {
-                        SchemaVersion: config.schemaVersion,
+                        SchemaVersion: 2,
                         Revision: config.revision,
                         PlaybackPreference: config.playbackPreference,
                         Rows: config.rows.map(function (row) {
@@ -86,7 +88,7 @@
                 }
 
                 function validate(config) {
-                    if (config.schemaVersion !== 1 || config.playbackPreference !== 'jellyscope' ||
+                    if ((config.schemaVersion !== 1 && config.schemaVersion !== 2) || config.playbackPreference !== 'jellyscope' ||
                         typeof config.revision !== 'string' || config.revision.length !== 64 || !/^[a-fA-F0-9]{64}$/.test(config.revision) ||
                         !Array.isArray(config.rows) || config.rows.length > 12) {
                         throw new Error('The layout is unsupported or invalid. Reload the saved layout.');
@@ -97,7 +99,8 @@
                             typeof row.title !== 'string' || row.title.length < 1 || row.title.length > 80 ||
                             /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(row.title) || typeof row.visible !== 'boolean' ||
                             ['landscape', 'poster', 'square'].indexOf(row.aspect) < 0 ||
-                            ['resume', 'nextUp', 'latest', 'favorites', 'library'].indexOf(row.query) < 0 ||
+                            ['resume', 'nextUp', 'latest', 'favorites', 'library', 'latestMovies', 'latestEpisodes', 'latestSeries'].indexOf(row.query) < 0 ||
+                            config.schemaVersion === 1 && ['resume', 'nextUp', 'latest', 'favorites', 'library'].indexOf(row.query) < 0 ||
                             row.tab != null && (typeof row.tab !== 'string' || ['essentials', 'jellyfin'].indexOf(row.tab) < 0) ||
                             !Number.isInteger(row.limit) || row.limit < 1 || row.limit > 20 ||
                             !(row.libraryId === null || typeof row.libraryId === 'string' && row.libraryId.length === 32 && /^[a-f0-9]{32}$/.test(row.libraryId)) ||
@@ -167,7 +170,9 @@
                         select(container, 'Tab', [['essentials', 'Essentials'], ['jellyfin', 'Jellyfin']], effectiveTab(row),
                             function (value) { row.tab = value; });
                         select(container, 'Query', [['resume', 'Play Next'], ['nextUp', 'Up Next'],
-                            ['latest', 'Recently Added'], ['favorites', 'Favorites'], ['library', 'Library']], row.query,
+                            ['latest', 'Recently Added'], ['latestMovies', 'Recently Added Movies'],
+                            ['latestEpisodes', 'Recently Added Episodes'], ['latestSeries', 'Recently Added Series'],
+                            ['favorites', 'Favorites'], ['library', 'Newest items in library (movies and episodes)']], row.query,
                             function (value) { row.query = value; });
                         var choices = [['', 'All available libraries']].concat(libraries.map(function (library) {
                             return [library.id, library.name];
@@ -216,6 +221,7 @@
                         invalidStored = snapshot.configurationStatus === 'invalid';
                         var candidate = invalidStored ? snapshot.configuration : fromHost(results[0]);
                         validate(candidate);
+                        candidate.schemaVersion = 2;
                         candidate.rows.forEach(function (row) { row.tab = effectiveTab(row); });
                         draft = candidate;
                         libraries = snapshot.libraries;

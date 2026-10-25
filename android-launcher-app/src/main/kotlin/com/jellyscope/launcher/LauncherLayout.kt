@@ -39,6 +39,15 @@ internal enum class LauncherQuery {
 
     @SerialName("library")
     Library,
+
+    @SerialName("latestMovies")
+    LatestMovies,
+
+    @SerialName("latestEpisodes")
+    LatestEpisodes,
+
+    @SerialName("latestSeries")
+    LatestSeries,
 }
 
 @Serializable
@@ -69,7 +78,12 @@ internal data class LauncherLayoutRow(
         get() =
             tab ?: when (query) {
                 LauncherQuery.Resume, LauncherQuery.NextUp, LauncherQuery.Favorites -> LauncherTab.Essentials
-                LauncherQuery.Latest, LauncherQuery.Library -> LauncherTab.Jellyfin
+                LauncherQuery.Latest,
+                LauncherQuery.Library,
+                LauncherQuery.LatestMovies,
+                LauncherQuery.LatestEpisodes,
+                LauncherQuery.LatestSeries,
+                -> LauncherTab.Jellyfin
             }
 
     val queryKey: String
@@ -80,7 +94,11 @@ internal data class LauncherLayoutRow(
                     LauncherQuery.NextUp -> "next-up"
                     LauncherQuery.Latest -> "recently-added"
                     LauncherQuery.Favorites -> "favorites"
-                    LauncherQuery.Library -> null
+                    LauncherQuery.Library,
+                    LauncherQuery.LatestMovies,
+                    LauncherQuery.LatestEpisodes,
+                    LauncherQuery.LatestSeries,
+                    -> null
                 }
             if (id == legacy && libraryId == null && limit == MAX_ROW_ITEMS) return "$id:v1:20"
             return launcherHash("launcher-query:v1:${query.name}:${libraryId.orEmpty()}:$limit")
@@ -95,10 +113,21 @@ internal data class LauncherLayout(
     val rows: List<LauncherLayoutRow>,
 ) {
     fun validated(): LauncherLayout {
-        require(schemaVersion == 1 && revision.matches(Regex("[a-fA-F0-9]{64}")))
+        require(schemaVersion in 1..2 && revision.matches(Regex("[a-fA-F0-9]{64}")))
         require(playbackPreference == "jellyscope" && rows.size <= MAX_LAYOUT_ROWS)
         require(rows.map { it.id }.distinct().size == rows.size)
         rows.forEach { row ->
+            require(
+                schemaVersion == 2 ||
+                    row.query in
+                    listOf(
+                        LauncherQuery.Resume,
+                        LauncherQuery.NextUp,
+                        LauncherQuery.Latest,
+                        LauncherQuery.Favorites,
+                        LauncherQuery.Library,
+                    ),
+            )
             require(row.id.matches(Regex("[a-z0-9][a-z0-9_-]{0,63}")))
             require(row.title.length in 1..80 && row.title.none { it.isISOControl() || it == '\u2028' || it == '\u2029' })
             require(row.limit in 1..MAX_ROW_ITEMS)

@@ -16,7 +16,7 @@ public sealed class PluginConfiguration : BasePluginConfiguration
 
     [JsonRequired, JsonPropertyName("SchemaVersion")]
     [JsonNumberHandling(JsonNumberHandling.Strict)]
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
 
     [JsonRequired, JsonPropertyName("Revision")]
     public string Revision { get; set; }
