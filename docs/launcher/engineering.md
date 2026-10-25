@@ -112,7 +112,11 @@ Settings restores its invoker; external details/player return preserves tab/item
 The TV receiver opens media links as standalone typed details, with root Back
 finishing its Activity; the [TV media-link contract](../engineering/tv-ux-behaviors.md)
 owns lookup, loading, nested navigation and lifecycle behavior.
-Actual device Home selects Home and targets Apps through the Home reset.
+The Activity saves the selected tab and restores it before first composition.
+Restoration is one-shot for a new ViewModel; a retained ViewModel or any live tab
+mutation takes precedence over an older Bundle. Restoration does not refresh or
+increment focus/ribbon reset generations. Actual device Home still selects Home
+and targets Apps through the Home reset.
 Logout keeps the selected tab and chooses a reachable disconnected landing.
 
 Signed-out Home shows Apps without repeated media sign-in prompts.

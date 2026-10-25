@@ -21,6 +21,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -45,6 +46,7 @@ internal class LauncherViewModel(
     private var loginGeneration = 0L
     private var foregroundJob: Job? = null
     private var suppressMedia = false
+    private var tabRestorationEligible = true
 
     init {
         viewModelScope.launch {
@@ -120,6 +122,23 @@ internal class LauncherViewModel(
         }
     }
 
+    fun restoreSelectedTab(tab: LauncherTab?) {
+        if (!tabRestorationEligible) return
+        tabRestorationEligible = false
+        if (tab == null) return
+        _state.update {
+            it.copy(
+                selectedTab = tab,
+                homeInvoker =
+                    when {
+                        tab != LauncherTab.Jellyfin -> it.homeInvoker
+                        it.signedIn -> tab.focusKey
+                        else -> JELLYFIN_CONNECT
+                    },
+            )
+        }
+    }
+
     fun foreground(started: Boolean) {
         foregroundJob?.cancel()
         foregroundJob = null
@@ -153,6 +172,7 @@ internal class LauncherViewModel(
         tab: LauncherTab,
         enterContent: Boolean = false,
     ) {
+        tabRestorationEligible = false
         val previousTab = _state.value.selectedTab
         _state.update {
             it.copy(
@@ -264,6 +284,7 @@ internal class LauncherViewModel(
     }
 
     private fun resetHome() {
+        tabRestorationEligible = false
         _state.update {
             it.copy(
                 route = LauncherRoute.Home,
@@ -322,23 +343,25 @@ internal class LauncherViewModel(
     // so both success paths agree without navigating again after cancellation.
     private fun completeLogin(generation: Long) {
         if (generation != loginGeneration || sessions.sessionState.value !is SessionState.LoggedIn) return
-        _state.update { current ->
-            val origin = current.loginOrigin
-            if (current.route != LauncherRoute.Login || origin == null) {
-                current
-            } else {
-                val tab = if (origin == LauncherLoginOrigin.Jellyfin) LauncherTab.Jellyfin else current.selectedTab
-                current.copy(
-                    route = LauncherRoute.Home,
-                    selectedTab = tab,
-                    homeInvoker = tab.focusKey,
-                    homeTabActivation = true,
-                    loginOrigin = null,
-                    authError = null,
-                    focusGeneration = current.focusGeneration + 1,
-                )
+        val previous =
+            _state.getAndUpdate { current ->
+                val origin = current.loginOrigin
+                if (current.route != LauncherRoute.Login || origin == null) {
+                    current
+                } else {
+                    val tab = if (origin == LauncherLoginOrigin.Jellyfin) LauncherTab.Jellyfin else current.selectedTab
+                    current.copy(
+                        route = LauncherRoute.Home,
+                        selectedTab = tab,
+                        homeInvoker = tab.focusKey,
+                        homeTabActivation = true,
+                        loginOrigin = null,
+                        authError = null,
+                        focusGeneration = current.focusGeneration + 1,
+                    )
+                }
             }
-        }
+        if (previous.route == LauncherRoute.Login && previous.loginOrigin != null) tabRestorationEligible = false
     }
 
     fun cancelLogin() = cancelLogin(homeReset = false)
@@ -350,6 +373,7 @@ internal class LauncherViewModel(
         if (homeReset) {
             resetHome()
         } else {
+            tabRestorationEligible = false
             _state.update {
                 val jellyfin = it.loginOrigin == LauncherLoginOrigin.Jellyfin
                 it.copy(
@@ -449,6 +473,7 @@ internal class LauncherViewModel(
         val menu = current.appEdit as? LauncherAppEdit.Menu ?: return
         val key = menu.target.componentKey
         if (current.orderWriting || current.apps.catalog.size < 2 || current.apps.catalog.none { it.componentKey == key }) return
+        tabRestorationEligible = false
         _state.update {
             it
                 .copy(

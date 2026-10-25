@@ -32,10 +32,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null && intent.isHomeDelivery()) model.homeInvoked()
+        val savedTab = savedInstanceState?.getString(STATE_SELECTED_TAB)
+        model.restoreSelectedTab(LauncherTab.entries.firstOrNull { it.name == savedTab })
         val images = get<LauncherImages>()
         setContent {
             LauncherShell(model, images, ::openApp, ::openSystemSettings, ::openMedia, isDefaultHome, ::openHomeSettings)
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_SELECTED_TAB, model.state.value.selectedTab.name)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -169,3 +176,5 @@ class MainActivity : ComponentActivity() {
             false
         }
 }
+
+private const val STATE_SELECTED_TAB = "launcher.selectedTab"
