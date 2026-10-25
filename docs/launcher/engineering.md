@@ -50,7 +50,12 @@ leave the visible order unchanged and report failure. The captured durable sourc
 is not replaced by SharedPreferences' failed-commit in-memory map.
 
 Server-configured visible media rows follow their declared order, title and
-landscape (176×99), poster (96×144), or square (160×160) shape. Media focus keys
+landscape (156×88), poster (105×158), or square (160×160) shape.
+Poster and landscape sizes match JellyScope TV at its standard tile size. Media
+rows use its 16 dp horizontal spacing, 8 dp title gap and 1.1× focus zoom. D-pad
+click targets suppress the default indication; the artwork border supplies focus
+feedback without shading the title. Square cards retain their existing size;
+two fully enlarged squares would meet at the 16 dp gap without overlapping. Media focus keys
 use `row:<id>` and `row:<id>:<itemId>` so remote IDs cannot alias local controls.
 Settings reports current, cached, default, unavailable, invalid or unsupported
 configuration. Removing or emptying the focused row uses its saved clamped

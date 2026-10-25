@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -428,6 +429,7 @@ private fun LauncherTile(
     image: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
     val scale by animateFloatAsState(
         if (focused) LauncherStyle.MEDIA_FOCUS_SCALE else 1f,
         tween(LauncherStyle.FOCUS_MILLIS),
@@ -444,7 +446,12 @@ private fun LauncherTile(
             }.bringIntoViewRequester(reveal)
             .onFocusChanged { focused = it.isFocused }
             .onPreviewKeyEvent { it.type == KeyEventType.KeyDown && direction(it.key) }
-            .clickable(role = Role.Button, onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            ),
     ) {
         Box(
             Modifier

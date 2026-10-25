@@ -14,10 +14,10 @@ internal enum class LauncherAspect(
     val height: Int,
 ) {
     @SerialName("landscape")
-    Landscape(176, 99),
+    Landscape(156, 88),
 
     @SerialName("poster")
-    Poster(96, 144),
+    Poster(105, 158),
 
     @SerialName("square")
     Square(160, 160),
