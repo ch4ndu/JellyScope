@@ -51,8 +51,8 @@ JellyScope's player account.
 Install/update JellyScope TV and sign into the **same server and user in both
 apps**. Selecting a series opens its seasons/episodes; other media opens Details.
 Choose Resume there to continue from the saved position, or restart explicitly.
-An older TV app shows update guidance instead of starting playback. Back returns
-to the prior JellyScope screen; use device navigation to return to the launcher.
+An older TV app shows update guidance instead of starting playback. Back from the initial Details/Series screen returns to the launcher; nested
+screens unwind first.
 Missing apps or mismatched accounts need setup and a fresh selection.
 
 **Choose default Home app** opens Android's selector when firmware permits it.

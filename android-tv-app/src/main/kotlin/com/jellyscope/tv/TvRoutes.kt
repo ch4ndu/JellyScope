@@ -39,6 +39,8 @@ internal enum class TvRoute {
     Player,
 }
 
+internal enum class TvExternalEntryPhase { None, Loading, Failure }
+
 internal fun tvTopLevelViewModelKey(
     session: Session,
     routeKey: String,
@@ -185,3 +187,15 @@ internal fun Intent.watchNextPayload(): String? =
                 itemId = payload.itemId,
             )
         }
+
+internal fun Intent.mediaLink(): TvPlaybackLink? {
+    if (data != null) return playbackLink()
+    val payload = WatchNextContract.parseAccountPayload(watchNextPayload()) ?: return null
+    tvPlaybackLinkLogger.i { "stage=media-entry event=received source=watch-next" }
+    return TvPlaybackLink(
+        kind = TvPlaybackLinkKind.WatchNext,
+        serverId = payload.serverId,
+        userId = payload.userId,
+        itemId = payload.itemId,
+    )
+}

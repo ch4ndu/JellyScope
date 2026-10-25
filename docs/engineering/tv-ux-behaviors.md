@@ -243,11 +243,10 @@ download, settings, and recovery focus behavior.
   the user to matching-account setup and a fresh launcher selection. They never
   select an account, sign in, or replay after login/switching. Notices reset on
   session-state changes; requested identifiers are not displayed.
-- Legacy `play` links from browsing open the ordinary player at zero with current
-  backend, quality and track preferences. Normal authenticated item lookup and
-  visible Retry/Cancel error handling apply. A link received while a player is
-  open is consumed with a notice, preserving the existing player. Each parsed
-  delivery has distinct identity, including repeated identical URIs.
+- All supported `play`, `details` and account-bound Watch Next deliveries open
+  typed standalone details without autoplay. A link received while a player is
+  open is consumed with a notice, preserving that player. Repeated identical
+  links have distinct delivery identities; the latest actual intent wins.
 - Launcher card selection uses `jellyscope://details/ITEM_ID?serverId=SERVER_ID&userId=USER_ID`,
   with the same strict identifier/query rules as `play`. The receiver declares a
   separate DEFAULT/BROWSABLE filter. Before explicit dispatch, the launcher checks
@@ -260,20 +259,31 @@ download, settings, and recovery focus behavior.
   fetch their own metadata and retain saved-position Resume decisions. Display
   progress from the launcher is never converted to playback ticks.
 - Before and after lookup, current delivery/account/epoch and active-player guards
-  apply. A changed route or route-entry discards navigation. Cancellation propagates;
-  canonical identity-checked consumption cannot clear a newer delivery. Ordinary
-  lookup failure shows a generic dismissible notice; a fresh selection retries.
-  These timing properties are source-review evidence, not proven by rapid D-pad tests.
-- Consumed data is cleared from the current Activity intent to avoid rehandling
-  it during ordinary recreation; this is not durable process-death deduplication.
-  Notice Back only dismisses it. Player Back returns to JellyScope's prior route,
-  not necessarily immediately to the launcher. When the launcher actually resumes
-  after external dispatch, its existing focus restoration and manual Jellyfin
-  refresh run. Playback progress depends on the player's server reporting.
-- Dispatch is not a playback-success acknowledgement. Diagnostics record only
-  received/rejected/handed-off stages, not URI or identifiers. Watch Next continues
-  to open item details. Actual delivery, dialog focus, playback and return behavior
-  remain device qualification items, separate from source and host checks.
+  apply. Cancellation propagates; identity-checked consumption cannot clear a
+  newer delivery. Successful lookup replaces the navigation root with a fresh
+  route-entry ID and empty history, rather than pushing Home.
+- Accepted lookup renders a neutral loading surface before Home, rail, drawer or
+  outgoing animation content composes. It does not instantiate HomeViewModel;
+  existing shared library/Watch Next work and warm ViewModels may continue.
+  Loading Back consumes the current delivery and finishes the Activity. Lookup
+  failure owns a saveable error dialog over that neutral surface; dismissal
+  finishes only if its delivery generation and account/epoch are still current.
+- Back at the external Details/Series root finishes the Activity and returns to
+  the caller. Nested Season, Episode, related-item and Player routes unwind
+  normally through that root. In-app Play/Resume retains its existing behavior.
+  Explicit top-level navigation clears external-root ownership.
+- Only a warm `onNewIntent` creates an ordinary-launch signal. Non-media or invalid
+  URI deliveries clear external Loading/Failure/Root without forcing Home.
+  Recreation restores the existing generation/state; consumed-null data never
+  creates an ordinary signal. Exact consumption clears URI and Watch Next extras.
+  This does not provide durable process-death deduplication: a redelivered intent
+  can repeat lookup. Mismatched/logged-out links retain setup notices and never
+  switch accounts; Watch Next uses the same checks and typed lookup.
+- When the launcher resumes, its existing focus restoration and manual Jellyfin
+  refresh run. Progress depends on player server reporting. Dispatch is not a
+  playback-success acknowledgement; diagnostics omit URIs and identifiers.
+  These navigation and lifecycle rules require separate device qualification;
+  source review and host checks do not prove transition timing or platform return.
 
 ## Tiles And Cross-Cutting Rules
 

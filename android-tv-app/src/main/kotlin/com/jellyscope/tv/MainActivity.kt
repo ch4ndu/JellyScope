@@ -20,6 +20,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,7 +44,8 @@ import com.jellyscope.tv.ui.TvLoginScreen
 import com.jellyscope.tv.ui.TvSafeAreaContent
 import com.jellyscope.tv.ui.TvServerEntryScreen
 import com.jellyscope.tv.ui.TvSettingsDetailDialog
-import com.jellyscope.tv.watchnext.WatchNextContract
+import com.jellyscope.tv.watchnext.EXTRA_ACCOUNT_PAYLOAD
+import com.jellyscope.tv.watchnext.EXTRA_ITEM_ID
 import com.jellyscope.tv.watchnext.WatchNextScheduler
 import com.jellyscope.ui.adaptive.LocalTileScale
 import com.jellyscope.ui.adaptive.tvTileScaleFor
@@ -61,13 +63,16 @@ import org.koin.compose.koinInject
 import com.jellyscope.ui.component.AdaptiveSpinner as TvSpinner
 
 class MainActivity : ComponentActivity() {
-    private var pendingWatchNextPayload by mutableStateOf<String?>(null)
     private var pendingPlaybackLink by mutableStateOf<TvPlaybackLink?>(null)
+    private var deliveryGeneration by mutableLongStateOf(0L)
+    private var ordinaryLaunch by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        pendingWatchNextPayload = intent.takeIf { it.data == null }?.watchNextPayload()
-        pendingPlaybackLink = intent.playbackLink()
+        pendingPlaybackLink = intent.mediaLink()
+        deliveryGeneration = savedInstanceState?.getLong(STATE_DELIVERY_GENERATION) ?: 0L
+        // Restore an earlier warm-launch signal; null consumed data never creates one here.
+        ordinaryLaunch = savedInstanceState?.getBoolean(STATE_ORDINARY_LAUNCH) == true && pendingPlaybackLink == null
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(TRANSPARENT, TRANSPARENT),
             navigationBarStyle = SystemBarStyle.auto(TRANSPARENT, TRANSPARENT),
@@ -132,9 +137,9 @@ class MainActivity : ComponentActivity() {
                 ) {
                     TvApp(
                         observeSessionStateUseCase = observeSessionStateUseCase,
-                        pendingWatchNextPayload = pendingWatchNextPayload,
-                        onWatchNextItemHandled = { pendingWatchNextPayload = null },
                         pendingPlaybackLink = pendingPlaybackLink,
+                        deliveryGeneration = deliveryGeneration,
+                        ordinaryLaunch = ordinaryLaunch,
                         onPlaybackLinkHandled = { handled ->
                             // A newer intent may arrive before Compose updates the running effect.
                             if (pendingPlaybackLink !== handled) {
@@ -142,8 +147,20 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 pendingPlaybackLink = null
                                 // A consumed launch must not replay after Activity recreation.
-                                setIntent(Intent(intent).setData(null))
+                                setIntent(
+                                    Intent(intent).apply {
+                                        data = null
+                                        removeExtra(EXTRA_ACCOUNT_PAYLOAD)
+                                        removeExtra(EXTRA_ITEM_ID)
+                                    },
+                                )
                                 true
+                            }
+                        },
+                        onExternalEntryFinished = { expectedGeneration ->
+                            if (deliveryGeneration == expectedGeneration && pendingPlaybackLink == null) {
+                                tvPlaybackLinkLogger.i { "stage=media-entry event=finished" }
+                                this@MainActivity.finish()
                             }
                         },
                         onPlaybackStopped = { WatchNextScheduler.enqueueImmediate(this@MainActivity) },
@@ -153,23 +170,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putLong(STATE_DELIVERY_GENERATION, deliveryGeneration)
+        outState.putBoolean(STATE_ORDINARY_LAUNCH, ordinaryLaunch)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        pendingWatchNextPayload = intent.takeIf { it.data == null }?.watchNextPayload()
-        pendingPlaybackLink = intent.playbackLink()
+        deliveryGeneration += 1L
+        pendingPlaybackLink = intent.mediaLink()
+        // Invalid or unrelated URI deliveries are ordinary launches too. Recreation is not.
+        ordinaryLaunch = pendingPlaybackLink == null
     }
 }
+
+private const val STATE_DELIVERY_GENERATION = "tv.media.deliveryGeneration"
+private const val STATE_ORDINARY_LAUNCH = "tv.media.ordinaryLaunch"
 
 private val downloadNotificationPermissionLogger = diagnosticLogger(DiagnosticTag.DownloadNotificationPermission)
 
 @Composable
 private fun TvApp(
     observeSessionStateUseCase: ObserveSessionStateUseCase,
-    pendingWatchNextPayload: String?,
-    onWatchNextItemHandled: () -> Unit,
     pendingPlaybackLink: TvPlaybackLink?,
+    deliveryGeneration: Long,
+    ordinaryLaunch: Boolean,
     onPlaybackLinkHandled: (TvPlaybackLink) -> Boolean,
+    onExternalEntryFinished: (Long) -> Unit,
     onPlaybackStopped: () -> Unit,
 ) {
     val sessionState by observeSessionStateUseCase().collectAsStateWithLifecycle()
@@ -221,12 +250,6 @@ private fun TvApp(
             LaunchedEffect(state.session.serverId, state.session.userId, state.boundaryEpoch) {
                 WatchNextScheduler.enqueueImmediate(context)
             }
-            val pendingPayload = WatchNextContract.parseAccountPayload(pendingWatchNextPayload)
-            val pendingItemId =
-                pendingPayload
-                    ?.takeIf { payload ->
-                        payload.serverId == state.session.serverId && payload.userId == state.session.userId
-                    }?.itemId
             val acceptedPlaybackLink =
                 pendingPlaybackLink?.takeIf { link ->
                     link.serverId == state.session.serverId && link.userId == state.session.userId
@@ -241,11 +264,6 @@ private fun TvApp(
                     playbackRejection = TvPlaybackLinkRejection.AccountMismatch
                 }
             }
-            LaunchedEffect(pendingWatchNextPayload, state.session.serverId, state.session.userId) {
-                if (pendingWatchNextPayload != null && pendingItemId == null) {
-                    onWatchNextItemHandled()
-                }
-            }
             key(state.session.accountIdentity(), state.boundaryEpoch) {
                 InstallJellyfinImageLoader(
                     httpClient = koinInject(),
@@ -256,21 +274,22 @@ private fun TvApp(
                 TvLoggedInApp(
                     session = state.session,
                     boundaryEpoch = state.boundaryEpoch,
-                    pendingWatchNextItemId = pendingItemId,
-                    onWatchNextItemHandled = onWatchNextItemHandled,
                     pendingPlaybackLink = acceptedPlaybackLink,
+                    deliveryGeneration = deliveryGeneration,
+                    ordinaryLaunch = ordinaryLaunch,
                     onPlaybackLinkHandled = { link ->
                         val handled = onPlaybackLinkHandled(link)
                         if (handled) playbackRejection = null
                         handled
                     },
                     onPlaybackLinkRejected = { playbackRejection = it },
+                    onExternalEntryFinished = onExternalEntryFinished,
                     onPlaybackStopped = onPlaybackStopped,
                 )
             }
         }
     }
-    playbackRejection?.let { rejection ->
+    playbackRejection?.takeIf { pendingPlaybackLink == null }?.let { rejection ->
         val (title, detail) =
             when (rejection) {
                 TvPlaybackLinkRejection.LoginRequired ->
@@ -279,8 +298,6 @@ private fun TvApp(
                     R.string.tv_playback_link_account_title to R.string.tv_playback_link_account_message
                 TvPlaybackLinkRejection.PlayerActive ->
                     R.string.tv_playback_link_active_title to R.string.tv_playback_link_active_message
-                TvPlaybackLinkRejection.DetailsUnavailable ->
-                    R.string.tv_playback_link_details_title to R.string.tv_playback_link_details_message
             }
         TvSettingsDetailDialog(
             title = stringResource(title),

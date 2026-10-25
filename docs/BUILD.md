@@ -88,7 +88,7 @@ representative hardware. After assembly, run
 Package verification does not replace the
 [runtime checks](engineering/workflow.md#manual-and-platform-validation).
 
-For a manually initiated Android TV playback link, sign in and exit any current
+For a manually initiated Android TV media-entry link, sign in and exit any current
 player, then invoke the item on that same server/account:
 
 ```bash
@@ -96,8 +96,8 @@ adb -s DEVICE_SERIAL shell \
   "am start -W -a android.intent.action.VIEW -p com.udnahc.jellyscope -d 'jellyscope://play/ITEM_ID?serverId=SERVER_ID&userId=USER_ID'"
 ```
 
-Replace the four placeholders before running. The link uses current playback
-settings and starts at zero; it contains no token or media URL. Accepted inputs,
+Replace the four placeholders before running. The link opens typed Details/Series
+without autoplay; choose Play or Resume there. It contains no token or media URL. Accepted inputs,
 account checks, and active-player behavior are owned by
 [Playback Links](engineering/tv-ux-behaviors.md#playback-links).
 

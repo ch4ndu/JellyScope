@@ -108,7 +108,10 @@ then gear; content Up returns to its tab. Focus uses text/underlines for tabs an
 quiet scaling/outline for app tiles over the centralized Dusk plum-to-coral gradient.
 
 Jellyfin Back moves content focus to its tab, then switches to Home. Closing
-Settings restores its invoker; playback return preserves tab/item.
+Settings restores its invoker; external details/player return preserves tab/item.
+The TV receiver opens media links as standalone typed details, with root Back
+finishing its Activity; the [TV media-link contract](../engineering/tv-ux-behaviors.md)
+owns lookup, loading, nested navigation and lifecycle behavior.
 Actual device Home selects Home and targets Apps through the Home reset.
 Logout keeps the selected tab and chooses a reachable disconnected landing.
 

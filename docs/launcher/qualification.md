@@ -19,7 +19,24 @@ do not transfer a result to another firmware/model or equate installation with
 Home replacement. Emulator evidence, if later authorized, is separate from physical
 TV/Fire TV evidence.
 
-## Details handoff qualification
+## Standalone media entry — 2026-10-24
+
+The reviewed TV Release installed successfully on the TiVo. Actual launcher
+Series, Movie and Episode selections opened their corresponding Series/Details
+views without autoplay. Root Back returned to the launcher; the Episode check
+also confirmed the launcher as Android's resumed Activity. A Series-entry
+recording sampled at 3 fps showed launcher, neutral loading and Series, with no
+JellyScope Home visible in the sampled frames. This is not frame-perfect proof.
+
+Formatting, existing TV unit tests, Debug compilation, Release lint, minified
+assembly, independent code review and final verification passed. Account sessions
+were preserved. Legacy `/play` and Watch Next ingress, nested Back, actual resumed
+playback ticks, rapid links, loading cancellation, failure/recreation, ordinary
+warm relaunch and account rejection remain source-reviewed only for this slice.
+The prior handoff observation below describes superseded Back behavior; standalone
+entry now finishes the TV Activity at its root.
+
+## Earlier details handoff qualification
 
 Both Release apps installed successfully on the TiVo on 2026-10-24. Source review,
 final verification, formatting, compilation, Release lint and assembly passed.

@@ -8,9 +8,9 @@ import com.jellyscope.core.util.diagnosticLogger
 
 internal val tvPlaybackLinkLogger = diagnosticLogger(DiagnosticTag.TvPlaybackLink)
 
-internal enum class TvPlaybackLinkRejection { LoginRequired, AccountMismatch, PlayerActive, DetailsUnavailable }
+internal enum class TvPlaybackLinkRejection { LoginRequired, AccountMismatch, PlayerActive }
 
-internal enum class TvPlaybackLinkKind { Play, Details }
+internal enum class TvPlaybackLinkKind { Play, Details, WatchNext }
 
 // A parsed instance is one delivery. Equal URIs must still retrigger the one-shot
 // effect when a second intent arrives before Compose observes the cleared value.

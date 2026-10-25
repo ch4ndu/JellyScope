@@ -24,6 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -61,6 +62,7 @@ import com.jellyscope.tv.ui.TvRailDestination
 import com.jellyscope.tv.ui.TvRailTarget
 import com.jellyscope.tv.ui.TvRouteScope
 import com.jellyscope.tv.ui.TvSettingsBackdrop
+import com.jellyscope.tv.ui.TvSettingsDetailDialog
 import com.jellyscope.tv.ui.TvSettingsScreen
 import com.jellyscope.tv.ui.focus.LocalTvFocusCoordinator
 import com.jellyscope.tv.ui.focus.TvFocusMemoryState
@@ -91,16 +93,18 @@ import org.koin.android.ext.android.get
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
+import com.jellyscope.ui.component.AdaptiveSpinner as TvSpinner
 
 @Composable
 internal fun TvLoggedInApp(
     session: Session,
     boundaryEpoch: Long,
-    pendingWatchNextItemId: String?,
-    onWatchNextItemHandled: () -> Unit,
     pendingPlaybackLink: TvPlaybackLink?,
+    deliveryGeneration: Long,
+    ordinaryLaunch: Boolean,
     onPlaybackLinkHandled: (TvPlaybackLink) -> Boolean,
     onPlaybackLinkRejected: (TvPlaybackLinkRejection) -> Unit,
+    onExternalEntryFinished: (Long) -> Unit,
     onPlaybackStopped: () -> Unit,
 ) {
     val getItemDetailUseCase = koinInject<GetItemDetailUseCase>()
@@ -120,6 +124,9 @@ internal fun TvLoggedInApp(
     val downloadsStateHolder = rememberSaveableStateHolder()
     var route by rememberSaveable { mutableStateOf(TvRoute.Home.name) }
     var routeHistory by rememberSaveable { mutableStateOf(TvRouteHistory()) }
+    var externalRoot by rememberSaveable { mutableStateOf(false) }
+    var externalPhase by rememberSaveable { mutableStateOf(TvExternalEntryPhase.None) }
+    var phaseGeneration by rememberSaveable { mutableLongStateOf(deliveryGeneration) }
     var drawerAmbientPresentation by remember { mutableStateOf(TvHeroAmbientPresentation.Empty) }
     var detailItemId by rememberSaveable { mutableStateOf("") }
     var downloadDetailId by rememberSaveable { mutableStateOf("") }
@@ -152,6 +159,18 @@ internal fun TvLoggedInApp(
         mutableStateOf(emptyList<String>())
     }
     var navigationLibraries by remember(session.serverId, session.userId) { mutableStateOf(emptyList<Library>()) }
+
+    LaunchedEffect(deliveryGeneration) {
+        if (phaseGeneration != deliveryGeneration) {
+            externalPhase = TvExternalEntryPhase.None
+            phaseGeneration = deliveryGeneration
+        }
+        if (ordinaryLaunch) {
+            externalRoot = false
+            externalPhase = TvExternalEntryPhase.None
+        }
+    }
+
     val retainSeriesSeasonViewModel =
         shouldRetainTvSeriesSeasonViewModel(
             route = route,
@@ -254,9 +273,23 @@ internal fun TvLoggedInApp(
         route = snapshot.route
     }
 
+    fun isCurrentSession(): Boolean {
+        val current = observeSessionStateUseCase().value as? SessionState.LoggedIn ?: return false
+        return current.boundaryEpoch == boundaryEpoch && current.session.accountIdentity() == session.accountIdentity()
+    }
+
+    fun finishExternalEntry() {
+        if (isCurrentSession()) onExternalEntryFinished(deliveryGeneration)
+    }
+
     fun popRoute(fallback: TvRoute = TvRoute.Home) {
         val popped = routeHistory.pop()
         if (popped == null) {
+            if (externalRoot && !ordinaryLaunch) {
+                finishExternalEntry()
+                return
+            }
+            externalRoot = false
             routeHistory = routeHistory.clear()
             focusCoordinator.resetTopLevel()
             playerOfflineDownloadId = null
@@ -273,6 +306,7 @@ internal fun TvLoggedInApp(
     }
 
     fun resetRoute(target: TvRoute) {
+        externalRoot = false
         routeHistory = routeHistory.clear()
         focusCoordinator.resetTopLevel()
         playerOfflineDownloadId = null
@@ -437,86 +471,74 @@ internal fun TvLoggedInApp(
         resetRoute(TvRoute.Library)
     }
 
-    LaunchedEffect(pendingWatchNextItemId) {
-        val itemId = pendingWatchNextItemId?.takeIf { id -> id.isNotBlank() } ?: return@LaunchedEffect
-        openTvItem(itemId, MediaCardKind.Other)
-        onWatchNextItemHandled()
-    }
-
-    LaunchedEffect(pendingPlaybackLink) {
-        val link = pendingPlaybackLink ?: return@LaunchedEffect
-
-        fun isCurrentDelivery(): Boolean {
-            val current = observeSessionStateUseCase().value as? SessionState.LoggedIn ?: return false
-            return currentPlaybackLink === link &&
-                current.boundaryEpoch == boundaryEpoch &&
-                current.session.accountIdentity() == session.accountIdentity()
+    LaunchedEffect(pendingPlaybackLink, deliveryGeneration) {
+        val link = pendingPlaybackLink
+        if (link == null) {
+            if (phaseGeneration == deliveryGeneration && externalPhase == TvExternalEntryPhase.Loading) {
+                finishExternalEntry()
+            }
+            return@LaunchedEffect
         }
 
+        fun isCurrentDelivery(): Boolean = currentPlaybackLink === link && isCurrentSession()
+
         if (!isCurrentDelivery()) return@LaunchedEffect
-        // A link starts a new route; it must not create overlapping native player owners.
         if (route == TvRoute.Player.name) {
             if (onPlaybackLinkHandled(link)) {
+                externalPhase = TvExternalEntryPhase.None
                 tvPlaybackLinkLogger.i { "stage=playback-link event=rejected reason=player-active" }
                 onPlaybackLinkRejected(TvPlaybackLinkRejection.PlayerActive)
             }
             return@LaunchedEffect
         }
-        if (link.kind == TvPlaybackLinkKind.Play) {
-            if (onPlaybackLinkHandled(link)) {
-                openPlayer(itemId = link.itemId, startTicks = 0L, mediaSourceId = null)
-                tvPlaybackLinkLogger.i { "stage=playback-link event=handed-off" }
-            }
-            return@LaunchedEffect
-        }
 
-        val originRoute = route
-        val originEntryId = focusCoordinator.activeRouteEntryId
-        tvPlaybackLinkLogger.i { "stage=details-link event=lookup-started" }
+        phaseGeneration = deliveryGeneration
+        externalPhase = TvExternalEntryPhase.Loading
+        tvPlaybackLinkLogger.i { "stage=media-entry event=lookup-started" }
         val kindResult: Result<MediaKind> =
             try {
                 val detail = getItemDetailUseCase(link.itemId, includePlaybackFields = false).getOrThrow()
                 Result.success(detail.item.kind)
             } catch (cancelled: CancellationException) {
-                tvPlaybackLinkLogger.i { "stage=details-link event=cancelled" }
+                tvPlaybackLinkLogger.i { "stage=media-entry event=cancelled" }
                 throw cancelled
             } catch (failure: Exception) {
                 Result.failure(failure)
             }
         currentCoroutineContext().ensureActive()
         if (!isCurrentDelivery()) {
-            tvPlaybackLinkLogger.i { "stage=details-link event=discarded reason=stale-delivery" }
+            tvPlaybackLinkLogger.i { "stage=media-entry event=discarded reason=stale-delivery" }
             return@LaunchedEffect
         }
         if (route == TvRoute.Player.name) {
             if (onPlaybackLinkHandled(link)) {
-                tvPlaybackLinkLogger.i { "stage=details-link event=rejected reason=player-active" }
+                externalPhase = TvExternalEntryPhase.None
+                tvPlaybackLinkLogger.i { "stage=media-entry event=rejected reason=player-active" }
                 onPlaybackLinkRejected(TvPlaybackLinkRejection.PlayerActive)
             }
-            return@LaunchedEffect
-        }
-        if (route != originRoute || focusCoordinator.activeRouteEntryId != originEntryId) {
-            tvPlaybackLinkLogger.i { "stage=details-link event=discarded reason=route-changed" }
             return@LaunchedEffect
         }
         val mediaKind =
             kindResult.getOrElse { failure ->
                 if (onPlaybackLinkHandled(link)) {
-                    tvPlaybackLinkLogger.i { "stage=details-link event=failed exceptionType=${failure::class.simpleName}" }
-                    onPlaybackLinkRejected(TvPlaybackLinkRejection.DetailsUnavailable)
+                    externalPhase = TvExternalEntryPhase.Failure
+                    tvPlaybackLinkLogger.i { "stage=media-entry event=failed exceptionType=${failure::class.simpleName}" }
                 }
                 return@LaunchedEffect
             }
-        val kind =
-            when (mediaKind) {
-                MediaKind.Movie -> MediaCardKind.Movie
-                MediaKind.Series -> MediaCardKind.Series
-                MediaKind.Episode -> MediaCardKind.Episode
-                MediaKind.Other -> MediaCardKind.Other
-            }
         if (onPlaybackLinkHandled(link)) {
-            openTvItem(link.itemId, kind)
-            tvPlaybackLinkLogger.i { "stage=details-link event=handed-off" }
+            val target = if (mediaKind == MediaKind.Series) TvRoute.Series else TvRoute.Detail
+            if (target == TvRoute.Series) {
+                seriesItemId = link.itemId
+                seasonItemId = ""
+            } else {
+                detailItemId = link.itemId
+            }
+            resetRoute(target)
+            externalRoot = true
+            externalPhase = TvExternalEntryPhase.None
+            contentAutofocusSuppressed = false
+            tvPlaybackLinkLogger.i { "stage=media-entry event=handed-off" }
         }
     }
 
@@ -564,6 +586,35 @@ internal fun TvLoggedInApp(
             }
             else -> openTvItem(item)
         }
+    }
+
+    val phase = externalPhase.takeIf { phaseGeneration == deliveryGeneration && !ordinaryLaunch } ?: TvExternalEntryPhase.None
+
+    // Gate outside the animation/rail host so outgoing Home content and Back handlers are absent.
+    if (route != TvRoute.Player.name && (pendingPlaybackLink != null || phase != TvExternalEntryPhase.None)) {
+        Box(Modifier.fillMaxSize().background(LocalAppBackgroundBrush.current)) {
+            if (pendingPlaybackLink != null || phase != TvExternalEntryPhase.Failure) {
+                TvSpinner(modifier = Modifier.align(Alignment.Center))
+            }
+        }
+        if (pendingPlaybackLink == null && phase == TvExternalEntryPhase.Failure) {
+            TvSettingsDetailDialog(
+                title = stringResource(R.string.tv_playback_link_details_title),
+                detail = stringResource(R.string.tv_playback_link_details_message),
+                onDismiss = { finishExternalEntry() },
+            )
+        }
+        BackHandler {
+            if (isCurrentSession()) {
+                val link = pendingPlaybackLink
+                if (link != null && onPlaybackLinkHandled(link)) {
+                    phaseGeneration = deliveryGeneration
+                    externalPhase = TvExternalEntryPhase.Loading
+                }
+                finishExternalEntry()
+            }
+        }
+        return
     }
 
     val railEnabled = isTvRailRoute(route, isTvDownloadsVisible(session))
