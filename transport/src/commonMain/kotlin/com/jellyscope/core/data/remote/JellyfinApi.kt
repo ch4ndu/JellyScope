@@ -4,6 +4,7 @@ package com.jellyscope.core.data.remote
 
 import com.jellyscope.core.domain.playback.EffectivePlayerDevicePolicy
 import com.jellyscope.core.domain.playback.PlaybackInfoRequestPolicy
+import kotlin.time.Instant
 
 interface JellyfinApi {
     suspend fun getPublicSystemInfo(serverUrl: String): PublicSystemInfoDto
@@ -310,6 +311,7 @@ data class ItemsQuery(
     val seriesStatus: List<String> = emptyList(),
     val filters: List<ItemFilter> = emptyList(),
     val ids: List<String>? = null,
+    val maxPremiereDate: Instant? = null,
 )
 
 enum class ItemFilter(

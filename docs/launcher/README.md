@@ -91,7 +91,7 @@ The plugin is optional: without it, the launcher uses its default media layout.
 There is **no published catalog entry, repository feed or installable release ZIP**.
 Manual installation remains unverified.
 
-**Update the launcher before installing plugin 0.2.0.** This plugin emits schema 2
+**Update the launcher before installing plugin 0.3.0.** This plugin emits schema 3
 for every layout. Older launchers retain their cached/default layout instead of
 accepting it. The updated launcher also supports the previous plugin.
 
@@ -104,14 +104,14 @@ accepting it. The updated launcher also supports the previous plugin.
    ```
 
    Output: `.local/launcher-plugin-artifacts/bin/Jellyfin.Plugin.Launcher/release/`.
-   The plugin is `Jellyfin.Plugin.Launcher.dll`, version **0.2.0**. Its dashboard
+   The plugin is `Jellyfin.Plugin.Launcher.dll`, version **0.3.0**. Its dashboard
    HTML is embedded; no separate web-page installation is needed.
 2. Locate the running server's actual plugins directory and stop that server or
    container. Common examples are `/var/lib/jellyfin/plugins` on Linux,
    `%ProgramData%\Jellyfin\Server\plugins` for Windows tray installs, and
    `%UserProfile%\AppData\Local\jellyfin\plugins` for direct Windows installs.
    Containers use the plugins directory in their persistent volume.
-3. Create a dedicated `JellyScopeLauncher_0.2.0.0` subdirectory there. Copy
+3. Use the existing plugin subdirectory, or create `JellyScopeLauncher_0.3.0.0`. Copy
    `Jellyfin.Plugin.Launcher.dll` and its generated `.deps.json` from the output.
    The `.pdb` is optional debugging information. Do not copy server/framework
    assemblies from NuGet; Jellyfin supplies those. Give the server service account
@@ -126,9 +126,8 @@ accepting it. The updated launcher also supports the previous plugin.
    user's library visibility before deploying broadly.
 
 Jellyfin documents its [manual plugin directory/restart procedure](https://jellyfin.org/docs/general/server/plugins/#manual).
-Its [current plugin manager source](https://github.com/jellyfin/jellyfin/blob/master/Emby.Server.Implementations/Plugins/PluginManager.cs)
-contains manifest handling and fallback discovery; that moving source is not
-proof of this plugin loading on the target server.
+For stale version/status after replacement, inspect `meta.json` and startup logs.
+Folder names do not update manifest metadata.
 
 To update, stop Jellyfin, back up the existing plugin/configuration, replace the
 plugin build, restart and repeat the checks. To roll back, restore the previous
@@ -148,8 +147,8 @@ user. Changes take effect after **Save** and launcher **Refresh**.
 | Title | 1–80 characters; control characters/line separators are rejected |
 | Visible | Show/hide a row without deleting its configuration |
 | Tab | Dashboard Essentials means Home; Jellyfin means Jellyfin |
-| Query | Play Next, Up Next, Recently Added, Recently Added Movies/Episodes/Series, Favorites or Newest items in library |
-| Library | All available libraries or one accessible library; Library query requires one |
+| Query | Play Next, Up Next, Recently Added, Recently Added/Released Movies/Episodes/Series, Favorites or Newest items in library |
+| Library | All available libraries or one accessible library; Library and Released queries require one |
 | Aspect | Landscape, Poster or Square artwork |
 | Limit | 1–20 cards per row |
 | Up / Down | Order rows; each tab preserves their relative order |
@@ -165,8 +164,9 @@ items. **Newest items in library** (the `library` query) requires a library and
 lists its movies/episodes recursively, newest-first by creation date. These are Jellyfin queries, not Android's
 cross-app Watch Next feed.
 
-Example: **New Movies** → Jellyfin → Recently Added Movies → Movies library → Poster → 12.
-Save, then Refresh. Apps stays first.
+**Recently Released** sorts the selected library by premiere date, excluding
+unknown/future dates. Series uses its own premiere. Rows may underfill.
+See [query semantics](plugin-reference.md#wire-schema).
 
 New rows start on Jellyfin with Recently Added, landscape artwork and limit 20.
 Changing Query preserves an explicitly selected Tab. **Refresh libraries** updates

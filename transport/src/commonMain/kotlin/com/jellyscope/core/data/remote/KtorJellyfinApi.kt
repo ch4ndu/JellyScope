@@ -811,6 +811,7 @@ class KtorJellyfinApi(
             query.startIndex?.let { parameter("startIndex", it) }
             query.sortBy?.let { parameter("sortBy", it) }
             query.sortOrder?.let { parameter("sortOrder", it) }
+            query.maxPremiereDate?.let { parameter("maxPremiereDate", it.toString()) }
             query.searchTerm?.takeIf { it.isNotBlank() }?.let { parameter("searchTerm", it) }
             if (query.personIds.isNotEmpty()) {
                 parameter("personIds", query.personIds.joinToString(","))

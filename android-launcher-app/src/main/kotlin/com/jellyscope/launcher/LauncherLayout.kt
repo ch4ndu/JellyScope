@@ -48,6 +48,18 @@ internal enum class LauncherQuery {
 
     @SerialName("latestSeries")
     LatestSeries,
+
+    @SerialName("releasedMovies")
+    ReleasedMovies,
+
+    @SerialName("releasedEpisodes")
+    ReleasedEpisodes,
+
+    @SerialName("releasedSeries")
+    ReleasedSeries,
+    ;
+
+    val isReleased: Boolean get() = this == ReleasedMovies || this == ReleasedEpisodes || this == ReleasedSeries
 }
 
 @Serializable
@@ -83,6 +95,9 @@ internal data class LauncherLayoutRow(
                 LauncherQuery.LatestMovies,
                 LauncherQuery.LatestEpisodes,
                 LauncherQuery.LatestSeries,
+                LauncherQuery.ReleasedMovies,
+                LauncherQuery.ReleasedEpisodes,
+                LauncherQuery.ReleasedSeries,
                 -> LauncherTab.Jellyfin
             }
 
@@ -98,6 +113,9 @@ internal data class LauncherLayoutRow(
                     LauncherQuery.LatestMovies,
                     LauncherQuery.LatestEpisodes,
                     LauncherQuery.LatestSeries,
+                    LauncherQuery.ReleasedMovies,
+                    LauncherQuery.ReleasedEpisodes,
+                    LauncherQuery.ReleasedSeries,
                     -> null
                 }
             if (id == legacy && libraryId == null && limit == MAX_ROW_ITEMS) return "$id:v1:20"
@@ -113,12 +131,12 @@ internal data class LauncherLayout(
     val rows: List<LauncherLayoutRow>,
 ) {
     fun validated(): LauncherLayout {
-        require(schemaVersion in 1..2 && revision.matches(Regex("[a-fA-F0-9]{64}")))
+        require(schemaVersion in 1..3 && revision.matches(Regex("[a-fA-F0-9]{64}")))
         require(playbackPreference == "jellyscope" && rows.size <= MAX_LAYOUT_ROWS)
         require(rows.map { it.id }.distinct().size == rows.size)
         rows.forEach { row ->
             require(
-                schemaVersion == 2 ||
+                schemaVersion != 1 ||
                     row.query in
                     listOf(
                         LauncherQuery.Resume,
@@ -128,11 +146,25 @@ internal data class LauncherLayout(
                         LauncherQuery.Library,
                     ),
             )
+            require(
+                schemaVersion != 2 ||
+                    row.query in
+                    listOf(
+                        LauncherQuery.Resume,
+                        LauncherQuery.NextUp,
+                        LauncherQuery.Latest,
+                        LauncherQuery.Favorites,
+                        LauncherQuery.Library,
+                        LauncherQuery.LatestMovies,
+                        LauncherQuery.LatestEpisodes,
+                        LauncherQuery.LatestSeries,
+                    ),
+            )
             require(row.id.matches(Regex("[a-z0-9][a-z0-9_-]{0,63}")))
             require(row.title.length in 1..80 && row.title.none { it.isISOControl() || it == '\u2028' || it == '\u2029' })
             require(row.limit in 1..MAX_ROW_ITEMS)
             require(row.libraryId == null || row.libraryId.matches(Regex("[a-f0-9]{32}")))
-            require(row.query != LauncherQuery.Library || row.libraryId != null)
+            require(row.libraryId != null || row.query != LauncherQuery.Library && !row.query.isReleased)
         }
         return this
     }

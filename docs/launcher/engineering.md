@@ -189,9 +189,10 @@ only after establishing the durable refresh marker, with full session headers,
 origin validation, no redirects, strict UTF-8 and a 64 KiB response limit. Invalid,
 unsupported or unavailable configuration retains validated last-good settings;
 without those, four defaults apply. A valid empty layout remains empty.
-Configuration 401/403 alone never invalidates the session. Schema 1 remains readable;
-the three typed Latest queries require schema 2, including inside cached layouts.
-Plugin 0.2.0 always emits schema 2, so update launchers before the plugin.
+Configuration 401/403 alone never invalidates the session. Schemas 1/2 remain readable; typed Added queries require at least schema 2 and
+Released queries require schema 3, including cached layouts. Released queries
+require a library and use one UTC cutoff per refresh with parsed-date filtering.
+Plugin 0.3.0 always emits schema 3, so update launchers before the plugin.
 The snapshot container remains version 2.
 
 Library IDs normalize to lowercase 32-hex GUIDs before client intersection with

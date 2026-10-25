@@ -13,6 +13,7 @@ import com.jellyscope.core.data.remote.ItemsQuery
 import com.jellyscope.core.data.remote.JellyfinApi
 import com.jellyscope.core.data.remote.JellyfinApiException
 import com.jellyscope.core.data.repository.SessionRepository
+import com.jellyscope.core.domain.model.MediaItem
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
@@ -42,6 +43,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Clock
 
 internal enum class LauncherRefreshOutcome { Success, Retry, NoSession, BoundaryChanged, Invalid }
 
@@ -266,6 +268,7 @@ internal class LauncherMediaRepository(
         request: Long,
     ): LauncherRefreshOutcome {
         val context = session.requestContext()
+        val releasedCutoff = Clock.System.now()
         val configuration = configurations.fetch(session)
         val policy =
             try {
@@ -311,6 +314,7 @@ internal class LauncherMediaRepository(
                         permits.withPermit {
                             if (!snapshots.isCurrent(boundary, lease, row)) return@withPermit LauncherRefreshOutcome.BoundaryChanged
                             try {
+                                val released = row.layout.query.isReleased
                                 val items =
                                     when (row.layout.query) {
                                         LauncherQuery.Resume ->
@@ -330,6 +334,9 @@ internal class LauncherMediaRepository(
                                         LauncherQuery.LatestMovies,
                                         LauncherQuery.LatestEpisodes,
                                         LauncherQuery.LatestSeries,
+                                        LauncherQuery.ReleasedMovies,
+                                        LauncherQuery.ReleasedEpisodes,
+                                        LauncherQuery.ReleasedSeries,
                                         ->
                                             api
                                                 .getItems(
@@ -338,14 +345,20 @@ internal class LauncherMediaRepository(
                                                         recursive = true,
                                                         includeItemTypes =
                                                             when (row.layout.query) {
-                                                                LauncherQuery.LatestMovies -> listOf("Movie")
-                                                                LauncherQuery.LatestEpisodes -> listOf("Episode")
-                                                                LauncherQuery.LatestSeries -> listOf("Series")
+                                                                LauncherQuery.LatestMovies,
+                                                                LauncherQuery.ReleasedMovies,
+                                                                -> listOf("Movie")
+                                                                LauncherQuery.LatestEpisodes,
+                                                                LauncherQuery.ReleasedEpisodes,
+                                                                -> listOf("Episode")
+                                                                LauncherQuery.LatestSeries,
+                                                                LauncherQuery.ReleasedSeries,
+                                                                -> listOf("Series")
                                                                 else -> listOf("Movie", "Episode")
                                                             },
                                                         limit = row.layout.limit,
                                                         parentId = row.layout.libraryId,
-                                                        sortBy = "DateCreated",
+                                                        sortBy = if (released) "PremiereDate" else "DateCreated",
                                                         sortOrder = "Descending",
                                                         enableTotalRecordCount = false,
                                                         filters =
@@ -354,14 +367,22 @@ internal class LauncherMediaRepository(
                                                             } else {
                                                                 emptyList()
                                                             },
+                                                        maxPremiereDate = releasedCutoff.takeIf { released },
                                                     ),
                                                 ).items
                                     }
                                 val cards =
                                     items
                                         .asSequence()
-                                        .mapNotNull(::card)
-                                        .distinctBy { it.id }
+                                        .mapNotNull { dto ->
+                                            val item = dto.toDomainMediaItem() ?: return@mapNotNull null
+                                            val premiereDate = item.premiereDate
+                                            if (released && (premiereDate == null || premiereDate > releasedCutoff)) {
+                                                null
+                                            } else {
+                                                card(dto, item)
+                                            }
+                                        }.distinctBy { it.id }
                                         .take(row.layout.limit)
                                         .toList()
                                 snapshots.commit(boundary, lease, row, cards, LauncherRowStatus.Fresh)
@@ -462,8 +483,10 @@ internal class LauncherMediaRepository(
     private fun Exception.isDenied(): Boolean =
         this is JellyfinApiException.Unauthorized || this is JellyfinApiException.ServerError && statusCode == 403
 
-    private fun card(dto: BaseItemDto): LauncherCard? {
-        val item = dto.toDomainMediaItem() ?: return null
+    private fun card(
+        dto: BaseItemDto,
+        item: MediaItem,
+    ): LauncherCard? {
         if (item.id.length > 256) return null
         val backdrop = item.imageRefs.backdropTag?.takeIf { it.isNotBlank() && it.length <= 256 }
         val primary = item.imageRefs.primaryTag?.takeIf { it.isNotBlank() && it.length <= 256 }

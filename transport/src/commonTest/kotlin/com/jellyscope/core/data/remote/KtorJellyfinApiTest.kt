@@ -18,8 +18,31 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.time.Instant
 
 class KtorJellyfinApiTest {
+    @Test
+    fun getItemsEncodesOptionalPremiereDateCutoffInUtc() =
+        runTest {
+            val cutoffs = mutableListOf<String?>()
+            val api =
+                apiWith(
+                    MockEngine { request ->
+                        cutoffs += request.url.parameters["maxPremiereDate"]
+                        respond(
+                            """{"Items":[]}""",
+                            headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                        )
+                    },
+                )
+            val query = ItemsQuery(recursive = true, includeItemTypes = listOf("Movie"), limit = 20)
+
+            api.getItems(context, query.copy(maxPremiereDate = Instant.parse("2026-10-25T02:30:00+02:30")))
+            api.getItems(context, query)
+
+            assertEquals(listOf("2026-10-25T00:00:00Z", null), cutoffs)
+        }
+
     @Test
     fun authenticatedMutationsShareAuthorizationAndMethodHandling() =
         runTest {

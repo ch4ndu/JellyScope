@@ -21,6 +21,7 @@
                         <p>An empty layout shows Apps and settings only.</p>
                         <p>Recently Added Movies, Episodes and Series use Date Created order and can be limited to a library. Episodes appear individually. Series lists newly added series, not older series with new episodes. Recently Added keeps Jellyfin's mixed, grouped latest results.</p>
                         <p>Newest items in library lists movies and episodes from the selected library. A library is required for that query.</p>
+                        <p>Recently Released Movies, Episodes and Series require a library and use premiere date, newest first. Items without a known premiere date or with a future date are omitted, so a row may contain fewer items than its limit. Series uses the series premiere, not a new episode's premiere.</p>
                         <div id="LauncherRows"></div>
                         <button id="LauncherAdd" type="button" class="raised emby-button">Add row</button>
                         <button id="LauncherLibraries" type="button" class="raised emby-button">Refresh libraries</button>
@@ -73,7 +74,7 @@
 
                 function toHost(config) {
                     return {
-                        SchemaVersion: 2,
+                        SchemaVersion: 3,
                         Revision: config.revision,
                         PlaybackPreference: config.playbackPreference,
                         Rows: config.rows.map(function (row) {
@@ -87,8 +88,12 @@
                     return row.tab == null ? (['resume', 'nextUp', 'favorites'].indexOf(row.query) >= 0 ? 'essentials' : 'jellyfin') : row.tab;
                 }
 
+                function requiresLibrary(query) {
+                    return ['library', 'releasedMovies', 'releasedEpisodes', 'releasedSeries'].indexOf(query) >= 0;
+                }
+
                 function validate(config) {
-                    if ((config.schemaVersion !== 1 && config.schemaVersion !== 2) || config.playbackPreference !== 'jellyscope' ||
+                    if ((config.schemaVersion !== 1 && config.schemaVersion !== 2 && config.schemaVersion !== 3) || config.playbackPreference !== 'jellyscope' ||
                         typeof config.revision !== 'string' || config.revision.length !== 64 || !/^[a-fA-F0-9]{64}$/.test(config.revision) ||
                         !Array.isArray(config.rows) || config.rows.length > 12) {
                         throw new Error('The layout is unsupported or invalid. Reload the saved layout.');
@@ -99,12 +104,15 @@
                             typeof row.title !== 'string' || row.title.length < 1 || row.title.length > 80 ||
                             /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(row.title) || typeof row.visible !== 'boolean' ||
                             ['landscape', 'poster', 'square'].indexOf(row.aspect) < 0 ||
-                            ['resume', 'nextUp', 'latest', 'favorites', 'library', 'latestMovies', 'latestEpisodes', 'latestSeries'].indexOf(row.query) < 0 ||
+                            ['resume', 'nextUp', 'latest', 'favorites', 'library', 'latestMovies', 'latestEpisodes', 'latestSeries',
+                                'releasedMovies', 'releasedEpisodes', 'releasedSeries'].indexOf(row.query) < 0 ||
                             config.schemaVersion === 1 && ['resume', 'nextUp', 'latest', 'favorites', 'library'].indexOf(row.query) < 0 ||
+                            config.schemaVersion === 2 && ['resume', 'nextUp', 'latest', 'favorites', 'library',
+                                'latestMovies', 'latestEpisodes', 'latestSeries'].indexOf(row.query) < 0 ||
                             row.tab != null && (typeof row.tab !== 'string' || ['essentials', 'jellyfin'].indexOf(row.tab) < 0) ||
                             !Number.isInteger(row.limit) || row.limit < 1 || row.limit > 20 ||
                             !(row.libraryId === null || typeof row.libraryId === 'string' && row.libraryId.length === 32 && /^[a-f0-9]{32}$/.test(row.libraryId)) ||
-                            row.query === 'library' && row.libraryId === null) {
+                            requiresLibrary(row.query) && row.libraryId === null) {
                             throw new Error('Row ' + (index + 1) + ': enter a title, a supported query, tab and aspect, a library when required, and a limit from 1 to 20.');
                         }
                         ids.add(row.id);
@@ -172,15 +180,20 @@
                         select(container, 'Query', [['resume', 'Play Next'], ['nextUp', 'Up Next'],
                             ['latest', 'Recently Added'], ['latestMovies', 'Recently Added Movies'],
                             ['latestEpisodes', 'Recently Added Episodes'], ['latestSeries', 'Recently Added Series'],
+                            ['releasedMovies', 'Recently Released Movies'], ['releasedEpisodes', 'Recently Released Episodes'],
+                            ['releasedSeries', 'Recently Released Series'],
                             ['favorites', 'Favorites'], ['library', 'Newest items in library (movies and episodes)']], row.query,
-                            function (value) { row.query = value; });
-                        var choices = [['', 'All available libraries']].concat(libraries.map(function (library) {
+                            function (value) { row.query = value; render(); });
+                        var requiredLibrary = requiresLibrary(row.query);
+                        var choices = [['', requiredLibrary ? 'Select a library' : 'All available libraries']].concat(libraries.map(function (library) {
                             return [library.id, library.name];
                         }));
                         if (row.libraryId !== null && !libraries.some(function (library) { return library.id === row.libraryId; })) {
                             choices.push([row.libraryId, 'Unavailable library (' + row.libraryId + ')']);
                         }
-                        select(container, 'Library', choices, row.libraryId || '', function (value) { row.libraryId = value || null; });
+                        var library = select(container, 'Library', choices, row.libraryId || '', function (value) { row.libraryId = value || null; });
+                        library.required = requiredLibrary;
+                        library.options[0].disabled = requiredLibrary;
                         select(container, 'Aspect', [['landscape', 'Landscape'], ['poster', 'Poster'], ['square', 'Square']],
                             row.aspect, function (value) { row.aspect = value; });
                         var limit = document.createElement('input');
@@ -221,7 +234,7 @@
                         invalidStored = snapshot.configurationStatus === 'invalid';
                         var candidate = invalidStored ? snapshot.configuration : fromHost(results[0]);
                         validate(candidate);
-                        candidate.schemaVersion = 2;
+                        candidate.schemaVersion = 3;
                         candidate.rows.forEach(function (row) { row.tab = effectiveTab(row); });
                         draft = candidate;
                         libraries = snapshot.libraries;

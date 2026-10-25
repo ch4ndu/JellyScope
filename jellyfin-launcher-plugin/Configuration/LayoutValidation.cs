@@ -20,7 +20,7 @@ internal static class LayoutValidation
 
     public static PluginConfiguration Canonicalize(PluginConfiguration configuration)
     {
-        if (configuration is null || configuration.SchemaVersion is not (1 or 2) || configuration.PlaybackPreference != "jellyscope" ||
+        if (configuration is null || configuration.SchemaVersion is not (1 or 2 or 3) || configuration.PlaybackPreference != "jellyscope" ||
             configuration.Revision is null || !Regex.IsMatch(configuration.Revision, "\\A[a-fA-F0-9]{64}\\z") ||
             configuration.Rows is null || configuration.Rows.Length > 12)
         {
@@ -34,12 +34,15 @@ internal static class LayoutValidation
             if (row is null || row.Id is null || !Regex.IsMatch(row.Id, "\\A[a-z0-9][a-z0-9_-]{0,63}\\z") || !ids.Add(row.Id) ||
                 row.Title is null || row.Title.Length is < 1 or > 80 || row.Title.Any(c => char.IsControl(c) || c is '\u2028' or '\u2029') ||
                 row.Aspect is not ("landscape" or "poster" or "square") ||
-                row.Query is not ("resume" or "nextUp" or "latest" or "favorites" or "library" or "latestMovies" or "latestEpisodes" or "latestSeries") ||
+                row.Query is not ("resume" or "nextUp" or "latest" or "favorites" or "library" or "latestMovies" or "latestEpisodes" or "latestSeries" or
+                    "releasedMovies" or "releasedEpisodes" or "releasedSeries") ||
                 (configuration.SchemaVersion == 1 && row.Query is not ("resume" or "nextUp" or "latest" or "favorites" or "library")) ||
+                (configuration.SchemaVersion == 2 && row.Query is not ("resume" or "nextUp" or "latest" or "favorites" or "library" or
+                    "latestMovies" or "latestEpisodes" or "latestSeries")) ||
                 row.Tab is not (null or "essentials" or "jellyfin") ||
                 row.Limit is < 1 or > 20 ||
                 (row.LibraryId is not null && !ValidLibraryId(row.LibraryId)) ||
-                (row.Query == "library" && row.LibraryId is null))
+                (row.Query is ("library" or "releasedMovies" or "releasedEpisodes" or "releasedSeries") && row.LibraryId is null))
             {
                 throw new ArgumentException("Invalid launcher row. Check its ID, title, query, tab, library, aspect and limit.");
             }
@@ -59,7 +62,7 @@ internal static class LayoutValidation
 
         var copy = new PluginConfiguration
         {
-            SchemaVersion = 2,
+            SchemaVersion = 3,
             PlaybackPreference = "jellyscope",
             Rows = rows.ToArray()
         };

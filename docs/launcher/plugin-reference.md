@@ -45,7 +45,7 @@ PascalCase properties, and the editor maps between those forms.
 
 | Field | Contract |
 | --- | --- |
-| `schemaVersion` | Integer `2`; launcher also accepts legacy `1` |
+| `schemaVersion` | Integer `3`; launcher also accepts legacy `1` and `2` |
 | `revision` | 64 hexadecimal characters; server SHA-256 of canonical content |
 | `playbackPreference` | `jellyscope`; explicit matching-account handoff to the JellyScope TV app |
 | `rows` | Ordered array of 0–12 rows with unique IDs |
@@ -54,7 +54,7 @@ PascalCase properties, and the editor maps between those forms.
 | Row `visible` | Boolean |
 | Row `aspect` | `landscape`, `poster`, or `square` |
 | Row `tab` | Optional `essentials` or `jellyfin`; absent/null uses the query default |
-| Row `query` | `resume`, `nextUp`, `latest`, `favorites`, `library`, `latestMovies`, `latestEpisodes`, or `latestSeries` |
+| Row `query` | `resume`, `nextUp`, `latest`, `favorites`, `library`, `latestMovies`, `latestEpisodes`, `latestSeries`, `releasedMovies`, `releasedEpisodes`, or `releasedSeries` |
 | Row `libraryId` | Required nullable field; otherwise 32 lowercase hex GUID, Jellyfin N format |
 | Row `limit` | Integer 1–20 |
 
@@ -63,7 +63,7 @@ The dashboard label **Essentials** and wire value `essentials` map to the launch
 
 All listed fields except `tab` are required. Unknown additional fields are ignored, but an
 unknown schema, query, aspect or playback preference rejects the complete layout.
-`library` requires a library ID; other queries may optionally be scoped to one.
+`library` and all three Released queries require a library ID; other queries may optionally be scoped to one.
 No arbitrary URL, intent, script, filter program, credential or user override is
 accepted. Fresh defaults are Play Next, Up Next and Favorites on Home, and Recently
 Added on Jellyfin. Apps always stays local on Home. The server may assign
@@ -71,24 +71,34 @@ any media row to either tab; the 12-row limit applies across both. Existing
 stored titles are preserved, including older Continue Watching/Next Up labels.
 
 Absent/null placement maps Resume, Next Up and Favorites to Home, and
-Latest/Library and the three typed Latest queries to Jellyfin. Canonical responses emit explicit placement. The optional tab field remains readable in legacy schema-1 configurations and
+Latest/Library and the typed Added/Released queries to Jellyfin. Canonical responses emit explicit placement. The optional tab field remains readable in legacy schema-1 configurations and
 snapshots. Explicit unknown placement
 is invalid. Moving a row changes the canonical revision but not its media-query
 identity, so compatible cards remain cached. Revisions may change across plugin
 versions as canonical fields expand; they are not stable cross-version IDs.
 
-Plugin 0.2.0 accepts valid stored schema 1 or 2 and emits canonical schema 2,
-preserving administrator rows and titles. The editor saves schema 2. Schema 1
-permits only the five original queries; typed queries require schema 2 on both
-wire and nested cache validation. Snapshot container version 2 is unchanged.
-Unknown future schemas are unsupported. Install the updated launcher first:
-older launchers reject all schema-2 responses and retain cached/default layouts.
+Plugin 0.3.0 accepts valid stored schema 1/2/3 and emits canonical schema 3,
+preserving administrator rows and titles. The editor saves schema 3. Schema 1
+permits the original five queries; schema 2 adds typed Recently Added; schema 3
+adds Recently Released. Wire and nested-cache validation enforce these vocabularies.
+Snapshot container version 2 is unchanged. Unknown future schemas are unsupported.
+Install the updated launcher first: schema-1/2 clients reject schema 3 and retain
+cached/default layouts. An older client cannot decode a schema-3 cache and falls
+back to defaults.
 
 `latestMovies`, `latestEpisodes` and `latestSeries` use recursive `/Items` requests
 with exactly Movie, Episode or Series, DateCreated descending, the configured
 limit and optional parent library. Episodes are individual items; Series orders
 series creation, not the addition of episodes to an existing series. Their query
 identities isolate their card caches from the original mixed `latest` query.
+
+`releasedMovies`, `releasedEpisodes` and `releasedSeries` use the same exact-type
+recursive `/Items` shape with a required selected library, `PremiereDate` descending
+and a UTC `maxPremiereDate` captured once per refresh. The client excludes missing,
+unparseable or later premiere dates using the existing domain mapper. Series
+means its own premiere, not a newly released child episode. Filtering a bounded
+page may yield fewer cards than the limit; no pagination fills the difference.
+The nullable transport cutoff is omitted for every existing query.
 
 `library` queries recursive Movie/Episode items ordered by DateCreated descending.
 `latest` uses Jellyfin's Latest endpoint, including its episode grouping. Next Up
