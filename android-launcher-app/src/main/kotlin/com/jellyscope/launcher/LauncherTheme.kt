@@ -33,6 +33,19 @@ internal object LauncherStyle {
     val inset = 48.dp
     val headerHeight = 68.dp
     val contentTop = 24.dp
+    val heroHeight = 200.dp
+    val heroBackdropHeight = 334.dp
+    const val HERO_BACKDROP_WIDTH = 0.62f
+    const val HERO_TITLE_WIDTH = 0.61f
+    const val HERO_CONTENT_WIDTH = 0.52f
+    val heroContentTop = 16.dp
+    val heroContentGap = 6.dp
+    const val HERO_SETTLE_MILLIS = 220L
+    const val HERO_IMAGE_FADE_MILLIS = 650
+    const val HERO_CONTENT_FADE_MILLIS = 600
+    const val HERO_MAX_WIDTH = 1280
+    const val HERO_MAX_HEIGHT = 720
+    const val HERO_PALETTE_SIZE = 96
     val headerIcon = 24.dp
     val headerControl = 40.dp
     val headerGap = 24.dp
@@ -60,6 +73,7 @@ internal object LauncherStyle {
     val menuTitle = 40.dp
     val menuPadding = 8.dp
     val heading = TextStyle(fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.Medium)
+    val heroTitle = TextStyle(fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold)
     val section = TextStyle(fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium)
     val header = TextStyle(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
     val label = TextStyle(fontSize = 14.sp, lineHeight = 18.sp)

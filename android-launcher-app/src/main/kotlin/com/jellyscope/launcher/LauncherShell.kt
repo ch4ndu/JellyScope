@@ -137,8 +137,10 @@ internal fun LauncherShell(
         }
     }
 
+    val heroTarget = rememberLauncherHeroTarget(state, homeFocus)
+    val currentImages = imageScope?.takeIf { it.boundary.key == state.boundaryKey && it.isActive }
     LauncherTheme {
-        Column(
+        Box(
             Modifier
                 .fillMaxSize()
                 .background(LauncherStyle.background)
@@ -146,39 +148,51 @@ internal fun LauncherShell(
                 .then(if (suppressed) Modifier.clearAndSetSemantics {} else Modifier)
                 .onPreviewKeyEvent { suppressed || it.isRepeatedLauncherActivation },
         ) {
-            LauncherHeader(state, headerFocus, homeFocus, model, model::selectTab, { model.openSettings(account = true) }, systemSettings)
-            Box(Modifier.weight(1f).fillMaxWidth().launcherFocusScope(homeFocus) { contentKeys }) {
-                LauncherHomeScreen(
+            LauncherHero(state, heroTarget, currentImages, Modifier.matchParentSize())
+            Column(Modifier.fillMaxSize()) {
+                LauncherHeader(
                     state,
+                    headerFocus,
                     homeFocus,
                     model,
-                    imageScope?.takeIf { it.boundary.key == state.boundaryKey },
-                    onApp = {
-                        if (!suppressed) {
-                            model.rememberInvoker("apps:$it")
-                            openApp(it)
-                        }
-                    },
-                    onMedia = { target, itemId ->
-                        if (!suppressed) {
-                            model.rememberInvoker(target)
-                            openMedia(itemId, state.boundaryKey)
-                        }
-                    },
-                    pages = homePages,
-                    onContentEntry = { if (!suppressed) model.homeContentEntered() },
-                    onConnect = { if (!suppressed) model.beginLogin(LauncherLoginOrigin.Jellyfin) },
-                    onSettings = {
-                        if (!suppressed) {
-                            model.navigate(
-                                LauncherRoute.Settings,
-                                if (state.cleanupPending) JELLYFIN_RECOVERY else JELLYFIN_SETTINGS,
-                            )
-                        }
-                    },
-                    onRefresh = { if (!suppressed) model.refresh() },
-                    modifier = Modifier.fillMaxSize(),
+                    model::selectTab,
+                    { model.openSettings(account = true) },
+                    systemSettings,
                 )
+                Box(Modifier.weight(1f).fillMaxWidth().launcherFocusScope(homeFocus) { contentKeys }) {
+                    LauncherHomeScreen(
+                        state,
+                        homeFocus,
+                        model,
+                        currentImages,
+                        heroExpanded = heroTarget != null,
+                        onApp = {
+                            if (!suppressed) {
+                                model.rememberInvoker("apps:$it")
+                                openApp(it)
+                            }
+                        },
+                        onMedia = { target, itemId ->
+                            if (!suppressed) {
+                                model.rememberInvoker(target)
+                                openMedia(itemId, state.boundaryKey)
+                            }
+                        },
+                        pages = homePages,
+                        onContentEntry = { if (!suppressed) model.homeContentEntered() },
+                        onConnect = { if (!suppressed) model.beginLogin(LauncherLoginOrigin.Jellyfin) },
+                        onSettings = {
+                            if (!suppressed) {
+                                model.navigate(
+                                    LauncherRoute.Settings,
+                                    if (state.cleanupPending) JELLYFIN_RECOVERY else JELLYFIN_SETTINGS,
+                                )
+                            }
+                        },
+                        onRefresh = { if (!suppressed) model.refresh() },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
         if (state.route != LauncherRoute.Home) {

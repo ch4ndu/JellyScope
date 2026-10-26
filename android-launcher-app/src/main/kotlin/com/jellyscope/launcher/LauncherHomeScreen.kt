@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,6 +46,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
@@ -63,6 +65,7 @@ internal fun LauncherHomeScreen(
     focus: LauncherFocus,
     model: LauncherViewModel,
     images: LauncherImageScope?,
+    heroExpanded: Boolean,
     onApp: (String) -> Unit,
     onMedia: (String, String) -> Unit,
     pages: SaveableStateHolder,
@@ -91,6 +94,13 @@ internal fun LauncherHomeScreen(
     val modal = state.backgroundSuppressed
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     val request = state.appFocusTarget
+    val appsReveal = remember { BringIntoViewRequester() }
+    var measuredHero by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(heroExpanded, measuredHero, focus.current, focus.hasFocus, modal, windowFocused) {
+        if (!modal && windowFocused && focus.hasFocus && focus.current?.startsWith("apps:") == true && measuredHero == heroExpanded) {
+            appsReveal.bringIntoView()
+        }
+    }
 
     fun fallback(): String? =
         focus.rowTarget(focus.homeRow, ids[focus.homeRow].orEmpty())
@@ -174,11 +184,13 @@ internal fun LauncherHomeScreen(
         return true
     }
     Column(modifier) {
+        Spacer(Modifier.height(if (heroExpanded) LauncherStyle.heroHeight else 0.dp))
         pages.SaveableStateProvider("${state.boundaryKey}:${state.homeResetGeneration}:${state.selectedTab.name}") {
             Column(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .onGloballyPositioned { measuredHero = heroExpanded }
                     .verticalScroll(rememberScrollState())
                     .padding(top = LauncherStyle.contentTop),
                 verticalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
@@ -191,6 +203,7 @@ internal fun LauncherHomeScreen(
                     )
                     Row(
                         Modifier
+                            .bringIntoViewRequester(appsReveal)
                             .horizontalScroll(
                                 rememberScrollState(),
                             ).padding(horizontal = LauncherStyle.inset, vertical = LauncherStyle.appRowPadding)
@@ -379,12 +392,22 @@ internal fun LauncherHomeScreen(
                             row.cards.forEachIndexed { index, card ->
                                 val target = "${row.focusKey}:${card.id}"
                                 key(target) {
-                                    LauncherTile(card.title, focus, target, {
-                                        if (!modal) {
-                                            onContentEntry()
-                                            focus.rememberRow(row.focusKey, target, index, mediaRows.indexOfFirst { it.id == row.id })
-                                        }
-                                    }, { direction(row.focusKey, index, it) }, { onMedia(target, card.id) }, row.layout.aspect) {
+                                    LauncherTile(
+                                        card.title,
+                                        focus,
+                                        target,
+                                        {
+                                            if (!modal) {
+                                                onContentEntry()
+                                                focus.rememberRow(row.focusKey, target, index, mediaRows.indexOfFirst { it.id == row.id })
+                                            }
+                                        },
+                                        { direction(row.focusKey, index, it) },
+                                        { onMedia(target, card.id) },
+                                        row.layout.aspect,
+                                        heroExpanded,
+                                        measuredHero,
+                                    ) {
                                         val context = LocalContext.current
                                         val request =
                                             remember(images, card, row.layout.aspect) { images?.request(context, card, row.layout.aspect) }
@@ -426,6 +449,8 @@ private fun LauncherTile(
     direction: (Key) -> Boolean,
     onClick: () -> Unit,
     aspect: LauncherAspect = LauncherAspect.Landscape,
+    heroExpanded: Boolean,
+    measuredHero: Boolean?,
     image: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -437,6 +462,12 @@ private fun LauncherTile(
     )
     val reveal = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    // The focus-time reveal precedes a dwell-driven resize. Wait until that
+    // mode is measured, including a resize made while a modal owned the window.
+    LaunchedEffect(heroExpanded, measuredHero, focused, focus.enabled, windowFocused) {
+        if (focused && focus.enabled && windowFocused && measuredHero == heroExpanded) reveal.bringIntoView()
+    }
     Column(
         Modifier
             .width(aspect.width.dp)

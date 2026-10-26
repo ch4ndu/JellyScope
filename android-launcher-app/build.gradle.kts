@@ -61,6 +61,7 @@ dependencies {
     implementation("org.jetbrains.compose.runtime:runtime-saveable:${libs.versions.composeMultiplatform.get()}")
     implementation("org.jetbrains.compose.ui:ui:${libs.versions.composeMultiplatform.get()}")
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.palette.ktx)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.koin.android)
     implementation(libs.jetbrains.lifecycle.runtime.compose)

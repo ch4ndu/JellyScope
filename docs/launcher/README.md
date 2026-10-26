@@ -36,6 +36,9 @@ the background when Android permits and a network is available. The Jellyfin ico
 the gear opens Android **System settings**. The right-side account panel keeps
 focus inside. Back leaves a subsection; Close returns to its invoking control.
 
+Cinematic media previews work on both tabs. Disable them in **Jellyfin account →
+Launcher preferences → Show cinematic hero**. Apps focus uses the Dusk background.
+
 **Apps** automatically lists every launchable app. Long-press for Open or **Move**;
 Left/Right reorders inline, and Select or Back finishes with each step saved.
 Existing favorites seed the order; other apps append. Order survives sign-out.

@@ -114,6 +114,23 @@ restoring with no action stays on the tab. Right from Jellyfin traverses account
 then gear; content Up returns to its tab. Focus uses text/underlines for tabs and
 quiet scaling/outline for app tiles over the centralized Dusk plum-to-coral gradient.
 
+The cinematic hero is a launcher-local presentation on both tabs. Media focus
+settles for 220 ms before selecting cached title, metadata and overview; Select
+still opens Details. Apps focus returns to compact Dusk. Header focus preserves
+selection, modals suspend updates, and tab/Home/account boundaries discard it.
+Rows retain their keys and tile dimensions; after the hero changes viewport height,
+the focused tile is revealed again through the existing scroller after measurement.
+
+Jellyfin account → Launcher preferences offers **Show cinematic hero**, default on.
+Its device-wide preference survives sign-out. Unknown/loading preference state
+suppresses artwork; IO commits precede publication, and write failure retains the
+published value with an error. Disabling removes hero imagery on both tabs.
+Backdrop requests use the existing account-scoped authenticated loader and bounded
+1280×720 decode. Off-main palette extraction reuses that bitmap and the TV swatch
+selection/normalization rules. Artwork and text/gradient transitions use 650/600 ms,
+retain at most two displayed layers, and reject stale owners; missing artwork uses
+Dusk. Optional bounded card metadata remains compatible with snapshot version 2.
+
 Jellyfin Back moves content focus to its tab, then switches to Home. Closing
 Settings restores its invoker; external details/player return preserves tab/item.
 The TV receiver opens media links as standalone typed details, with root Back

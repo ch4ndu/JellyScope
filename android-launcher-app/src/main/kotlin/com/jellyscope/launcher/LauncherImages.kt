@@ -13,6 +13,8 @@ import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.ImageRequest
+import coil3.size.Precision
+import coil3.size.Scale
 import com.jellyscope.core.data.local.AccountScopedClearableStore
 import com.jellyscope.core.data.local.AccountWorkLease
 import com.jellyscope.core.data.local.RefetchableServerCache
@@ -140,6 +142,7 @@ internal class LauncherImageScope(
 ) {
     @Volatile
     private var retired = false
+    val isActive: Boolean get() = !retired
     private val cache =
         DiskCache
             .Builder()
@@ -194,19 +197,42 @@ internal class LauncherImageScope(
         card: LauncherCard,
         aspect: LauncherAspect,
     ): ImageRequest? {
-        if (retired) return null
         val primary = card.primaryTag ?: card.imageTag?.takeUnless { card.backdrop }
-        val backdrop = card.backdropTag ?: card.imageTag?.takeIf { card.backdrop }
+        val backdrop = card.heroBackdropTag
         val useBackdrop = aspect == LauncherAspect.Landscape && !backdrop.isNullOrBlank()
         val tag = (if (useBackdrop) backdrop else primary)?.takeIf { it.isNotBlank() } ?: return null
-        if (!card.id.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }) return null
+        return imageRequest(context, card.id, tag, useBackdrop, aspect.width)
+    }
+
+    fun heroRequest(
+        context: Context,
+        card: LauncherCard,
+    ): ImageRequest? =
+        card.heroBackdropTag?.let { tag ->
+            imageRequest(context, card.id, tag, backdrop = true, maxWidth = LauncherStyle.HERO_MAX_WIDTH)
+                ?.newBuilder()
+                ?.size(LauncherStyle.HERO_MAX_WIDTH, LauncherStyle.HERO_MAX_HEIGHT)
+                ?.scale(Scale.FIT)
+                ?.precision(Precision.EXACT)
+                ?.build()
+        }
+
+    private fun imageRequest(
+        context: Context,
+        itemId: String,
+        tag: String,
+        backdrop: Boolean,
+        maxWidth: Int,
+    ): ImageRequest? {
+        if (retired) return null
+        if (!itemId.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }) return null
         val url =
             JellyfinImageUrlBuilder().build(
                 serverUrl = session.serverUrl,
-                itemId = encodeComponent(card.id),
-                type = if (useBackdrop) JellyfinImageType.Backdrop else JellyfinImageType.Primary,
+                itemId = encodeComponent(itemId),
+                type = if (backdrop) JellyfinImageType.Backdrop else JellyfinImageType.Primary,
                 tag = encodeComponent(tag),
-                maxWidth = aspect.width,
+                maxWidth = maxWidth,
             )
         if (!CredentialOriginGuard(session.serverUrl).mayAttachCredentials(url)) return null
         if (session.accessToken.isBlank()) return null
@@ -238,3 +264,6 @@ internal class LauncherImageScope(
 
     private fun encodeComponent(value: String): String = URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 }
+
+internal val LauncherCard.heroBackdropTag: String?
+    get() = (backdropTag ?: imageTag?.takeIf { backdrop })?.takeIf { it.isNotBlank() }

@@ -10,6 +10,8 @@ import kotlinx.serialization.Serializable
 import java.security.MessageDigest
 
 internal const val MAX_ROW_ITEMS = 20
+internal const val MAX_HERO_OVERVIEW = 1200
+internal const val MAX_HERO_RUNTIME_MINUTES = 10_080
 internal const val HOME_CONTENT = "home:content"
 internal const val JELLYFIN_CONNECT = "jellyfin:connect"
 internal const val JELLYFIN_RECOVERY = "jellyfin:recovery"
@@ -26,6 +28,13 @@ internal data class LauncherCard(
     val progress: Float? = null,
     val primaryTag: String? = null,
     val backdropTag: String? = null,
+    val overview: String? = null,
+    val seriesName: String? = null,
+    val year: Int? = null,
+    val runtimeMinutes: Int? = null,
+    val officialRating: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
 )
 
 @Serializable
@@ -183,6 +192,7 @@ internal data class LauncherUiState(
     val appFocusTarget: LauncherAppFocusTarget? = null,
     val orderWriting: Boolean = false,
     val settingsFocusTarget: LauncherSettingsFocusTarget? = null,
+    val preferences: LauncherPreferenceState = LauncherPreferenceState(),
 ) {
     val backgroundSuppressed: Boolean
         get() = route != LauncherRoute.Home || appEdit is LauncherAppEdit.Menu || dialog != null

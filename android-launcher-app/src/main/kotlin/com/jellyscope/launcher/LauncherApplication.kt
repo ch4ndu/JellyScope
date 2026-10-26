@@ -76,6 +76,7 @@ class LauncherApplication : Application() {
         val configurations = LauncherConfigurationRepository(client, authorization, json)
         val media = LauncherMediaRepository(api, sessions, registry, snapshots, images, configurations, scope)
         val apps = LauncherAppsRepository(this, json)
+        val preferences = LauncherPreferences(this, scope)
         val authMutation = Mutex()
         startKoin {
             androidContext(this@LauncherApplication)
@@ -85,6 +86,7 @@ class LauncherApplication : Application() {
                     single { images }
                     single { apps }
                     single { media }
+                    single { preferences }
                     viewModel {
                         LauncherViewModel(
                             sessions,
@@ -96,6 +98,7 @@ class LauncherApplication : Application() {
                             apps,
                             cleaner,
                             authMutation,
+                            preferences,
                         )
                     }
                 },

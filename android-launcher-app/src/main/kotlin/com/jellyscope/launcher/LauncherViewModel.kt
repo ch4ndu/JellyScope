@@ -39,6 +39,7 @@ internal class LauncherViewModel(
     private val apps: LauncherAppsRepository,
     cleaner: LauncherAccountStoreCleaner,
     private val authMutation: Mutex,
+    private val preferences: LauncherPreferences,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LauncherUiState())
     val state = _state.asStateFlow()
@@ -49,6 +50,9 @@ internal class LauncherViewModel(
     private var tabRestorationEligible = true
 
     init {
+        viewModelScope.launch {
+            preferences.state.collect { value -> _state.update { it.copy(preferences = value) } }
+        }
         viewModelScope.launch {
             sessions.sessionState.collect { sessionState ->
                 val loggedIn = sessionState as? SessionState.LoggedIn
@@ -163,6 +167,8 @@ internal class LauncherViewModel(
         media.refresh(manual = true)
         viewModelScope.launch { refreshApps() }
     }
+
+    fun toggleHero() = preferences.toggleHero()
 
     fun rememberInvoker(key: String) {
         _state.update { it.copy(homeInvoker = key, homeTabActivation = false) }

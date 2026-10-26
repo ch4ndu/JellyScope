@@ -555,6 +555,13 @@ internal class LauncherSnapshotStore(
                 (card.imageTag?.length ?: 0) <= 256 &&
                 (card.primaryTag?.length ?: 0) <= 256 &&
                 (card.backdropTag?.length ?: 0) <= 256 &&
+                (card.overview?.length ?: 0) <= MAX_HERO_OVERVIEW &&
+                (card.seriesName?.length ?: 0) <= 300 &&
+                (card.year == null || card.year in 1..9999) &&
+                (card.runtimeMinutes == null || card.runtimeMinutes in 0..MAX_HERO_RUNTIME_MINUTES) &&
+                (card.officialRating?.length ?: 0) <= 64 &&
+                (card.season == null || card.season >= 0) &&
+                (card.episode == null || card.episode >= 0) &&
                 (card.progress == null || card.progress.isFinite() && card.progress in 0f..1f)
     }
 }

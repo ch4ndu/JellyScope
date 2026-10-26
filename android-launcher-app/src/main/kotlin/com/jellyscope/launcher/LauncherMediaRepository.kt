@@ -506,6 +506,18 @@ internal class LauncherMediaRepository(
             progress = progress,
             primaryTag = primary,
             backdropTag = backdrop,
+            overview = item.overview?.take(MAX_HERO_OVERVIEW),
+            seriesName = item.seriesName?.take(300),
+            year = item.productionYear?.takeIf { it in 1..9999 },
+            runtimeMinutes =
+                item.runtime
+                    ?.takeIf { it.isFinite() && !it.isNegative() }
+                    ?.inWholeMinutes
+                    ?.takeIf { it <= MAX_HERO_RUNTIME_MINUTES }
+                    ?.toInt(),
+            officialRating = item.officialRating?.take(64),
+            season = item.parentIndexNumber?.takeIf { it >= 0 },
+            episode = item.indexNumber?.takeIf { it >= 0 },
         )
     }
 

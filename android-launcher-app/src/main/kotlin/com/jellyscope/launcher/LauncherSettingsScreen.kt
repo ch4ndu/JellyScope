@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -41,6 +42,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
@@ -75,7 +78,7 @@ internal fun LauncherSettingsScreen(
                         (if (accountEnabled) listOf("account") else emptyList()) + "close"
                 LauncherAccountPage.Connection ->
                     listOf("back-account", "connection-server", "connection-cache", "connection-playback", "close")
-                LauncherAccountPage.Preferences -> listOf("back-account", "settings-home", "home-support", "close")
+                LauncherAccountPage.Preferences -> listOf("back-account", "hero-toggle", "settings-home", "home-support", "close")
             }
         }
     val initialTarget =
@@ -239,6 +242,11 @@ internal fun LauncherSettingsScreen(
                     LauncherAccountInfo(focus, "connection-playback", enabled) { Text(stringResource(R.string.playback_pending)) }
                 }
                 LauncherAccountPage.Preferences -> {
+                    LauncherHeroPreference(state.preferences, focus, enabled, model::toggleHero)
+                    if (state.preferences.writing) Text(stringResource(R.string.hero_preference_saving), color = LauncherStyle.muted)
+                    if (state.preferences.failed) {
+                        Text(stringResource(R.string.hero_preference_failed), color = MaterialTheme.colorScheme.error)
+                    }
                     Text(stringResource(if (isDefaultHome) R.string.home_selected else R.string.home_not_selected))
                     LauncherAccountAction(R.string.choose_home, focus, "settings-home", enabled, homeSettings)
                     LauncherAccountInfo(focus, "home-support", enabled) { Text(stringResource(R.string.home_support)) }
@@ -246,6 +254,53 @@ internal fun LauncherSettingsScreen(
             }
         }
         LauncherAccountAction(R.string.close, focus, "close", enabled, model::backToHome)
+    }
+}
+
+@Composable
+private fun LauncherHeroPreference(
+    state: LauncherPreferenceState,
+    focus: LauncherFocus,
+    enabled: Boolean,
+    toggle: () -> Unit,
+) {
+    val focused = enabled && focus.hasFocus && focus.current == "hero-toggle"
+    val shape = RoundedCornerShape(8.dp)
+    val description =
+        stringResource(
+            when (state.heroEnabled) {
+                null -> R.string.loading
+                true -> R.string.hero_on
+                false -> R.string.hero_off
+            },
+        )
+    val checked =
+        when (state.heroEnabled) {
+            true -> ToggleableState.On
+            false -> ToggleableState.Off
+            null -> ToggleableState.Indeterminate
+        }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .launcherFocus(focus, "hero-toggle")
+            .background(if (focused) LauncherStyle.text.copy(alpha = 0.1f) else LauncherStyle.clear, shape)
+            .border(1.dp, if (focused) LauncherStyle.focusOutline else LauncherStyle.clear, shape)
+            .semantics { stateDescription = description }
+            .triStateToggleable(
+                state = checked,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = enabled,
+                role = Role.Switch,
+                onClick = toggle,
+            ).padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(R.string.show_cinematic_hero), Modifier.weight(1f), style = LauncherStyle.body)
+        Text(description, color = LauncherStyle.muted, style = LauncherStyle.body)
     }
 }
 

@@ -17,6 +17,14 @@
     <string name="launcher_settings">Jellyfin account</string>
     <string name="connection_details">Connection details</string>
     <string name="launcher_preferences">Launcher preferences</string>
+    <string name="show_cinematic_hero">Show cinematic hero</string>
+    <string name="hero_on">On</string>
+    <string name="hero_off">Off</string>
+    <string name="hero_preference_saving">Saving preference…</string>
+    <string name="hero_preference_failed">The hero setting could not be updated. Try again.</string>
+    <string name="hero_episode">S%1$d E%2$d</string>
+    <string name="hero_runtime">%1$d min</string>
+    <string name="hero_metadata_separator">%1$s · %2$s</string>
     <string name="back_to_account">Back to account</string>
     <string name="saved_session">Saved session on this launcher</string>
     <string name="account_cleanup_pending">Account data cleanup is incomplete. Choose Retry sign out to finish.</string>
