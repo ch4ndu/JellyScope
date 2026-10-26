@@ -129,8 +129,12 @@ Jellyfin account → Launcher preferences offers **Show cinematic hero**, defaul
 Its device-wide preference survives sign-out. Unknown/loading preference state
 suppresses artwork; IO commits precede publication, and write failure retains the
 published value with an error. Disabling removes hero imagery on both tabs.
-Backdrop requests use the existing account-scoped authenticated loader and bounded
-1280×720 decode. Off-main palette extraction reuses that bitmap and the TV swatch
+Hero artwork shares JellyScope’s `selectJellyfinHeroArtwork` policy: a nonblank
+backdrop tag, then a nonblank primary tag, otherwise no image. The selected tag
+and endpoint type stay paired; legacy tags retain their recorded type. Scene
+identity tracks this selection so fallback artwork changes reload without
+reloading for metadata-only changes. Requests use the existing account-scoped
+authenticated loader and bounded 1280×720 decode. Off-main palette extraction reuses that bitmap and the TV swatch
 selection/normalization rules. The `android-hero-ui` leaf supplies both Android apps with backdrop masks, palette
 normalization and crossfades: artwork 650 ms, copy 600 ms, gradient 1200 ms. Transitions
 retain at most two displayed layers and reject stale owners. A fresh scene with

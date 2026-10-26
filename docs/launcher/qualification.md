@@ -366,3 +366,23 @@ selected item, large-font geometry, TV loading/View All runtime paths and all
 lifecycle orderings were not qualified in this pass. Private device captures
 remain local. This result supersedes the Details-return focus gap in the prior
 polish entry for the observed path.
+
+
+## Shared hero artwork fallback — 2026-10-26
+
+The launcher and shared media-card mapper now use the same typed artwork
+selector: nonblank Backdrop, then nonblank Primary, otherwise no image. Source
+review confirmed endpoint/tag pairing, legacy typed-tag compatibility and scene
+identity changes, with authentication and account caches unchanged. Both Android
+Release builds/lints, affected ktlint, core-model JVM tests, the existing
+MediaCardMapperTest and shared UI iOS simulator framework link passed.
+
+The launcher Release installed in place on the TiVo, retaining its session.
+Focused Play Next assets (a video and an episode) and two Up Next episodes all
+rendered matching hero artwork and ambient tint. Changing focus updated the
+image and copy. Private settled captures remain local. Live server image tags
+were not inspected, so these observations establish rendering for the sampled
+items, not which selection branch each exercised or coverage of every asset.
+The primary-only and missing-tag branches were traced in source; no new fixture
+or test harness was introduced. The matching TV Release was built but not
+reinstalled in this pass.

@@ -7,6 +7,7 @@ import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
 import com.jellyscope.core.domain.model.MediaItem
 import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.selectJellyfinHeroArtwork
 import com.jellyscope.core.domain.playback.formattedResumePosition
 import kotlin.math.roundToInt
 
@@ -75,17 +76,12 @@ fun MediaItem.toMediaCardUi(
                 )
             },
         backdropUrl =
-            (imageRefs.backdropTag ?: primaryTag)?.let { tag ->
+            selectJellyfinHeroArtwork(imageRefs.backdropTag, primaryTag)?.let { artwork ->
                 imageUrlBuilder.build(
                     serverUrl = session.serverUrl,
                     itemId = id,
-                    type =
-                        if (imageRefs.backdropTag != null) {
-                            JellyfinImageType.Backdrop
-                        } else {
-                            JellyfinImageType.Primary
-                        },
-                    tag = tag,
+                    type = artwork.type,
+                    tag = artwork.tag,
                     maxWidth = MEDIA_CARD_BACKDROP_MAX_WIDTH,
                 )
             },

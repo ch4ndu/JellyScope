@@ -24,9 +24,11 @@ import com.jellyscope.core.data.local.throwIfCleanupFailed
 import com.jellyscope.core.data.remote.ImageAuthHeaderProvider
 import com.jellyscope.core.data.remote.configureJellyfinApi
 import com.jellyscope.core.domain.model.AccountIdentity
+import com.jellyscope.core.domain.model.JellyfinHeroArtwork
 import com.jellyscope.core.domain.model.JellyfinImageType
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.selectJellyfinHeroArtwork
 import com.jellyscope.core.security.CredentialOriginGuard
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
@@ -208,9 +210,14 @@ internal class LauncherImageScope(
         context: Context,
         card: LauncherCard,
     ): ImageRequest? =
-        card.heroBackdropTag?.let { tag ->
-            imageRequest(context, card.id, tag, backdrop = true, maxWidth = LauncherStyle.HERO_MAX_WIDTH)
-                ?.newBuilder()
+        card.heroArtwork?.let { artwork ->
+            imageRequest(
+                context,
+                card.id,
+                artwork.tag,
+                backdrop = artwork.type == JellyfinImageType.Backdrop,
+                maxWidth = LauncherStyle.HERO_MAX_WIDTH,
+            )?.newBuilder()
                 ?.size(LauncherStyle.HERO_MAX_WIDTH, LauncherStyle.HERO_MAX_HEIGHT)
                 ?.scale(Scale.FIT)
                 ?.precision(Precision.EXACT)
@@ -267,3 +274,10 @@ internal class LauncherImageScope(
 
 internal val LauncherCard.heroBackdropTag: String?
     get() = (backdropTag ?: imageTag?.takeIf { backdrop })?.takeIf { it.isNotBlank() }
+
+internal val LauncherCard.heroArtwork: JellyfinHeroArtwork?
+    get() =
+        selectJellyfinHeroArtwork(
+            backdropTag = backdropTag ?: imageTag?.takeIf { backdrop },
+            primaryTag = primaryTag ?: imageTag?.takeUnless { backdrop },
+        )

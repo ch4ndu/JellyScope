@@ -171,7 +171,7 @@ private fun LauncherHeroScene(
     modifier: Modifier,
 ) {
     val context = LocalContext.current
-    val owner = remember(target.rowKey, target.card.id, target.card.heroBackdropTag) { Any() }
+    val owner = remember(target.rowKey, target.card.id, target.card.heroArtwork) { Any() }
     val latestOwner = rememberUpdatedState(owner)
     val latestActive = rememberUpdatedState(active)
     val requestedText = HeroText(target.card.title, target.card.heroMetadata(), target.card.overview.orEmpty())

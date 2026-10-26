@@ -52,3 +52,18 @@ enum class JellyfinImageType(
     Backdrop("Backdrop"),
     Logo("Logo"),
 }
+
+data class JellyfinHeroArtwork(
+    val type: JellyfinImageType,
+    val tag: String,
+)
+
+fun selectJellyfinHeroArtwork(
+    backdropTag: String?,
+    primaryTag: String?,
+): JellyfinHeroArtwork? =
+    when {
+        !backdropTag.isNullOrBlank() -> JellyfinHeroArtwork(JellyfinImageType.Backdrop, backdropTag)
+        !primaryTag.isNullOrBlank() -> JellyfinHeroArtwork(JellyfinImageType.Primary, primaryTag)
+        else -> null
+    }
