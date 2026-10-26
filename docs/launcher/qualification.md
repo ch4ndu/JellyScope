@@ -285,3 +285,26 @@ a full background interval, reboot recovery or cancellation-race behavior.
 Cached cards remained visible in the inspected screens; exact first-frame and
 incremental response timing were not measured. Account-switch/logout and Worker
 cancellation paths were source-reviewed, without changing the device account.
+
+## Cinematic hero Release qualification — 2026-10-25
+
+Installed the Release APK built from `b5a9e5f1` in place on TiVo Stream 4K
+(Android 12), retaining launcher data. ADB worked after starting its server from
+macOS Terminal; the same endpoint was reachable by TCP while the daemon started
+from the agent session returned No route to host. Reuse the working server;
+this establishes a launch-context difference, not a proven macOS policy cause.
+
+D-pad checks and captured settled screens confirmed compact Home Apps, Home
+media metadata with Dusk fallback, Jellyfin cinematic backdrop/details, and a
+second asset with matching changed artwork/text and a different ambient tint.
+The account panel's Preferences toggle was reachable, disabled the hero, and
+remained disabled after a process restart. Re-enabled it before finishing.
+Selecting a series opened the TV series Details view without starting playback;
+Back returned to the launcher's Jellyfin tab. Focused tiles were visible and did
+not overlap neighbors in the captured states.
+
+These are bounded device checks, not frame-by-frame transition/performance proof.
+Rapid interrupted-fade smoothness, memory peaks, large-font layout, forced IO
+failure, and all tab-return timing permutations remain unmeasured. Series with
+zero runtime currently display `0 min` in hero metadata; omit that value in a
+follow-up. Private screenshots remain in ignored local task evidence.
