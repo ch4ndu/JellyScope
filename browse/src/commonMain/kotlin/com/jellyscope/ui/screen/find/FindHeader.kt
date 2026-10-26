@@ -63,7 +63,7 @@ import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal fun FindSearchHeader(
-    state: FindUiState,
+    queryText: String,
     onQueryTextChanged: (String) -> Unit,
     onClearQuery: () -> Unit,
     onSearchSubmit: () -> Unit,
@@ -77,7 +77,7 @@ internal fun FindSearchHeader(
         val searchContentDescription = stringResource(Res.string.find_search_cd)
         val dismissKeyboard = rememberSoftKeyboardDismissal()
         TextField(
-            value = state.queryText,
+            value = queryText,
             onValueChange = onQueryTextChanged,
             modifier =
                 Modifier
@@ -91,7 +91,7 @@ internal fun FindSearchHeader(
                 SearchGlyph(modifier = Modifier.size(Dimensions.searchIconSize))
             },
             trailingIcon = {
-                if (state.queryText.isNotBlank()) {
+                if (queryText.isNotBlank()) {
                     TooltipIconButton(
                         label = clearContentDescription,
                         onClick = onClearQuery,
@@ -126,7 +126,9 @@ internal fun FindSearchHeader(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun QuestionnaireCard(
-    state: FindUiState,
+    selectedGenreNames: List<String>,
+    runtimeBucket: RuntimeBucket,
+    watchedFilter: WatchedFilter,
     onGenreToggled: (String) -> Unit,
     onRuntimeSelected: (RuntimeBucket) -> Unit,
     onWatchedFilterSelected: (WatchedFilter) -> Unit,
@@ -148,7 +150,7 @@ internal fun QuestionnaireCard(
                 moodGenres.forEach { genre ->
                     FindChip(
                         label = stringResource(genre.label),
-                        selected = genre.name in state.selectedGenreNames,
+                        selected = genre.name in selectedGenreNames,
                         onClick = { onGenreToggled(genre.name) },
                     )
                 }
@@ -157,7 +159,7 @@ internal fun QuestionnaireCard(
                 runtimeChoices.forEach { choice ->
                     FindChip(
                         label = stringResource(choice.label),
-                        selected = state.runtimeBucket == choice.bucket,
+                        selected = runtimeBucket == choice.bucket,
                         onClick = { onRuntimeSelected(choice.bucket) },
                     )
                 }
@@ -166,7 +168,7 @@ internal fun QuestionnaireCard(
                 watchedChoices.forEach { choice ->
                     FindChip(
                         label = stringResource(choice.label),
-                        selected = state.watchedFilter == choice.filter,
+                        selected = watchedFilter == choice.filter,
                         onClick = { onWatchedFilterSelected(choice.filter) },
                     )
                 }

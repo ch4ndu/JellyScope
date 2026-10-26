@@ -53,24 +53,24 @@ fun FindScreen(
         ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    OnResumeEffect(viewModel::refreshSilently)
+    OnResumeEffect { viewModel.accept(FindIntent.Refresh) }
 
     FindContent(
         session = session,
         state = state,
         onBack = onBack,
         onSettingsClick = onSettingsClick,
-        onQueryTextChanged = viewModel::onQueryTextChanged,
-        onClearQuery = viewModel::clearQuery,
-        onSearchSubmit = viewModel::commitRecentSearch,
-        onGenreToggled = viewModel::toggleGenre,
-        onRuntimeSelected = viewModel::selectRuntimeBucket,
-        onWatchedFilterSelected = viewModel::selectWatchedFilter,
-        onPersonSelected = viewModel::selectPerson,
-        onRecentSelected = viewModel::selectRecentSearch,
-        onClearRecentSearches = viewModel::clearRecentSearches,
-        onResultTabSelected = viewModel::selectResultTab,
-        onRetry = viewModel::retry,
+        onQueryTextChanged = { viewModel.accept(FindIntent.QueryChanged(it)) },
+        onClearQuery = { viewModel.accept(FindIntent.ClearQuery) },
+        onSearchSubmit = { viewModel.accept(FindIntent.CommitRecentSearch) },
+        onGenreToggled = { viewModel.accept(FindIntent.ToggleGenre(it)) },
+        onRuntimeSelected = { viewModel.accept(FindIntent.SelectRuntime(it)) },
+        onWatchedFilterSelected = { viewModel.accept(FindIntent.SelectWatchedFilter(it)) },
+        onPersonSelected = { viewModel.accept(FindIntent.SelectPerson(it)) },
+        onRecentSelected = { viewModel.accept(FindIntent.SelectRecentSearch(it)) },
+        onClearRecentSearches = { viewModel.accept(FindIntent.ClearRecentSearches) },
+        onResultTabSelected = { viewModel.accept(FindIntent.SelectResultTab(it)) },
+        onRetry = { viewModel.accept(FindIntent.Retry) },
         onItemSelected = onItemSelected,
         modifier = modifier,
         bottomContentPadding = bottomContentPadding,
@@ -133,7 +133,7 @@ fun FindContent(
                 span = { GridItemSpan(maxLineSpan) },
             ) {
                 FindSearchHeader(
-                    state = state,
+                    queryText = state.queryText,
                     onQueryTextChanged = onQueryTextChanged,
                     onClearQuery = onClearQuery,
                     onSearchSubmit = onSearchSubmit,
@@ -145,7 +145,9 @@ fun FindContent(
                     span = { GridItemSpan(maxLineSpan) },
                 ) {
                     QuestionnaireCard(
-                        state = state,
+                        selectedGenreNames = state.selectedGenreNames,
+                        runtimeBucket = state.runtimeBucket,
+                        watchedFilter = state.watchedFilter,
                         onGenreToggled = onGenreToggled,
                         onRuntimeSelected = onRuntimeSelected,
                         onWatchedFilterSelected = onWatchedFilterSelected,

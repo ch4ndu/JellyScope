@@ -98,6 +98,35 @@ security boundaries, and platform limitations. In the final diff:
 Explain any necessary unusual abstraction or defensive branch in the change
 description; do not substitute helper counts or comment quotas for review.
 
+### Recomposition Is An Implementation Requirement
+
+For every task that adds or changes Compose UI or its state production,
+actively minimize avoidable recomposition while implementing, not only during
+review. Apply [UI rules](ui.md#state-and-performance) and the
+[Compose performance checklist](compose-performance-audit.md) to the changed path:
+
+- Identify frequent updates and the composition scopes that read them. Collect
+  state at the lowest practical scope; read placement/draw-only values in the
+  appropriate phase rather than invalidating composition.
+- Pass each child only the values and callbacks it needs. Do not pass an entire
+  screen state to a component that uses a small subset. A coherent screen state
+  may remain the single source of truth; narrow inputs before introducing
+  separately collected projections or additional state holders.
+- Preserve unchanged value/list references and stable item identity. Keep
+  expensive transformations outside composition and avoid recreating unchanged
+  inputs on hot paths. Use the actual compiler stability/skipping configuration;
+  do not add stability annotations, manual memoization, or `derivedStateOf`
+  without their required semantics and a concrete reason.
+- Trace an unrelated state update through child inputs and check whether it can
+  invalidate unrelated content. Preserve rendering, interaction, accessibility,
+  lifecycle, and state consistency while reducing unnecessary work.
+
+Before completion, report the changed recomposition boundaries and distinguish
+source-backed skipping opportunities from measured runtime improvements. Use
+authorized profiling when a performance claim requires measurement; compilation
+and recomposition counts alone do not establish smoother frames. This rule does
+not require zero recompositions, new tests, or a repository-wide optimization.
+
 ### First-Capture Diagnostics
 
 Changed failure-prone request, persistence, background, platform, lifecycle,
@@ -254,6 +283,8 @@ After review convergence, verify the exact candidate:
 1. Re-read the request and later constraints; trace every named action, key,
    screen, route, lifecycle, and platform path through the final implementation.
 2. Check the final diff for clarity and scope.
+   For UI/state changes, verify the recomposition requirement above against the
+   final state reads and child parameters, and report any measurement gap.
 3. Run applicable existing and explicitly justified tests; compile each affected
    platform. Broad changes use `./scripts/verify.sh` for lint, shared Android host
    and TV route tests, minified Android releases, and packaged-resource checks.
@@ -371,6 +402,11 @@ scope:
 | `jellyscope.desktop.packageVersion` | Native desktop package version | macOS requires 1–3 integers, first positive |
 
 ## Why
+
+- Recomposition boundaries are designed during implementation so frequent state
+  changes do not unnecessarily invalidate unrelated UI. Narrow consumption keeps
+  coherent state ownership while allowing unchanged children to skip; runtime
+  measurement establishes whether that translates into a performance gain.
 
 - **Audience and topic ownership bound document growth:** short user guides make
   tasks findable; cohesive engineering guides retain the detail needed to

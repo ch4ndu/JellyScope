@@ -128,6 +128,33 @@ Review replay, fan-out, buffering, `.value`, atomicity, stable sharing, and even
 loss. Plain content must remain independent of ViewModels, repositories, and
 navigation controllers.
 
+### Find MVI pilot
+
+Shared Find and Android TV Find send `FindIntent` values to
+`FindViewModel.accept`. `FindContract.kt` owns those inputs and `FindUiState`;
+`FindReducer.kt` owns the pure `reduceFind(state, change)` transitions. The
+ViewModel owns coroutine jobs, request identities, UseCases/Actions, and
+off-Main projections. Its single state writer applies `FindChange` values
+through the reducer. No MVI library or app-wide store is required.
+The shared search header consumes only query text; its questionnaire consumes
+only genre, runtime, and watched filters. Unrelated state changes retain those
+inputs, allowing the children to skip without splitting screen-state ownership.
+
+For example, typing emits `QueryChanged(text)`. The ViewModel cancels the old
+search, reduces the input change, and debounces for 400 ms. An active query
+produces `SearchStarted(token)`, executes the existing search operations, and
+returns `SearchSucceeded` or `SearchFailed`. The reducer accepts completion
+only for the active token. Cancellation and token admission are complementary;
+the reducer never launches work or persists history.
+
+`accept(FindIntent.Submission)` returns a non-null token synchronously. Android
+TV retains that receipt in UI-local focus state and waits for the matching
+completion before moving focus. Shared IME submission still commits recent
+history while typing drives search; TV IME submission explicitly executes a
+search. `Refresh` reloads only suggestions/history, preserving the active query
+and results. Navigation, keyboard dismissal, scroll, and focus remain UI-owned.
+Native tvOS keeps its separate presenter outside this pilot.
+
 ## Source Layout Target
 
 ```text
@@ -818,6 +845,12 @@ Android mpv wrapper provenance belongs to
   external data; a generic unavailable flag cannot identify the failing boundary.
 
 ### Engineering discipline
+
+- Find's explicit inputs and pure reducer make state transitions independently
+  inspectable while existing ViewModel jobs retain cancellation and persistence
+  lifetimes. Submission receipts preserve Android TV's request-qualified focus
+  handoff. This is a feature-local pilot, not a requirement to migrate simpler
+  screens or native player ownership.
 
 - Remove obsolete compatibility fields so the compiler exposes consumers. Share
   only real common behavior; controller retries and mutable session state remain

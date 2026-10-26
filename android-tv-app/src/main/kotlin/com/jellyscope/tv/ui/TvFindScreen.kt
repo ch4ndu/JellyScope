@@ -33,6 +33,7 @@ import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
+import com.jellyscope.ui.screen.find.FindIntent
 import com.jellyscope.ui.screen.find.FindRequestToken
 import com.jellyscope.ui.screen.find.FindResultTab
 import com.jellyscope.ui.screen.find.FindResultsUi
@@ -58,22 +59,22 @@ fun TvFindScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     OnResumeEffect {
-        viewModel.refreshSilently()
+        viewModel.accept(FindIntent.Refresh)
     }
 
     TvFindContent(
         session = session,
         state = state,
         onBack = onBack,
-        onQueryTextChanged = viewModel::onQueryTextChanged,
-        onClearQuery = viewModel::clearQuery,
-        onRecentSelected = viewModel::submitRecentSearch,
-        onClearRecentSearches = viewModel::clearRecentSearches,
-        onPersonSelected = viewModel::selectPerson,
-        onResultTabSelected = viewModel::selectResultTab,
-        onRetry = viewModel::retry,
-        onSubmitSearch = viewModel::submitSearch,
-        onSearchCommitted = viewModel::commitRecentSearch,
+        onQueryTextChanged = { viewModel.accept(FindIntent.QueryChanged(it)) },
+        onClearQuery = { viewModel.accept(FindIntent.ClearQuery) },
+        onRecentSelected = { viewModel.accept(FindIntent.SelectRecentSearch(it)) },
+        onClearRecentSearches = { viewModel.accept(FindIntent.ClearRecentSearches) },
+        onPersonSelected = { viewModel.accept(FindIntent.SelectPerson(it)) },
+        onResultTabSelected = { viewModel.accept(FindIntent.SelectResultTab(it)) },
+        onRetry = { viewModel.accept(FindIntent.Retry) },
+        onSubmitSearch = { viewModel.accept(FindIntent.SubmitSearch) },
+        onSearchCommitted = { viewModel.accept(FindIntent.CommitRecentSearch) },
         onItemSelected = onItemSelected,
         onItemPlayDirect = onItemPlayDirect,
         modifier = modifier,

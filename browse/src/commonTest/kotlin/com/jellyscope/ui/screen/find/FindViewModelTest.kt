@@ -38,6 +38,29 @@ import kotlin.test.assertFalse
 
 class FindViewModelTest {
     @Test
+    fun reducerIgnoresLateResultsWithoutRelyingOnJobCancellation() {
+        val oldToken = FindRequestToken(1)
+        val currentToken = FindRequestToken(2)
+        val loading = reduceFind(FindUiState(queryText = "new"), FindChange.SearchStarted(currentToken))
+        val lateSuccess =
+            FindChange.SearchSucceeded(
+                token = oldToken,
+                suggestions = listOf(PersonUi("old", "Old person", null)),
+                results = FindResultsUi(),
+                persistedRecents = listOf("old"),
+                recentLabel = "old",
+            )
+        assertEquals(loading, reduceFind(loading, lateSuccess))
+        assertEquals(loading, reduceFind(loading, FindChange.SearchFailed(oldToken, emptyList())))
+
+        val accepted = reduceFind(loading, lateSuccess.copy(token = currentToken, persistedRecents = listOf("new")))
+        assertFalse(accepted.isSearching)
+        assertEquals(currentToken, accepted.completedRequestToken)
+        assertEquals(listOf("new"), accepted.recentSearches)
+        assertEquals(accepted, reduceFind(accepted, lateSuccess))
+    }
+
+    @Test
     fun textSearchDebouncesForFourHundredMilliseconds() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
@@ -46,7 +69,7 @@ class FindViewModelTest {
                 val repository = RecordingMediaRepository()
                 val viewModel = repository.findViewModel()
 
-                viewModel.onQueryTextChanged("mat")
+                viewModel.accept(FindIntent.QueryChanged("mat"))
                 advanceTimeBy(399)
                 runCurrent()
 
@@ -71,9 +94,9 @@ class FindViewModelTest {
                 val repository = RecordingMediaRepository()
                 val viewModel = repository.findViewModel()
 
-                viewModel.toggleGenre("Comedy")
-                viewModel.selectRuntimeBucket(RuntimeBucket.Under30)
-                viewModel.selectWatchedFilter(WatchedFilter.Unwatched)
+                viewModel.accept(FindIntent.ToggleGenre("Comedy"))
+                viewModel.accept(FindIntent.SelectRuntime(RuntimeBucket.Under30))
+                viewModel.accept(FindIntent.SelectWatchedFilter(WatchedFilter.Unwatched))
                 advanceUntilIdle()
 
                 val lastQuery = repository.searchQueries.last()
@@ -100,11 +123,11 @@ class FindViewModelTest {
                     )
                 val viewModel = repository.findViewModel()
 
-                viewModel.onQueryTextChanged("old")
+                viewModel.accept(FindIntent.QueryChanged("old"))
                 advanceTimeBy(400)
                 runCurrent()
 
-                viewModel.onQueryTextChanged("new")
+                viewModel.accept(FindIntent.QueryChanged("new"))
                 advanceTimeBy(400)
                 runCurrent()
 
@@ -144,16 +167,16 @@ class FindViewModelTest {
                 val viewModel = repository.findViewModel()
 
                 (1..9).forEach { index ->
-                    viewModel.onQueryTextChanged("term-$index")
+                    viewModel.accept(FindIntent.QueryChanged("term-$index"))
                     advanceTimeBy(400)
                     runCurrent()
-                    viewModel.commitRecentSearch()
+                    viewModel.accept(FindIntent.CommitRecentSearch)
                     runCurrent()
                 }
-                viewModel.onQueryTextChanged("term-3")
+                viewModel.accept(FindIntent.QueryChanged("term-3"))
                 advanceTimeBy(400)
                 runCurrent()
-                viewModel.commitRecentSearch()
+                viewModel.accept(FindIntent.CommitRecentSearch)
                 runCurrent()
 
                 assertEquals(
@@ -187,10 +210,10 @@ class FindViewModelTest {
                     )
                 val viewModel = repository.findViewModel()
 
-                viewModel.onQueryTextChanged("movie")
+                viewModel.accept(FindIntent.QueryChanged("movie"))
                 advanceTimeBy(400)
                 runCurrent()
-                viewModel.selectResultTab(FindResultTab.Movies)
+                viewModel.accept(FindIntent.SelectResultTab(FindResultTab.Movies))
 
                 val retainedState = viewModel.state.value
 
@@ -216,14 +239,14 @@ class FindViewModelTest {
 
                 assertEquals(listOf("saved"), first.state.value.recentSearches)
 
-                first.onQueryTextChanged("matrix")
+                first.accept(FindIntent.QueryChanged("matrix"))
                 advanceTimeBy(400)
                 advanceUntilIdle()
 
                 // Debounced live search must not persist intermediate queries.
                 assertEquals(listOf("saved"), first.state.value.recentSearches)
 
-                first.commitRecentSearch()
+                first.accept(FindIntent.CommitRecentSearch)
                 advanceUntilIdle()
 
                 assertEquals(listOf("matrix", "saved"), first.state.value.recentSearches)
@@ -249,7 +272,7 @@ class FindViewModelTest {
                 advanceUntilIdle()
 
                 listOf("m", "ma", "mat", "matrix").forEach { text ->
-                    viewModel.onQueryTextChanged(text)
+                    viewModel.accept(FindIntent.QueryChanged(text))
                     advanceTimeBy(400)
                     runCurrent()
                 }
@@ -274,10 +297,10 @@ class FindViewModelTest {
                 val viewModel = repository.findViewModel(recentSearchStore = store, dispatcher = dispatcher)
                 advanceUntilIdle()
 
-                viewModel.onQueryTextChanged("   ")
+                viewModel.accept(FindIntent.QueryChanged("   "))
                 advanceTimeBy(400)
                 advanceUntilIdle()
-                viewModel.commitRecentSearch()
+                viewModel.accept(FindIntent.CommitRecentSearch)
                 advanceUntilIdle()
 
                 assertEquals(emptyList(), store.stored())
@@ -298,10 +321,10 @@ class FindViewModelTest {
                 val viewModel = repository.findViewModel(recentSearchStore = store, dispatcher = dispatcher)
                 advanceUntilIdle()
 
-                viewModel.onQueryTextChanged("matrix")
+                viewModel.accept(FindIntent.QueryChanged("matrix"))
                 advanceTimeBy(400)
                 advanceUntilIdle()
-                viewModel.commitRecentSearch()
+                viewModel.accept(FindIntent.CommitRecentSearch)
                 advanceUntilIdle()
 
                 // Persistence failed, but the in-session history still shows the commit.
@@ -323,7 +346,7 @@ class FindViewModelTest {
                 val viewModel = repository.findViewModel(recentSearchStore = store, dispatcher = dispatcher)
                 advanceUntilIdle()
 
-                viewModel.clearRecentSearches()
+                viewModel.accept(FindIntent.ClearRecentSearches)
                 advanceUntilIdle()
 
                 assertEquals(emptyList(), viewModel.state.value.recentSearches)
@@ -344,13 +367,13 @@ class FindViewModelTest {
                 val viewModel = repository.findViewModel(recentSearchStore = store, dispatcher = dispatcher)
                 advanceUntilIdle()
 
-                viewModel.onQueryTextChanged("matrix")
+                viewModel.accept(FindIntent.QueryChanged("matrix"))
                 advanceTimeBy(400)
                 advanceUntilIdle()
 
                 store.replace(listOf("remote"))
                 repository.personResult = Result.success(listOf(Person(id = "person-1", name = "Keanu Reeves")))
-                viewModel.refreshSilently()
+                viewModel.accept(FindIntent.Refresh)
                 advanceUntilIdle()
 
                 assertEquals("matrix", viewModel.state.value.queryText)
@@ -378,8 +401,8 @@ class FindViewModelTest {
                 advanceUntilIdle()
 
                 store.nextList = deferredRefresh
-                viewModel.refreshSilently()
-                viewModel.refreshSilently()
+                viewModel.accept(FindIntent.Refresh)
+                viewModel.accept(FindIntent.Refresh)
                 runCurrent()
 
                 assertEquals(2, store.listRequestCount)
