@@ -308,3 +308,29 @@ Rapid interrupted-fade smoothness, memory peaks, large-font layout, forced IO
 failure, and all tab-return timing permutations remain unmeasured. Series with
 zero runtime currently display `0 min` in hero metadata; omit that value in a
 follow-up. Private screenshots remain in ignored local task evidence.
+
+## Shared hero and launcher polish — 2026-10-26
+
+Installed both verified Release APKs corresponding to source commit `a59f2ca1`
+on TiVo Stream 4K with `adb install -r`, retaining both accounts. Account action
+rows remained visibly outlined when unfocused; the cinematic switch changed
+Off/On without losing its row focus and was left On. The Home prompt settled
+into a centered opaque dialog. Cancel dismissed it; Android Home settings opened
+and Back restored the prompt action focus. The external firmware selector remains
+full-screen and transparent; its selected radio disagrees with the launcher's
+conservative public-resolution status. No default selection was changed.
+
+Captured Home media showed a single ellipsized title, two overview lines and
+multiple ribbons. Jellyfin displayed a backdrop and tinted gradient behind its
+ribbons; the inspected focused landscape tile did not overlap neighbors. A series
+opened seasons/details without playback and exposed a saved Resume position.
+Back returned to the Jellyfin tab, but focus was observed on the account icon
+rather than the selected series tile: return-focus restoration needs follow-up.
+TV Home, its expanded drawer underlay and a focused Library grid rendered artwork
+and ambient tint after the shared extraction.
+
+These are bounded D-pad and settled-screen checks. Frame-accurate crossfade
+timing/smoothness, short-list final-row alignment, large-font clipping, forced
+palette failure, account-switch clearing, TV Collection and Recommended remain
+unverified. Injected Home reached the stock launcher; this does not requalify
+the separately confirmed physical-remote helper. Private captures stay local.
