@@ -22,7 +22,6 @@ import com.jellyscope.core.domain.usecase.GetLibraryFiltersUseCase
 import com.jellyscope.core.domain.usecase.GetLibraryItemsUseCase
 import com.jellyscope.core.domain.usecase.GetLibraryShuffleQueueUseCase
 import com.jellyscope.core.domain.usecase.GetLibrarySortUseCase
-import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.toMediaCardUi
 import com.jellyscope.ui.paging.Paginator
 import kotlinx.coroutines.CancellationException
@@ -39,47 +38,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.concurrent.atomics.AtomicLong
-
-data class LibraryBrowseUiState(
-    val parentId: String?,
-    val collectionType: LibraryCollectionType = LibraryCollectionType.Other,
-    val sortBy: LibrarySortBy = LibrarySortBy.Name,
-    val sortOrder: LibrarySortOrder = LibrarySortOrder.Ascending,
-    val filters: LibraryFilterSelection = LibraryFilterSelection(),
-    val items: List<MediaCardUi> = emptyList(),
-    val totalCount: Int = 0,
-    val startIndex: Int = 0,
-    val hasMore: Boolean = false,
-    val isLoading: Boolean = true,
-    val isLoadingMore: Boolean = false,
-    val facets: LibraryFacets = LibraryFacets(),
-    val filterOptions: LibraryFilterOptions = LibraryFilterOptions(),
-    val error: Boolean = false,
-    val isPreparingShuffle: Boolean = false,
-)
-
-sealed interface LibraryBrowseEvent {
-    data class LaunchShuffle(
-        val itemIds: List<String>,
-    ) : LibraryBrowseEvent
-
-    data object ShuffleEmpty : LibraryBrowseEvent
-
-    data object ShuffleUnavailable : LibraryBrowseEvent
-}
-
-data class LibraryFilterOptions(
-    val genres: List<LibraryFilterOption<String>> = emptyList(),
-    val years: List<LibraryFilterOption<Int>> = emptyList(),
-    val ratings: List<LibraryFilterOption<String>> = emptyList(),
-    val studios: List<LibraryFilterOption<String>> = emptyList(),
-)
-
-data class LibraryFilterOption<T>(
-    val key: String,
-    val value: T,
-    val label: String,
-)
 
 class LibraryBrowseViewModel(
     private val session: Session,
@@ -100,6 +58,8 @@ class LibraryBrowseViewModel(
     private val pendingSortWrites = Channel<Pair<LibrarySortBy, LibrarySortOrder>>(Channel.CONFLATED)
     val events: Flow<LibraryBrowseEvent> = eventsChannel.receiveAsFlow()
     private var shuffleJob: Job? = null
+
+    // Shuffle admission and completion are Main-confined; only the fetch runs off Main.
     private var shuffleGeneration = 0L
     private var silentRefreshJob: Job? = null
     private var sortIntentGeneration = 0L
@@ -136,21 +96,37 @@ class LibraryBrowseViewModel(
                     getLibrarySortUseCase(sortKey)?.takeIf { saved -> saved.sortBy.isAvailableFor(collectionType) }
                 }
             if (restoreGeneration != sortIntentGeneration) return@launch
-            _state.update { current ->
-                current.copy(
-                    sortBy = savedSort?.sortBy ?: LibrarySortBy.Name,
-                    sortOrder = savedSort?.sortOrder ?: LibrarySortOrder.Ascending,
-                )
-            }
+            reduce(
+                LibraryBrowseChange.SortRestored(
+                    savedSort?.sortBy ?: LibrarySortBy.Name,
+                    savedSort?.sortOrder ?: LibrarySortOrder.Ascending,
+                ),
+            )
             loadFirstPage()
         }
     }
 
-    fun retry() {
+    fun accept(intent: LibraryBrowseIntent) {
+        when (intent) {
+            LibraryBrowseIntent.Retry -> retry()
+            LibraryBrowseIntent.Refresh -> refreshSilently()
+            LibraryBrowseIntent.LoadMore -> loadMore()
+            is LibraryBrowseIntent.SetSort -> setSort(intent.sortBy, intent.sortOrder)
+            is LibraryBrowseIntent.SetFilters -> setFilters(intent.filters)
+            LibraryBrowseIntent.ShuffleAll -> shuffleAll()
+        }
+    }
+
+    private fun reduce(change: LibraryBrowseChange) {
+        // Paginator work runs off Main. Re-read admission on every atomic-update retry.
+        _state.update { current -> reduceLibraryBrowse(current, change, pageGeneration.load()) }
+    }
+
+    private fun retry() {
         val current = _state.value
         if (current.error && current.items.isNotEmpty()) {
             invalidatePageRequests()
-            _state.update { state -> state.copy(error = false) }
+            reduce(LibraryBrowseChange.RetryingPage)
             paginator.more()
             return
         }
@@ -166,7 +142,7 @@ class LibraryBrowseViewModel(
     // throughout, failures leave them intact, and a later regular load
     // invalidates an older refresh result. Beyond the cap the refresh is
     // skipped: briefly stale userData beats a giant re-fetch.
-    fun refreshSilently() {
+    private fun refreshSilently() {
         val snapshot = _state.value
         if (snapshot.isLoading || snapshot.isLoadingMore || silentRefreshJob?.isActive == true) return
         val windowSize = snapshot.items.size.coerceAtLeast(pageSize)
@@ -194,26 +170,12 @@ class LibraryBrowseViewModel(
                         }
                     }
                 result.onSuccess { (page, pageItems) ->
-                    _state.update { current ->
-                        if (pageGeneration.load() != generation) {
-                            current
-                        } else {
-                            current.copy(
-                                items = pageItems,
-                                totalCount = pageItems.size,
-                                startIndex = page.startIndex,
-                                hasMore = page.items.size >= windowSize,
-                                isLoading = false,
-                                isLoadingMore = false,
-                                error = current.error,
-                            )
-                        }
-                    }
+                    reduce(LibraryBrowseChange.WindowRefreshed(generation, pageItems, page.startIndex, page.items.size >= windowSize))
                 }
             }
     }
 
-    fun loadMore() {
+    private fun loadMore() {
         val current = _state.value
         if (current.isLoading || current.isLoadingMore || current.error || !current.hasMore) {
             return
@@ -222,7 +184,7 @@ class LibraryBrowseViewModel(
         paginator.more()
     }
 
-    fun setSort(
+    private fun setSort(
         sortBy: LibrarySortBy,
         sortOrder: LibrarySortOrder,
     ) {
@@ -231,57 +193,38 @@ class LibraryBrowseViewModel(
         }
         sortIntentGeneration += 1
         invalidatePageRequests()
-        _state.update { current ->
-            current.copy(
-                sortBy = sortBy,
-                sortOrder = sortOrder,
-                items = emptyList(),
-                totalCount = 0,
-                startIndex = 0,
-                hasMore = false,
-                isLoading = true,
-                isLoadingMore = false,
-                error = false,
-            )
-        }
+        reduce(LibraryBrowseChange.SortSelected(sortBy, sortOrder))
         pendingSortWrites.trySend(sortBy to sortOrder)
         loadFirstPage()
     }
 
-    fun setFilters(filters: LibraryFilterSelection) {
+    private fun setFilters(filters: LibraryFilterSelection) {
         cancelShuffle()
         invalidatePageRequests()
-        _state.update { current ->
-            current.copy(
-                filters = filters,
-                items = emptyList(),
-                totalCount = 0,
-                startIndex = 0,
-                hasMore = false,
-                isLoading = true,
-                isLoadingMore = false,
-                error = false,
-            )
-        }
+        reduce(LibraryBrowseChange.FiltersSelected(filters))
         loadFirstPage()
     }
 
-    fun shuffleAll() {
+    private fun shuffleAll() {
         if (collectionType != LibraryCollectionType.Movies || shuffleJob?.isActive == true) {
             return
         }
         val generation = ++shuffleGeneration
         val filters = _state.value.filters
-        _state.update { current -> current.copy(isPreparingShuffle = true) }
+        reduce(LibraryBrowseChange.ShuffleStarted)
         shuffleJob =
-            viewModelScope.launch(workDispatcher) {
+            viewModelScope.launch {
                 try {
-                    getLibraryShuffleQueueUseCase(
-                        LibraryShuffleRequest(
-                            parentId = parentId,
-                            filters = filters,
-                        ),
-                    ).fold(
+                    val result =
+                        withContext(workDispatcher) {
+                            getLibraryShuffleQueueUseCase(
+                                LibraryShuffleRequest(
+                                    parentId = parentId,
+                                    filters = filters,
+                                ),
+                            )
+                        }
+                    result.fold(
                         onSuccess = { itemIds ->
                             if (generation != shuffleGeneration) return@fold
                             if (itemIds.isEmpty()) {
@@ -300,7 +243,7 @@ class LibraryBrowseViewModel(
                     throw exception
                 } finally {
                     if (generation == shuffleGeneration) {
-                        _state.update { current -> current.copy(isPreparingShuffle = false) }
+                        reduce(LibraryBrowseChange.ShuffleFinished)
                     }
                 }
             }
@@ -310,7 +253,7 @@ class LibraryBrowseViewModel(
         shuffleGeneration += 1
         shuffleJob?.cancel()
         shuffleJob = null
-        _state.update { current -> current.copy(isPreparingShuffle = false) }
+        reduce(LibraryBrowseChange.ShuffleFinished)
     }
 
     private fun loadFirstPage() {
@@ -330,13 +273,7 @@ class LibraryBrowseViewModel(
             } else {
                 snapshot.items.size
             }
-        _state.update { current ->
-            current.copy(
-                isLoading = reset,
-                isLoadingMore = !reset,
-                error = false,
-            )
-        }
+        reduce(LibraryBrowseChange.PageStarted(reset))
 
         val result =
             try {
@@ -358,37 +295,10 @@ class LibraryBrowseViewModel(
         result.fold(
             onSuccess = { page ->
                 val pageItems = page.items.map { item -> item.toMediaCardUi(session, imageUrlBuilder) }
-                _state.update { current ->
-                    if (pageGeneration.load() != generation) {
-                        current
-                    } else {
-                        val nextItems = if (reset) pageItems else current.items + pageItems
-                        current.copy(
-                            items = nextItems,
-                            // The exact server total is skipped for speed; surface the
-                            // loaded count and page by whether the last page was full.
-                            totalCount = nextItems.size,
-                            startIndex = page.startIndex,
-                            hasMore = page.items.size >= pageSize,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            error = false,
-                        )
-                    }
-                }
+                reduce(LibraryBrowseChange.PageLoaded(generation, reset, pageItems, page.startIndex, page.items.size >= pageSize))
             },
             onFailure = {
-                _state.update { current ->
-                    if (pageGeneration.load() != generation) {
-                        current
-                    } else {
-                        current.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            error = true,
-                        )
-                    }
-                }
+                reduce(LibraryBrowseChange.PageFailed(generation))
             },
         )
     }
@@ -397,12 +307,7 @@ class LibraryBrowseViewModel(
         viewModelScope.launch(workDispatcher) {
             getLibraryFiltersUseCase(parentId).onSuccess { facets ->
                 val filterOptions = facets.toFilterOptions()
-                _state.update { current ->
-                    current.copy(
-                        facets = facets,
-                        filterOptions = filterOptions,
-                    )
-                }
+                reduce(LibraryBrowseChange.FacetsLoaded(facets, filterOptions))
             }
         }
     }

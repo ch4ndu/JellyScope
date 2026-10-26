@@ -46,12 +46,14 @@ import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.LibrarySortBy
 import com.jellyscope.core.domain.model.LibrarySortOrder
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.activeCount
 import com.jellyscope.tv.R
 import com.jellyscope.tv.TvUiPreferencesStore
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.library.LibraryBrowseEvent
+import com.jellyscope.ui.screen.library.LibraryBrowseIntent
 import com.jellyscope.ui.screen.library.LibraryBrowseUiState
 import com.jellyscope.ui.screen.library.LibraryBrowseViewModel
 import com.jellyscope.ui.screen.library.LibraryHubUiState
@@ -318,7 +320,7 @@ private fun TvLibraryBrowseRoute(
     val currentOnShuffleQueue = rememberUpdatedState(onShuffleQueue)
 
     OnResumeEffect {
-        libraryViewModel.refreshSilently()
+        libraryViewModel.accept(LibraryBrowseIntent.Refresh)
     }
 
     LaunchedEffect(libraryViewModel, emptyMessage, unavailableMessage) {
@@ -337,7 +339,7 @@ private fun TvLibraryBrowseRoute(
     LaunchedEffect(initialFilters, state.filters) {
         val filters = initialFilters ?: return@LaunchedEffect
         if (!state.filters.containsAll(filters)) {
-            libraryViewModel.setFilters(filters)
+            libraryViewModel.accept(LibraryBrowseIntent.SetFilters(filters))
         }
     }
 
@@ -348,13 +350,13 @@ private fun TvLibraryBrowseRoute(
         onBack = onBack,
         onItemSelected = onItemSelected,
         onItemPlayDirect = onItemPlayDirect,
-        onRetry = libraryViewModel::retry,
-        onLoadMore = libraryViewModel::loadMore,
-        onSortSelected = libraryViewModel::setSort,
-        onFiltersSelected = libraryViewModel::setFilters,
+        onRetry = { libraryViewModel.accept(LibraryBrowseIntent.Retry) },
+        onLoadMore = { libraryViewModel.accept(LibraryBrowseIntent.LoadMore) },
+        onSortSelected = { sortBy, sortOrder -> libraryViewModel.accept(LibraryBrowseIntent.SetSort(sortBy, sortOrder)) },
+        onFiltersSelected = { libraryViewModel.accept(LibraryBrowseIntent.SetFilters(it)) },
         onShuffleAll = {
             shuffleNotice = null
-            libraryViewModel.shuffleAll()
+            libraryViewModel.accept(LibraryBrowseIntent.ShuffleAll)
         },
         shuffleNotice = shuffleNotice,
         showGridHero = showGridHero && gridHeroEligible,
@@ -696,7 +698,13 @@ internal fun TvLibraryContent(
                 }
                 TvLibraryHeader(
                     title = title.takeUnless { hideTitle || heroVisible },
-                    state = state,
+                    collectionType = state.collectionType,
+                    sortBy = state.sortBy,
+                    totalCount = state.totalCount,
+                    hasMore = state.hasMore,
+                    hasItems = state.items.isNotEmpty(),
+                    isPreparingShuffle = state.isPreparingShuffle,
+                    activeFilterCount = state.filters.activeCount,
                     sortButtonRequester = sortButtonRequester,
                     filterButtonRequester = filterButtonRequester,
                     shuffleButtonRequester = shuffleButtonRequester,
@@ -721,7 +729,14 @@ internal fun TvLibraryContent(
             }
             TvLibraryBody(
                 session = session,
-                state = state,
+                items = state.items,
+                sortBy = state.sortBy,
+                sortOrder = state.sortOrder,
+                filters = state.filters,
+                hasMore = state.hasMore,
+                isLoading = state.isLoading,
+                isLoadingMore = state.isLoadingMore,
+                error = state.error,
                 pickerOpen = sortPickerOpen || filterPickerOpen,
                 constrainedByHero = heroVisible,
                 parkLoadingFocus = hostedRailVisible,

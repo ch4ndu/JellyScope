@@ -67,7 +67,6 @@ import com.jellyscope.ui.component.LoadMoreOnApproachEnd
 import com.jellyscope.ui.component.MediaCardKind
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.screen.detail.requestFocusSafely
-import com.jellyscope.ui.screen.library.LibraryBrowseUiState
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlinx.coroutines.launch
 import com.jellyscope.ui.component.AdaptiveCenteredSpinner as TvCenteredSpinner
@@ -77,7 +76,14 @@ import com.jellyscope.ui.component.DetailText as TvText
 @Composable
 internal fun TvLibraryBody(
     session: Session,
-    state: LibraryBrowseUiState,
+    items: List<MediaCardUi>,
+    sortBy: LibrarySortBy,
+    sortOrder: LibrarySortOrder,
+    filters: LibraryFilterSelection,
+    hasMore: Boolean,
+    isLoading: Boolean,
+    isLoadingMore: Boolean,
+    error: Boolean,
     pickerOpen: Boolean,
     constrainedByHero: Boolean,
     parkLoadingFocus: Boolean,
@@ -98,11 +104,11 @@ internal fun TvLibraryBody(
     onPosterLoaded: (itemId: String, bitmap: Bitmap) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
-    if (state.items.isEmpty()) {
+    if (items.isEmpty()) {
         SideEffect { onFocusRegionChanged(TvLibraryFocusRegion.Chrome) }
     }
     when {
-        state.isLoading && state.items.isEmpty() ->
+        isLoading && items.isEmpty() ->
             if (parkLoadingFocus) {
                 TvLoadingFocusPark(
                     focusRequester = loadingFocusRequester,
@@ -113,7 +119,7 @@ internal fun TvLibraryBody(
             } else {
                 TvCenteredSpinner(modifier = modifier, drawBackground = false)
             }
-        state.error && state.items.isEmpty() ->
+        error && items.isEmpty() ->
             TvLibraryError(
                 onRetry = onRetry,
                 modifier =
@@ -122,7 +128,7 @@ internal fun TvLibraryBody(
                         end = TvDimens.overscanHorizontal,
                     ),
             )
-        state.items.isEmpty() ->
+        items.isEmpty() ->
             TvText(
                 text = stringResource(R.string.tv_library_empty),
                 modifier =
@@ -135,7 +141,14 @@ internal fun TvLibraryBody(
         else ->
             TvLibraryGrid(
                 session = session,
-                state = state,
+                items = items,
+                sortBy = sortBy,
+                sortOrder = sortOrder,
+                filters = filters,
+                hasMore = hasMore,
+                isLoading = isLoading,
+                isLoadingMore = isLoadingMore,
+                error = error,
                 pickerOpen = pickerOpen,
                 constrainedByHero = constrainedByHero,
                 contentStartPadding = contentStartPadding,
@@ -160,7 +173,14 @@ internal fun TvLibraryBody(
 @Composable
 private fun TvLibraryGrid(
     session: Session,
-    state: LibraryBrowseUiState,
+    items: List<MediaCardUi>,
+    sortBy: LibrarySortBy,
+    sortOrder: LibrarySortOrder,
+    filters: LibraryFilterSelection,
+    hasMore: Boolean,
+    isLoading: Boolean,
+    isLoadingMore: Boolean,
+    error: Boolean,
     pickerOpen: Boolean,
     constrainedByHero: Boolean,
     contentStartPadding: Dp,
@@ -199,10 +219,10 @@ private fun TvLibraryGrid(
             }
         }
     val gridResetKey =
-        remember(state.sortBy, state.sortOrder, state.filters) {
-            libraryGridFocusResetKey(state.sortBy, state.sortOrder, state.filters)
+        remember(sortBy, sortOrder, filters) {
+            libraryGridFocusResetKey(sortBy, sortOrder, filters)
         }
-    var lastFocusedItemId by rememberSaveable(state.sortBy, state.sortOrder, state.filters) {
+    var lastFocusedItemId by rememberSaveable(sortBy, sortOrder, filters) {
         mutableStateOf<String?>(null)
     }
     var appliedGridResetKey by rememberSaveable { mutableStateOf(gridResetKey) }
@@ -210,7 +230,7 @@ private fun TvLibraryGrid(
     // Read only while focus is outside the grid — see the same guard in
     // TvGridBody. `activeMemory` is replaced on every focus event and
     // `lastFocusedItemId` is written by every card, so reading either at this scope
-    // made every D-pad move invalidate the grid and rescan `state.items`. The value
+    // made every D-pad move invalidate the grid and rescan `items`. The value
     // is only consulted on entry, where this guard still supplies it.
     val entryTargetItemId =
         if (gridHasFocus) {
@@ -221,18 +241,18 @@ private fun TvLibraryGrid(
                 ?.removePrefix("item:")
                 ?: lastFocusedItemId
         }
-    val entryIndex by remember(state.items, entryTargetItemId) {
+    val entryIndex by remember(items, entryTargetItemId) {
         derivedStateOf {
             val savedIndex =
                 entryTargetItemId
-                    ?.let { id -> state.items.indexOfFirst { item -> item.id == id } }
+                    ?.let { id -> items.indexOfFirst { item -> item.id == id } }
                     ?.takeIf { index -> index >= 0 }
             val visibleSavedIndex =
                 savedIndex?.takeIf { target ->
                     gridState.layoutInfo.visibleItemsInfo.any { item -> item.index == target }
                 }
             (visibleSavedIndex ?: gridState.firstVisibleItemIndex)
-                .coerceIn(0, (state.items.size - 1).coerceAtLeast(0))
+                .coerceIn(0, (items.size - 1).coerceAtLeast(0))
         }
     }
     val entryTarget = if (gridHasFocus) -1 else entryIndex
@@ -241,13 +261,13 @@ private fun TvLibraryGrid(
         derivedStateOf { gridState.layoutInfo.visibleItemsInfo.isNotEmpty() }
     }
     val currentOnFocusRegionChanged = rememberUpdatedState(onFocusRegionChanged)
-    LaunchedEffect(gridHasFocus, state.items, columnCount, gridLayoutReady) {
+    LaunchedEffect(gridHasFocus, items, columnCount, gridLayoutReady) {
         if (!gridHasFocus) {
             return@LaunchedEffect
         }
         val focusedItemIndex =
             lastFocusedItemId
-                ?.let { focusedId -> state.items.indexOfFirst { item -> item.id == focusedId } }
+                ?.let { focusedId -> items.indexOfFirst { item -> item.id == focusedId } }
                 ?.takeIf { index -> index >= 0 }
         currentOnFocusRegionChanged.value(
             when {
@@ -260,9 +280,9 @@ private fun TvLibraryGrid(
     val focusNav =
         rememberTvGridFocusNav(
             gridState = gridState,
-            itemCount = state.items.size,
+            itemCount = items.size,
             columnCount = columnCount,
-            hasMore = state.hasMore && !state.isLoading && !state.isLoadingMore && !state.error,
+            hasMore = hasMore && !isLoading && !isLoadingMore && !error,
             revealComposedTargets = constrainedByHero,
             onLoadMore = onLoadMore,
         )
@@ -270,7 +290,7 @@ private fun TvLibraryGrid(
         focusNav.cancelNavigation()
         pageRetryReturnIndex = returnIndex
         focusScope.launch {
-            gridState.animateScrollToItem(state.items.size)
+            gridState.animateScrollToItem(items.size)
             requestTvFocusWithRetry(attempts = LIBRARY_GRID_EXIT_FOCUS_ATTEMPTS) {
                 pageRetryRequester.requestFocusSafely()
             }
@@ -288,7 +308,7 @@ private fun TvLibraryGrid(
     val currentRequestGridFocus =
         rememberUpdatedState {
             requestLibraryGridFocus(
-                state = state,
+                items = items,
                 pickerOpen = pickerOpen,
                 gridState = gridState,
                 focusNav = focusNav,
@@ -312,18 +332,18 @@ private fun TvLibraryGrid(
     // `lastFocusedItemId` dropped from the keys: it changes on every focus move, so
     // this restarted per D-pad press to run a body that is a no-op after the first
     // request. Read inside instead, where it is untracked and current.
-    LaunchedEffect(requestInitialFocus, state.items, pickerOpen, restoreWaiting) {
+    LaunchedEffect(requestInitialFocus, items, pickerOpen, restoreWaiting) {
         if (requestInitialFocus &&
             !initialFocusRequested.value &&
             !pickerOpen &&
-            state.items.isNotEmpty() &&
+            items.isNotEmpty() &&
             !restoreWaiting
         ) {
             val targetIndex =
                 lastFocusedItemId
-                    ?.let { id -> state.items.indexOfFirst { item -> item.id == id } }
+                    ?.let { id -> items.indexOfFirst { item -> item.id == id } }
                     ?.takeIf { index -> index >= 0 }
-                    ?: gridState.firstVisibleItemIndex.coerceIn(0, state.items.lastIndex)
+                    ?: gridState.firstVisibleItemIndex.coerceIn(0, items.lastIndex)
             withFrameNanos { }
             focusNav.requestFocus(targetIndex)
             initialFocusRequested.value = true
@@ -334,7 +354,7 @@ private fun TvLibraryGrid(
         coordinator.readyRestore
             ?.takeIf { restore -> restore.routeEntryId == coordinator.activeRouteEntryId }
             ?.takeIf { restore -> restore.path.scopes == listOf("library", "grid") }
-    LaunchedEffect(pendingRestore?.token, pickerOpen, state.items, state.isLoading, state.hasMore, state.error) {
+    LaunchedEffect(pendingRestore?.token, pickerOpen, items, isLoading, hasMore, error) {
         val restore = pendingRestore ?: return@LaunchedEffect
         if (pickerOpen) {
             return@LaunchedEffect
@@ -344,14 +364,14 @@ private fun TvLibraryGrid(
             TvFocusResolver.resolveItem(
                 targetKey = targetId,
                 fallbackIndex = restore.path.fallbackIndex,
-                itemKeys = state.items.map { item -> item.id },
+                itemKeys = items.map { item -> item.id },
                 readiness =
-                    if (state.isLoading) {
+                    if (isLoading) {
                         TvFocusContentReadiness.Loading
                     } else {
                         TvFocusContentReadiness.Ready
                     },
-                hasMore = state.hasMore,
+                hasMore = hasMore,
             )
         val targetIndex =
             when (resolution) {
@@ -359,7 +379,7 @@ private fun TvLibraryGrid(
                 is TvFocusResolution.Fallback -> resolution.index
                 TvFocusResolution.Deferred -> {
                     coordinator.updateRestoreStatus(TvFocusRestoreStatus.DeferredContent)
-                    if (!state.isLoading && state.hasMore && !state.error) onLoadMore()
+                    if (!isLoading && hasMore && !error) onLoadMore()
                     return@LaunchedEffect
                 }
                 TvFocusResolution.Unavailable -> return@LaunchedEffect
@@ -378,11 +398,11 @@ private fun TvLibraryGrid(
     }
 
     LoadMoreOnApproachEnd(
-        itemCount = state.items.size,
-        hasMore = state.hasMore,
-        isLoading = state.isLoading,
-        isLoadingMore = state.isLoadingMore,
-        automaticPagingAllowed = !state.error,
+        itemCount = items.size,
+        hasMore = hasMore,
+        isLoading = isLoading,
+        isLoadingMore = isLoadingMore,
+        automaticPagingAllowed = !error,
         lastVisibleIndex = {
             gridState.layoutInfo.visibleItemsInfo.maxOfOrNull { item -> item.index } ?: 0
         },
@@ -392,7 +412,7 @@ private fun TvLibraryGrid(
     )
 
     CompositionLocalProvider(LocalBringIntoViewSpec provides gridBringIntoViewSpec) {
-        key(state.sortBy, state.sortOrder, state.filters) {
+        key(sortBy, sortOrder, filters) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(TvDimens.posterWidth.tileScaled()),
                 modifier =
@@ -405,7 +425,7 @@ private fun TvLibraryGrid(
                             up = gridUpTarget
                         }.tvFocusScope(gridFocusScope) {
                             gridState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
-                                state.items.getOrNull(info.index)?.let { item -> "item:${item.id}" }
+                                items.getOrNull(info.index)?.let { item -> "item:${item.id}" }
                             }
                         }.onFocusChanged { focusState ->
                             gridHasFocus = focusState.hasFocus
@@ -421,17 +441,17 @@ private fun TvLibraryGrid(
                             }
                             val focusedIndex =
                                 lastFocusedItemId
-                                    ?.let { id -> state.items.indexOfFirst { item -> item.id == id } }
+                                    ?.let { id -> items.indexOfFirst { item -> item.id == id } }
                                     ?.takeIf { index -> index >= 0 }
                             val lastRowStart =
-                                ((state.items.lastIndex / columnCount.coerceAtLeast(1)) * columnCount.coerceAtLeast(1))
+                                ((items.lastIndex / columnCount.coerceAtLeast(1)) * columnCount.coerceAtLeast(1))
                             val retryDirection =
                                 event.type == KeyEventType.KeyDown &&
                                     focusedIndex != null &&
-                                    state.error &&
+                                    error &&
                                     (
                                         (event.key == Key.DirectionDown && focusedIndex >= lastRowStart) ||
-                                            (event.key == Key.DirectionRight && focusedIndex == state.items.lastIndex)
+                                            (event.key == Key.DirectionRight && focusedIndex == items.lastIndex)
                                     )
                             if (retryDirection) {
                                 focusedIndex?.let(requestPageRetryFocus) == true
@@ -455,14 +475,14 @@ private fun TvLibraryGrid(
                     ),
             ) {
                 itemsIndexed(
-                    items = state.items,
+                    items = items,
                     key = { _, item -> item.id },
                     contentType = { _, item ->
                         if (item.kind == MediaCardKind.Library) "library-card" else "media-card"
                     },
                 ) { index, item ->
                     val topRowItem = index < columnCount
-                    val rightEdgeItem = (index + 1) % columnCount == 0 || index == state.items.lastIndex
+                    val rightEdgeItem = (index + 1) % columnCount == 0 || index == items.lastIndex
                     val itemFocusRequester =
                         focusNav.rememberItemFocusRequester(
                             index = index,
@@ -522,7 +542,7 @@ private fun TvLibraryGrid(
                         onPlayDirect = { onItemPlayDirect(item) },
                     )
                 }
-                if (state.isLoadingMore) {
+                if (isLoadingMore) {
                     item(key = "loading-more", contentType = "loading-more") {
                         TvText(
                             text = stringResource(R.string.tv_loading_more),
@@ -531,7 +551,7 @@ private fun TvLibraryGrid(
                         )
                     }
                 }
-                if (state.error) {
+                if (error) {
                     item(
                         key = "library:control:page-retry",
                         span = { GridItemSpan(maxLineSpan) },
@@ -630,31 +650,31 @@ private fun libraryGridFocusResetKey(
     }
 
 private fun requestLibraryGridFocus(
-    state: LibraryBrowseUiState,
+    items: List<MediaCardUi>,
     pickerOpen: Boolean,
     gridState: LazyGridState,
     focusNav: TvGridFocusNav,
     lastFocusedItemId: String?,
 ): Boolean {
-    if (pickerOpen || state.items.isEmpty()) {
+    if (pickerOpen || items.isEmpty()) {
         return false
     }
 
     val visibleIndices =
         gridState.layoutInfo.visibleItemsInfo
             .map { item -> item.index }
-            .filter { index -> index in state.items.indices }
+            .filter { index -> index in items.indices }
             .sorted()
     val lastFocusedVisibleIndex =
         lastFocusedItemId
-            ?.let { id -> state.items.indexOfFirst { item -> item.id == id } }
+            ?.let { id -> items.indexOfFirst { item -> item.id == id } }
             ?.takeIf { index -> index >= 0 && index in visibleIndices }
 
     val candidates = mutableListOf<Int>()
     lastFocusedVisibleIndex?.let { index -> candidates += index }
     candidates += visibleIndices
     if (visibleIndices.isEmpty()) {
-        candidates += gridState.firstVisibleItemIndex.coerceIn(0, state.items.lastIndex)
+        candidates += gridState.firstVisibleItemIndex.coerceIn(0, items.lastIndex)
     }
     candidates += 0
 

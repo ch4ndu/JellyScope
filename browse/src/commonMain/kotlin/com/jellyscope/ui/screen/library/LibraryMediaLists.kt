@@ -60,7 +60,11 @@ import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 @Composable
 internal fun LibraryGrid(
     session: Session,
-    state: LibraryBrowseUiState,
+    items: List<MediaCardUi>,
+    hasMore: Boolean,
+    isLoading: Boolean,
+    isLoadingMore: Boolean,
+    error: Boolean,
     gridState: LazyGridState,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
@@ -69,11 +73,11 @@ internal fun LibraryGrid(
     contentPadding: PaddingValues,
 ) {
     LoadMoreOnApproachEnd(
-        itemCount = state.items.size,
-        hasMore = state.hasMore,
-        isLoading = state.isLoading,
-        isLoadingMore = state.isLoadingMore,
-        automaticPagingAllowed = !state.error,
+        itemCount = items.size,
+        hasMore = hasMore,
+        isLoading = isLoading,
+        isLoadingMore = isLoadingMore,
+        automaticPagingAllowed = !error,
         lastVisibleIndex = {
             gridState.layoutInfo.visibleItemsInfo
                 .lastOrNull()
@@ -94,7 +98,7 @@ internal fun LibraryGrid(
         verticalArrangement = Arrangement.spacedBy(Dimensions.formSpacing),
     ) {
         gridItems(
-            items = state.items,
+            items = items,
             key = { item -> item.id },
         ) { item ->
             MediaCard(
@@ -104,7 +108,7 @@ internal fun LibraryGrid(
                 onLongClick = item.directPlayAction(onPlayItem),
             )
         }
-        if (state.error) {
+        if (error) {
             item(
                 key = "library:control:page-retry",
                 span = { GridItemSpan(maxLineSpan) },
@@ -118,7 +122,11 @@ internal fun LibraryGrid(
 @Composable
 internal fun LibraryList(
     session: Session,
-    state: LibraryBrowseUiState,
+    items: List<MediaCardUi>,
+    hasMore: Boolean,
+    isLoading: Boolean,
+    isLoadingMore: Boolean,
+    error: Boolean,
     listState: LazyListState,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
@@ -127,11 +135,11 @@ internal fun LibraryList(
     contentPadding: PaddingValues,
 ) {
     LoadMoreOnApproachEnd(
-        itemCount = state.items.size,
-        hasMore = state.hasMore,
-        isLoading = state.isLoading,
-        isLoadingMore = state.isLoadingMore,
-        automaticPagingAllowed = !state.error,
+        itemCount = items.size,
+        hasMore = hasMore,
+        isLoading = isLoading,
+        isLoadingMore = isLoadingMore,
+        automaticPagingAllowed = !error,
         lastVisibleIndex = {
             listState.layoutInfo.visibleItemsInfo
                 .lastOrNull()
@@ -150,7 +158,7 @@ internal fun LibraryList(
         verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing),
     ) {
         lazyItems(
-            items = state.items,
+            items = items,
             key = { item -> item.id },
         ) { item ->
             LibraryListItem(
@@ -160,7 +168,7 @@ internal fun LibraryList(
                 onLongClick = item.directPlayAction(onPlayItem),
             )
         }
-        if (state.error) {
+        if (error) {
             item(key = "library:control:page-retry") {
                 LibraryPageError(onRetry = onRetry)
             }

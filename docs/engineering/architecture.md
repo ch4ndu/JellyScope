@@ -155,6 +155,36 @@ search. `Refresh` reloads only suggestions/history, preserving the active query
 and results. Navigation, keyboard dismissal, scroll, and focus remain UI-owned.
 Native tvOS keeps its separate presenter outside this pilot.
 
+### Library browse MVI slice
+
+Shared library grid/list routes and Android TV browse routes send
+`LibraryBrowseIntent` values to `LibraryBrowseViewModel.accept`.
+`LibraryBrowseContract.kt` owns state, inputs, and the existing buffered shuffle
+events; `LibraryBrowseReducer.kt` owns pure state transitions. Recommendation
+hubs and native tvOS presenters retain their separate contracts.
+
+The ViewModel retains the paginator, atomic page generation, saved-sort restore
+guard, serialized/conflated sort writes, shuffle cancellation, and silent
+refresh window cap. Unlike Find's Main-owned requests, paginator work runs on
+the work dispatcher. The single state writer samples the atomic generation
+inside each update attempt and supplies it to the reducer; page success,
+failure, and silent-refresh completion are admitted only for that generation.
+The reducer performs no I/O. Shuffle launch/empty/unavailable events remain
+buffered one-shot outputs, separate from durable loading state.
+Shuffle generation, event admission, and completion cleanup are Main-confined;
+only the queue fetch runs on the work dispatcher, returning to Main before its
+generation is checked.
+
+Shared card grid/list children consume items and paging flags, while the TV
+header consumes scalar count, availability, sort, filter-count, and shuffle
+values. Unrelated facet or shuffle updates therefore need not invalidate card
+content. The TV body/grid also consume only cards, paging flags, and sort/filter
+values needed to reset focus; the focus-entry helper consumes only cards.
+Sort/filter changes still reset the grid as intended. Existing controls retain
+narrow inputs; focus/scroll and modal state
+remain UI-owned. These boundaries permit skipping, without claiming measured
+frame-time gains.
+
 ## Source Layout Target
 
 ```text
@@ -845,6 +875,12 @@ Android mpv wrapper provenance belongs to
   external data; a generic unavailable flag cannot identify the failing boundary.
 
 ### Engineering discipline
+
+- Library browse keeps pagination admission and preference-write ordering with
+  their existing owners while making the accepted state transitions explicit.
+  Keeping shuffle events separate preserves their single-consumer delivery
+  semantics; Main-confined shuffle coordination avoids cross-dispatcher generation
+  access. Narrow card/header inputs isolate unrelated state updates.
 
 - Find's explicit inputs and pure reducer make state transitions independently
   inspectable while existing ViewModel jobs retain cancellation and persistence

@@ -51,6 +51,45 @@ import kotlin.test.assertTrue
 
 class LibraryBrowseViewModelTest {
     @Test
+    fun filterChangeRejectsOldPageAndRefreshCompletionsWithoutRelyingOnCancellation() {
+        val filters = LibraryFilterSelection(years = listOf(2024))
+        val loading =
+            reduceLibraryBrowse(
+                LibraryBrowseUiState(parentId = "movies"),
+                LibraryBrowseChange.FiltersSelected(filters),
+                currentGeneration = 2L,
+            )
+        val oldPage =
+            LibraryBrowseChange.PageLoaded(
+                generation = 1L,
+                reset = false,
+                items = emptyList(),
+                startIndex = 40,
+                hasMore = true,
+            )
+        assertEquals(loading, reduceLibraryBrowse(loading, oldPage, currentGeneration = 2L))
+        assertEquals(loading, reduceLibraryBrowse(loading, LibraryBrowseChange.PageFailed(1L), currentGeneration = 2L))
+        assertEquals(
+            loading,
+            reduceLibraryBrowse(
+                loading,
+                LibraryBrowseChange.WindowRefreshed(1L, emptyList(), 0, false),
+                currentGeneration = 2L,
+            ),
+        )
+        val completed =
+            reduceLibraryBrowse(
+                loading,
+                oldPage.copy(generation = 2L, reset = true, startIndex = 0, hasMore = false),
+                currentGeneration = 2L,
+            )
+        assertFalse(completed.isLoading)
+        assertFalse(completed.hasMore)
+        assertEquals(0, completed.startIndex)
+        assertEquals(filters, completed.filters)
+    }
+
+    @Test
     fun savedSortReadAndWriteUseTheWorkDispatcher() =
         runTest {
             val mainScheduler = TestCoroutineScheduler()
@@ -69,7 +108,7 @@ class LibraryBrowseViewModelTest {
                 assertEquals(1, librarySortStore.readCount)
                 mainScheduler.runCurrent()
 
-                viewModel.setSort(LibrarySortBy.DateCreated, LibrarySortOrder.Descending)
+                viewModel.accept(LibraryBrowseIntent.SetSort(LibrarySortBy.DateCreated, LibrarySortOrder.Descending))
                 mainScheduler.runCurrent()
                 assertEquals(0, librarySortStore.writeCount)
                 workScheduler.runCurrent()
@@ -101,9 +140,9 @@ class LibraryBrowseViewModelTest {
                 val viewModel = repository.libraryBrowseViewModel(workDispatcher, store)
 
                 mainScheduler.runCurrent()
-                viewModel.setSort(LibrarySortBy.DateCreated, LibrarySortOrder.Descending)
+                viewModel.accept(LibraryBrowseIntent.SetSort(LibrarySortBy.DateCreated, LibrarySortOrder.Descending))
                 workScheduler.runCurrent()
-                viewModel.setSort(LibrarySortBy.Name, LibrarySortOrder.Ascending)
+                viewModel.accept(LibraryBrowseIntent.SetSort(LibrarySortBy.Name, LibrarySortOrder.Ascending))
                 delayedFirstWrite.complete(Unit)
                 workScheduler.runCurrent()
                 mainScheduler.runCurrent()
@@ -138,11 +177,11 @@ class LibraryBrowseViewModelTest {
                 val viewModel = repository.libraryBrowseViewModel(dispatcher)
                 advanceUntilIdle()
 
-                viewModel.shuffleAll()
+                viewModel.accept(LibraryBrowseIntent.ShuffleAll)
                 runCurrent()
                 assertTrue(viewModel.state.value.isPreparingShuffle)
 
-                viewModel.setFilters(LibraryFilterSelection(years = listOf(2024)))
+                viewModel.accept(LibraryBrowseIntent.SetFilters(LibraryFilterSelection(years = listOf(2024))))
                 advanceUntilIdle()
 
                 assertFalse(viewModel.state.value.isPreparingShuffle)
@@ -167,11 +206,11 @@ class LibraryBrowseViewModelTest {
                 val viewModel = repository.libraryBrowseViewModel(dispatcher, collectionType = LibraryCollectionType.Movies)
                 advanceUntilIdle()
                 val filters = LibraryFilterSelection(years = listOf(2024))
-                viewModel.setFilters(filters)
+                viewModel.accept(LibraryBrowseIntent.SetFilters(filters))
                 advanceUntilIdle()
                 val event = async { viewModel.events.first() }
 
-                viewModel.shuffleAll()
+                viewModel.accept(LibraryBrowseIntent.ShuffleAll)
                 advanceUntilIdle()
 
                 assertEquals(filters, repository.shuffleRequests.single().filters)
@@ -229,13 +268,66 @@ class LibraryBrowseViewModelTest {
                 assertEquals(2, first.totalCount)
                 assertTrue(first.hasMore)
 
-                viewModel.loadMore()
+                viewModel.accept(LibraryBrowseIntent.LoadMore)
                 advanceUntilIdle()
 
                 val second = viewModel.state.value
                 assertEquals(listOf("item-1", "item-2", "item-3"), second.items.map { item -> item.id })
                 assertFalse(second.hasMore)
                 assertEquals(listOf(0, 2), repository.requests.map { request -> request.startIndex })
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
+
+    @Test
+    fun retryAfterAppendFailureKeepsLoadedCardsAndRetriesTheSameOffset() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            try {
+                val failedPage = CompletableDeferred<Result<PagedItems>>()
+                val retriedPage = CompletableDeferred<Result<PagedItems>>()
+                val repository =
+                    LibraryBrowseRepository(
+                        pages = mapOf(0 to Result.success(page(0, 3, mediaItem("item-1"), mediaItem("item-2")))),
+                        deferredPages = mapOf(2 to ArrayDeque(listOf(failedPage, retriedPage))),
+                    )
+                val viewModel = repository.libraryBrowseViewModel(dispatcher)
+                advanceUntilIdle()
+                viewModel.accept(LibraryBrowseIntent.LoadMore)
+                runCurrent()
+                failedPage.complete(Result.failure(IllegalStateException("append failed")))
+                advanceUntilIdle()
+                assertTrue(viewModel.state.value.error)
+                assertEquals(
+                    listOf("item-1", "item-2"),
+                    viewModel.state.value.items
+                        .map { it.id },
+                )
+
+                viewModel.accept(LibraryBrowseIntent.Retry)
+                runCurrent()
+                assertEquals(listOf(0, 2, 2), repository.requests.map { it.startIndex })
+                assertFalse(viewModel.state.value.error)
+                assertFalse(viewModel.state.value.isLoading)
+                assertTrue(viewModel.state.value.isLoadingMore)
+                assertEquals(
+                    listOf("item-1", "item-2"),
+                    viewModel.state.value.items
+                        .map { it.id },
+                )
+
+                retriedPage.complete(Result.success(page(2, 3, mediaItem("item-3"))))
+                advanceUntilIdle()
+                assertEquals(
+                    listOf("item-1", "item-2", "item-3"),
+                    viewModel.state.value.items
+                        .map { it.id },
+                )
+                assertFalse(viewModel.state.value.error)
+                assertFalse(viewModel.state.value.isLoadingMore)
+                assertFalse(viewModel.state.value.hasMore)
             } finally {
                 Dispatchers.resetMain()
             }
@@ -259,8 +351,8 @@ class LibraryBrowseViewModelTest {
                 val viewModel = repository.libraryBrowseViewModel(dispatcher)
                 advanceUntilIdle()
 
-                viewModel.loadMore()
-                viewModel.loadMore()
+                viewModel.accept(LibraryBrowseIntent.LoadMore)
+                viewModel.accept(LibraryBrowseIntent.LoadMore)
                 runCurrent()
 
                 assertEquals(listOf(0, 2), repository.requests.map { request -> request.startIndex })
@@ -295,9 +387,9 @@ class LibraryBrowseViewModelTest {
                 val viewModel = repository.libraryBrowseViewModel(dispatcher, librarySortStore)
                 advanceUntilIdle()
 
-                viewModel.setSort(LibrarySortBy.DateCreated, LibrarySortOrder.Descending)
+                viewModel.accept(LibraryBrowseIntent.SetSort(LibrarySortBy.DateCreated, LibrarySortOrder.Descending))
                 advanceUntilIdle()
-                viewModel.setFilters(LibraryFilterSelection(itemFilters = listOf(LibraryItemFilter.Favorite)))
+                viewModel.accept(LibraryBrowseIntent.SetFilters(LibraryFilterSelection(itemFilters = listOf(LibraryItemFilter.Favorite))))
                 advanceUntilIdle()
 
                 assertEquals(listOf(0, 0, 0), repository.requests.map { request -> request.startIndex })
@@ -410,8 +502,8 @@ class LibraryBrowseViewModelTest {
                 advanceUntilIdle()
 
                 refreshPages.add(failedRefresh)
-                viewModel.refreshSilently()
-                viewModel.refreshSilently()
+                viewModel.accept(LibraryBrowseIntent.Refresh)
+                viewModel.accept(LibraryBrowseIntent.Refresh)
                 runCurrent()
 
                 assertEquals(2, repository.requests.count { request -> request.startIndex == 0 })
@@ -455,11 +547,11 @@ class LibraryBrowseViewModelTest {
                     )
                 val viewModel = repository.libraryBrowseViewModel(dispatcher)
                 advanceUntilIdle()
-                viewModel.loadMore()
+                viewModel.accept(LibraryBrowseIntent.LoadMore)
                 advanceUntilIdle()
 
                 queuedPages.add(windowRefresh)
-                viewModel.refreshSilently()
+                viewModel.accept(LibraryBrowseIntent.Refresh)
                 runCurrent()
 
                 // A paged grid refreshes its whole loaded window in one request
@@ -507,11 +599,11 @@ class LibraryBrowseViewModelTest {
                 advanceUntilIdle()
 
                 queuedPages.add(staleRefresh)
-                viewModel.refreshSilently()
+                viewModel.accept(LibraryBrowseIntent.Refresh)
                 runCurrent()
 
                 queuedPages.add(newerLoad)
-                viewModel.setFilters(LibraryFilterSelection(years = listOf(2024)))
+                viewModel.accept(LibraryBrowseIntent.SetFilters(LibraryFilterSelection(years = listOf(2024))))
                 runCurrent()
 
                 newerLoad.complete(Result.success(page(0, 1, mediaItem("newer"))))

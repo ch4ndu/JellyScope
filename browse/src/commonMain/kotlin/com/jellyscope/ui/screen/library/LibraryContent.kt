@@ -135,7 +135,11 @@ fun LibraryBrowseGridContent(
             else ->
                 LibraryGrid(
                     session = session,
-                    state = state,
+                    items = state.items,
+                    hasMore = state.hasMore,
+                    isLoading = state.isLoading,
+                    isLoadingMore = state.isLoadingMore,
+                    error = state.error,
                     gridState = gridState,
                     onRetry = onRetry,
                     onLoadMore = onLoadMore,
@@ -294,7 +298,11 @@ fun LibraryListModeContent(
             else ->
                 LibraryList(
                     session = session,
-                    state = state,
+                    items = state.items,
+                    hasMore = state.hasMore,
+                    isLoading = state.isLoading,
+                    isLoadingMore = state.isLoadingMore,
+                    error = state.error,
                     listState = listState,
                     onRetry = onRetry,
                     onLoadMore = onLoadMore,

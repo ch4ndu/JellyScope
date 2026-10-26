@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,13 +25,12 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import com.jellyscope.core.domain.model.LibraryCollectionType
-import com.jellyscope.core.domain.model.activeCount
+import com.jellyscope.core.domain.model.LibrarySortBy
 import com.jellyscope.tv.R
 import com.jellyscope.tv.ui.focus.LocalTvFocusCoordinator
 import com.jellyscope.tv.ui.focus.TvFocusTargetKind
 import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
 import com.jellyscope.tv.ui.focus.tvFocusScope
-import com.jellyscope.ui.screen.library.LibraryBrowseUiState
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import com.jellyscope.ui.component.DetailSecondaryStyle as TvSecondaryStyle
 import com.jellyscope.ui.component.DetailText as TvText
@@ -41,7 +39,13 @@ import com.jellyscope.ui.component.DetailText as TvText
 @Composable
 internal fun TvLibraryHeader(
     title: String?,
-    state: LibraryBrowseUiState,
+    collectionType: LibraryCollectionType,
+    sortBy: LibrarySortBy,
+    totalCount: Int,
+    hasMore: Boolean,
+    hasItems: Boolean,
+    isPreparingShuffle: Boolean,
+    activeFilterCount: Int,
     sortButtonRequester: FocusRequester,
     filterButtonRequester: FocusRequester,
     shuffleButtonRequester: FocusRequester,
@@ -72,7 +76,7 @@ internal fun TvLibraryHeader(
             onDispose { headerScope.unregister(key, requester) }
         }
     }
-    LaunchedEffect(coordinator.readyRestore, state.collectionType) {
+    LaunchedEffect(coordinator.readyRestore, collectionType) {
         val restore = coordinator.readyRestore ?: return@LaunchedEffect
         if (restore.path.scopes == headerScope.scopes) {
             headerScope.requestEntry(listOf(restore.path.targetKey))
@@ -93,9 +97,9 @@ internal fun TvLibraryHeader(
     // Only steer DOWN into the grid when it actually has items; otherwise leave
     // default focus search so DOWN can reach the Retry button in the error state
     // (a fixed down-target to an unattached grid would trap focus).
-    val contentDownTarget = gridFocusRequester.takeIf { state.items.isNotEmpty() }
+    val contentDownTarget = gridFocusRequester.takeIf { hasItems }
     val leadingActionRequester =
-        if (state.collectionType == LibraryCollectionType.Movies) {
+        if (collectionType == LibraryCollectionType.Movies) {
             shuffleButtonRequester
         } else {
             sortButtonRequester
@@ -114,7 +118,7 @@ internal fun TvLibraryHeader(
                 .fillMaxWidth()
                 .tvFocusScope(headerScope) {
                     buildList {
-                        if (state.collectionType == LibraryCollectionType.Movies) add("action:shuffle")
+                        if (collectionType == LibraryCollectionType.Movies) add("action:shuffle")
                         add("action:sort")
                         add("action:filter")
                     }
@@ -135,10 +139,10 @@ internal fun TvLibraryHeader(
         }
         TvText(
             text =
-                if (state.hasMore) {
-                    stringResource(R.string.tv_grid_item_count_more, state.totalCount)
+                if (hasMore) {
+                    stringResource(R.string.tv_grid_item_count_more, totalCount)
                 } else {
-                    stringResource(R.string.tv_grid_item_count, state.totalCount)
+                    stringResource(R.string.tv_grid_item_count, totalCount)
                 },
             style = TvSecondaryStyle,
             color = LocalJellyfinPalette.current.textSecondary,
@@ -147,11 +151,11 @@ internal fun TvLibraryHeader(
         if (!reserveLeadingSpaceForTabs) {
             Spacer(modifier = Modifier.weight(1f))
         }
-        if (state.collectionType == LibraryCollectionType.Movies) {
+        if (collectionType == LibraryCollectionType.Movies) {
             TvButton(
                 text =
                     stringResource(
-                        if (state.isPreparingShuffle) {
+                        if (isPreparingShuffle) {
                             R.string.tv_library_shuffle_preparing
                         } else {
                             R.string.tv_library_shuffle_all
@@ -183,7 +187,7 @@ internal fun TvLibraryHeader(
         // focusable keeps focus anchored here through the reload. Re-selecting during
         // a load is harmless — the paginator cancels and re-issues.
         TvButton(
-            text = stringResource(R.string.tv_sort_button, librarySortLabel(state.sortBy)),
+            text = stringResource(R.string.tv_sort_button, librarySortLabel(sortBy)),
             onClick = onOpenSortPicker,
             modifier =
                 Modifier
@@ -194,7 +198,7 @@ internal fun TvLibraryHeader(
                         tabsUpRequester?.let { target -> Modifier.focusProperties { up = target } }
                             ?: Modifier,
                     ).then(
-                        if (state.collectionType != LibraryCollectionType.Movies) {
+                        if (collectionType != LibraryCollectionType.Movies) {
                             tabsStartRequester?.let { target -> Modifier.focusProperties { left = target } }
                                 ?: Modifier
                         } else {
@@ -207,7 +211,7 @@ internal fun TvLibraryHeader(
                     ),
         )
         TvButton(
-            text = stringResource(R.string.tv_library_filter_button, state.filters.activeCount),
+            text = stringResource(R.string.tv_library_filter_button, activeFilterCount),
             onClick = onOpenFilterPicker,
             modifier =
                 Modifier

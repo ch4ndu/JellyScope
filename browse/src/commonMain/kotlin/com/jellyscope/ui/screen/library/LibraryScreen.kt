@@ -60,7 +60,7 @@ fun LibraryScreen(
     val unavailableMessage = stringResource(Res.string.library_shuffle_unavailable)
     val currentOnShuffleQueue by rememberUpdatedState(onShuffleQueue)
 
-    OnResumeEffect(viewModel::refreshSilently)
+    OnResumeEffect { viewModel.accept(LibraryBrowseIntent.Refresh) }
 
     LaunchedEffect(viewModel, emptyMessage, unavailableMessage) {
         viewModel.events.collect { event ->
@@ -73,7 +73,7 @@ fun LibraryScreen(
     }
 
     LaunchedEffect(viewModel, initialFilters) {
-        initialFilters?.let { filters -> viewModel.setFilters(filters) }
+        initialFilters?.let { filters -> viewModel.accept(LibraryBrowseIntent.SetFilters(filters)) }
     }
 
     LibraryContent(
@@ -81,11 +81,11 @@ fun LibraryScreen(
         title = title ?: initialFilterLabel ?: stringResource(Res.string.library_title),
         state = state,
         onBack = onBack,
-        onRetry = viewModel::retry,
-        onLoadMore = viewModel::loadMore,
-        onSetSort = viewModel::setSort,
-        onSetFilters = viewModel::setFilters,
-        onShuffleAll = viewModel::shuffleAll,
+        onRetry = { viewModel.accept(LibraryBrowseIntent.Retry) },
+        onLoadMore = { viewModel.accept(LibraryBrowseIntent.LoadMore) },
+        onSetSort = { sortBy, sortOrder -> viewModel.accept(LibraryBrowseIntent.SetSort(sortBy, sortOrder)) },
+        onSetFilters = { viewModel.accept(LibraryBrowseIntent.SetFilters(it)) },
+        onShuffleAll = { viewModel.accept(LibraryBrowseIntent.ShuffleAll) },
         onItemSelected = onItemSelected,
         onPlayItem = onPlayItem,
         onSettingsClick = onSettingsClick,

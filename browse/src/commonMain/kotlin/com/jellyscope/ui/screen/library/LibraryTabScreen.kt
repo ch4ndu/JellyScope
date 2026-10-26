@@ -373,7 +373,7 @@ private fun LibraryGridInnerView(
     val currentOnShuffleQueue by rememberUpdatedState(onShuffleQueue)
     val currentOnShuffleMessage by rememberUpdatedState(onShuffleMessage)
 
-    OnResumeEffect(viewModel::refreshSilently)
+    OnResumeEffect { viewModel.accept(LibraryBrowseIntent.Refresh) }
 
     LaunchedEffect(viewModel, emptyMessage, unavailableMessage) {
         viewModel.events.collect { event ->
@@ -389,11 +389,11 @@ private fun LibraryGridInnerView(
         session = session,
         state = state,
         gridState = gridState,
-        onRetry = viewModel::retry,
-        onLoadMore = viewModel::loadMore,
-        onSetSort = viewModel::setSort,
-        onSetFilters = viewModel::setFilters,
-        onShuffleAll = viewModel::shuffleAll,
+        onRetry = { viewModel.accept(LibraryBrowseIntent.Retry) },
+        onLoadMore = { viewModel.accept(LibraryBrowseIntent.LoadMore) },
+        onSetSort = { sortBy, sortOrder -> viewModel.accept(LibraryBrowseIntent.SetSort(sortBy, sortOrder)) },
+        onSetFilters = { viewModel.accept(LibraryBrowseIntent.SetFilters(it)) },
+        onShuffleAll = { viewModel.accept(LibraryBrowseIntent.ShuffleAll) },
         onItemSelected = onItemSelected,
         onPlayItem = onPlayItem,
         controlsResetKey = controlsResetKey,
