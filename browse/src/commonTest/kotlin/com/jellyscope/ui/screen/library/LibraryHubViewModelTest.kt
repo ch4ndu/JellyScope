@@ -7,10 +7,13 @@ import com.jellyscope.core.domain.action.SetSavedLibraryViewAction
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
 import com.jellyscope.core.domain.model.LibraryCollectionType
 import com.jellyscope.core.domain.model.LibraryInnerView
+import com.jellyscope.core.domain.model.LibraryRecommendationSection
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.usecase.GetLibraryRecommendationSectionUseCase
 import com.jellyscope.core.domain.usecase.GetSavedLibraryViewUseCase
 import com.jellyscope.core.domain.usecase.ObserveRememberLastLibraryViewUseCase
+import com.jellyscope.ui.component.MediaCardKind
+import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.screen.discover.DiscoverRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -25,8 +28,58 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 
 class LibraryHubViewModelTest {
+    @Test
+    fun silentRefreshFailureRetainsContentAndRetryOnlyChangesItsSection() {
+        val section = LibraryRecommendationSection.RecentlyAdded
+        val otherSection = LibraryRecommendationSection.ContinueWatching
+        val row =
+            LibraryRecommendationRowUi(
+                key = "recent",
+                section = section,
+                reason = null,
+                baselineItemName = null,
+                items =
+                    listOf(
+                        MediaCardUi(
+                            id = "movie",
+                            title = "Movie",
+                            subtitle = null,
+                            progressFraction = null,
+                            watched = false,
+                            unplayedCount = null,
+                            imageUrl = null,
+                            kind = MediaCardKind.Movie,
+                        ),
+                    ),
+            )
+        val content = LibraryRecommendationRowState.Content(listOf(row))
+        val initial =
+            LibraryHubUiState(
+                availableViews = listOf(LibraryInnerView.Recommended, LibraryInnerView.Library),
+                selectedView = LibraryInnerView.Recommended,
+                recommendationSections = mapOf(section to content, otherSection to LibraryRecommendationRowState.Empty),
+            )
+        val refreshing = reduceLibraryHub(initial, LibraryHubChange.RecommendationStarted(section, keepContent = true))
+        val failedRefresh = reduceLibraryHub(refreshing, LibraryHubChange.RecommendationFailed(section, keepContent = true))
+        assertSame(initial, failedRefresh)
+        assertSame(content, failedRefresh.recommendationSections[section])
+
+        val retrying = reduceLibraryHub(failedRefresh, LibraryHubChange.RecommendationStarted(section, keepContent = false))
+        assertEquals(LibraryRecommendationRowState.Loading, retrying.recommendationSections[section])
+        val failedRetry = reduceLibraryHub(retrying, LibraryHubChange.RecommendationFailed(section, keepContent = false))
+        assertEquals(LibraryRecommendationRowState.Error, failedRetry.recommendationSections[section])
+        assertEquals(LibraryRecommendationRowState.Empty, failedRetry.recommendationSections[otherSection])
+        assertEquals(initial.selectedView, failedRetry.selectedView)
+        assertSame(initial.availableViews, failedRetry.availableViews)
+
+        val recovered = reduceLibraryHub(failedRetry, LibraryHubChange.RecommendationLoaded(section, listOf(row)))
+        assertEquals(content, recovered.recommendationSections[section])
+        assertEquals(LibraryRecommendationRowState.Empty, recovered.recommendationSections[otherSection])
+    }
+
     @Test
     fun restoresAvailableSavedViewAndPersistsChanges() =
         runTest {
@@ -38,7 +91,7 @@ class LibraryHubViewModelTest {
 
                 advanceUntilIdle()
                 assertEquals(LibraryInnerView.Library, viewModel.state.value.selectedView)
-                viewModel.selectView(LibraryInnerView.Recommended)
+                viewModel.accept(LibraryHubIntent.SelectView(LibraryInnerView.Recommended))
                 testScheduler.advanceUntilIdle()
                 assertEquals(LibraryInnerView.Recommended, store.saved)
             } finally {
@@ -64,7 +117,7 @@ class LibraryHubViewModelTest {
                 assertEquals(1, store.savedViewReadCount)
                 mainScheduler.runCurrent()
 
-                viewModel.selectView(LibraryInnerView.Recommended)
+                viewModel.accept(LibraryHubIntent.SelectView(LibraryInnerView.Recommended))
                 mainScheduler.runCurrent()
                 assertEquals(0, store.savedViewWriteCount)
                 workScheduler.runCurrent()
@@ -93,9 +146,9 @@ class LibraryHubViewModelTest {
                     )
 
                 mainScheduler.runCurrent()
-                viewModel.selectView(LibraryInnerView.Library)
+                viewModel.accept(LibraryHubIntent.SelectView(LibraryInnerView.Library))
                 workScheduler.runCurrent()
-                viewModel.selectView(LibraryInnerView.Recommended)
+                viewModel.accept(LibraryHubIntent.SelectView(LibraryInnerView.Recommended))
                 delayedFirstWrite.complete(Unit)
                 workScheduler.runCurrent()
                 mainScheduler.runCurrent()
@@ -110,7 +163,7 @@ class LibraryHubViewModelTest {
                 val sameViewStore = FakeLibraryViewPreferencesStore(saved = LibraryInnerView.Library)
                 val sameViewModel = libraryHub(sameViewStore, LibraryCollectionType.Movies, workDispatcher)
                 mainScheduler.runCurrent()
-                sameViewModel.selectView(LibraryInnerView.Recommended)
+                sameViewModel.accept(LibraryHubIntent.SelectView(LibraryInnerView.Recommended))
                 workScheduler.runCurrent()
                 mainScheduler.runCurrent()
 

@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.LibraryCollectionType
 import com.jellyscope.core.domain.model.LibraryFilterSelection
 import com.jellyscope.core.domain.model.LibraryInnerView
+import com.jellyscope.core.domain.model.LibraryRecommendationSection
 import com.jellyscope.core.domain.model.LibrarySortBy
 import com.jellyscope.core.domain.model.LibrarySortOrder
 import com.jellyscope.core.domain.model.Session
@@ -56,8 +57,9 @@ import com.jellyscope.ui.screen.library.LibraryBrowseEvent
 import com.jellyscope.ui.screen.library.LibraryBrowseIntent
 import com.jellyscope.ui.screen.library.LibraryBrowseUiState
 import com.jellyscope.ui.screen.library.LibraryBrowseViewModel
-import com.jellyscope.ui.screen.library.LibraryHubUiState
+import com.jellyscope.ui.screen.library.LibraryHubIntent
 import com.jellyscope.ui.screen.library.LibraryHubViewModel
+import com.jellyscope.ui.screen.library.LibraryRecommendationRowState
 import com.jellyscope.ui.theme.LocalAppBackgroundBrush
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlinx.coroutines.delay
@@ -87,7 +89,8 @@ internal fun Modifier.tvLibraryChromeVisibility(visible: Boolean?): Modifier =
 @Composable
 private fun TvLibraryAlternateContent(
     session: Session,
-    state: LibraryHubUiState,
+    selectedView: LibraryInnerView,
+    recommendationSections: Map<LibraryRecommendationSection, LibraryRecommendationRowState>,
     tabRequester: FocusRequester,
     onBack: () -> Unit,
     onContentFocusActionChanged: ((() -> Boolean)?) -> Unit,
@@ -117,11 +120,11 @@ private fun TvLibraryAlternateContent(
     Box(
         modifier = modifier.fillMaxSize().background(LocalAppBackgroundBrush.current).focusGroup(),
     ) {
-        when (state.selectedView) {
+        when (selectedView) {
             LibraryInnerView.Recommended ->
                 TvLibraryRecommendedContent(
                     session = session,
-                    states = state.recommendationSections,
+                    states = recommendationSections,
                     contentRequester = contentRequester,
                     tabsRequester = tabRequester,
                     onFocusRegionChanged = onFocusRegionChanged,
@@ -160,7 +163,7 @@ internal fun TvLibraryScreen(
 ) {
     val hubState = hubViewModel?.state?.collectAsStateWithLifecycle()?.value
     OnResumeEffect {
-        hubViewModel?.refreshRecommendedSilently()
+        hubViewModel?.accept(LibraryHubIntent.RefreshRecommended)
     }
     val resolvedTitle = title ?: stringResource(R.string.tv_library_title)
     if (hubViewModel == null || hubState == null) {
@@ -247,13 +250,14 @@ internal fun TvLibraryScreen(
         } else {
             TvLibraryAlternateContent(
                 session = session,
-                state = hubState,
+                selectedView = hubState.selectedView,
+                recommendationSections = hubState.recommendationSections,
                 tabRequester = selectedTabRequester,
                 onBack = onBack,
                 onContentFocusActionChanged = { contentFocusAction = it },
                 onFocusRegionChanged = { focusRegion = it },
                 onAmbientPresentationChanged = onAmbientPresentationChanged,
-                onRetryRecommendation = hubViewModel::retryRecommendation,
+                onRetryRecommendation = { hubViewModel.accept(LibraryHubIntent.RetryRecommendation(it)) },
                 onItemSelected = onItemSelected,
                 onItemPlayDirect = onItemPlayDirect,
                 modifier = Modifier.fillMaxSize(),
@@ -268,7 +272,7 @@ internal fun TvLibraryScreen(
             onRequestTrailingFocus = headerFocusAction,
             onFocusRegionChanged = { focusRegion = it },
             chromeVisible = chromeVisible,
-            onSelected = hubViewModel::selectView,
+            onSelected = { hubViewModel.accept(LibraryHubIntent.SelectView(it)) },
             modifier =
                 Modifier.padding(
                     start = contentStartPadding,

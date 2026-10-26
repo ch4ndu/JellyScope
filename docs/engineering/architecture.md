@@ -185,6 +185,27 @@ narrow inputs; focus/scroll and modal state
 remain UI-owned. These boundaries permit skipping, without claiming measured
 frame-time gains.
 
+### Library hub MVI slice
+
+Shared and Android TV library hubs send `LibraryHubIntent` values for tab
+selection, section retry, and silent recommendation refresh.
+`LibraryHubContract.kt` owns state and inputs; `LibraryHubReducer.kt` owns view
+selection and section loading/content/empty/error transitions. A section update
+preserves the other section values, available-view list, and selected view.
+Silent refresh retains existing content through loading and failure; explicit
+retry exposes loading/error. A successful empty response replaces old content.
+
+The ViewModel retains the saved-view restore generation and serialized,
+conflated preference writes. One cancellable job per recommendation section
+fetches and maps cards on the work dispatcher, then returns to Main before
+reducing the result. Replacing that job cancels the old work at the dispatcher
+boundary. No repository policy or native tvOS presenter changes are required.
+
+Shared tab content captures only available views and selection, not the full hub
+state. The TV recommendation wrapper takes selection and section states; shelf
+composables retain narrow row/card inputs and section-qualified lazy keys.
+Focus, ambient presentation, and retained scroll state remain UI-owned.
+
 ## Source Layout Target
 
 ```text
@@ -875,6 +896,11 @@ Android mpv wrapper provenance belongs to
   external data; a generic unavailable flag cannot identify the failing boundary.
 
 ### Engineering discipline
+
+- Hub section transitions isolate recommendation retries from tab selection and
+  unrelated shelves. Main-owned publication keeps cancellation and state updates
+  ordered while fetch/mapping remains off Main; narrow tab captures avoid coupling
+  navigation chrome to recommendation completion.
 
 - Library browse keeps pagination admission and preference-write ordering with
   their existing owners while making the accepted state transitions explicit.

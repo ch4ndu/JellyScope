@@ -291,13 +291,15 @@ private fun LibraryTabHub(
     val hubState by hubViewModel.state.collectAsStateWithLifecycle()
     val recommendedListState = rememberLazyListState()
 
-    OnResumeEffect(hubViewModel::refreshRecommendedSilently)
+    OnResumeEffect { hubViewModel.accept(LibraryHubIntent.RefreshRecommended) }
 
+    val availableViews = hubState.availableViews
+    val selectedView = hubState.selectedView
     val innerTabs: @Composable () -> Unit = {
         LibraryInnerViewTabs(
-            views = hubState.availableViews,
-            selectedView = hubState.selectedView,
-            onViewSelected = hubViewModel::selectView,
+            views = availableViews,
+            selectedView = selectedView,
+            onViewSelected = { hubViewModel.accept(LibraryHubIntent.SelectView(it)) },
         )
     }
 
@@ -331,7 +333,7 @@ private fun LibraryTabHub(
                             session = session,
                             states = hubState.recommendationSections,
                             listState = recommendedListState,
-                            onRetry = hubViewModel::retryRecommendation,
+                            onRetry = { hubViewModel.accept(LibraryHubIntent.RetryRecommendation(it)) },
                             onItemSelected = onItemSelected,
                             topPadding = Dimensions.libraryInnerViewContentSpacing,
                             bottomPadding = Dimensions.screenPadding + bottomContentPadding,

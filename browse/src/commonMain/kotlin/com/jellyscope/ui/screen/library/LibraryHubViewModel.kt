@@ -16,7 +16,6 @@ import com.jellyscope.core.domain.model.availableInnerViews
 import com.jellyscope.core.domain.usecase.GetLibraryRecommendationSectionUseCase
 import com.jellyscope.core.domain.usecase.GetSavedLibraryViewUseCase
 import com.jellyscope.core.domain.usecase.ObserveRememberLastLibraryViewUseCase
-import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.toMediaCardUi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -29,32 +28,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-sealed interface LibraryRecommendationRowState {
-    data object Loading : LibraryRecommendationRowState
-
-    data object Error : LibraryRecommendationRowState
-
-    data object Empty : LibraryRecommendationRowState
-
-    data class Content(
-        val rows: List<LibraryRecommendationRowUi>,
-    ) : LibraryRecommendationRowState
-}
-
-data class LibraryRecommendationRowUi(
-    val key: String,
-    val section: LibraryRecommendationSection,
-    val reason: com.jellyscope.core.domain.model.LibraryRecommendationReason?,
-    val baselineItemName: String?,
-    val items: List<MediaCardUi>,
-)
-
-data class LibraryHubUiState(
-    val availableViews: List<LibraryInnerView>,
-    val selectedView: LibraryInnerView,
-    val recommendationSections: Map<LibraryRecommendationSection, LibraryRecommendationRowState>,
-)
 
 class LibraryHubViewModel(
     private val session: Session,
@@ -108,27 +81,35 @@ class LibraryHubViewModel(
             if (restoreGeneration != viewIntentGeneration) return@launch
             val initialView =
                 savedView?.takeIf { view -> rememberLastView.value && view in availableViews } ?: defaultView
-            _state.update { current -> current.copy(selectedView = initialView) }
+            reduce(LibraryHubChange.ViewSelected(initialView))
             loadSelectedView(initialView)
         }
     }
 
-    fun selectView(view: LibraryInnerView) {
+    fun accept(intent: LibraryHubIntent) {
+        when (intent) {
+            is LibraryHubIntent.SelectView -> selectView(intent.view)
+            is LibraryHubIntent.RetryRecommendation -> loadRecommendation(intent.section, keepContentOnError = false)
+            LibraryHubIntent.RefreshRecommended -> refreshRecommendedSilently()
+        }
+    }
+
+    private fun reduce(change: LibraryHubChange) {
+        _state.update { current -> reduceLibraryHub(current, change) }
+    }
+
+    private fun selectView(view: LibraryInnerView) {
         if (view !in availableViews) return
         viewIntentGeneration += 1
         if (rememberLastView.value) {
             pendingSavedViews.trySend(view)
         }
         if (view == _state.value.selectedView) return
-        _state.update { current -> current.copy(selectedView = view) }
+        reduce(LibraryHubChange.ViewSelected(view))
         loadSelectedView(view)
     }
 
-    fun retryRecommendation(section: LibraryRecommendationSection) {
-        loadRecommendation(section, keepContentOnError = false)
-    }
-
-    fun refreshRecommendedSilently() {
+    private fun refreshRecommendedSilently() {
         if (_state.value.selectedView != LibraryInnerView.Recommended) return
         recommendationSections.forEach { section -> loadRecommendation(section, keepContentOnError = true) }
     }
@@ -154,50 +135,30 @@ class LibraryHubViewModel(
         keepContentOnError: Boolean,
     ) {
         sectionJobs.remove(section)?.cancel()
-        val previous = _state.value.recommendationSections[section]
-        if (!keepContentOnError || previous !is LibraryRecommendationRowState.Content) {
-            updateRecommendation(section, LibraryRecommendationRowState.Loading)
-        }
+        reduce(LibraryHubChange.RecommendationStarted(section, keepContentOnError))
         sectionJobs[section] =
-            viewModelScope.launch(workDispatcher) {
+            viewModelScope.launch {
                 try {
-                    getLibraryRecommendationSectionUseCase(
-                        LibraryRecommendationRequest(
-                            parentId = parentId,
-                            collectionType = collectionType,
-                            section = section,
-                        ),
-                    ).fold(
-                        onSuccess = { rows ->
-                            val mapped = rows.mapNotNull { row -> row.toUi() }
-                            updateRecommendation(
-                                section,
-                                if (mapped.isEmpty()) {
-                                    LibraryRecommendationRowState.Empty
-                                } else {
-                                    LibraryRecommendationRowState.Content(mapped)
-                                },
-                            )
-                        },
-                        onFailure = {
-                            if (!keepContentOnError || previous !is LibraryRecommendationRowState.Content) {
-                                updateRecommendation(section, LibraryRecommendationRowState.Error)
-                            }
-                        },
+                    // Return to Main before publication. Replacing this section's job
+                    // prevents old mapped results from publishing at the dispatcher boundary.
+                    val result =
+                        withContext(workDispatcher) {
+                            getLibraryRecommendationSectionUseCase(
+                                LibraryRecommendationRequest(
+                                    parentId = parentId,
+                                    collectionType = collectionType,
+                                    section = section,
+                                ),
+                            ).map { rows -> rows.mapNotNull { row -> row.toUi() } }
+                        }
+                    result.fold(
+                        onSuccess = { rows -> reduce(LibraryHubChange.RecommendationLoaded(section, rows)) },
+                        onFailure = { reduce(LibraryHubChange.RecommendationFailed(section, keepContentOnError)) },
                     )
                 } catch (exception: CancellationException) {
                     throw exception
                 }
             }
-    }
-
-    private fun updateRecommendation(
-        section: LibraryRecommendationSection,
-        state: LibraryRecommendationRowState,
-    ) {
-        _state.update { current ->
-            current.copy(recommendationSections = current.recommendationSections + (section to state))
-        }
     }
 
     private fun LibraryRecommendationRow.toUi(): LibraryRecommendationRowUi? {
