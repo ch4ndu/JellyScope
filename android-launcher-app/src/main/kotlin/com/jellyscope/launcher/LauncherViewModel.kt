@@ -2,6 +2,7 @@
 
 package com.jellyscope.launcher
 
+import android.util.Log
 import androidx.compose.ui.geometry.Rect
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -158,7 +159,36 @@ internal class LauncherViewModel(
     }
 
     fun resumed(externalReturn: Boolean = false) {
-        _state.update { it.copy(focusGeneration = it.focusGeneration + 1, homeTabActivation = false) }
+        _state.update { current ->
+            val generation = current.focusGeneration + 1
+            val target =
+                if (externalReturn &&
+                    current.route == LauncherRoute.Home &&
+                    current.dialog == null &&
+                    current.appEdit == null &&
+                    current.appFocusTarget == null
+                ) {
+                    when {
+                        current.homeInvoker.startsWith("apps:") ->
+                            LauncherAppFocusTarget.App(current.homeInvoker.removePrefix("apps:"), generation)
+                        current.homeInvoker.startsWith("row:") -> LauncherAppFocusTarget.Content(current.homeInvoker, generation)
+                        current.homeInvoker in launcherHeaderKeys -> LauncherAppFocusTarget.Header(current.homeInvoker, generation)
+                        else -> null
+                    }
+                } else {
+                    current.appFocusTarget
+                }
+            current.copy(focusGeneration = generation, homeTabActivation = false, appFocusTarget = target)
+        }
+        val returnTarget =
+            when (state.value.appFocusTarget) {
+                is LauncherAppFocusTarget.Content -> "media"
+                is LauncherAppFocusTarget.App -> "app"
+                is LauncherAppFocusTarget.Header -> "header"
+                is LauncherAppFocusTarget.HomeContent -> "home"
+                null -> "none"
+            }
+        Log.i("Launcher", "stage=focus-return event=resumed external=$externalReturn target=$returnTarget")
         media.refresh(manual = externalReturn)
         viewModelScope.launch { refreshApps() }
     }
@@ -172,6 +202,15 @@ internal class LauncherViewModel(
 
     fun rememberInvoker(key: String) {
         _state.update { it.copy(homeInvoker = key, homeTabActivation = false) }
+        val kind =
+            if (key.startsWith("row:")) {
+                "media"
+            } else if (key.startsWith("apps:")) {
+                "app"
+            } else {
+                "header"
+            }
+        Log.i("Launcher", "stage=focus-return event=invoker-recorded kind=$kind")
     }
 
     fun selectTab(
@@ -180,6 +219,7 @@ internal class LauncherViewModel(
     ) {
         tabRestorationEligible = false
         val previousTab = _state.value.selectedTab
+        Log.i("Launcher", "stage=tab-selection event=requested changed=${previousTab != tab} enterContent=$enterContent")
         _state.update {
             it.copy(
                 route = LauncherRoute.Home,

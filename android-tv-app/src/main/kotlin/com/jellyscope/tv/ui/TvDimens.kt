@@ -103,7 +103,7 @@ object TvDimens {
     val drawerLabelGap = 14.dp
     val drawerContentStartPadding = 20.dp
     val drawerVerticalPadding = 16.dp
-    val heroHeight = 200.dp
+    val heroHeight = com.jellyscope.hero.HeroGeometry.minimumContentZoneHeight
 
     // Home consumes its overscan top inset before the 200dp hero. Library heroes
     // start at the physical top so they include that inset in their own height.

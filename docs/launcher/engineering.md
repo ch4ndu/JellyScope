@@ -117,7 +117,9 @@ quiet scaling/outline for app tiles over the centralized Dusk plum-to-coral grad
 The cinematic hero uses shared Android rendering on both tabs. Media focus
 settles for 220 ms before selecting cached title, metadata and overview; Select
 still opens Details. Home limits title/overview to one/two lines; Jellyfin uses
-two/three. Both retain one metadata line. Ribbons overlap the lower backdrop.
+two/three. Both retain one metadata line. A shared minimum 200dp hero zone sits
+above a clipped shelf viewport; ribbons overlap only the lower backdrop and
+cannot scroll across hero copy. The zone expands for larger copy requirements.
 Apps focus uses Dusk without changing the content viewport. Apps remain reachable
 by D-pad while faded. One measured-row scroll owner aligns focused rows; trailing
 space permits alignment with short content. Header focus preserves selection,
@@ -137,7 +139,13 @@ retains the preceding tint until an explicit clear. Optional bounded card metada
 remains compatible with snapshot version 2.
 
 Jellyfin Back moves content focus to its tab, then switches to Home. Closing
-Settings restores its invoker; external details/player return preserves tab/item.
+Settings restores its invoker. External Details return requests the recorded
+media key once, ahead of incidental header focus; newer Home/reset or modal
+requests take precedence. Missing items use the remembered row/index fallback.
+Media ribbons share `CenteredLazyRibbon` with TV: native Left/Right traversal,
+center-pivot scrolling and a restoration handoff. Offscreen targets are revealed
+before attachment fulfills focus; new D-pad input cancels stale pending work.
+Apps keep their separate reorder and launch behavior.
 The TV receiver opens media links as standalone typed details, with root Back
 finishing its Activity; the [TV media-link contract](../engineering/tv-ux-behaviors.md)
 owns lookup, loading, nested navigation and lifecycle behavior.

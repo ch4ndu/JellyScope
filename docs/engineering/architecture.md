@@ -425,7 +425,8 @@ Core exposes transport through API and both tvOS frameworks export it; the
 narrow iOS facade keeps no exports.
 
 `ui-focus-scroll` is a project-dependency-free KMP leaf owning shared focus scroll
-specifications and vertical timing. Foundation re-exports it; Android launcher and
+specifications, vertical timing, and the centered lazy media ribbon with its
+restoration-aware reveal helper. Foundation re-exports it; Android launcher and
 TV consume it directly. `android-hero-ui` is an Android leaf with no project
 dependencies, sharing backdrop, gradient, crossfade and palette rendering between
 those apps. Image loading, authenticated requests and session ownership stay in

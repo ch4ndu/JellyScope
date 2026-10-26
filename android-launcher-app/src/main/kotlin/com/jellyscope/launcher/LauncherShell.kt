@@ -2,6 +2,7 @@
 
 package com.jellyscope.launcher
 
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -28,7 +29,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -90,6 +93,9 @@ internal fun LauncherShell(
     val jellyfinFocus =
         rememberSaveable(state.boundaryKey, state.homeResetGeneration, saver = LauncherFocus.saver) { LauncherFocus() }
     val homeFocus = if (state.selectedTab == LauncherTab.Essentials) essentialsFocus else jellyfinFocus
+    DisposableEffect(homeFocus) {
+        onDispose { homeFocus.clearPending() }
+    }
     val homePages = rememberSaveableStateHolder()
     val pageScope = "${state.boundaryKey}:${state.homeResetGeneration}:"
     // Keep ordinary recreation/route returns, but drop both pages on a boundary or Home reset.
@@ -101,17 +107,33 @@ internal fun LauncherShell(
         }
     }
     val suppressed = state.backgroundSuppressed
-    headerFocus.enabled = !suppressed
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    headerFocus.enabled = !suppressed && windowFocused
     listOf(essentialsFocus, jellyfinFocus).forEach {
-        it.enabled = !suppressed
+        it.enabled = !suppressed && windowFocused
         it.bindHeader(headerFocus, launcherHeaderKeys)
     }
-    val contentKeys = state.homeContentKeys(state.selectedTab)
-    val appKeys = state.apps.catalog.map { "apps:${it.componentKey}" }
+    val contentKeys =
+        remember(
+            state.selectedTab,
+            state.apps.catalog,
+            state.media,
+            state.restoring,
+            state.busy,
+            state.cleanupPending,
+            state.signedIn,
+        ) {
+            state.homeContentKeys(state.selectedTab)
+        }
+    val appKeys = remember(state.apps.catalog) { state.apps.catalog.map { "apps:${it.componentKey}" } }
+    val mediaFocused by remember(homeFocus) { derivedStateOf { homeFocus.current?.startsWith("row:") == true } }
+    val appsFocused by remember(homeFocus) {
+        derivedStateOf { !homeFocus.parentFocused && homeFocus.current?.startsWith("apps:") == true }
+    }
     val belowApps =
         state.route == LauncherRoute.Home &&
             state.selectedTab == LauncherTab.Essentials &&
-            homeFocus.current?.startsWith("row:") == true
+            mediaFocused
     val jellyfinHome = state.route == LauncherRoute.Home && state.selectedTab == LauncherTab.Jellyfin
     val selectedHomeRoot = state.route == LauncherRoute.Home && !jellyfinHome && !belowApps && isDefaultHome
     val moving = state.appEdit is LauncherAppEdit.Moving
@@ -125,6 +147,8 @@ internal fun LauncherShell(
                         selectedHomeRoot
                 ),
     ) {
+        Log.i("Launcher", "stage=home-back event=handled header=${homeFocus.parentFocused}")
+        homeFocus.clearPending()
         if (moving) {
             model.finishMoving()
         } else if (jellyfinHome) {
@@ -154,7 +178,7 @@ internal fun LauncherShell(
                 state,
                 heroTarget,
                 currentImages,
-                appsFocused = !homeFocus.parentFocused && homeFocus.current?.startsWith("apps:") == true,
+                appsFocused = appsFocused,
                 modifier = Modifier.matchParentSize(),
             )
             Column(Modifier.fillMaxSize()) {
@@ -165,9 +189,24 @@ internal fun LauncherShell(
                     model,
                     model::selectTab,
                     { model.openSettings(account = true) },
-                    systemSettings,
+                    {
+                        model.rememberInvoker("settings")
+                        systemSettings()
+                    },
                 )
-                Box(Modifier.weight(1f).fillMaxWidth().launcherFocusScope(homeFocus) { contentKeys }) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .onPreviewKeyEvent {
+                            if (it.type == KeyEventType.KeyDown &&
+                                it.key in listOf(Key.DirectionLeft, Key.DirectionRight, Key.DirectionUp, Key.DirectionDown)
+                            ) {
+                                homeFocus.clearPending()
+                            }
+                            false
+                        }.launcherFocusScope(homeFocus) { contentKeys },
+                ) {
                     LauncherHomeScreen(
                         state,
                         homeFocus,
@@ -269,6 +308,9 @@ private fun LauncherHeader(
     systemSettings: () -> Unit,
 ) {
     val controls = LauncherTab.entries.map { it.focusKey } + listOf("header-account", "settings")
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    // Window restoration is not navigation intent. Only fresh D-pad input arms tab dwell.
+    var dwellAllowed by remember(windowFocused, state.backgroundSuppressed, state.focusGeneration) { mutableStateOf(false) }
     Row(
         Modifier
             .fillMaxWidth()
@@ -286,6 +328,8 @@ private fun LauncherHeader(
                 } else if (state.appEdit is LauncherAppEdit.Moving) {
                     true
                 } else if (it.key == Key.DirectionDown) {
+                    dwellAllowed = true
+                    content.clearPending()
                     val tab = LauncherTab.entries.firstOrNull { tab -> tab.focusKey == focus.current }
                     if (tab != null) {
                         val available = state.homeContentKeys(tab).isNotEmpty()
@@ -300,6 +344,8 @@ private fun LauncherHeader(
                     }
                     true
                 } else {
+                    dwellAllowed = true
+                    content.clearPending()
                     val index = controls.indexOf(focus.current).coerceAtLeast(0)
                     val destination =
                         when (it.key) {
@@ -323,6 +369,7 @@ private fun LauncherHeader(
                 model,
                 tab = tab,
                 active = state.selectedTab == tab,
+                dwellAllowed = dwellAllowed,
             ) { selectTab(tab, false) }
         }
         Spacer(Modifier.weight(1f))
@@ -358,12 +405,17 @@ private fun LauncherHeaderControl(
     active: Boolean = false,
     tab: LauncherTab? = null,
     icon: Int? = null,
+    dwellAllowed: Boolean = false,
     click: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     var entryEpoch by remember { mutableStateOf<Triple<Int, Int, Boolean>?>(null) }
+    val windowInfo = LocalWindowInfo.current
+    val windowFocused = windowInfo.isWindowFocused
     LaunchedEffect(
         focused,
+        windowFocused,
+        dwellAllowed,
         state.focusGeneration,
         state.appEditEpoch,
         state.route,
@@ -373,8 +425,13 @@ private fun LauncherHeaderControl(
         state.restoring,
         state.backgroundSuppressed,
     ) {
+        if (!windowFocused) {
+            entryEpoch = null
+            return@LaunchedEffect
+        }
         val epoch = entryEpoch
-        if (focused &&
+        if (dwellAllowed &&
+            focused &&
             tab != null &&
             !active &&
             !state.backgroundSuppressed &&
@@ -385,7 +442,9 @@ private fun LauncherHeaderControl(
         ) {
             delay(LauncherStyle.TAB_DWELL_MILLIS)
             val latest = model.state.value
-            if (focus.hasFocus &&
+            if (windowInfo.isWindowFocused &&
+                focus.enabled &&
+                focus.hasFocus &&
                 focus.current == target &&
                 !latest.backgroundSuppressed &&
                 latest.dialog == null &&
@@ -404,7 +463,11 @@ private fun LauncherHeaderControl(
             .onFocusChanged {
                 if (it.isFocused && !focused) {
                     entryEpoch =
-                        if (state.appFocusTarget == null) Triple(state.focusGeneration, state.appEditEpoch, state.restoring) else null
+                        if (windowInfo.isWindowFocused && model.state.value.appFocusTarget == null) {
+                            Triple(state.focusGeneration, state.appEditEpoch, state.restoring)
+                        } else {
+                            null
+                        }
                 }
                 if (!it.isFocused) entryEpoch = null
                 focused = it.isFocused

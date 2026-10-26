@@ -63,12 +63,21 @@ internal fun rememberLauncherHeroTarget(
 ): LauncherHeroTarget? {
     val enabled = state.preferences.heroEnabled == true && state.signedIn && state.boundaryKey != null
     var selected by remember(state.boundaryKey, state.selectedTab, state.homeResetGeneration, enabled) { mutableStateOf<String?>(null) }
-    val rows = state.homeRows
+    val rows = remember(state.media.rows, state.selectedTab, state.signedIn) { state.homeRows }
 
-    fun target(key: String?): LauncherHeroTarget? =
-        rows.firstNotNullOfOrNull { row ->
-            row.cards.firstOrNull { "${row.focusKey}:${it.id}" == key }?.let { LauncherHeroTarget(row.focusKey, it) }
+    val targets =
+        remember(rows) {
+            buildMap {
+                rows.forEach { row ->
+                    row.cards.forEach { card ->
+                        val target = LauncherHeroTarget(row.focusKey, card)
+                        put(target.key, target)
+                    }
+                }
+            }
         }
+
+    fun target(key: String?): LauncherHeroTarget? = key?.let(targets::get)
     val current = focus.current
     val frozen = state.backgroundSuppressed || !LocalWindowInfo.current.isWindowFocused
     val appsFocused = !frozen && !focus.parentFocused && current?.startsWith("apps:") == true
@@ -121,12 +130,13 @@ internal fun LauncherHero(
         LaunchedEffect(target != null, fading) {
             if (target != null || fading) {
                 visible.animateTo(if (target != null) 1f else 0f, tween(LauncherStyle.HERO_CONTENT_FADE_MILLIS))
+                if (target == null) retained = null
             } else {
                 visible.snapTo(0f)
                 retained = null
             }
         }
-        val scene = target ?: retainedValid.takeIf { fading && visible.value > 0f }
+        val scene = target ?: retainedValid.takeIf { fading }
         if (scene != null) {
             LauncherHeroScene(
                 scene,

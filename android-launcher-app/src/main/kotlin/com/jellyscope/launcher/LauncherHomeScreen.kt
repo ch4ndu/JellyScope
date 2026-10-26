@@ -2,6 +2,7 @@
 
 package com.jellyscope.launcher
 
+import android.util.Log
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -15,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +25,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -36,9 +40,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -63,8 +69,12 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import com.jellyscope.ui.focus.CenteredLazyRibbon
+import com.jellyscope.ui.focus.rememberCenterPivotBringIntoViewSpec
 import com.jellyscope.ui.focus.rememberNoAutoScrollSpec
+import com.jellyscope.ui.focus.scrollToCenteredItem
 import com.jellyscope.ui.focus.verticalScrollDurationMs
+import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -84,25 +94,36 @@ internal fun LauncherHomeScreen(
     modifier: Modifier = Modifier,
 ) {
     val showApps = state.selectedTab == LauncherTab.Essentials
-    val appKeys = if (showApps) state.apps.catalog.map { "apps:${it.componentKey}" } else emptyList()
-    val rows = state.homeRows
-    val mediaRows = rows.filter { it.cards.isNotEmpty() }
-    val actionKeys = state.homeActions(state.selectedTab)
-    val rowKeys =
-        (if (appKeys.isNotEmpty()) listOf("apps") else emptyList()) + mediaRows.map { it.focusKey } +
-            if (actionKeys.isNotEmpty()) listOf("jellyfin-actions") else emptyList()
-    val ids =
-        buildMap {
-            if (showApps) put("apps", appKeys)
-            mediaRows.forEach { row -> put(row.focusKey, row.cards.map { "${row.focusKey}:${it.id}" }) }
-            if (actionKeys.isNotEmpty()) put("jellyfin-actions", actionKeys)
+    val appKeys =
+        remember(showApps, state.apps.catalog) {
+            if (showApps) state.apps.catalog.map { "apps:${it.componentKey}" } else emptyList()
         }
-    val allKeys = ids.values.flatten()
+    val rows = remember(state.media.rows, state.selectedTab, state.signedIn) { state.homeRows }
+    val mediaRows = remember(rows) { rows.filter { it.cards.isNotEmpty() } }
+    val actionKeys =
+        remember(rows, state.selectedTab, state.restoring, state.cleanupPending, state.signedIn, state.busy) {
+            state.homeActions(state.selectedTab)
+        }
+    val rowKeys =
+        remember(appKeys, mediaRows, actionKeys) {
+            (if (appKeys.isNotEmpty()) listOf("apps") else emptyList()) + mediaRows.map { it.focusKey } +
+                if (actionKeys.isNotEmpty()) listOf("jellyfin-actions") else emptyList()
+        }
+    val ids =
+        remember(showApps, appKeys, mediaRows, actionKeys) {
+            buildMap {
+                if (showApps) put("apps", appKeys)
+                mediaRows.forEach { row -> put(row.focusKey, row.cards.map { "${row.focusKey}:${it.id}" }) }
+                if (actionKeys.isNotEmpty()) put("jellyfin-actions", actionKeys)
+            }
+        }
+    val allKeys = remember(ids) { ids.values.flatten() }
     val moving = state.appEdit as? LauncherAppEdit.Moving
     val modal = state.backgroundSuppressed
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     val request = state.appFocusTarget
     val horizontalSpec = LocalBringIntoViewSpec.current
+    val mediaHorizontalSpec = rememberCenterPivotBringIntoViewSpec()
     val noAutoScrollSpec = rememberNoAutoScrollSpec()
     val cinematic = state.preferences.heroEnabled == true && state.signedIn && state.boundaryKey != null && mediaRows.isNotEmpty()
     val heroHeight = launcherHeroHeight(state.selectedTab)
@@ -118,6 +139,12 @@ internal fun LauncherHomeScreen(
     // effect and replace a request whose tile is still waiting to attach.
     LaunchedEffect(state.focusGeneration, focus, modal, state.apps.loaded, windowFocused) {
         if (!modal && windowFocused) {
+            // Consume invalidation only when we can apply its semantic fallback.
+            // This precedes ordinary header restoration after window re-entry.
+            if (request == null && !state.homeTabActivation && focus.retainPending(allKeys) != null) {
+                focus.request(fallback() ?: state.selectedTab.focusKey)
+                return@LaunchedEffect
+            }
             if (request == null && focus.awaitingTarget(allKeys)) {
                 focus.retryPending()
                 return@LaunchedEffect
@@ -129,6 +156,7 @@ internal fun LauncherHomeScreen(
                             ?: focus.rowTarget("apps", appKeys)
                     is LauncherAppFocusTarget.HomeContent -> if (request.appsOnly) focus.rowTarget("apps", appKeys) else fallback()
                     is LauncherAppFocusTarget.Header -> request.key
+                    is LauncherAppFocusTarget.Content -> request.key.takeIf { it in allKeys } ?: fallback()
                     null ->
                         if (state.homeTabActivation) {
                             state.selectedTab.focusKey
@@ -139,6 +167,9 @@ internal fun LauncherHomeScreen(
                                 ?: fallback()
                         }
                 }
+            if (request is LauncherAppFocusTarget.Content) {
+                Log.i("Launcher", "stage=focus-return event=dispatch exact=${target == request.key} window=$windowFocused")
+            }
             focus.request(target ?: state.selectedTab.focusKey)
             if (request !is LauncherAppFocusTarget.HomeContent || !request.appsOnly || state.apps.loaded) {
                 request?.let(model::appFocusHandled)
@@ -146,9 +177,14 @@ internal fun LauncherHomeScreen(
         }
     }
     // Content removal also rescues focus using the previous semantic index.
-    LaunchedEffect(allKeys, focus, modal, windowFocused) {
-        if (!modal && windowFocused && request == null && !focus.awaitingTarget(allKeys) && !state.homeTabActivation && removedFocus) {
-            focus.request(fallback() ?: state.selectedTab.focusKey)
+    LaunchedEffect(allKeys, focus, modal, windowFocused, state.focusGeneration) {
+        if (modal) {
+            focus.clearPending()
+        } else if (windowFocused && request == null && !state.homeTabActivation) {
+            val invalidatedPending = focus.retainPending(allKeys)
+            if (invalidatedPending != null || (!focus.awaitingTarget(allKeys) && removedFocus)) {
+                focus.request(fallback() ?: state.selectedTab.focusKey)
+            }
         }
     }
     LaunchedEffect(rowKeys, focus, modal) {
@@ -168,6 +204,7 @@ internal fun LauncherHomeScreen(
         key: Key,
     ): Boolean {
         if (modal) return false
+        if (row != "apps" && (key == Key.DirectionLeft || key == Key.DirectionRight)) return false
         val keys = ids[row].orEmpty()
         val rowIndex = rowKeys.indexOf(row)
         val target =
@@ -194,8 +231,8 @@ internal fun LauncherHomeScreen(
         val rowPositions = remember { mutableStateMapOf<String, Pair<Int, Int>>() }
         var viewportHeight by remember { mutableStateOf(0) }
         var viewportTop by remember { mutableStateOf(0f) }
-        val heroBottom = with(density) { heroHeight.roundToPx() }
         val focusedRow = rowKeys.firstOrNull { key -> focus.current in ids[key].orEmpty() }
+        val contentHasFocus = focus.hasFocus && !focus.parentFocused
         var mediaOwnsHero by remember { mutableStateOf(false) }
         LaunchedEffect(focusedRow, cinematic, modal, windowFocused) {
             if (!cinematic) {
@@ -213,13 +250,13 @@ internal fun LauncherHomeScreen(
         val selectedPosition = focusedRow?.let { rowPositions[it]?.first }
         val lastRow = rows.lastOrNull()?.focusKey
         val lastHeight = lastRow?.let { rowPositions[it]?.second } ?: 0
-        val trailing = if (cinematic && lastHeight > 0) (viewportHeight - heroBottom - lastHeight).coerceAtLeast(0) else 0
+        val trailing = if (cinematic && lastHeight > 0) (viewportHeight - lastHeight).coerceAtLeast(0) else 0
         // Dwell and decoded artwork never schedule a second scroll movement.
         LaunchedEffect(
             focusedRow,
+            contentHasFocus,
             selectedPosition,
             cinematic,
-            heroBottom,
             viewportHeight,
             lastHeight,
             scroll.maxValue,
@@ -227,7 +264,7 @@ internal fun LauncherHomeScreen(
             windowFocused,
         ) {
             if (!cinematic || modal || !windowFocused || !focus.hasFocus || focus.parentFocused) return@LaunchedEffect
-            val destination = if (focusedRow == "apps") 0 else selectedPosition?.minus(heroBottom) ?: return@LaunchedEffect
+            val destination = if (focusedRow == "apps") 0 else selectedPosition ?: return@LaunchedEffect
             // Wait for the measured trailing fill before beginning the one alignment.
             if (viewportHeight == 0 ||
                 lastHeight == 0 ||
@@ -241,294 +278,334 @@ internal fun LauncherHomeScreen(
                 scroll.animateScrollTo(clamped, tween(verticalScrollDurationMs((clamped - scroll.value).toFloat(), density.density)))
             }
         }
-        CompositionLocalProvider(LocalBringIntoViewSpec provides if (cinematic) noAutoScrollSpec else horizontalSpec) {
+        val appsContent: @Composable () -> Unit = {
             Column(
-                modifier
-                    .fillMaxWidth()
-                    .onSizeChanged { viewportHeight = it.height }
-                    .onGloballyPositioned { viewportTop = it.positionInRoot().y }
-                    .verticalScroll(scroll)
-                    .padding(top = LauncherStyle.contentTop),
+                Modifier
+                    .graphicsLayer { alpha = appsAlpha }
+                    .then(
+                        if (appsHidden) {
+                            Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent(
+                                            androidx.compose.ui.input.pointer.PointerEventPass.Initial,
+                                        ).changes.forEach { it.consume() }
+                                    }
+                                }
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
                 verticalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
             ) {
-                if (cinematic && !showApps) {
-                    // Padding and the following gap complete the hero-bottom reservation.
-                    Spacer(Modifier.height((heroHeight - LauncherStyle.contentTop - LauncherStyle.appGap).coerceAtLeast(0.dp)))
-                }
-                if (showApps) {
-                    Column(
-                        Modifier
-                            .graphicsLayer { alpha = appsAlpha }
-                            .then(
-                                if (appsHidden) {
-                                    Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
-                                        awaitPointerEventScope {
-                                            while (true) {
-                                                awaitPointerEvent(
-                                                    androidx.compose.ui.input.pointer.PointerEventPass.Initial,
-                                                ).changes.forEach { it.consume() }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    Modifier
-                                },
-                            ),
-                        verticalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
-                    ) {
-                        Text(
-                            stringResource(R.string.apps),
-                            Modifier.padding(horizontal = LauncherStyle.inset),
-                            style = LauncherStyle.section,
-                        )
-                        CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalSpec) {
-                            Row(
-                                Modifier
-                                    .horizontalScroll(
-                                        rememberScrollState(),
-                                    ).padding(horizontal = LauncherStyle.inset, vertical = LauncherStyle.appRowPadding)
-                                    .focusGroup(),
-                                horizontalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
-                            ) {
-                                state.apps.catalog.forEachIndexed { index, app ->
-                                    key(app.componentKey) {
-                                        LauncherAppTile(
-                                            app,
-                                            app.label,
-                                            focus,
-                                            appKeys[index],
-                                            index,
-                                            state.appEditEpoch,
-                                            clickLabel = stringResource(if (moving != null) R.string.finish_move else R.string.open_app),
-                                            onFocused = {
-                                                if (!modal) {
-                                                    onContentEntry()
-                                                    focus.rememberRow("apps", appKeys[index], index)
-                                                }
-                                            },
-                                            direction = {
-                                                if (moving != null) {
-                                                    when (it) {
-                                                        Key.DirectionLeft -> {
-                                                            model.moveApp(-1)
-                                                            true
-                                                        }
-                                                        Key.DirectionRight -> {
-                                                            model.moveApp(1)
-                                                            true
-                                                        }
-                                                        Key.DirectionUp, Key.DirectionDown -> true
-                                                        else -> false
-                                                    }
-                                                } else {
-                                                    direction("apps", index, it)
-                                                }
-                                            },
-                                            onClick = { if (moving != null) model.finishMoving() else onApp(app.componentKey) },
-                                            onLongClick =
-                                                if (moving == null) {
-                                                    { anchor -> model.showAppMenu(app.componentKey, anchor) }
-                                                } else {
-                                                    null
-                                                },
-                                            moving = moving?.componentKey == app.componentKey,
-                                            selected = (state.appEdit as? LauncherAppEdit.Menu)?.target?.componentKey == app.componentKey,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (moving !=
-                            null
-                        ) {
-                            Text(
-                                stringResource(R.string.moving_app, state.editedApp?.label.orEmpty()),
-                                Modifier.padding(horizontal = LauncherStyle.inset),
-                                color = LauncherStyle.text,
-                                style = LauncherStyle.body,
-                            )
-                            Text(
-                                stringResource(if (state.orderWriting) R.string.saving_app_order else R.string.move_instructions),
-                                Modifier.padding(horizontal = LauncherStyle.inset),
-                                color = LauncherStyle.muted,
-                                style = LauncherStyle.body,
-                            )
-                        }
-                        if (state.orderWriting && moving == null) {
-                            Text(
-                                stringResource(R.string.saving_app_order),
-                                Modifier.padding(horizontal = LauncherStyle.inset),
-                                style = LauncherStyle.body,
-                            )
-                        }
-                        if (state.apps.loaded && state.apps.catalog.isEmpty()) {
-                            Text(
-                                stringResource(R.string.apps_empty),
-                                Modifier.padding(horizontal = LauncherStyle.inset),
-                                style = LauncherStyle.body,
-                            )
-                        }
-                        if (!state.apps.durable) {
-                            Text(
-                                stringResource(R.string.app_order_unsaved),
-                                Modifier.padding(horizontal = LauncherStyle.inset),
-                                style = LauncherStyle.body,
-                            )
-                        }
-                    }
-                }
-                if (!showApps && mediaRows.isEmpty()) {
-                    val title =
-                        when {
-                            state.restoring -> R.string.restoring
-                            state.cleanupPending -> R.string.connection_cleanup_title
-                            !state.signedIn && state.busy -> R.string.connection_busy
-                            !state.signedIn -> R.string.connect_jellyfin
-                            state.media.refreshing -> R.string.loading
-                            else -> R.string.jellyfin_empty_title
-                        }
-                    val description =
-                        when {
-                            state.restoring -> null
-                            state.cleanupPending -> R.string.cleanup_failed_message
-                            !state.signedIn && state.busy -> R.string.connection_busy_message
-                            !state.signedIn -> R.string.connect_jellyfin_message
-                            rows.any { it.status == LauncherRowStatus.Failed || it.status == LauncherRowStatus.Denied } ->
-                                R.string.jellyfin_load_failed
-                            else -> R.string.jellyfin_empty_message
-                        }
-                    Text(stringResource(title), Modifier.padding(horizontal = LauncherStyle.inset), style = LauncherStyle.heading)
-                    description?.let {
-                        Text(
-                            stringResource(it),
-                            Modifier.padding(horizontal = LauncherStyle.inset),
-                            color = LauncherStyle.muted,
-                        )
-                    }
+                Text(
+                    stringResource(R.string.apps),
+                    Modifier.padding(horizontal = LauncherStyle.inset),
+                    style = LauncherStyle.section,
+                )
+                CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalSpec) {
                     Row(
-                        Modifier.padding(horizontal = LauncherStyle.inset),
+                        Modifier
+                            .horizontalScroll(
+                                rememberScrollState(),
+                            ).padding(horizontal = LauncherStyle.inset, vertical = LauncherStyle.appRowPadding)
+                            .focusGroup(),
                         horizontalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
                     ) {
-                        actionKeys.forEachIndexed { index, target ->
-                            Button(
-                                onClick = {
-                                    focus.request(target)
-                                    when (target) {
-                                        JELLYFIN_CONNECT -> onConnect()
-                                        JELLYFIN_REFRESH -> onRefresh()
-                                        else -> onSettings()
-                                    }
-                                },
-                                modifier =
-                                    Modifier
-                                        .launcherFocus(focus, target) {
-                                            if (!modal) {
-                                                onContentEntry()
-                                                focus.rememberRow("jellyfin-actions", target, index)
+                        state.apps.catalog.forEachIndexed { index, app ->
+                            key(app.componentKey) {
+                                LauncherAppTile(
+                                    app,
+                                    app.label,
+                                    focus,
+                                    appKeys[index],
+                                    index,
+                                    state.appEditEpoch,
+                                    clickLabel = stringResource(if (moving != null) R.string.finish_move else R.string.open_app),
+                                    onFocused = {
+                                        if (!modal) {
+                                            onContentEntry()
+                                            focus.rememberRow("apps", appKeys[index], index)
+                                        }
+                                    },
+                                    direction = {
+                                        if (moving != null) {
+                                            when (it) {
+                                                Key.DirectionLeft -> {
+                                                    model.moveApp(-1)
+                                                    true
+                                                }
+                                                Key.DirectionRight -> {
+                                                    model.moveApp(1)
+                                                    true
+                                                }
+                                                Key.DirectionUp, Key.DirectionDown -> true
+                                                else -> false
                                             }
-                                        }.onPreviewKeyEvent {
-                                            it.type == KeyEventType.KeyDown && direction("jellyfin-actions", index, it.key)
+                                        } else {
+                                            direction("apps", index, it)
+                                        }
+                                    },
+                                    onClick = { if (moving != null) model.finishMoving() else onApp(app.componentKey) },
+                                    onLongClick =
+                                        if (moving == null) {
+                                            { anchor -> model.showAppMenu(app.componentKey, anchor) }
+                                        } else {
+                                            null
                                         },
-                            ) {
-                                Text(
-                                    stringResource(
-                                        when (target) {
-                                            JELLYFIN_CONNECT -> R.string.connect_server
-                                            JELLYFIN_REFRESH -> R.string.refresh
-                                            else -> R.string.launcher_settings
-                                        },
-                                    ),
+                                    moving = moving?.componentKey == app.componentKey,
+                                    selected = (state.appEdit as? LauncherAppEdit.Menu)?.target?.componentKey == app.componentKey,
                                 )
                             }
                         }
                     }
                 }
-                (if (!showApps && mediaRows.isEmpty()) emptyList() else rows).forEach { row ->
-                    key(row.focusKey) {
-                        Column(
-                            Modifier.onGloballyPositioned {
-                                rowPositions[row.focusKey] =
-                                    (it.positionInRoot().y - viewportTop + scroll.value).roundToInt() to it.size.height
-                            },
-                            verticalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
+                if (moving !=
+                    null
+                ) {
+                    Text(
+                        stringResource(R.string.moving_app, state.editedApp?.label.orEmpty()),
+                        Modifier.padding(horizontal = LauncherStyle.inset),
+                        color = LauncherStyle.text,
+                        style = LauncherStyle.body,
+                    )
+                    Text(
+                        stringResource(if (state.orderWriting) R.string.saving_app_order else R.string.move_instructions),
+                        Modifier.padding(horizontal = LauncherStyle.inset),
+                        color = LauncherStyle.muted,
+                        style = LauncherStyle.body,
+                    )
+                }
+                if (state.orderWriting && moving == null) {
+                    Text(
+                        stringResource(R.string.saving_app_order),
+                        Modifier.padding(horizontal = LauncherStyle.inset),
+                        style = LauncherStyle.body,
+                    )
+                }
+                if (state.apps.loaded && state.apps.catalog.isEmpty()) {
+                    Text(
+                        stringResource(R.string.apps_empty),
+                        Modifier.padding(horizontal = LauncherStyle.inset),
+                        style = LauncherStyle.body,
+                    )
+                }
+                if (!state.apps.durable) {
+                    Text(
+                        stringResource(R.string.app_order_unsaved),
+                        Modifier.padding(horizontal = LauncherStyle.inset),
+                        style = LauncherStyle.body,
+                    )
+                }
+            }
+        }
+        Column(modifier.fillMaxWidth()) {
+            if (cinematic) {
+                Box(Modifier.fillMaxWidth().height(heroHeight).clipToBounds()) {
+                    if (showApps) {
+                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = LauncherStyle.contentTop)) {
+                            appsContent()
+                        }
+                    }
+                }
+            }
+            CompositionLocalProvider(LocalBringIntoViewSpec provides if (cinematic) noAutoScrollSpec else horizontalSpec) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clipToBounds()
+                        .onSizeChanged { if (viewportHeight != it.height) viewportHeight = it.height }
+                        .onGloballyPositioned {
+                            val top = it.positionInRoot().y
+                            if (viewportTop != top) viewportTop = top
+                        }.verticalScroll(scroll)
+                        .padding(top = if (cinematic) 0.dp else LauncherStyle.contentTop),
+                    verticalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
+                ) {
+                    if (!cinematic && showApps) appsContent()
+                    if (!showApps && mediaRows.isEmpty()) {
+                        val title =
+                            when {
+                                state.restoring -> R.string.restoring
+                                state.cleanupPending -> R.string.connection_cleanup_title
+                                !state.signedIn && state.busy -> R.string.connection_busy
+                                !state.signedIn -> R.string.connect_jellyfin
+                                state.media.refreshing -> R.string.loading
+                                else -> R.string.jellyfin_empty_title
+                            }
+                        val description =
+                            when {
+                                state.restoring -> null
+                                state.cleanupPending -> R.string.cleanup_failed_message
+                                !state.signedIn && state.busy -> R.string.connection_busy_message
+                                !state.signedIn -> R.string.connect_jellyfin_message
+                                rows.any { it.status == LauncherRowStatus.Failed || it.status == LauncherRowStatus.Denied } ->
+                                    R.string.jellyfin_load_failed
+                                else -> R.string.jellyfin_empty_message
+                            }
+                        Text(stringResource(title), Modifier.padding(horizontal = LauncherStyle.inset), style = LauncherStyle.heading)
+                        description?.let {
+                            Text(
+                                stringResource(it),
+                                Modifier.padding(horizontal = LauncherStyle.inset),
+                                color = LauncherStyle.muted,
+                            )
+                        }
+                        Row(
+                            Modifier.padding(horizontal = LauncherStyle.inset),
+                            horizontalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
                         ) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = LauncherStyle.inset),
-                                horizontalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
-                            ) {
-                                Text(
-                                    row.localTitleResource?.let { stringResource(it) } ?: row.layout.title,
-                                    style = MaterialTheme.typography.titleLarge,
-                                )
-                                row.status.statusResource()?.let {
-                                    Text(stringResource(it), style = MaterialTheme.typography.bodyMedium)
+                            actionKeys.forEachIndexed { index, target ->
+                                Button(
+                                    onClick = {
+                                        focus.request(target)
+                                        when (target) {
+                                            JELLYFIN_CONNECT -> onConnect()
+                                            JELLYFIN_REFRESH -> onRefresh()
+                                            else -> onSettings()
+                                        }
+                                    },
+                                    modifier =
+                                        Modifier
+                                            .launcherFocus(focus, target) {
+                                                if (!modal) {
+                                                    onContentEntry()
+                                                    focus.rememberRow("jellyfin-actions", target, index)
+                                                }
+                                            }.onPreviewKeyEvent {
+                                                it.type == KeyEventType.KeyDown && direction("jellyfin-actions", index, it.key)
+                                            },
+                                ) {
+                                    Text(
+                                        stringResource(
+                                            when (target) {
+                                                JELLYFIN_CONNECT -> R.string.connect_server
+                                                JELLYFIN_REFRESH -> R.string.refresh
+                                                else -> R.string.launcher_settings
+                                            },
+                                        ),
+                                    )
                                 }
                             }
-                            if (row.cards.isEmpty()) {
-                                Text(
-                                    stringResource(if (row.status == LauncherRowStatus.Loading) R.string.loading else R.string.no_items),
-                                    Modifier.padding(horizontal = LauncherStyle.inset),
-                                )
-                            }
-                            CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalSpec) {
+                        }
+                    }
+                    (if (!showApps && mediaRows.isEmpty()) emptyList() else rows).forEach { row ->
+                        key(row.focusKey) {
+                            val semanticRowIndex = mediaRows.indexOfFirst { it.id == row.id }
+                            Column(
+                                Modifier.onGloballyPositioned {
+                                    val position = (it.positionInRoot().y - viewportTop + scroll.value).roundToInt() to it.size.height
+                                    if (rowPositions[row.focusKey] != position) rowPositions[row.focusKey] = position
+                                },
+                                verticalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
+                            ) {
                                 Row(
-                                    Modifier
-                                        .horizontalScroll(
-                                            rememberScrollState(),
-                                        ).padding(horizontal = LauncherStyle.inset, vertical = LauncherStyle.appRowPadding)
-                                        .focusGroup(),
+                                    Modifier.fillMaxWidth().padding(horizontal = LauncherStyle.inset),
+                                    horizontalArrangement = Arrangement.spacedBy(LauncherStyle.appGap),
+                                ) {
+                                    Text(
+                                        row.localTitleResource?.let { stringResource(it) } ?: row.layout.title,
+                                        style = MaterialTheme.typography.titleLarge,
+                                    )
+                                    row.status.statusResource()?.let {
+                                        Text(stringResource(it), style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                                if (row.cards.isEmpty()) {
+                                    Text(
+                                        stringResource(
+                                            if (row.status ==
+                                                LauncherRowStatus.Loading
+                                            ) {
+                                                R.string.loading
+                                            } else {
+                                                R.string.no_items
+                                            },
+                                        ),
+                                        Modifier.padding(horizontal = LauncherStyle.inset),
+                                    )
+                                }
+                                val ribbonState = rememberLazyListState()
+                                val ribbonKeys = ids[row.focusKey].orEmpty()
+                                val pending = focus.pendingIn(ribbonKeys)
+                                var handoff by remember { mutableStateOf(false) }
+                                LaunchedEffect(pending, modal, windowFocused, focus, ribbonKeys) {
+                                    val target = pending ?: return@LaunchedEffect
+                                    if (modal || !windowFocused) return@LaunchedEffect
+                                    val index = ribbonKeys.indexOf(target)
+                                    if (index < 0) return@LaunchedEffect
+                                    handoff = true
+                                    try {
+                                        ribbonState.scrollToCenteredItem(index)
+                                        focus.retryPending()
+                                        snapshotFlow { focus.pendingIn(ribbonKeys) }.first { it != target }
+                                    } finally {
+                                        handoff = false
+                                    }
+                                }
+                                CenteredLazyRibbon(
+                                    state = ribbonState,
+                                    delegate = mediaHorizontalSpec,
+                                    restorationHandoff = handoff || pending != null,
+                                    modifier = Modifier.focusGroup(),
+                                    contentPadding =
+                                        PaddingValues(
+                                            horizontal = LauncherStyle.inset,
+                                            vertical = LauncherStyle.appRowPadding,
+                                        ),
                                     horizontalArrangement = Arrangement.spacedBy(LauncherStyle.mediaGap),
                                 ) {
-                                    row.cards.forEachIndexed { index, card ->
+                                    itemsIndexed(
+                                        items = row.cards,
+                                        key = { _, card -> "${row.focusKey}:${card.id}" },
+                                        contentType = { _, _ -> row.layout.aspect },
+                                    ) { index, card ->
                                         val target = "${row.focusKey}:${card.id}"
-                                        key(target) {
-                                            LauncherTile(
-                                                card.title,
-                                                focus,
-                                                target,
-                                                {
-                                                    if (!modal) {
-                                                        onContentEntry()
-                                                        focus.rememberRow(
-                                                            row.focusKey,
-                                                            target,
-                                                            index,
-                                                            mediaRows.indexOfFirst {
-                                                                it.id ==
-                                                                    row.id
-                                                            },
-                                                        )
-                                                    }
-                                                },
-                                                { direction(row.focusKey, index, it) },
-                                                { onMedia(target, card.id) },
-                                                row.layout.aspect,
-                                            ) {
-                                                val context = LocalContext.current
-                                                val request =
-                                                    remember(
-                                                        images,
-                                                        card,
-                                                        row.layout.aspect,
-                                                    ) { images?.request(context, card, row.layout.aspect) }
-                                                if (request != null && images != null) {
-                                                    AsyncImage(
-                                                        request,
-                                                        null,
-                                                        images.loader,
-                                                        Modifier.fillMaxSize(),
-                                                        contentScale = ContentScale.Crop,
+                                        LauncherTile(
+                                            card.title,
+                                            focus,
+                                            target,
+                                            {
+                                                if (!modal) {
+                                                    onContentEntry()
+                                                    focus.rememberRow(
+                                                        row.focusKey,
+                                                        target,
+                                                        index,
+                                                        semanticRowIndex,
                                                     )
                                                 }
-                                                card.progress?.let { progress ->
-                                                    Box(
-                                                        Modifier
-                                                            .align(Alignment.BottomStart)
-                                                            .fillMaxWidth(progress)
-                                                            .height(LauncherStyle.mediaProgressHeight)
-                                                            .background(MaterialTheme.colorScheme.primary),
-                                                    )
-                                                }
+                                            },
+                                            { direction(row.focusKey, index, it) },
+                                            { onMedia(target, card.id) },
+                                            row.layout.aspect,
+                                        ) {
+                                            val context = LocalContext.current
+                                            val request =
+                                                remember(
+                                                    images,
+                                                    card,
+                                                    row.layout.aspect,
+                                                ) { images?.request(context, card, row.layout.aspect) }
+                                            if (request != null && images != null) {
+                                                AsyncImage(
+                                                    request,
+                                                    null,
+                                                    images.loader,
+                                                    Modifier.fillMaxSize(),
+                                                    contentScale = ContentScale.Crop,
+                                                )
+                                            }
+                                            card.progress?.let { progress ->
+                                                Box(
+                                                    Modifier
+                                                        .align(Alignment.BottomStart)
+                                                        .fillMaxWidth(progress)
+                                                        .height(LauncherStyle.mediaProgressHeight)
+                                                        .background(MaterialTheme.colorScheme.primary),
+                                                )
                                             }
                                         }
                                     }
@@ -536,8 +613,8 @@ internal fun LauncherHomeScreen(
                             }
                         }
                     }
+                    if (trailing > 0) Spacer(Modifier.height(with(density) { trailing.toDp() }))
                 }
-                if (trailing > 0) Spacer(Modifier.height(with(density) { trailing.toDp() }))
             }
         }
     }

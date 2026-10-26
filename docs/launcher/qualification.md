@@ -334,3 +334,35 @@ timing/smoothness, short-list final-row alignment, large-font clipping, forced
 palette failure, account-switch clearing, TV Collection and Recommended remain
 unverified. Injected Home reached the stock launcher; this does not requalify
 the separately confirmed physical-remote helper. Private captures stay local.
+
+
+## Shared ribbons, hero visibility and return focus — 2026-10-26
+
+The launcher and TV Home now consume the same centered lazy-ribbon component.
+Both Release APKs installed in place on the TiVo Stream 4K, retaining accounts.
+Later launcher-only focus repairs were rebuilt and installed on that device.
+With the second and third Jellyfin ribbons focused, settled captures showed
+hero title, metadata and overview unobstructed; ribbons overlap only the lower
+artwork. Nine Right presses reached and centered a movie beyond the initial
+visible tiles.
+
+The first device pass caught incorrect Details-return focus; the next caught a
+restored tile below the viewport. After window-owned focus/tab dwell and an
+actual-content-focus key for vertical alignment were added, the same second-row,
+tenth-movie Details/Back sequence restored the exact focused tile, horizontal
+center and fully visible ribbon. Account-panel dismissal returned focus to its
+header icon. The gear opened Android system settings and regained focus on Back.
+No account, system setting or default-Home selection was changed.
+
+Host verification passed both apps' release lint and APK assembly, affected
+ktlint checks, detail JVM tests, the existing TV Home focus-restoration test and
+the shared UI iOS simulator framework link. Launcher-only repairs passed focused
+formatting, lint and Release assembly; unchanged shared/TV evidence was retained.
+Independent final source verification approved the final correction.
+
+These are bounded ADB D-pad and settled-screen observations, not measured remote
+latency or recomposition counts. Forced process death, concurrent removal of the
+selected item, large-font geometry, TV loading/View All runtime paths and all
+lifecycle orderings were not qualified in this pass. Private device captures
+remain local. This result supersedes the Details-return focus gap in the prior
+polish entry for the observed path.

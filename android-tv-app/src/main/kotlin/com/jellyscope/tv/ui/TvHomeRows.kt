@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.BringIntoViewSpec
-import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,12 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,7 +44,8 @@ import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
 import com.jellyscope.tv.ui.focus.tvFocusScope
 import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.MediaCardUi
-import com.jellyscope.ui.focus.rememberRestoreAwareBringIntoViewSpec
+import com.jellyscope.ui.focus.CenteredLazyRibbon
+import com.jellyscope.ui.focus.scrollToCenteredItem
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.home.HomeRow
 import com.jellyscope.ui.screen.home.RowState
@@ -167,11 +165,6 @@ internal fun TvHomeRow(
                 var bridgeFinished by remember { mutableStateOf(false) }
                 val showLoadingTile = isLoading || (bridgeOnArrival && !bridgeFinished)
                 val restoreRequest = rowFocusScope.restoreRequest()
-                val restoreAwareSpec =
-                    rememberRestoreAwareBringIntoViewSpec(
-                        horizontalBringIntoViewSpec,
-                        rowFocusScope.restoreHandoffActive,
-                    )
                 LaunchedEffect(bridgeOnArrival) {
                     if (bridgeOnArrival && !bridgeFinished) {
                         withFrameNanos { }
@@ -206,116 +199,107 @@ internal fun TvHomeRow(
                         semanticKeys = semanticKeys,
                         lazySlotIndex = { semanticIndex -> homeLazySlotIndex(semanticIndex, showLoadingTile) },
                         revealCentered = { lazyIndex ->
-                            lazyRowState.scrollToItem(lazyIndex)
-                            val info = lazyRowState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == lazyIndex }
-                            if (info != null) {
-                                val viewportCenter =
-                                    (
-                                        lazyRowState.layoutInfo.viewportStartOffset +
-                                            lazyRowState.layoutInfo.viewportEndOffset
-                                    ) / 2
-                                lazyRowState.scrollToItem(lazyIndex, -(viewportCenter - info.size / 2))
-                            }
+                            lazyRowState.scrollToCenteredItem(lazyIndex)
                         },
                     )
                 }
                 // Preserve horizontal auto-scroll inside the ribbon.
-                CompositionLocalProvider(LocalBringIntoViewSpec provides restoreAwareSpec) {
-                    LazyRow(
-                        // Restore each ribbon's last card, falling back to its first real card.
-                        modifier =
-                            if (hasContent) {
-                                Modifier.tvFocusScope(rowFocusScope) {
-                                    buildList {
-                                        lazyRowState.layoutInfo.visibleItemsInfo.forEach { info ->
-                                            contentItems.getOrNull(info.index)?.let { item -> add("item:${item.id}") }
-                                        }
-                                        firstCardKey?.let(::add)
+                CenteredLazyRibbon(
+                    delegate = horizontalBringIntoViewSpec,
+                    restorationHandoff = rowFocusScope.restoreHandoffActive,
+                    // Restore each ribbon's last card, falling back to its first real card.
+                    modifier =
+                        if (hasContent) {
+                            Modifier.tvFocusScope(rowFocusScope) {
+                                buildList {
+                                    lazyRowState.layoutInfo.visibleItemsInfo.forEach { info ->
+                                        contentItems.getOrNull(info.index)?.let { item -> add("item:${item.id}") }
                                     }
+                                    firstCardKey?.let(::add)
                                 }
-                            } else {
-                                Modifier
-                            },
-                        state = lazyRowState,
-                        horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
-                        contentPadding =
-                            PaddingValues(
-                                start = contentStartPadding + TvDimens.ribbonStartPeek,
-                                end = TvDimens.ribbonEndPeek + TvDimens.overscanHorizontal,
-                                top = TvDimens.ribbonContentTopPadding,
-                                bottom = TvDimens.ribbonContentBottomPadding,
-                            ),
-                    ) {
-                        if (showLoadingTile) {
-                            item(
-                                key = "loading-slot",
-                                contentType = if (row.wide) "loading-wide" else "loading-poster",
-                            ) {
-                                TvLoadingPlaceholderCard(
-                                    wide = row.wide,
-                                    // During the bridge, the first card receives focus.
-                                    restoreFocus = focusTarget != null && !hasContent,
-                                    focusRequestTick = if (hasContent) 0 else focusFirstSlotTick,
-                                    focusRequester = loadingRequester,
-                                    onFocused = onLoadingPlaceholderFocused,
-                                )
                             }
-                        }
-                        // Capture the indexed position outside focus callbacks.
-                        itemsIndexed(
-                            items = contentItems,
-                            key = { _, item -> item.id },
-                            contentType = { _, _ -> if (row.wide) "media-card-wide" else "media-card-poster" },
-                        ) { index, item ->
-                            val itemKey = "item:${item.id}"
-                            val itemRequester =
-                                if (itemKey == firstCardKey) {
-                                    firstCardRequester
-                                } else {
-                                    rowFocusScope.rememberChildRequester(itemKey)
-                                }
-                            val onItemClick = remember(item, onItemSelected) { { onItemSelected(item) } }
-                            val onItemPlay = remember(item, onItemPlayDirect) { { onItemPlayDirect(item) } }
-                            val onItemPosterLoad =
-                                remember(item.id, onPosterLoaded) {
-                                    { bitmap: Bitmap ->
-                                        onPosterLoaded(item.id, bitmap)
-                                    }
-                                }
-                            TvMediaCard(
-                                session = session,
-                                item = item,
+                        } else {
+                            Modifier
+                        },
+                    state = lazyRowState,
+                    horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
+                    contentPadding =
+                        PaddingValues(
+                            start = contentStartPadding + TvDimens.ribbonStartPeek,
+                            end = TvDimens.ribbonEndPeek + TvDimens.overscanHorizontal,
+                            top = TvDimens.ribbonContentTopPadding,
+                            bottom = TvDimens.ribbonContentBottomPadding,
+                        ),
+                ) {
+                    if (showLoadingTile) {
+                        item(
+                            key = "loading-slot",
+                            contentType = if (row.wide) "loading-wide" else "loading-poster",
+                        ) {
+                            TvLoadingPlaceholderCard(
                                 wide = row.wide,
-                                focusRequester = itemRequester,
-                                onFocused = {
-                                    rowFocusScope.onChildFocused(itemKey, TvFocusTargetKind.Item, index)
-                                    onFocusedItem(item)
-                                },
-                                onPosterLoaded = onItemPosterLoad,
-                                onClick = onItemClick,
-                                onPlayDirect = onItemPlay,
+                                // During the bridge, the first card receives focus.
+                                restoreFocus = focusTarget != null && !hasContent,
+                                focusRequestTick = if (hasContent) 0 else focusFirstSlotTick,
+                                focusRequester = loadingRequester,
+                                onFocused = onLoadingPlaceholderFocused,
                             )
                         }
-                        if (hasContent) {
-                            item(
-                                key = "view-all",
-                                contentType = if (row.wide) "view-all-wide" else "view-all-poster",
-                            ) {
-                                TvViewAllCard(
-                                    wide = row.wide,
-                                    restoreFocus = focusTarget is TvHomeFocusTarget.ViewAll,
-                                    focusRequester = viewAllRequester,
-                                    onFocused = {
-                                        rowFocusScope.onChildFocused(
-                                            "slot:view-all",
-                                            TvFocusTargetKind.ViewAll,
-                                            contentItems.size,
-                                        )
-                                        onViewAllFocused()
-                                    },
-                                    onClick = onViewAllSelected,
-                                )
+                    }
+                    // Capture the indexed position outside focus callbacks.
+                    itemsIndexed(
+                        items = contentItems,
+                        key = { _, item -> item.id },
+                        contentType = { _, _ -> if (row.wide) "media-card-wide" else "media-card-poster" },
+                    ) { index, item ->
+                        val itemKey = "item:${item.id}"
+                        val itemRequester =
+                            if (itemKey == firstCardKey) {
+                                firstCardRequester
+                            } else {
+                                rowFocusScope.rememberChildRequester(itemKey)
                             }
+                        val onItemClick = remember(item, onItemSelected) { { onItemSelected(item) } }
+                        val onItemPlay = remember(item, onItemPlayDirect) { { onItemPlayDirect(item) } }
+                        val onItemPosterLoad =
+                            remember(item.id, onPosterLoaded) {
+                                { bitmap: Bitmap ->
+                                    onPosterLoaded(item.id, bitmap)
+                                }
+                            }
+                        TvMediaCard(
+                            session = session,
+                            item = item,
+                            wide = row.wide,
+                            focusRequester = itemRequester,
+                            onFocused = {
+                                rowFocusScope.onChildFocused(itemKey, TvFocusTargetKind.Item, index)
+                                onFocusedItem(item)
+                            },
+                            onPosterLoaded = onItemPosterLoad,
+                            onClick = onItemClick,
+                            onPlayDirect = onItemPlay,
+                        )
+                    }
+                    if (hasContent) {
+                        item(
+                            key = "view-all",
+                            contentType = if (row.wide) "view-all-wide" else "view-all-poster",
+                        ) {
+                            TvViewAllCard(
+                                wide = row.wide,
+                                restoreFocus = focusTarget is TvHomeFocusTarget.ViewAll,
+                                focusRequester = viewAllRequester,
+                                onFocused = {
+                                    rowFocusScope.onChildFocused(
+                                        "slot:view-all",
+                                        TvFocusTargetKind.ViewAll,
+                                        contentItems.size,
+                                    )
+                                    onViewAllFocused()
+                                },
+                                onClick = onViewAllSelected,
+                            )
                         }
                     }
                 }

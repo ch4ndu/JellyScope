@@ -134,6 +134,11 @@ internal sealed interface LauncherAppFocusTarget {
         val appsOnly: Boolean = false,
     ) : LauncherAppFocusTarget
 
+    data class Content(
+        val key: String,
+        override val generation: Int,
+    ) : LauncherAppFocusTarget
+
     data class Header(
         val key: String,
         override val generation: Int,

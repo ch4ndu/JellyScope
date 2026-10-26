@@ -81,7 +81,9 @@ internal object LauncherStyle {
 
 @Composable
 internal fun launcherHeroHeight(tab: LauncherTab) =
-    ((if (tab == LauncherTab.Essentials) 112f else 160f) * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
+    ((if (tab == LauncherTab.Essentials) 112f else 160f) * LocalDensity.current.fontScale.coerceAtLeast(1f))
+        .dp
+        .coerceAtLeast(com.jellyscope.hero.HeroGeometry.minimumContentZoneHeight)
 
 @Composable
 internal fun LauncherTheme(content: @Composable () -> Unit) {

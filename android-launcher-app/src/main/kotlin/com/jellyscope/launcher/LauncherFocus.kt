@@ -2,6 +2,7 @@
 
 package com.jellyscope.launcher
 
+import android.util.Log
 import androidx.compose.foundation.focusGroup
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -16,11 +17,12 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalWindowInfo
 
 /** Attached controls only; a rejected request remains pending until attachment. */
 internal class LauncherFocus {
     private val attached = mutableMapOf<String, FocusRequester>()
-    private var pending: String? = null
+    private var pending by mutableStateOf<String?>(null)
     private var focusedKey by mutableStateOf<String?>(null)
     private var remembered by mutableStateOf<String?>(null)
     private var header: LauncherFocus? = null
@@ -46,7 +48,19 @@ internal class LauncherFocus {
 
     fun isParentTarget(key: String?): Boolean = key != null && key in headerKeys
 
-    fun awaitingTarget(keys: List<String>): Boolean = pending?.let { it in keys } == true
+    fun pendingIn(keys: List<String>): String? = pending?.takeIf { it in keys }
+
+    fun awaitingTarget(keys: List<String>): Boolean = pendingIn(keys) != null
+
+    fun clearPending() {
+        pending = null
+    }
+
+    fun retainPending(keys: List<String>): String? {
+        val removed = pending?.takeIf { it !in keys } ?: return null
+        clearPending()
+        return removed
+    }
 
     fun retryPending() {
         pending?.let(::attempt)
@@ -60,15 +74,16 @@ internal class LauncherFocus {
             return
         }
         pending = key
+        Log.i("Launcher", "stage=focus-handoff event=requested attached=${attached.containsKey(key)}")
         attempt(key)
     }
 
     fun requestEntry(fallbackKeys: List<String>): Boolean {
         if (!enabled) return false
         val candidates = (listOfNotNull(pending, remembered).filter { it in fallbackKeys } + fallbackKeys).distinct()
-        val accepted = candidates.any { key -> runCatching { attached[key]?.requestFocus() ?: false }.getOrDefault(false) }
-        if (accepted) pending = null
-        return accepted
+        val accepted = candidates.firstOrNull { key -> runCatching { attached[key]?.requestFocus() ?: false }.getOrDefault(false) }
+        if (accepted != null && accepted == pending) pending = null
+        return accepted != null
     }
 
     fun enter(): Boolean = enabled && runCatching { entryRequester.requestFocus() }.getOrDefault(false) && hasFocus
@@ -101,7 +116,7 @@ internal class LauncherFocus {
         key: String,
         requester: FocusRequester,
     ) {
-        attached[key] = requester
+        if (attached[key] !== requester) attached[key] = requester
         attempt(key)
     }
 
@@ -124,7 +139,10 @@ internal class LauncherFocus {
     fun focused(key: String) {
         focusedKey = key
         remembered = key
-        if (pending == key) pending = null
+        if (pending == key) {
+            pending = null
+            Log.i("Launcher", "stage=focus-handoff event=applied")
+        }
     }
 
     private fun attempt(key: String) {
@@ -183,13 +201,14 @@ internal fun Modifier.launcherFocus(
     onFocused: () -> Unit = {},
 ): Modifier =
     composed {
+        val windowInfo = LocalWindowInfo.current
         val requester = remember(focus, key) { FocusRequester() }
         DisposableEffect(focus, key) { onDispose { focus.detach(key) } }
         focusProperties { if (!focus.enabled) canFocus = false }
             .focusRequester(requester)
             .onGloballyPositioned { focus.attach(key, requester) }
             .onFocusChanged {
-                if (it.isFocused) {
+                if (it.isFocused && windowInfo.isWindowFocused) {
                     focus.focused(key)
                     onFocused()
                 } else {
