@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,19 +34,17 @@ internal object LauncherStyle {
     val inset = 48.dp
     val headerHeight = 68.dp
     val contentTop = 24.dp
-    val heroHeight = 200.dp
     val heroBackdropHeight = 334.dp
     const val HERO_BACKDROP_WIDTH = 0.62f
     const val HERO_TITLE_WIDTH = 0.61f
     const val HERO_CONTENT_WIDTH = 0.52f
-    val heroContentTop = 16.dp
-    val heroContentGap = 6.dp
+    val heroContentTop = 8.dp
+    val heroContentGap = 4.dp
     const val HERO_SETTLE_MILLIS = 220L
-    const val HERO_IMAGE_FADE_MILLIS = 650
-    const val HERO_CONTENT_FADE_MILLIS = 600
+    const val HERO_IMAGE_FADE_MILLIS = com.jellyscope.hero.HeroTiming.ARTWORK_MILLIS
+    const val HERO_CONTENT_FADE_MILLIS = com.jellyscope.hero.HeroTiming.CONTENT_MILLIS
     const val HERO_MAX_WIDTH = 1280
     const val HERO_MAX_HEIGHT = 720
-    const val HERO_PALETTE_SIZE = 96
     val headerIcon = 24.dp
     val headerControl = 40.dp
     val headerGap = 24.dp
@@ -79,6 +78,10 @@ internal object LauncherStyle {
     val label = TextStyle(fontSize = 14.sp, lineHeight = 18.sp)
     val body = TextStyle(fontSize = 14.sp, lineHeight = 20.sp)
 }
+
+@Composable
+internal fun launcherHeroHeight(tab: LauncherTab) =
+    ((if (tab == LauncherTab.Essentials) 112f else 160f) * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
 
 @Composable
 internal fun LauncherTheme(content: @Composable () -> Unit) {

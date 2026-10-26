@@ -2,8 +2,6 @@
 
 package com.jellyscope.launcher
 
-import android.graphics.Bitmap
-import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -17,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -26,34 +25,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.core.graphics.ColorUtils
-import androidx.palette.graphics.Palette
 import androidx.tv.material3.Text
 import coil3.request.ErrorResult
 import coil3.request.SuccessResult
 import coil3.toBitmap
+import com.jellyscope.hero.HeroAmbientBackground
+import com.jellyscope.hero.HeroAmbientPresentation
+import com.jellyscope.hero.HeroBackdrop
+import com.jellyscope.hero.HeroContentCrossfade
+import com.jellyscope.hero.extractHeroAmbientColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.roundToInt
 
 internal data class LauncherHeroTarget(
     val rowKey: String,
@@ -108,21 +102,47 @@ internal fun LauncherHero(
     state: LauncherUiState,
     target: LauncherHeroTarget?,
     images: LauncherImageScope?,
+    appsFocused: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    if (target == null || state.preferences.heroEnabled != true || state.boundaryKey == null) return
+    if (state.preferences.heroEnabled != true || !state.signedIn || state.boundaryKey == null) return
     val activeImages = images?.takeIf { it.isActive }
     val active = !state.backgroundSuppressed && LocalWindowInfo.current.isWindowFocused
     // Replacement disposes both layers before an old account/scope can paint again.
     key(state.boundaryKey, state.selectedTab, state.homeResetGeneration, activeImages) {
-        LauncherHeroScene(target, activeImages, active, modifier)
+        var retained by remember { mutableStateOf<LauncherHeroTarget?>(null) }
+        SideEffect { if (target != null) retained = target }
+        val retainedValid =
+            retained?.takeIf { saved ->
+                state.homeRows.any { row -> row.focusKey == saved.rowKey && row.cards.any { it.id == saved.card.id } }
+            }
+        val fading = target == null && appsFocused && retainedValid != null
+        val visible = remember { Animatable(if (target == null) 0f else 1f) }
+        LaunchedEffect(target != null, fading) {
+            if (target != null || fading) {
+                visible.animateTo(if (target != null) 1f else 0f, tween(LauncherStyle.HERO_CONTENT_FADE_MILLIS))
+            } else {
+                visible.snapTo(0f)
+                retained = null
+            }
+        }
+        val scene = target ?: retainedValid.takeIf { fading && visible.value > 0f }
+        if (scene != null) {
+            LauncherHeroScene(
+                scene,
+                activeImages,
+                active && !fading,
+                state.selectedTab,
+                modifier.graphicsLayer { alpha = visible.value },
+            )
+        }
     }
 }
 
 private data class HeroArtwork(
     val owner: Any,
     val bitmap: ImageBitmap?,
-    val tint: Color,
+    val tint: Color?,
     val text: HeroText,
 )
 
@@ -137,6 +157,7 @@ private fun LauncherHeroScene(
     target: LauncherHeroTarget,
     images: LauncherImageScope?,
     active: Boolean,
+    tab: LauncherTab,
     modifier: Modifier,
 ) {
     val context = LocalContext.current
@@ -147,17 +168,6 @@ private fun LauncherHeroScene(
     val latestText = rememberUpdatedState(requestedText)
     var loadGeneration by remember { mutableStateOf(0L) }
     var artwork by remember { mutableStateOf<HeroArtwork?>(null) }
-    var previousArtwork by remember { mutableStateOf<HeroArtwork?>(null) }
-    var gradientFrom by remember { mutableStateOf(Color.Transparent) }
-    var transition by remember { mutableStateOf(0L) }
-    var startedTransition by remember { mutableStateOf(0L) }
-    val imageAlpha = remember { Animatable(1f) }
-    val gradientAlpha = remember { Animatable(1f) }
-    val textAlpha = remember { Animatable(1f) }
-    val imageProgress = if (startedTransition == transition) imageAlpha.value else 0f
-    val gradientProgress = if (startedTransition == transition) gradientAlpha.value else 0f
-    val textProgress = if (startedTransition == transition) textAlpha.value else 0f
-    val tint = lerp(gradientFrom, artwork?.tint ?: Color.Transparent, gradientProgress)
 
     LaunchedEffect(owner, active) {
         if (!active || artwork?.owner === owner) return@LaunchedEffect
@@ -177,7 +187,7 @@ private fun LauncherHeroScene(
                             }
                         bitmap = decoded.asImageBitmap()
                         try {
-                            color = withContext(heroPaletteDispatcher) { heroAmbientColor(decoded) }
+                            color = withContext(heroPaletteDispatcher) { extractHeroAmbientColor(decoded) }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
@@ -197,34 +207,7 @@ private fun LauncherHeroScene(
         }
         // Keep the displayed owner intact while loading. Publish the new copy
         // with its terminal artwork, using metadata refreshed during the request.
-        val progress = if (startedTransition == transition) imageAlpha.value else 0f
-        val gradient = if (startedTransition == transition) gradientAlpha.value else 0f
-        gradientFrom = lerp(gradientFrom, artwork?.tint ?: Color.Transparent, gradient)
-        previousArtwork = if (progress < 0.5f) previousArtwork ?: artwork else artwork ?: previousArtwork
-        artwork =
-            HeroArtwork(
-                owner,
-                bitmap,
-                color?.let { lerp(LauncherStyle.backgroundEnd, it, 0.55f).copy(alpha = 0.9f) } ?: Color.Transparent,
-                latestText.value,
-            )
-        transition += 1
-    }
-    LaunchedEffect(transition, active) {
-        if (!active || artwork == null) return@LaunchedEffect
-        val generation = transition
-        if (startedTransition != generation) {
-            imageAlpha.snapTo(0f)
-            gradientAlpha.snapTo(0f)
-            textAlpha.snapTo(0f)
-            startedTransition = generation
-        }
-        coroutineScope {
-            launch { imageAlpha.animateTo(1f, tween(LauncherStyle.HERO_IMAGE_FADE_MILLIS)) }
-            launch { gradientAlpha.animateTo(1f, tween(LauncherStyle.HERO_CONTENT_FADE_MILLIS)) }
-            launch { textAlpha.animateTo(1f, tween(LauncherStyle.HERO_CONTENT_FADE_MILLIS)) }
-        }
-        if (transition == generation) previousArtwork = null
+        artwork = HeroArtwork(owner, bitmap, color, latestText.value)
     }
 
     LaunchedEffect(owner, requestedText, active) {
@@ -233,76 +216,64 @@ private fun LauncherHeroScene(
         val updatedText = latestText.value
         if (displayed.text != updatedText) artwork = displayed.copy(text = updatedText)
     }
-    Box(modifier) {
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(tint, Color.Transparent))))
-        Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .fillMaxWidth(LauncherStyle.HERO_BACKDROP_WIDTH)
-                .height(LauncherStyle.heroBackdropHeight)
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithCache {
-                    // Same physical-edge masks as TvHomeHero.
-                    val horizontal = Brush.horizontalGradient(0f to Color.Transparent, 0.45f to Color.Black)
-                    val vertical = Brush.verticalGradient(0f to Color.Black, 0.78f to Color.Black, 1f to Color.Transparent)
-                    onDrawWithContent {
-                        drawContent()
-                        drawRect(horizontal, blendMode = BlendMode.DstIn)
-                        drawRect(vertical, blendMode = BlendMode.DstIn)
-                    }
-                },
-        ) {
-            previousArtwork?.bitmap?.let { HeroImage(it, 1f - imageProgress) }
-            artwork?.bitmap?.let { HeroImage(it, imageProgress) }
+    Box(
+        modifier.HeroAmbientBackground(
+            HeroAmbientPresentation(artwork?.owner, artwork?.tint),
+            navy = LauncherStyle.backgroundEnd,
+            gradientBottom = LauncherStyle.backgroundEnd,
+            fallbackBrush = null,
+            overlay = true,
+        ),
+    ) {
+        HeroBackdrop(
+            target = artwork,
+            assetKey = artwork?.owner,
+            navy = LauncherStyle.backgroundEnd,
+            modifier =
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .fillMaxWidth(LauncherStyle.HERO_BACKDROP_WIDTH)
+                    .height(LauncherStyle.heroBackdropHeight),
+        ) { layer ->
+            layer?.bitmap?.let {
+                Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
         }
-        previousArtwork?.let { HeroCopy(it.text, 1f - textProgress, Modifier.clearAndSetSemantics {}) }
-        artwork?.let { HeroCopy(it.text, textProgress) }
-    }
-}
-
-@Composable
-private fun HeroImage(
-    bitmap: ImageBitmap,
-    alpha: Float,
-) {
-    Box(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }) {
-        Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        // Readability remains behind the compact copy and overlapping ribbons.
         Box(
             Modifier.matchParentSize().background(
-                Brush.horizontalGradient(
-                    listOf(
-                        LauncherStyle.backgroundEnd.copy(alpha = 0.55f),
-                        LauncherStyle.backgroundEnd.copy(alpha = 0.2f),
-                        Color.Transparent,
-                    ),
+                Brush.verticalGradient(
+                    listOf(Color.Transparent, LauncherStyle.backgroundEnd.copy(alpha = 0.3f), LauncherStyle.backgroundEnd),
                 ),
             ),
         )
+        HeroContentCrossfade(target = artwork, assetKey = artwork?.owner) { layer ->
+            layer?.let { HeroCopy(it.text, tab) }
+        }
     }
 }
 
 @Composable
 private fun HeroCopy(
     text: HeroText,
-    alpha: Float,
+    tab: LauncherTab,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier
             .fillMaxWidth()
             .padding(top = LauncherStyle.headerHeight)
-            .height(LauncherStyle.heroHeight)
+            .height(launcherHeroHeight(tab))
             .clipToBounds()
             .padding(horizontal = LauncherStyle.inset)
-            .padding(top = LauncherStyle.heroContentTop)
-            .graphicsLayer { this.alpha = alpha },
+            .padding(top = LauncherStyle.heroContentTop),
         verticalArrangement = Arrangement.spacedBy(LauncherStyle.heroContentGap),
     ) {
         Text(
             text.title,
             Modifier.fillMaxWidth(LauncherStyle.HERO_TITLE_WIDTH),
             style = LauncherStyle.heroTitle,
-            maxLines = 2,
+            maxLines = if (tab == LauncherTab.Essentials) 1 else 2,
             overflow = TextOverflow.Ellipsis,
         )
         Column(
@@ -313,7 +284,20 @@ private fun HeroCopy(
                 Text(text.metadata, style = LauncherStyle.body, color = LauncherStyle.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (text.overview.isNotEmpty()) {
-                Text(text.overview, style = LauncherStyle.body, color = LauncherStyle.muted, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(
+                    text.overview,
+                    style = LauncherStyle.body,
+                    color = LauncherStyle.muted,
+                    maxLines =
+                        if (tab ==
+                            LauncherTab.Essentials
+                        ) {
+                            2
+                        } else {
+                            3
+                        },
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -335,37 +319,3 @@ private fun LauncherCard.heroMetadata(): String {
 }
 
 private val heroPaletteDispatcher = Dispatchers.Default.limitedParallelism(1)
-
-/** Adapted from AmbientColorController's swatch order and HSL normalization. */
-private fun heroAmbientColor(bitmap: Bitmap): Color? {
-    val software =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bitmap.config == Bitmap.Config.HARDWARE) {
-            bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return null
-        } else {
-            bitmap
-        }
-    var sample: Bitmap? = null
-    try {
-        val scale = minOf(1f, LauncherStyle.HERO_PALETTE_SIZE.toFloat() / maxOf(software.width, software.height))
-        val resized =
-            Bitmap.createScaledBitmap(
-                software,
-                (software.width * scale).roundToInt().coerceAtLeast(1),
-                (software.height * scale).roundToInt().coerceAtLeast(1),
-                true,
-            )
-        sample = resized
-        val palette = Palette.from(resized).generate()
-        val swatch =
-            palette.vibrantSwatch ?: palette.darkVibrantSwatch ?: palette.dominantSwatch ?: palette.mutedSwatch ?: palette.darkMutedSwatch
-        val hsl = FloatArray(3)
-        ColorUtils.colorToHSL(swatch?.rgb ?: return null, hsl)
-        if (hsl[1] >= 0.08f) hsl[1] = hsl[1].coerceAtLeast(0.45f)
-        hsl[2] = hsl[2].coerceIn(0.16f, 0.30f)
-        return Color(ColorUtils.HSLToColor(hsl))
-    } finally {
-        // Only our downsample/software copies are owned here; Coil's bitmap is retained.
-        sample?.takeIf { it !== software }?.recycle()
-        if (software !== bitmap) software.recycle()
-    }
-}

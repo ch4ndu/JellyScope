@@ -41,6 +41,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            api(project(":ui-focus-scroll"))
             api(project(":shared-core"))
             api(compose.runtime)
             implementation(compose.components.resources)

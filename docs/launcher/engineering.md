@@ -114,12 +114,14 @@ restoring with no action stays on the tab. Right from Jellyfin traverses account
 then gear; content Up returns to its tab. Focus uses text/underlines for tabs and
 quiet scaling/outline for app tiles over the centralized Dusk plum-to-coral gradient.
 
-The cinematic hero is a launcher-local presentation on both tabs. Media focus
+The cinematic hero uses shared Android rendering on both tabs. Media focus
 settles for 220 ms before selecting cached title, metadata and overview; Select
-still opens Details. Apps focus returns to compact Dusk. Header focus preserves
-selection, modals suspend updates, and tab/Home/account boundaries discard it.
-Rows retain their keys and tile dimensions; after the hero changes viewport height,
-the focused tile is revealed again through the existing scroller after measurement.
+still opens Details. Home limits title/overview to one/two lines; Jellyfin uses
+two/three. Both retain one metadata line. Ribbons overlap the lower backdrop.
+Apps focus uses Dusk without changing the content viewport. Apps remain reachable
+by D-pad while faded. One measured-row scroll owner aligns focused rows; trailing
+space permits alignment with short content. Header focus preserves selection,
+modals suspend updates, and tab/Home/account boundaries discard it.
 
 Jellyfin account → Launcher preferences offers **Show cinematic hero**, default on.
 Its device-wide preference survives sign-out. Unknown/loading preference state
@@ -127,9 +129,12 @@ suppresses artwork; IO commits precede publication, and write failure retains th
 published value with an error. Disabling removes hero imagery on both tabs.
 Backdrop requests use the existing account-scoped authenticated loader and bounded
 1280×720 decode. Off-main palette extraction reuses that bitmap and the TV swatch
-selection/normalization rules. Artwork and text/gradient transitions use 650/600 ms,
-retain at most two displayed layers, and reject stale owners; missing artwork uses
-Dusk. Optional bounded card metadata remains compatible with snapshot version 2.
+selection/normalization rules. The `android-hero-ui` leaf supplies both Android apps with backdrop masks, palette
+normalization and crossfades: artwork 650 ms, copy 600 ms, gradient 1200 ms. Transitions
+retain at most two displayed layers and reject stale owners. A fresh scene with
+no tint exposes Dusk; an unresolved or failed palette within the current scene
+retains the preceding tint until an explicit clear. Optional bounded card metadata
+remains compatible with snapshot version 2.
 
 Jellyfin Back moves content focus to its tab, then switches to Home. Closing
 Settings restores its invoker; external details/player return preserves tab/item.
@@ -172,7 +177,9 @@ UI. The existing cancellation fence invalidates the attempt and joins the old jo
 a login commit that already won remains authoritative. Account actions can remain
 briefly busy while that fence finishes; Apps and System settings stay accessible.
 
-Settings offers **Choose default Home app** through Android's standard selector.
+Settings offers **Choose default Home app** in a centered opaque dialog with
+current status, Cancel and **Open Android Home settings**. The latter launches
+Android's external selector, whose appearance is controlled by firmware.
 Return restores the settings button's focus and rechecks the default using public
 intent resolution with exact component equality. Resolver/unknown/error results
 show conservative not-selected status. Missing/blocked selectors produce a focused

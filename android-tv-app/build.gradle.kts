@@ -247,6 +247,8 @@ tasks.register("verifyDevServerLiteralEscaping") {
 }
 
 dependencies {
+    implementation(project(":ui-focus-scroll"))
+    implementation(project(":android-hero-ui"))
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     // Keep the project-owned mpv module direct and before shared-core so the
     // app's coexistence rule resolves its audited NDK-29 libc++ runtime.

@@ -24,7 +24,9 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -148,7 +150,13 @@ internal fun LauncherShell(
                 .then(if (suppressed) Modifier.clearAndSetSemantics {} else Modifier)
                 .onPreviewKeyEvent { suppressed || it.isRepeatedLauncherActivation },
         ) {
-            LauncherHero(state, heroTarget, currentImages, Modifier.matchParentSize())
+            LauncherHero(
+                state,
+                heroTarget,
+                currentImages,
+                appsFocused = !homeFocus.parentFocused && homeFocus.current?.startsWith("apps:") == true,
+                modifier = Modifier.matchParentSize(),
+            )
             Column(Modifier.fillMaxSize()) {
                 LauncherHeader(
                     state,
@@ -165,7 +173,6 @@ internal fun LauncherShell(
                         homeFocus,
                         model,
                         currentImages,
-                        heroExpanded = heroTarget != null,
                         onApp = {
                             if (!suppressed) {
                                 model.rememberInvoker("apps:$it")
@@ -234,7 +241,6 @@ internal fun LauncherShell(
                                 modalFocus,
                                 model,
                                 isDefaultHome,
-                                homeSettings,
                                 Modifier
                                     .widthIn(max = 360.dp)
                                     .fillMaxWidth()
@@ -248,7 +254,7 @@ internal fun LauncherShell(
             }
         }
         LauncherAppActions(state, model) { model.menuAppToOpen()?.let(openApp) }
-        state.dialog?.let { LauncherDialogContent(it, model::dismissDialog, model::logout) }
+        state.dialog?.let { LauncherDialogContent(it, model::dismissDialog, model::logout, isDefaultHome, homeSettings) }
     }
 }
 
@@ -482,11 +488,14 @@ private fun LauncherDialogContent(
     dialog: LauncherDialog,
     dismiss: () -> Unit,
     logout: () -> Unit,
+    isDefaultHome: Boolean,
+    homeSettings: () -> Unit,
 ) {
     val focus = remember(dialog) { LauncherFocus() }
     val title =
         when (dialog) {
             LauncherDialog.SystemSettings -> R.string.settings_unavailable_title
+            LauncherDialog.HomeSettings -> R.string.choose_home
             LauncherDialog.HomeSettingsUnavailable -> R.string.home_settings_unavailable_title
             LauncherDialog.AppUnavailable -> R.string.app_unavailable_title
             LauncherDialog.PlaybackUnavailable -> R.string.playback_unavailable_title
@@ -499,6 +508,7 @@ private fun LauncherDialogContent(
     val message =
         when (dialog) {
             LauncherDialog.SystemSettings -> R.string.settings_unavailable_message
+            LauncherDialog.HomeSettings -> R.string.home_settings_prompt
             LauncherDialog.HomeSettingsUnavailable -> R.string.home_settings_unavailable_message
             LauncherDialog.AppUnavailable -> R.string.app_unavailable_message
             LauncherDialog.PlaybackUnavailable -> R.string.playback_unavailable_message
@@ -508,14 +518,22 @@ private fun LauncherDialogContent(
             LauncherDialog.Logout -> R.string.sign_out_message
             LauncherDialog.CleanupFailed -> R.string.cleanup_failed_message
         }
-    Dialog(onDismissRequest = dismiss, properties = DialogProperties(dismissOnClickOutside = false)) {
+    Dialog(
+        onDismissRequest = dismiss,
+        properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
         val windowFocused = LocalWindowInfo.current.isWindowFocused
-        LaunchedEffect(dialog, windowFocused) { if (windowFocused) focus.request("dismiss") }
+        val homePrompt = dialog == LauncherDialog.HomeSettings
+        LaunchedEffect(dialog, windowFocused) { if (windowFocused) focus.request(if (homePrompt) "confirm" else "dismiss") }
         Column(
             Modifier
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(16.dp)
                 .widthIn(
                     max = 520.dp,
-                ).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                ).heightIn(max = 480.dp)
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp)
                 .focusGroup()
                 .onPreviewKeyEvent { it.isRepeatedLauncherActivation },
@@ -523,30 +541,51 @@ private fun LauncherDialogContent(
         ) {
             Text(stringResource(title), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.headlineSmall)
             Text(stringResource(message), color = MaterialTheme.colorScheme.onSurface)
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Button(
-                    onClick = dismiss,
-                    modifier =
-                        Modifier.launcherFocus(focus, "dismiss").focusProperties {
-                            up = FocusRequester.Cancel
-                            down = FocusRequester.Cancel
-                            if (dialog != LauncherDialog.Logout) {
-                                left = FocusRequester.Cancel
-                                right = FocusRequester.Cancel
-                            }
-                        },
-                ) { Text(stringResource(if (dialog == LauncherDialog.Logout) R.string.cancel else R.string.dismiss)) }
-                if (dialog ==
-                    LauncherDialog.Logout
+            if (homePrompt) {
+                Text(stringResource(if (isDefaultHome) R.string.home_selected else R.string.home_not_selected))
+                Text(stringResource(R.string.home_support), color = LauncherStyle.muted)
+                Column(
+                    Modifier.onPreviewKeyEvent {
+                        if (it.type == KeyEventType.KeyDown &&
+                            it.key in listOf(Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight)
+                        ) {
+                            focus.request(if (it.key == Key.DirectionUp || it.key == Key.DirectionLeft) "confirm" else "dismiss")
+                            true
+                        } else {
+                            false
+                        }
+                    },
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    LauncherAccountAction(R.string.open_android_home_settings, focus, "confirm", true, homeSettings)
+                    LauncherAccountAction(R.string.cancel, focus, "dismiss", true, dismiss)
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Button(
-                        onClick = logout,
+                        onClick = dismiss,
                         modifier =
-                            Modifier.launcherFocus(focus, "confirm").focusProperties {
+                            Modifier.launcherFocus(focus, "dismiss").focusProperties {
                                 up = FocusRequester.Cancel
                                 down = FocusRequester.Cancel
+                                if (dialog != LauncherDialog.Logout) {
+                                    left = FocusRequester.Cancel
+                                    right = FocusRequester.Cancel
+                                }
                             },
-                    ) { Text(stringResource(R.string.sign_out)) }
+                    ) { Text(stringResource(if (dialog == LauncherDialog.Logout) R.string.cancel else R.string.dismiss)) }
+                    if (dialog ==
+                        LauncherDialog.Logout
+                    ) {
+                        Button(
+                            onClick = logout,
+                            modifier =
+                                Modifier.launcherFocus(focus, "confirm").focusProperties {
+                                    up = FocusRequester.Cancel
+                                    down = FocusRequester.Cancel
+                                },
+                        ) { Text(stringResource(R.string.sign_out)) }
+                    }
                 }
             }
         }

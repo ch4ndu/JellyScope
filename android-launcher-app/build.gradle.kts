@@ -53,6 +53,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":ui-focus-scroll"))
+    implementation(project(":android-hero-ui"))
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(project(":auth-session"))
     implementation(project(":transport"))

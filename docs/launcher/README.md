@@ -37,7 +37,8 @@ the gear opens Android **System settings**. The right-side account panel keeps
 focus inside. Back leaves a subsection; Close returns to its invoking control.
 
 Cinematic media previews work on both tabs. Disable them in **Jellyfin account →
-Launcher preferences → Show cinematic hero**. Apps focus uses the Dusk background.
+Launcher preferences → Show cinematic hero**. The preference has a visible switch;
+action rows have a background and border even without focus. Apps focus uses Dusk.
 
 **Apps** automatically lists every launchable app. Long-press for Open or **Move**;
 Left/Right reorders inline, and Select or Back finishes with each step saved.
@@ -58,7 +59,8 @@ An older TV app shows update guidance instead of starting playback. Back from th
 screens unwind first.
 Missing apps or mismatched accounts need setup and a fresh selection.
 
-**Choose default Home app** opens Android's selector when firmware permits it.
+**Choose default Home app** opens a dialog showing current status. Choose
+**Open Android Home settings** to open Android's selector when firmware permits it.
 Device Home selects Home and Apps. Back from Jellyfin content first returns
 to its tab, then Home. At Home root, Back stays when this app is the
 reported default Home, otherwise ordinary Activity exit applies. Some firmware,

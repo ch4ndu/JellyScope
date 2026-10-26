@@ -3,7 +3,6 @@
 package com.jellyscope.tv.ui
 
 import android.graphics.Bitmap
-import android.os.Build
 import android.util.LruCache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -13,8 +12,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.core.graphics.ColorUtils
-import androidx.palette.graphics.Palette
 import co.touchlab.kermit.Logger
 import com.jellyscope.core.util.DiagnosticOperation
 import com.jellyscope.core.util.DiagnosticTag
@@ -22,6 +19,7 @@ import com.jellyscope.core.util.diagnosticLogger
 import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import com.jellyscope.core.util.runCatchingCancellable
 import com.jellyscope.core.util.safeDiagnosticType
+import com.jellyscope.hero.extractHeroAmbientColor
 import com.jellyscope.ui.component.MediaCardUi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -158,21 +156,8 @@ private class AmbientColorController(
         scope.launch(Dispatchers.Default) {
             val result =
                 runCatchingCancellable {
-                    // Palette needs pixel access; hardware bitmaps (API 26+)
-                    // must be copied to a software config first.
-                    val softwareBitmap =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                            bitmap.config == Bitmap.Config.HARDWARE
-                        ) {
-                            bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                        } else {
-                            bitmap
-                        }
-                    Palette.from(softwareBitmap).generate().selectAmbientColor()?.let { selected ->
-                        AmbientExtractionResult.ColorReady(
-                            Color(AmbientPalette.normalizeForBackdrop(selected)),
-                        )
-                    } ?: AmbientExtractionResult.NoSwatch
+                    extractHeroAmbientColor(bitmap)?.let { AmbientExtractionResult.ColorReady(it) }
+                        ?: AmbientExtractionResult.NoSwatch
                 }.getOrElse { error -> AmbientExtractionResult.Failed(error) }
 
             withContext(Dispatchers.Main) {
@@ -497,41 +482,3 @@ private fun logAmbientTransition(
         }
     }
 }
-
-object AmbientPalette {
-    // Saturated swatches first: dark-swatch-first picked near-black colors
-    // (e.g. #161a1e) that vanished against the navy base. The low-luminance
-    // effect needs the poster's rich hue, darkened afterwards.
-    fun selectAmbientColor(
-        vibrant: Color?,
-        darkVibrant: Color?,
-        dominant: Color?,
-        muted: Color?,
-        darkMuted: Color?,
-    ): Color? = vibrant ?: darkVibrant ?: dominant ?: muted ?: darkMuted
-
-    // Normalize the swatch to a rich, dark backdrop tint in HSL space:
-    // enforce enough saturation to read as color (unless the source is
-    // genuinely neutral) and clamp luminance so text stays legible.
-    fun normalizeForBackdrop(argb: Int): Int {
-        val hsl = FloatArray(3)
-        ColorUtils.colorToHSL(argb, hsl)
-        if (hsl[1] >= NEUTRAL_SATURATION) {
-            hsl[1] = hsl[1].coerceAtLeast(0.45f)
-        }
-        hsl[2] = hsl[2].coerceIn(0.16f, 0.30f)
-        return ColorUtils.HSLToColor(hsl)
-    }
-
-    private const val NEUTRAL_SATURATION = 0.08f
-}
-
-private fun Palette.selectAmbientColor(): Int? =
-    AmbientPalette
-        .selectAmbientColor(
-            vibrant = vibrantSwatch?.rgb?.let(::Color),
-            darkVibrant = darkVibrantSwatch?.rgb?.let(::Color),
-            dominant = dominantSwatch?.rgb?.let(::Color),
-            muted = mutedSwatch?.rgb?.let(::Color),
-            darkMuted = darkMutedSwatch?.rgb?.let(::Color),
-        )?.toArgb()

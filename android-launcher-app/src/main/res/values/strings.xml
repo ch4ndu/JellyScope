@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="home_settings_prompt">Open Android settings to choose your default Home app. Android controls the selection.</string>
+    <string name="open_android_home_settings">Open Android Home settings</string>
     <string name="app_name">JellyScope Launcher</string>
     <string name="apps">Apps</string>
     <string name="home">Home</string>

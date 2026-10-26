@@ -3,6 +3,7 @@
 package com.jellyscope.launcher
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -12,7 +13,6 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -31,7 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -58,7 +60,6 @@ internal fun LauncherSettingsScreen(
     focus: LauncherFocus,
     model: LauncherViewModel,
     isDefaultHome: Boolean,
-    homeSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var page by remember { mutableStateOf(LauncherAccountPage.Main) }
@@ -248,7 +249,9 @@ internal fun LauncherSettingsScreen(
                         Text(stringResource(R.string.hero_preference_failed), color = MaterialTheme.colorScheme.error)
                     }
                     Text(stringResource(if (isDefaultHome) R.string.home_selected else R.string.home_not_selected))
-                    LauncherAccountAction(R.string.choose_home, focus, "settings-home", enabled, homeSettings)
+                    LauncherAccountAction(R.string.choose_home, focus, "settings-home", enabled) {
+                        model.showDialog(LauncherDialog.HomeSettings)
+                    }
                     LauncherAccountInfo(focus, "home-support", enabled) { Text(stringResource(R.string.home_support)) }
                 }
             }
@@ -285,8 +288,8 @@ private fun LauncherHeroPreference(
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .launcherFocus(focus, "hero-toggle")
-            .background(if (focused) LauncherStyle.text.copy(alpha = 0.1f) else LauncherStyle.clear, shape)
-            .border(1.dp, if (focused) LauncherStyle.focusOutline else LauncherStyle.clear, shape)
+            .background(if (focused) LauncherStyle.text.copy(alpha = 0.16f) else LauncherStyle.tile, shape)
+            .border(1.dp, if (focused) LauncherStyle.focusOutline else LauncherStyle.text.copy(alpha = 0.14f), shape)
             .semantics { stateDescription = description }
             .triStateToggleable(
                 state = checked,
@@ -301,11 +304,24 @@ private fun LauncherHeroPreference(
     ) {
         Text(stringResource(R.string.show_cinematic_hero), Modifier.weight(1f), style = LauncherStyle.body)
         Text(description, color = LauncherStyle.muted, style = LauncherStyle.body)
+        Canvas(Modifier.size(40.dp, 24.dp)) {
+            drawRoundRect(
+                color = if (state.heroEnabled == true) LauncherStyle.focusOutline else LauncherStyle.muted.copy(alpha = 0.35f),
+                cornerRadius =
+                    androidx.compose.ui.geometry
+                        .CornerRadius(size.height / 2),
+            )
+            drawCircle(
+                LauncherStyle.text,
+                radius = 8.dp.toPx(),
+                center = Offset(if (state.heroEnabled == true) size.width - 12.dp.toPx() else 12.dp.toPx(), size.height / 2),
+            )
+        }
     }
 }
 
 @Composable
-private fun LauncherAccountAction(
+internal fun LauncherAccountAction(
     label: Int,
     focus: LauncherFocus,
     target: String,
@@ -314,23 +330,53 @@ private fun LauncherAccountAction(
 ) {
     val focused = enabled && focus.hasFocus && focus.current == target
     val shape = RoundedCornerShape(8.dp)
-    Box(
+    Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .launcherFocus(focus, target)
-            .background(if (focused) LauncherStyle.text.copy(alpha = 0.1f) else LauncherStyle.clear, shape)
-            .border(1.dp, if (focused) LauncherStyle.focusOutline else LauncherStyle.clear, shape)
-            .clickable(
+            .background(
+                if (focused) LauncherStyle.text.copy(alpha = 0.16f) else LauncherStyle.tile.copy(alpha = if (enabled) 1f else 0.4f),
+                shape,
+            ).border(
+                1.dp,
+                if (focused) LauncherStyle.focusOutline else LauncherStyle.text.copy(alpha = if (enabled) 0.14f else 0.06f),
+                shape,
+            ).clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 enabled = enabled,
                 role = Role.Button,
                 onClick = click,
             ).padding(horizontal = 16.dp, vertical = 12.dp),
-        contentAlignment = Alignment.CenterStart,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(stringResource(label), color = if (enabled) LauncherStyle.text else LauncherStyle.muted, style = LauncherStyle.body)
+        Text(
+            stringResource(label),
+            Modifier.weight(1f),
+            color = if (enabled) LauncherStyle.text else LauncherStyle.muted,
+            style = LauncherStyle.body,
+        )
+        if (target == "connection" || target == "preferences") {
+            Canvas(Modifier.size(16.dp)) {
+                val color = LauncherStyle.muted
+                drawLine(
+                    color,
+                    Offset(size.width * 0.35f, size.height * 0.2f),
+                    Offset(size.width * 0.65f, size.height * 0.5f),
+                    2.dp.toPx(),
+                    StrokeCap.Round,
+                )
+                drawLine(
+                    color,
+                    Offset(size.width * 0.65f, size.height * 0.5f),
+                    Offset(size.width * 0.35f, size.height * 0.8f),
+                    2.dp.toPx(),
+                    StrokeCap.Round,
+                )
+            }
+        }
     }
 }
 

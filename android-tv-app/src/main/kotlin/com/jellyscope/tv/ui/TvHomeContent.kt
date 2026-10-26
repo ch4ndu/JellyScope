@@ -4,14 +4,9 @@ package com.jellyscope.tv.ui
 
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.Animatable
-import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,21 +31,22 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.hero.HeroAmbientBackground
+import com.jellyscope.hero.HeroAmbientPresentation
 import com.jellyscope.tv.R
 import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
 import com.jellyscope.tv.ui.focus.tvFocusScope
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.focus.rememberCenterPivotBringIntoViewSpec
+import com.jellyscope.ui.focus.rememberNoAutoScrollSpec
+import com.jellyscope.ui.focus.verticalScrollDurationMs
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.home.HomeRow
 import com.jellyscope.ui.screen.home.HomeUiState
@@ -64,57 +60,14 @@ import kotlin.math.roundToInt
 internal fun Modifier.tvHomeAmbientBackground(
     presentation: TvHeroAmbientPresentation,
     overlay: Boolean = false,
-): Modifier {
-    // Read animated color in draw, not composition. Routes enable the
-    // AmbientLayer-equivalent overlay; the shell underlay never had it.
-    val fallbackBrush = LocalAppBackgroundBrush.current
-    val ambientNavy = LocalJellyfinPalette.current.navy
-    val ambientGradientBottom = LocalJellyfinPalette.current.gradientBottom
-    val ambientAnimated = remember { Animatable(Color.Transparent) }
-    LaunchedEffect(
-        ambientAnimated,
-        presentation.animationOwnerKey,
-        presentation.clearWhenColorMissing,
-        presentation.color,
-    ) {
-        val color = presentation.color
-        // Preserve tint while the selected owner's color resolves.
-        if (color == null && !presentation.clearWhenColorMissing) return@LaunchedEffect
-        ambientAnimated.animateTo(
-            targetValue = color ?: Color.Transparent,
-            animationSpec = tween(durationMillis = 700),
-        )
-    }
-    return drawBehind {
-        drawRect(brush = fallbackBrush)
-        val tint = ambientAnimated.value
-        if (tint.alpha > 0.004f) {
-            drawRect(
-                Brush.verticalGradient(
-                    colorStops =
-                        arrayOf(
-                            0f to tint,
-                            0.48f to tint.copy(alpha = tint.alpha * 0.44f).compositeOver(ambientNavy),
-                            1f to ambientGradientBottom,
-                        ),
-                ),
-            )
-        }
-        if (overlay) {
-            // Unthresholded: Transparent still paints fixed-alpha black shading.
-            drawRect(
-                Brush.verticalGradient(
-                    colorStops =
-                        arrayOf(
-                            0f to tint.copy(alpha = 0.55f),
-                            0.55f to tint.copy(alpha = 0.22f),
-                            1f to tint.copy(alpha = 0.08f),
-                        ),
-                ),
-            )
-        }
-    }
-}
+): Modifier =
+    HeroAmbientBackground(
+        HeroAmbientPresentation(presentation.animationOwnerKey, presentation.color, presentation.clearWhenColorMissing),
+        navy = LocalJellyfinPalette.current.navy,
+        gradientBottom = LocalJellyfinPalette.current.gradientBottom,
+        fallbackBrush = LocalAppBackgroundBrush.current,
+        overlay = overlay,
+    )
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -432,33 +385,8 @@ internal fun TvHomeContent(
             val scrollScope = rememberCoroutineScope()
             val density = LocalDensity.current
             val rowPositions = remember { mutableStateMapOf<HomeRow, Int>() }
-            val horizontalBringIntoViewSpec =
-                remember {
-                    object : BringIntoViewSpec {
-                        override val scrollAnimationSpec: AnimationSpec<Float> =
-                            spring(
-                                stiffness = Spring.StiffnessMediumLow,
-                                visibilityThreshold = 0.5f,
-                            )
-
-                        // Center-pivot ribbon scrolling.
-                        override fun calculateScrollDistance(
-                            offset: Float,
-                            size: Float,
-                            containerSize: Float,
-                        ): Float = offset - (containerSize - size) / 2f
-                    }
-                }
-            val noAutoScrollSpec =
-                remember {
-                    object : BringIntoViewSpec {
-                        override fun calculateScrollDistance(
-                            offset: Float,
-                            size: Float,
-                            containerSize: Float,
-                        ): Float = 0f
-                    }
-                }
+            val horizontalBringIntoViewSpec = rememberCenterPivotBringIntoViewSpec()
+            val noAutoScrollSpec = rememberNoAutoScrollSpec()
 
             CompositionLocalProvider(LocalBringIntoViewSpec provides noAutoScrollSpec) {
                 Column(

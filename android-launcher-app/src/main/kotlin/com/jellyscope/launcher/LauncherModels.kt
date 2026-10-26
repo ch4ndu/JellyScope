@@ -156,6 +156,7 @@ internal enum class LauncherLoginOrigin { Settings, Jellyfin }
 
 internal enum class LauncherDialog {
     SystemSettings,
+    HomeSettings,
     HomeSettingsUnavailable,
     AppUnavailable,
     PlaybackUnavailable,

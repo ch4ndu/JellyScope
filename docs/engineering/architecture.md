@@ -424,6 +424,13 @@ HTTP helpers and stream/resource constructors retain their internal visibility.
 Core exposes transport through API and both tvOS frameworks export it; the
 narrow iOS facade keeps no exports.
 
+`ui-focus-scroll` is a project-dependency-free KMP leaf owning shared focus scroll
+specifications and vertical timing. Foundation re-exports it; Android launcher and
+TV consume it directly. `android-hero-ui` is an Android leaf with no project
+dependencies, sharing backdrop, gradient, crossfade and palette rendering between
+those apps. Image loading, authenticated requests and session ownership stay in
+each app. Neither leaf depends on the client aggregate or playback.
+
 `ui-foundation` owns shared resources, theme, adaptive layout, components, and
 image infrastructure over `shared-core`. `settings-account`,
 `browse`, `playback`, `detail`, `auth`, and

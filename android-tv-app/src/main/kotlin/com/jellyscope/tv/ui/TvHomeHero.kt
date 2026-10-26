@@ -4,35 +4,21 @@ package com.jellyscope.tv.ui
 
 import android.graphics.Bitmap
 import android.util.LruCache
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.hero.HeroBackdrop
+import com.jellyscope.hero.HeroContentCrossfade
 import com.jellyscope.tv.R
 import com.jellyscope.ui.component.ImageDecode
 import com.jellyscope.ui.component.MediaCardUi
@@ -40,8 +26,6 @@ import com.jellyscope.ui.component.TvHeroMetadata
 import com.jellyscope.ui.component.authenticatedImageRequest
 import com.jellyscope.ui.component.tvHeroMetadata
 import com.jellyscope.ui.theme.LocalJellyfinPalette
-import kotlin.math.abs
-import kotlin.math.roundToInt
 import com.jellyscope.ui.component.DetailText as TvText
 import com.jellyscope.ui.component.MeasuredAsyncImage as AsyncImage
 
@@ -52,68 +36,23 @@ internal fun TvHeroBackdrop(
     modifier: Modifier = Modifier,
     onSizeChanged: (IntSize) -> Unit = {},
 ) {
-    Crossfade(
-        targetState = item?.backdropUrl,
-        animationSpec = tween(durationMillis = TvDimens.heroBackdropCrossfadeDurationMs),
-        label = "tv-hero-backdrop",
+    HeroBackdrop(
+        target = item?.backdropUrl,
+        assetKey = item?.backdropUrl,
+        navy = LocalJellyfinPalette.current.navy,
         modifier =
             modifier
                 .fillMaxWidth(TvDimens.heroBackdropWidthFraction)
                 .height(TvDimens.heroBackdropHeight)
-                .onSizeChanged(onSizeChanged)
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithCache {
-                    val horizontalMask =
-                        Brush.horizontalGradient(
-                            0f to Color.Transparent,
-                            0.45f to Color.Black,
-                        )
-                    val verticalMask =
-                        Brush.verticalGradient(
-                            0f to Color.Black,
-                            0.78f to Color.Black,
-                            1f to Color.Transparent,
-                        )
-                    onDrawWithContent {
-                        drawContent()
-                        // The image self-fades on its left and bottom edges
-                        // (alpha mask) so it melts into the background from the
-                        // physical screen corner with no hard seams.
-                        drawRect(
-                            brush = horizontalMask,
-                            blendMode = BlendMode.DstIn,
-                        )
-                        drawRect(
-                            brush = verticalMask,
-                            blendMode = BlendMode.DstIn,
-                        )
-                    }
-                },
+                .onSizeChanged(onSizeChanged),
     ) { imageUrl ->
         if (imageUrl != null) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session, ImageDecode.Backdrop),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-                Box(
-                    modifier =
-                        Modifier
-                            .matchParentSize()
-                            .background(
-                                Brush.horizontalGradient(
-                                    colors =
-                                        listOf(
-                                            LocalJellyfinPalette.current.navy.copy(alpha = 0.55f),
-                                            LocalJellyfinPalette.current.navy.copy(alpha = 0.2f),
-                                            Color.Transparent,
-                                        ),
-                                ),
-                            ),
-                )
-            }
+            AsyncImage(
+                model = authenticatedImageRequest(imageUrl, session, ImageDecode.Backdrop),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
         }
     }
 }
@@ -123,35 +62,8 @@ internal fun TvHeroZone(
     item: MediaCardUi?,
     modifier: Modifier = Modifier,
 ) {
-    // Hand-rolled cross-fade: Crossfade retains recently shown content, so
-    // stepping BACK onto it resumed a partial alpha and read as a snap. This
-    // always runs the full fade, both directions.
-    var current by remember { mutableStateOf(item) }
-    var previous by remember { mutableStateOf<MediaCardUi?>(null) }
-    val incomingAlpha = remember { Animatable(1f) }
-    LaunchedEffect(item) {
-        if (item != current) {
-            previous = current
-            current = item
-            incomingAlpha.snapTo(0f)
-            incomingAlpha.animateTo(
-                1f,
-                animationSpec = tween(durationMillis = TvDimens.heroContentCrossfadeDurationMs),
-            )
-            previous = null
-        }
-    }
-    Box(modifier = modifier) {
-        previous?.let { prev ->
-            TvHeroZoneContent(
-                item = prev,
-                modifier = Modifier.graphicsLayer { alpha = 1f - incomingAlpha.value },
-            )
-        }
-        TvHeroZoneContent(
-            item = current,
-            modifier = Modifier.graphicsLayer { alpha = incomingAlpha.value },
-        )
+    HeroContentCrossfade(target = item, assetKey = item?.id, modifier = modifier) {
+        TvHeroZoneContent(it)
     }
 }
 
@@ -260,16 +172,3 @@ internal class PosterBitmapSlot {
 
     fun bitmapFor(itemId: String): Bitmap? = bitmaps.get(itemId)
 }
-
-// Anchored so the standard poster-row pitch (~282dp) takes ~320ms.
-private const val VERTICAL_SCROLL_DP_PER_MS = 0.88f
-private const val VERTICAL_SCROLL_MIN_MS = 160
-private const val VERTICAL_SCROLL_MAX_MS = 700
-
-internal fun verticalScrollDurationMs(
-    distancePx: Float,
-    density: Float,
-): Int =
-    (abs(distancePx) / density / VERTICAL_SCROLL_DP_PER_MS)
-        .roundToInt()
-        .coerceIn(VERTICAL_SCROLL_MIN_MS, VERTICAL_SCROLL_MAX_MS)

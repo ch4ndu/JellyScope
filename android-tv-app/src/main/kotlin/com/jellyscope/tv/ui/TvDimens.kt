@@ -119,8 +119,8 @@ object TvDimens {
     val heroContentWidthFraction = 0.62f
     val heroContentTopPadding = 16.dp
     val heroContentGap = 6.dp
-    val heroBackdropCrossfadeDurationMs = 650
-    val heroContentCrossfadeDurationMs = 600
+    val heroBackdropCrossfadeDurationMs = com.jellyscope.hero.HeroTiming.ARTWORK_MILLIS
+    val heroContentCrossfadeDurationMs = com.jellyscope.hero.HeroTiming.CONTENT_MILLIS
     val detailBackdropHeight = ChromeDimens.detailBackdropHeight
     val detailBackdropWidthFraction = ChromeDimens.detailBackdropWidthFraction
     val detailHeroTextWidthFraction = ChromeDimens.detailHeroTextWidthFraction
