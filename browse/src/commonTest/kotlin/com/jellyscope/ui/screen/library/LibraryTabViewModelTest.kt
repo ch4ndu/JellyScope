@@ -81,7 +81,7 @@ class LibraryTabViewModelTest {
                 val viewModel = viewModel(store)
                 runCurrent()
 
-                viewModel.selectLibrary("movies")
+                viewModel.accept(LibraryTabIntent.SelectLibrary("movies"))
                 runCurrent()
 
                 assertEquals("movies", assertIs<LibraryTabUiState.Loaded>(viewModel.state.value).selectedLibraryId)
@@ -101,7 +101,7 @@ class LibraryTabViewModelTest {
                 val viewModel = viewModel(store)
                 runCurrent()
 
-                viewModel.selectLibrary("not-a-library")
+                viewModel.accept(LibraryTabIntent.SelectLibrary("not-a-library"))
                 runCurrent()
 
                 assertEquals("shows", assertIs<LibraryTabUiState.Loaded>(viewModel.state.value).selectedLibraryId)

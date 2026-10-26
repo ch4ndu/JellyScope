@@ -20,17 +20,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 
-sealed interface LibraryTabUiState {
-    data object Loading : LibraryTabUiState
-
-    data class Loaded(
-        val libraries: List<Library>,
-        val selectedLibraryId: String?,
-    ) : LibraryTabUiState
-
-    data object Error : LibraryTabUiState
-}
-
 class LibraryTabViewModel(
     private val session: Session,
     private val getUserLibrariesUseCase: GetUserLibrariesUseCase,
@@ -58,8 +47,19 @@ class LibraryTabViewModel(
         retry()
     }
 
-    fun retry() {
-        _state.update { LibraryTabUiState.Loading }
+    fun accept(intent: LibraryTabIntent) {
+        when (intent) {
+            LibraryTabIntent.Retry -> retry()
+            is LibraryTabIntent.SelectLibrary -> selectLibrary(intent.libraryId)
+        }
+    }
+
+    private fun reduce(change: LibraryTabChange) {
+        _state.update { current -> reduceLibraryTab(current, change) }
+    }
+
+    private fun retry() {
+        reduce(LibraryTabChange.LoadStarted)
         viewModelScope.launch {
             val resolved =
                 withContext(workDispatcher) {
@@ -80,29 +80,27 @@ class LibraryTabViewModel(
                 }
 
             if (resolved == null) {
-                _state.update { LibraryTabUiState.Error }
+                reduce(LibraryTabChange.LoadFailed)
                 return@launch
             }
 
-            _state.update {
-                LibraryTabUiState.Loaded(
+            reduce(
+                LibraryTabChange.Loaded(
                     libraries = resolved.libraries,
                     selectedLibraryId = resolved.selectedLibraryId,
-                )
-            }
+                ),
+            )
             if (resolved.selectedLibraryId != null && resolved.selectedLibraryId != resolved.storedLibraryId) {
                 pendingLibrarySelections.trySend(resolved.selectedLibraryId)
             }
         }
     }
 
-    fun selectLibrary(libraryId: String) {
+    private fun selectLibrary(libraryId: String) {
         val loaded = _state.value as? LibraryTabUiState.Loaded ?: return
         if (loaded.libraries.none { library -> library.id == libraryId }) return
 
-        _state.update { current ->
-            (current as? LibraryTabUiState.Loaded)?.copy(selectedLibraryId = libraryId) ?: current
-        }
+        reduce(LibraryTabChange.LibrarySelected(libraryId))
         pendingLibrarySelections.trySend(libraryId)
     }
 

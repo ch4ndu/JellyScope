@@ -206,6 +206,21 @@ state. The TV recommendation wrapper takes selection and section states; shelf
 composables retain narrow row/card inputs and section-qualified lazy keys.
 Focus, ambient presentation, and retained scroll state remain UI-owned.
 
+### Library selection MVI slice
+
+The shared outer Library tab sends `LibraryTabIntent.Retry` and `SelectLibrary`.
+`LibraryTabContract.kt` owns its loading/error/loaded state and inputs;
+`LibraryTabReducer.kt` owns state transitions. The ViewModel validates selections,
+resolves saved selection or first-library fallback off Main, and retains the
+serialized, conflated account-scoped preference writer. Empty libraries select
+nothing; invalid selection intents neither change state nor write preferences.
+
+Selection copies retain the library list. The dropdown takes that list and the
+selected library; the hub takes only its selected library. The top-bar lambda
+captures the list rather than the whole outer state. Existing per-library
+saveable state and ViewModel keys remain unchanged. Android TV and native tvOS
+use separate library selection owners and are outside this slice.
+
 ## Source Layout Target
 
 ```text
@@ -771,6 +786,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Library selection keeps restore and persistence effects in its ViewModel while
+  explicit intents and pure transitions expose the outer tab contract. Narrow
+  child inputs preserve the existing Library hub and browse boundaries.
 
 ### Platform strategy and sharing
 

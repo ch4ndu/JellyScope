@@ -78,8 +78,8 @@ fun LibraryTabScreen(
     LibraryTabContent(
         session = session,
         state = state,
-        onRetry = viewModel::retry,
-        onLibrarySelected = viewModel::selectLibrary,
+        onRetry = { viewModel.accept(LibraryTabIntent.Retry) },
+        onLibrarySelected = { libraryId -> viewModel.accept(LibraryTabIntent.SelectLibrary(libraryId)) },
         onItemSelected = onItemSelected,
         onPlayItem = onPlayItem,
         onShuffleQueue = onShuffleQueue,
@@ -170,7 +170,7 @@ private fun LibraryTabContent(
                                     title = title,
                                     titleContent = {
                                         LibraryDropdown(
-                                            libraries = state.libraries,
+                                            libraries = libraries,
                                             selectedLibrary = selectedLibrary,
                                             onLibrarySelected = onLibrarySelected,
                                         )
