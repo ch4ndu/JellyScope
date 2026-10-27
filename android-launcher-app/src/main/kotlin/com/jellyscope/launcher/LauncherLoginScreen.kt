@@ -52,25 +52,32 @@ import androidx.tv.material3.Text
 
 @Composable
 internal fun LauncherLoginScreen(
-    state: LauncherUiState,
+    serverUrl: String,
+    restoring: Boolean,
+    busy: Boolean,
+    signedIn: Boolean,
+    cleanupPending: Boolean,
+    dialog: LauncherDialog?,
+    focusGeneration: Int,
+    authError: LauncherAuthError?,
     focus: LauncherFocus,
     model: LauncherViewModel,
     modifier: Modifier = Modifier,
 ) {
-    var server by remember { mutableStateOf(state.serverUrl) }
+    var server by remember { mutableStateOf(serverUrl) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
-    val canSubmit = !state.restoring && !state.busy && !state.signedIn && !state.cleanupPending && state.dialog == null
+    val canSubmit = !restoring && !busy && !signedIn && !cleanupPending && dialog == null
     val cancel = {
         password = ""
         keyboard?.hide()
-        model.cancelLogin()
+        model.accept(LauncherIntent.CancelLogin)
     }
     val submit = {
         if (canSubmit) {
             keyboard?.hide()
-            model.login(server, username, password)
+            model.accept(LauncherIntent.Login(server, username, password))
         }
     }
     DisposableEffect(Unit) {
@@ -84,13 +91,13 @@ internal fun LauncherLoginScreen(
     val actions = (if (canSubmit) listOf("submit") else emptyList()) + "cancel"
     val controls = fields + actions
     val windowFocused = LocalWindowInfo.current.isWindowFocused
-    LaunchedEffect(state.focusGeneration, canSubmit, state.dialog, windowFocused) {
-        if (state.dialog == null && windowFocused) {
+    LaunchedEffect(focusGeneration, canSubmit, dialog, windowFocused) {
+        if (dialog == null && windowFocused) {
             focus.request(focus.current?.takeIf { it in controls } ?: if (focus.current == "submit") "cancel" else "server")
         }
     }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    BackHandler(enabled = state.dialog == null) {
+    BackHandler(enabled = dialog == null) {
         if (imeVisible) keyboard?.hide() else cancel()
     }
     Column(
@@ -131,15 +138,15 @@ internal fun LauncherLoginScreen(
         if (server.trim().startsWith("http://", true)) Text(stringResource(R.string.http_notice))
         LauncherLoginField(stringResource(R.string.username), username, { username = it }, focus, "username", KeyboardType.Text)
         LauncherLoginField(stringResource(R.string.password), password, { password = it }, focus, "password", KeyboardType.Password, submit)
-        state.authError?.let { Text(stringResource(it.messageResource()), color = MaterialTheme.colorScheme.error) }
-        if (state.busy) Text(stringResource(R.string.signing_in))
+        authError?.let { Text(stringResource(it.messageResource()), color = MaterialTheme.colorScheme.error) }
+        if (busy) Text(stringResource(R.string.signing_in))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Button(
                 onClick = submit,
                 enabled = canSubmit,
                 modifier = Modifier.launcherFocus(focus, "submit"),
             ) { Text(stringResource(R.string.sign_in)) }
-            Button(onClick = cancel, enabled = state.dialog == null, modifier = Modifier.launcherFocus(focus, "cancel")) {
+            Button(onClick = cancel, enabled = dialog == null, modifier = Modifier.launcherFocus(focus, "cancel")) {
                 Text(stringResource(R.string.cancel))
             }
         }

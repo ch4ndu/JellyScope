@@ -172,7 +172,7 @@ internal fun LauncherHomeScreen(
             }
             focus.request(target ?: state.selectedTab.focusKey)
             if (request !is LauncherAppFocusTarget.HomeContent || !request.appsOnly || state.apps.loaded) {
-                request?.let(model::appFocusHandled)
+                request?.let({ target -> model.accept(LauncherIntent.AppFocusHandled(target)) })
             }
         }
     }
@@ -333,11 +333,11 @@ internal fun LauncherHomeScreen(
                                         if (moving != null) {
                                             when (it) {
                                                 Key.DirectionLeft -> {
-                                                    model.moveApp(-1)
+                                                    model.accept(LauncherIntent.MoveApp(-1))
                                                     true
                                                 }
                                                 Key.DirectionRight -> {
-                                                    model.moveApp(1)
+                                                    model.accept(LauncherIntent.MoveApp(1))
                                                     true
                                                 }
                                                 Key.DirectionUp, Key.DirectionDown -> true
@@ -347,10 +347,18 @@ internal fun LauncherHomeScreen(
                                             direction("apps", index, it)
                                         }
                                     },
-                                    onClick = { if (moving != null) model.finishMoving() else onApp(app.componentKey) },
+                                    onClick = {
+                                        if (moving !=
+                                            null
+                                        ) {
+                                            model.accept(LauncherIntent.FinishMoving)
+                                        } else {
+                                            onApp(app.componentKey)
+                                        }
+                                    },
                                     onLongClick =
                                         if (moving == null) {
-                                            { anchor -> model.showAppMenu(app.componentKey, anchor) }
+                                            { anchor -> model.accept(LauncherIntent.ShowAppMenu(app.componentKey, anchor)) }
                                         } else {
                                             null
                                         },

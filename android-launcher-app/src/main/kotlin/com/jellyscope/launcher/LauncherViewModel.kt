@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.getAndUpdate
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -50,9 +49,47 @@ internal class LauncherViewModel(
     private var suppressMedia = false
     private var tabRestorationEligible = true
 
+    // Return the previous committed state for one-shot login-origin consumption.
+    private fun reduce(change: LauncherChange): LauncherUiState =
+        _state.getAndUpdate { current -> reduceLauncher(current, change, media.state.value, suppressMedia) }
+
+    fun accept(intent: LauncherIntent) {
+        when (intent) {
+            is LauncherIntent.RestoreSelectedTab -> restoreSelectedTab(intent.tab)
+            is LauncherIntent.Foreground -> foreground(intent.started)
+            is LauncherIntent.Resumed -> resumed(intent.externalReturn)
+            LauncherIntent.Refresh -> refresh()
+            LauncherIntent.ToggleHero -> toggleHero()
+            is LauncherIntent.RememberInvoker -> rememberInvoker(intent.key)
+            is LauncherIntent.SelectTab -> selectTab(intent.tab, intent.enterContent)
+            is LauncherIntent.OpenSettings -> openSettings(intent.account)
+            is LauncherIntent.SettingsFocusHandled -> settingsFocusHandled(intent.target)
+            LauncherIntent.HomeContentEntered -> homeContentEntered()
+            is LauncherIntent.BeginLogin -> beginLogin(intent.origin)
+            LauncherIntent.AppUnavailable -> appUnavailable()
+            is LauncherIntent.Navigate -> navigate(intent.route, intent.invoker)
+            LauncherIntent.BackToHome -> backToHome()
+            LauncherIntent.HomeInvoked -> homeInvoked()
+            is LauncherIntent.ShowDialog -> showDialog(intent.dialog)
+            LauncherIntent.DismissDialog -> dismissDialog()
+            is LauncherIntent.Login -> login(intent.server, intent.user, intent.password)
+            LauncherIntent.CancelLogin -> cancelLogin()
+            LauncherIntent.Logout -> logout()
+            is LauncherIntent.ShowAppMenu -> showAppMenu(intent.key, intent.anchor)
+            LauncherIntent.DismissAppEdit -> dismissAppEdit()
+            LauncherIntent.MenuAppToOpen -> menuAppToOpen()
+            LauncherIntent.StartMoving -> startMoving()
+            LauncherIntent.FinishMoving -> finishMoving()
+            is LauncherIntent.MoveApp -> moveApp(intent.delta)
+            is LauncherIntent.AppFocusHandled -> appFocusHandled(intent.target)
+        }
+    }
+
+    fun accept(intent: LauncherIntent.MenuAppToOpen): String? = menuAppToOpen()
+
     init {
         viewModelScope.launch {
-            preferences.state.collect { value -> _state.update { it.copy(preferences = value) } }
+            preferences.state.collect { value -> reduce(LauncherChange.PreferencesObserved(value)) }
         }
         viewModelScope.launch {
             sessions.sessionState.collect { sessionState ->
@@ -60,35 +97,7 @@ internal class LauncherViewModel(
                 val key = loggedIn?.let { LauncherBoundary(it.session.accountIdentity(), it.boundaryEpoch).key }
                 val boundaryChanged = _state.value.boundaryKey != key
                 if (boundaryChanged) suppressMedia = false
-                _state.update { current ->
-                    current.copy(
-                        restoring = sessionState == SessionState.Restoring,
-                        signedIn = loggedIn != null,
-                        accountLabel = loggedIn?.session?.let { "${it.userName} · ${it.serverName}" }.orEmpty(),
-                        serverUrl =
-                            loggedIn?.session?.serverUrl
-                                ?: (sessionState as? SessionState.LoggedOut)?.serverUrl.orEmpty(),
-                        boundaryKey = key,
-                        homeInvoker =
-                            when {
-                                current.boundaryKey == key -> current.homeInvoker
-                                current.selectedTab == LauncherTab.Essentials -> HOME_CONTENT
-                                loggedIn == null -> JELLYFIN_CONNECT
-                                else -> LauncherTab.Jellyfin.focusKey
-                            },
-                        homeTabActivation = current.homeTabActivation && current.boundaryKey == key,
-                        appEdit = current.appEdit.takeIf { current.boundaryKey == key },
-                        appEditEpoch = current.appEditEpoch + if (current.boundaryKey == key) 0 else 1,
-                        appFocusTarget =
-                            current.appFocusTarget.takeIf {
-                                current.boundaryKey == key || it is LauncherAppFocusTarget.HomeContent && it.appsOnly
-                            },
-                        settingsFocusTarget = current.settingsFocusTarget.takeIf { current.boundaryKey == key },
-                        media =
-                            media.state.value.takeIf { it.boundaryKey == key && !suppressMedia }
-                                ?: LauncherMediaState(),
-                    )
-                }
+                reduce(LauncherChange.SessionObserved(sessionState, loggedIn, key))
                 if (loggedIn != null) {
                     completeLogin(loginGeneration)
                     if (boundaryChanged) media.refresh(fresh = true)
@@ -97,54 +106,27 @@ internal class LauncherViewModel(
         }
         viewModelScope.launch {
             media.state.collect { value ->
-                _state.update { current ->
-                    current.copy(
-                        media =
-                            value.takeIf { it.boundaryKey == current.boundaryKey && !suppressMedia }
-                                ?: LauncherMediaState(),
-                    )
-                }
+                reduce(LauncherChange.MediaObserved(value))
             }
         }
         viewModelScope.launch {
             apps.state.collect { value ->
-                _state.update { current ->
-                    val edit = current.appEdit
-                    val missing =
-                        when (edit) {
-                            is LauncherAppEdit.Menu ->
-                                value.catalog.none { it.componentKey == edit.target.componentKey }
-                            is LauncherAppEdit.Moving -> value.catalog.none { it.componentKey == edit.componentKey }
-                            else -> false
-                        }
-                    val updated = current.copy(apps = value)
-                    if (missing) updated.closeAppEdit() else updated
-                }
+                reduce(LauncherChange.AppsObserved(value))
             }
         }
         viewModelScope.launch {
-            cleaner.cleanupPending.collect { value -> _state.update { it.copy(cleanupPending = value) } }
+            cleaner.cleanupPending.collect { value -> reduce(LauncherChange.CleanupObserved(value)) }
         }
     }
 
-    fun restoreSelectedTab(tab: LauncherTab?) {
+    private fun restoreSelectedTab(tab: LauncherTab?) {
         if (!tabRestorationEligible) return
         tabRestorationEligible = false
         if (tab == null) return
-        _state.update {
-            it.copy(
-                selectedTab = tab,
-                homeInvoker =
-                    when {
-                        tab != LauncherTab.Jellyfin -> it.homeInvoker
-                        it.signedIn -> tab.focusKey
-                        else -> JELLYFIN_CONNECT
-                    },
-            )
-        }
+        reduce(LauncherChange.TabRestored(tab))
     }
 
-    fun foreground(started: Boolean) {
+    private fun foreground(started: Boolean) {
         foregroundJob?.cancel()
         foregroundJob = null
         if (started) {
@@ -158,28 +140,8 @@ internal class LauncherViewModel(
         }
     }
 
-    fun resumed(externalReturn: Boolean = false) {
-        _state.update { current ->
-            val generation = current.focusGeneration + 1
-            val target =
-                if (externalReturn &&
-                    current.route == LauncherRoute.Home &&
-                    current.dialog == null &&
-                    current.appEdit == null &&
-                    current.appFocusTarget == null
-                ) {
-                    when {
-                        current.homeInvoker.startsWith("apps:") ->
-                            LauncherAppFocusTarget.App(current.homeInvoker.removePrefix("apps:"), generation)
-                        current.homeInvoker.startsWith("row:") -> LauncherAppFocusTarget.Content(current.homeInvoker, generation)
-                        current.homeInvoker in launcherHeaderKeys -> LauncherAppFocusTarget.Header(current.homeInvoker, generation)
-                        else -> null
-                    }
-                } else {
-                    current.appFocusTarget
-                }
-            current.copy(focusGeneration = generation, homeTabActivation = false, appFocusTarget = target)
-        }
+    private fun resumed(externalReturn: Boolean = false) {
+        reduce(LauncherChange.Resumed(externalReturn))
         val returnTarget =
             when (state.value.appFocusTarget) {
                 is LauncherAppFocusTarget.Content -> "media"
@@ -193,15 +155,15 @@ internal class LauncherViewModel(
         viewModelScope.launch { refreshApps() }
     }
 
-    fun refresh() {
+    private fun refresh() {
         media.refresh(manual = true)
         viewModelScope.launch { refreshApps() }
     }
 
-    fun toggleHero() = preferences.toggleHero()
+    private fun toggleHero() = preferences.toggleHero()
 
-    fun rememberInvoker(key: String) {
-        _state.update { it.copy(homeInvoker = key, homeTabActivation = false) }
+    private fun rememberInvoker(key: String) {
+        reduce(LauncherChange.InvokerRemembered(key))
         val kind =
             if (key.startsWith("row:")) {
                 "media"
@@ -213,58 +175,30 @@ internal class LauncherViewModel(
         Log.i("Launcher", "stage=focus-return event=invoker-recorded kind=$kind")
     }
 
-    fun selectTab(
+    private fun selectTab(
         tab: LauncherTab,
         enterContent: Boolean = false,
     ) {
         tabRestorationEligible = false
         val previousTab = _state.value.selectedTab
         Log.i("Launcher", "stage=tab-selection event=requested changed=${previousTab != tab} enterContent=$enterContent")
-        _state.update {
-            it.copy(
-                route = LauncherRoute.Home,
-                selectedTab = tab,
-                homeInvoker = if (enterContent) HOME_CONTENT else tab.focusKey,
-                homeTabActivation = !enterContent,
-                loginOrigin = null,
-                authError = null,
-                appEdit = null,
-                appEditEpoch = it.appEditEpoch + 1,
-                appFocusTarget = if (enterContent) LauncherAppFocusTarget.HomeContent(it.focusGeneration + 1) else null,
-                settingsFocusTarget = null,
-                focusGeneration = it.focusGeneration + 1,
-                homeResetGeneration = it.homeResetGeneration + if (it.selectedTab != tab) 1 else 0,
-            )
-        }
+        reduce(LauncherChange.TabSelected(tab, enterContent))
         if (previousTab != tab) media.refresh(fresh = true)
     }
 
-    fun openSettings(account: Boolean) {
-        _state.update {
-            it.copy(
-                route = LauncherRoute.Settings,
-                homeInvoker = if (it.route == LauncherRoute.Home) (if (account) "header-account" else "settings") else it.homeInvoker,
-                homeTabActivation = false,
-                loginOrigin = null,
-                authError = null,
-                appEdit = null,
-                appEditEpoch = it.appEditEpoch + 1,
-                appFocusTarget = null,
-                settingsFocusTarget = if (account) LauncherSettingsFocusTarget(it.focusGeneration + 1) else null,
-                focusGeneration = it.focusGeneration + 1,
-            )
-        }
+    private fun openSettings(account: Boolean) {
+        reduce(LauncherChange.SettingsOpened(account))
     }
 
-    fun settingsFocusHandled(target: LauncherSettingsFocusTarget) {
-        _state.update { if (it.settingsFocusTarget == target) it.copy(settingsFocusTarget = null) else it }
+    private fun settingsFocusHandled(target: LauncherSettingsFocusTarget) {
+        reduce(LauncherChange.SettingsFocusHandled(target))
     }
 
-    fun homeContentEntered() {
-        _state.update { if (it.homeTabActivation) it.copy(homeTabActivation = false) else it }
+    private fun homeContentEntered() {
+        reduce(LauncherChange.HomeContentEntered)
     }
 
-    fun beginLogin(origin: LauncherLoginOrigin) {
+    private fun beginLogin(origin: LauncherLoginOrigin) {
         val current = _state.value
         if (current.busy ||
             current.restoring ||
@@ -274,54 +208,24 @@ internal class LauncherViewModel(
         ) {
             return
         }
-        _state.update {
-            it.copy(
-                route = LauncherRoute.Login,
-                loginOrigin = origin,
-                authError = null,
-                homeTabActivation = false,
-                appEdit = null,
-                appEditEpoch = it.appEditEpoch + 1,
-                appFocusTarget = null,
-                settingsFocusTarget = null,
-                focusGeneration = it.focusGeneration + 1,
-            )
-        }
+        reduce(LauncherChange.LoginOpened(origin))
     }
 
-    fun appUnavailable() {
+    private fun appUnavailable() {
         showDialog(LauncherDialog.AppUnavailable)
         viewModelScope.launch { refreshApps() }
     }
 
-    fun navigate(
+    private fun navigate(
         route: LauncherRoute,
         invoker: String? = null,
     ) {
-        _state.update {
-            it.copy(
-                route = route,
-                homeInvoker = invoker ?: it.homeInvoker,
-                authError = null,
-                loginOrigin = if (route == LauncherRoute.Login) it.loginOrigin else null,
-                homeTabActivation = false,
-                appEdit = null,
-                appEditEpoch = it.appEditEpoch + 1,
-                appFocusTarget =
-                    if (route == LauncherRoute.Home && (invoker ?: it.homeInvoker) in launcherHeaderKeys) {
-                        LauncherAppFocusTarget.Header(invoker ?: it.homeInvoker, it.focusGeneration + 1)
-                    } else {
-                        null
-                    },
-                settingsFocusTarget = null,
-                focusGeneration = it.focusGeneration + 1,
-            )
-        }
+        reduce(LauncherChange.Navigated(route, invoker))
     }
 
-    fun backToHome() = navigate(LauncherRoute.Home)
+    private fun backToHome() = navigate(LauncherRoute.Home)
 
-    fun homeInvoked() {
+    private fun homeInvoked() {
         if (_state.value.route == LauncherRoute.Login) {
             cancelLogin(homeReset = true)
         } else {
@@ -331,41 +235,25 @@ internal class LauncherViewModel(
 
     private fun resetHome() {
         tabRestorationEligible = false
-        _state.update {
-            it.copy(
-                route = LauncherRoute.Home,
-                dialog = null,
-                authError = null,
-                homeInvoker = HOME_CONTENT,
-                selectedTab = LauncherTab.Essentials,
-                homeTabActivation = false,
-                loginOrigin = null,
-                appEdit = null,
-                appEditEpoch = it.appEditEpoch + 1,
-                appFocusTarget = LauncherAppFocusTarget.HomeContent(it.focusGeneration + 1, appsOnly = true),
-                settingsFocusTarget = null,
-                focusGeneration = it.focusGeneration + 1,
-                homeResetGeneration = it.homeResetGeneration + 1,
-            )
-        }
+        reduce(LauncherChange.HomeReset)
     }
 
-    fun showDialog(dialog: LauncherDialog) {
-        _state.update { it.copy(dialog = dialog, appEdit = null, appEditEpoch = it.appEditEpoch + 1) }
+    private fun showDialog(dialog: LauncherDialog) {
+        reduce(LauncherChange.DialogShown(dialog))
     }
 
-    fun dismissDialog() {
-        _state.update { it.copy(dialog = null, focusGeneration = it.focusGeneration + 1) }
+    private fun dismissDialog() {
+        reduce(LauncherChange.DialogDismissed)
     }
 
-    fun login(
+    private fun login(
         server: String,
         user: String,
         password: String,
     ) {
         if (_state.value.busy || _state.value.restoring || _state.value.signedIn || _state.value.cleanupPending) return
         val generation = ++loginGeneration
-        _state.update { it.copy(busy = true, authError = null) }
+        reduce(LauncherChange.LoginStarted)
         loginJob =
             viewModelScope.launch {
                 try {
@@ -378,9 +266,9 @@ internal class LauncherViewModel(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
-                    if (generation == loginGeneration) _state.update { it.copy(authError = authError(failure)) }
+                    if (generation == loginGeneration) reduce(LauncherChange.LoginFailed(authError(failure)))
                 } finally {
-                    if (generation == loginGeneration) _state.update { it.copy(busy = false) }
+                    if (generation == loginGeneration) reduce(LauncherChange.BusyChanged(false))
                 }
             }
     }
@@ -390,27 +278,11 @@ internal class LauncherViewModel(
     private fun completeLogin(generation: Long) {
         if (generation != loginGeneration || sessions.sessionState.value !is SessionState.LoggedIn) return
         val previous =
-            _state.getAndUpdate { current ->
-                val origin = current.loginOrigin
-                if (current.route != LauncherRoute.Login || origin == null) {
-                    current
-                } else {
-                    val tab = if (origin == LauncherLoginOrigin.Jellyfin) LauncherTab.Jellyfin else current.selectedTab
-                    current.copy(
-                        route = LauncherRoute.Home,
-                        selectedTab = tab,
-                        homeInvoker = tab.focusKey,
-                        homeTabActivation = true,
-                        loginOrigin = null,
-                        authError = null,
-                        focusGeneration = current.focusGeneration + 1,
-                    )
-                }
-            }
+            reduce(LauncherChange.LoginCompleted)
         if (previous.route == LauncherRoute.Login && previous.loginOrigin != null) tabRestorationEligible = false
     }
 
-    fun cancelLogin() = cancelLogin(homeReset = false)
+    private fun cancelLogin() = cancelLogin(homeReset = false)
 
     private fun cancelLogin(homeReset: Boolean) {
         loginGeneration += 1
@@ -420,89 +292,59 @@ internal class LauncherViewModel(
             resetHome()
         } else {
             tabRestorationEligible = false
-            _state.update {
-                val jellyfin = it.loginOrigin == LauncherLoginOrigin.Jellyfin
-                it.copy(
-                    route = if (jellyfin) LauncherRoute.Home else LauncherRoute.Settings,
-                    selectedTab = if (jellyfin) LauncherTab.Jellyfin else it.selectedTab,
-                    homeInvoker = if (jellyfin) JELLYFIN_CONNECT else it.homeInvoker,
-                    homeTabActivation = false,
-                    loginOrigin = null,
-                    authError = null,
-                    focusGeneration = it.focusGeneration + 1,
-                )
-            }
+            reduce(LauncherChange.LoginCancelled)
         }
         // Exit UI immediately. Ordering invalidation with the old job prevents
         // it from cancelling a newer login; a commit that already won is honored.
-        _state.update { it.copy(busy = true) }
+        reduce(LauncherChange.BusyChanged(true))
         viewModelScope.launch {
             withContext(NonCancellable) {
                 authMutation.withLock {
                     coordinator.beginAuthenticationAttempt()
                     cancelledJob?.cancelAndJoin()
-                    _state.update { it.copy(busy = false) }
+                    reduce(LauncherChange.BusyChanged(false))
                 }
             }
         }
     }
 
-    fun logout() {
+    private fun logout() {
         dismissDialog()
         viewModelScope.launch { authMutation.withLock { logoutLocked() } }
     }
 
     private suspend fun logoutLocked() {
         suppressMedia = true
-        _state.update {
-            it.copy(
-                route = LauncherRoute.Home,
-                homeInvoker = if (it.selectedTab == LauncherTab.Essentials) HOME_CONTENT else JELLYFIN_CONNECT,
-                homeTabActivation = false,
-                loginOrigin = null,
-                media = LauncherMediaState(),
-                appEdit = null,
-                appEditEpoch = it.appEditEpoch + 1,
-                appFocusTarget = null,
-                settingsFocusTarget = null,
-                busy = true,
-            )
-        }
+        reduce(LauncherChange.LogoutStarted)
         try {
             logoutAction().getOrThrow()
-            _state.update { it.copy(cleanupPending = false) }
+            reduce(LauncherChange.CleanupObserved(false))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             launcherFailure("logout", failure)
-            _state.update { it.copy(cleanupPending = true) }
+            reduce(LauncherChange.CleanupObserved(true))
             showDialog(LauncherDialog.CleanupFailed)
         } finally {
-            _state.update { it.copy(busy = false, focusGeneration = it.focusGeneration + 1) }
+            reduce(LauncherChange.LogoutFinished)
         }
     }
 
-    fun showAppMenu(
+    private fun showAppMenu(
         key: String,
         anchor: Rect,
     ) {
         val current = _state.value
         if (current.dialog != null || current.apps.catalog.none { it.componentKey == key }) return
         if (current.route != LauncherRoute.Home || current.selectedTab != LauncherTab.Essentials) return
-        _state.update {
-            it.copy(
-                appEdit = LauncherAppEdit.Menu(LauncherAppTarget(key, anchor)),
-                appEditEpoch = it.appEditEpoch + 1,
-                appFocusTarget = null,
-            )
-        }
+        reduce(LauncherChange.AppMenuShown(key, anchor))
     }
 
-    fun dismissAppEdit() {
-        _state.update { it.closeAppEdit() }
+    private fun dismissAppEdit() {
+        reduce(LauncherChange.AppEditDismissed)
     }
 
-    fun menuAppToOpen(): String? {
+    private fun menuAppToOpen(): String? {
         val menu = _state.value.appEdit as? LauncherAppEdit.Menu ?: return null
         if (_state.value.apps.catalog
                 .none { it.componentKey == menu.target.componentKey }
@@ -514,29 +356,20 @@ internal class LauncherViewModel(
         return menu.target.componentKey
     }
 
-    fun startMoving() {
+    private fun startMoving() {
         val current = _state.value
         val menu = current.appEdit as? LauncherAppEdit.Menu ?: return
         val key = menu.target.componentKey
         if (current.orderWriting || current.apps.catalog.size < 2 || current.apps.catalog.none { it.componentKey == key }) return
         tabRestorationEligible = false
-        _state.update {
-            it
-                .copy(
-                    route = LauncherRoute.Home,
-                    selectedTab = LauncherTab.Essentials,
-                    appEdit = LauncherAppEdit.Moving(key),
-                    appEditEpoch =
-                        it.appEditEpoch + 1,
-                ).withAppFocus(key)
-        }
+        reduce(LauncherChange.MovingStarted(key))
     }
 
-    fun finishMoving() {
+    private fun finishMoving() {
         if (_state.value.appEdit is LauncherAppEdit.Moving) dismissAppEdit()
     }
 
-    fun moveApp(delta: Int) {
+    private fun moveApp(delta: Int) {
         val current = _state.value
         val move = current.appEdit as? LauncherAppEdit.Moving ?: return
         val index = current.apps.catalog.indexOfFirst { it.componentKey == move.componentKey }
@@ -550,28 +383,8 @@ internal class LauncherViewModel(
         }) { it.withAppFocus(move.componentKey) }
     }
 
-    fun appFocusHandled(target: LauncherAppFocusTarget) {
-        _state.update { if (it.appFocusTarget == target) it.copy(appFocusTarget = null) else it }
-    }
-
-    private fun LauncherUiState.withAppFocus(key: String): LauncherUiState {
-        val target = LauncherAppFocusTarget.App(key, focusGeneration + 1)
-        return copy(
-            appFocusTarget = target,
-            focusGeneration = target.generation,
-            homeTabActivation = false,
-            homeInvoker = target.key,
-        )
-    }
-
-    private fun LauncherUiState.closeAppEdit(): LauncherUiState {
-        val edit = appEdit ?: return this
-        val key =
-            when (edit) {
-                is LauncherAppEdit.Menu -> edit.target.componentKey
-                is LauncherAppEdit.Moving -> edit.componentKey
-            }
-        return copy(appEdit = null, appEditEpoch = appEditEpoch + 1).withAppFocus(key)
+    private fun appFocusHandled(target: LauncherAppFocusTarget) {
+        reduce(LauncherChange.AppFocusHandled(target))
     }
 
     private suspend fun refreshApps() {
@@ -590,15 +403,12 @@ internal class LauncherViewModel(
     ) {
         if (_state.value.orderWriting) return
         val epoch = _state.value.appEditEpoch
-        _state.update { it.copy(orderWriting = true) }
+        reduce(LauncherChange.OrderWritingChanged(true))
         viewModelScope.launch {
             try {
                 block()
                 val actual = apps.state.value
-                _state.update {
-                    val updated = it.copy(apps = actual)
-                    if (it.appEditEpoch == epoch) success(updated) else updated
-                }
+                reduce(LauncherChange.OrderWritten(actual, epoch, success))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -606,7 +416,7 @@ internal class LauncherViewModel(
                 dismissAppEdit()
                 showDialog(LauncherDialog.AppUnavailable)
             } finally {
-                _state.update { it.copy(orderWriting = false) }
+                reduce(LauncherChange.OrderWritingChanged(false))
             }
         }
     }

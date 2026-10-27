@@ -31,9 +31,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null && intent.isHomeDelivery()) model.homeInvoked()
+        if (savedInstanceState == null && intent.isHomeDelivery()) model.accept(LauncherIntent.HomeInvoked)
         val savedTab = savedInstanceState?.getString(STATE_SELECTED_TAB)
-        model.restoreSelectedTab(LauncherTab.entries.firstOrNull { it.name == savedTab })
+        model.accept(LauncherIntent.RestoreSelectedTab(LauncherTab.entries.firstOrNull { it.name == savedTab }))
         val images = get<LauncherImages>()
         setContent {
             LauncherShell(model, images, ::openApp, ::openSystemSettings, ::openMedia, isDefaultHome, ::openHomeSettings)
@@ -48,12 +48,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.isHomeDelivery()) model.homeInvoked()
+        if (intent.isHomeDelivery()) model.accept(LauncherIntent.HomeInvoked)
     }
 
     override fun onStart() {
         super.onStart()
-        model.foreground(true)
+        model.accept(LauncherIntent.Foreground(true))
     }
 
     override fun onResume() {
@@ -67,12 +67,12 @@ class MainActivity : ComponentActivity() {
                 launcherFailure("home-default", failure)
                 false
             }
-        model.resumed(externalReturn)
+        model.accept(LauncherIntent.Resumed(externalReturn))
         externalReturn = false
     }
 
     override fun onStop() {
-        model.foreground(false)
+        model.accept(LauncherIntent.Foreground(false))
         super.onStop()
     }
 
@@ -80,22 +80,34 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 val intent = get<LauncherAppsRepository>().launchIntent(key)
-                if (intent == null || !launch(intent, "app-launch")) model.appUnavailable()
+                if (intent == null || !launch(intent, "app-launch")) model.accept(LauncherIntent.AppUnavailable)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
                 launcherFailure("app-launch", failure)
-                model.appUnavailable()
+                model.accept(LauncherIntent.AppUnavailable)
             }
         }
     }
 
     private fun openSystemSettings() {
-        if (!launch(Intent(Settings.ACTION_SETTINGS), "system-settings")) model.showDialog(LauncherDialog.SystemSettings)
+        if (!launch(
+                Intent(Settings.ACTION_SETTINGS),
+                "system-settings",
+            )
+        ) {
+            model.accept(LauncherIntent.ShowDialog(LauncherDialog.SystemSettings))
+        }
     }
 
     private fun openHomeSettings() {
-        if (!launch(Intent(Settings.ACTION_HOME_SETTINGS), "home-settings")) model.showDialog(LauncherDialog.HomeSettingsUnavailable)
+        if (!launch(
+                Intent(Settings.ACTION_HOME_SETTINGS),
+                "home-settings",
+            )
+        ) {
+            model.accept(LauncherIntent.ShowDialog(LauncherDialog.HomeSettingsUnavailable))
+        }
     }
 
     private fun Intent.isHomeDelivery(): Boolean = action == Intent.ACTION_MAIN && hasCategory(Intent.CATEGORY_HOME) && data == null
@@ -107,7 +119,7 @@ class MainActivity : ComponentActivity() {
         val session = playbackSession(itemId, boundaryKey)
         val intent = session?.let { JellyScopePlaybackContract.detailsIntent(it.serverId, it.userId, itemId) }
         if (session == null || intent == null) {
-            model.showDialog(LauncherDialog.PlaybackStale)
+            model.accept(LauncherIntent.ShowDialog(LauncherDialog.PlaybackStale))
             return
         }
         try {
@@ -115,29 +127,35 @@ class MainActivity : ComponentActivity() {
             val target = packageManager.getActivityInfo(expected, 0)
             if (!target.enabled || !target.applicationInfo.enabled || !target.exported) {
                 Log.i("Launcher", "stage=details-resolve event=rejected reason=target-unavailable")
-                model.showDialog(LauncherDialog.PlaybackUnavailable)
+                model.accept(LauncherIntent.ShowDialog(LauncherDialog.PlaybackUnavailable))
                 return
             }
             val resolved = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo
             if (resolved == null || ComponentName(resolved.packageName, resolved.name) != expected) {
                 Log.i("Launcher", "stage=details-resolve event=rejected reason=details-unsupported")
-                model.showDialog(LauncherDialog.DetailsUnsupported)
+                model.accept(LauncherIntent.ShowDialog(LauncherDialog.DetailsUnsupported))
                 return
             }
             // Resolution may block. Recheck current authority immediately before dispatch,
             // with no coroutine or suspension between this check and startActivity.
             val current = playbackSession(itemId, boundaryKey)
             if (current == null || current.serverId != session.serverId || current.userId != session.userId) {
-                model.showDialog(LauncherDialog.PlaybackStale)
+                model.accept(LauncherIntent.ShowDialog(LauncherDialog.PlaybackStale))
                 return
             }
-            if (!launch(intent.setComponent(expected), "details-launch")) model.showDialog(LauncherDialog.PlaybackFailed)
+            if (!launch(
+                    intent.setComponent(expected),
+                    "details-launch",
+                )
+            ) {
+                model.accept(LauncherIntent.ShowDialog(LauncherDialog.PlaybackFailed))
+            }
         } catch (failure: PackageManager.NameNotFoundException) {
             launcherFailure("details-target", failure)
-            model.showDialog(LauncherDialog.PlaybackUnavailable)
+            model.accept(LauncherIntent.ShowDialog(LauncherDialog.PlaybackUnavailable))
         } catch (failure: SecurityException) {
             launcherFailure("details-resolve", failure)
-            model.showDialog(LauncherDialog.PlaybackFailed)
+            model.accept(LauncherIntent.ShowDialog(LauncherDialog.PlaybackFailed))
         }
     }
 

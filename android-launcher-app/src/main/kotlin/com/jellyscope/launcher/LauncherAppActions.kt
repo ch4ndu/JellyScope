@@ -52,7 +52,7 @@ internal fun LauncherAppActions(
     val actions = if (state.apps.catalog.size > 1) listOf("open", "move") else listOf("open")
     val enabled = actions.filter { it == "open" || !state.orderWriting }
     Dialog(
-        onDismissRequest = model::dismissAppEdit,
+        onDismissRequest = { model.accept(LauncherIntent.DismissAppEdit) },
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
     ) {
         LaunchedEffect(enabled) { focus.request(focus.current?.takeIf { it in enabled } ?: enabled.first()) }
@@ -112,7 +112,7 @@ internal fun LauncherAppActions(
                             focus,
                             action,
                             action in enabled,
-                        ) { if (action == "open") open() else model.startMoving() }
+                        ) { if (action == "open") open() else model.accept(LauncherIntent.StartMoving) }
                     }
                 }
                 if (state.orderWriting) {

@@ -347,6 +347,20 @@ lists, excluding selected item identity. Selection alone preserves those inputs
 until a valid projection arrives. Grid keys and layout remain unchanged; runtime
 recomposition and playback behavior require separate device validation.
 
+### Android launcher MVI slice
+
+The launcher routes UI and Activity lifecycle actions through `LauncherIntent`.
+Its typed app-opening overload returns the admitted component synchronously.
+`LauncherReducer.kt` owns screen transitions and pure app-focus helpers; the
+single writer returns the previous committed state so login origin is consumed
+once even when session publication precedes action completion. Current media and
+suppression authority are read inside the atomic update.
+
+Authentication mutex/generations, account cleanup, refresh jobs, persisted tab
+restoration eligibility, and app-order writes remain ViewModel-owned. The login
+screen receives only login fields and focus/dialog state, excluding media and
+app catalogue refreshes. Remote focus and launch behavior remain device checks.
+
 ## Source Layout Target
 
 ```text
@@ -912,6 +926,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Launcher transitions centralize focus and route changes while preserving atomic
+  login-origin consumption and synchronous app-opening admission. Login inputs
+  exclude independently refreshed media and app catalogues.
 
 - Kids catalogue intents describe accepted playback outcomes so recommendation
   selection cannot imply playback admission. Projection stays off Main and narrow

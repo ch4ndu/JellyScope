@@ -91,7 +91,7 @@ internal fun LauncherSettingsScreen(
         }
     val back = {
         if (page == LauncherAccountPage.Main) {
-            model.backToHome()
+            model.accept(LauncherIntent.BackToHome)
         } else {
             pendingTarget = if (page == LauncherAccountPage.Connection) "connection" else "preferences"
             page = LauncherAccountPage.Main
@@ -111,7 +111,7 @@ internal fun LauncherSettingsScreen(
                     }
             focus.request(target)
             pendingTarget = null
-            request?.let(model::settingsFocusHandled)
+            request?.let({ target -> model.accept(LauncherIntent.SettingsFocusHandled(target)) })
         }
     }
     BackHandler(enabled = enabled, onBack = back)
@@ -184,7 +184,13 @@ internal fun LauncherSettingsScreen(
                     if (state.cleanupPending) {
                         Text(stringResource(R.string.account_cleanup_pending), color = MaterialTheme.colorScheme.error)
                     }
-                    LauncherAccountAction(R.string.refresh_library, focus, "refresh", refreshEnabled, model::refresh)
+                    LauncherAccountAction(
+                        R.string.refresh_library,
+                        focus,
+                        "refresh",
+                        refreshEnabled,
+                        { model.accept(LauncherIntent.Refresh) },
+                    )
                     if (state.media.refreshing) Text(stringResource(R.string.refreshing), color = LauncherStyle.muted)
                     LauncherAccountAction(R.string.connection_details, focus, "connection", enabled) {
                         pendingTarget = "back-account"
@@ -207,11 +213,11 @@ internal fun LauncherSettingsScreen(
                         accountEnabled,
                     ) {
                         if (state.cleanupPending) {
-                            model.logout()
+                            model.accept(LauncherIntent.Logout)
                         } else if (state.signedIn) {
-                            model.showDialog(LauncherDialog.Logout)
+                            model.accept(LauncherIntent.ShowDialog(LauncherDialog.Logout))
                         } else {
-                            model.beginLogin(LauncherLoginOrigin.Settings)
+                            model.accept(LauncherIntent.BeginLogin(LauncherLoginOrigin.Settings))
                         }
                     }
                 }
@@ -243,20 +249,20 @@ internal fun LauncherSettingsScreen(
                     LauncherAccountInfo(focus, "connection-playback", enabled) { Text(stringResource(R.string.playback_pending)) }
                 }
                 LauncherAccountPage.Preferences -> {
-                    LauncherHeroPreference(state.preferences, focus, enabled, model::toggleHero)
+                    LauncherHeroPreference(state.preferences, focus, enabled, { model.accept(LauncherIntent.ToggleHero) })
                     if (state.preferences.writing) Text(stringResource(R.string.hero_preference_saving), color = LauncherStyle.muted)
                     if (state.preferences.failed) {
                         Text(stringResource(R.string.hero_preference_failed), color = MaterialTheme.colorScheme.error)
                     }
                     Text(stringResource(if (isDefaultHome) R.string.home_selected else R.string.home_not_selected))
                     LauncherAccountAction(R.string.choose_home, focus, "settings-home", enabled) {
-                        model.showDialog(LauncherDialog.HomeSettings)
+                        model.accept(LauncherIntent.ShowDialog(LauncherDialog.HomeSettings))
                     }
                     LauncherAccountInfo(focus, "home-support", enabled) { Text(stringResource(R.string.home_support)) }
                 }
             }
         }
-        LauncherAccountAction(R.string.close, focus, "close", enabled, model::backToHome)
+        LauncherAccountAction(R.string.close, focus, "close", enabled, { model.accept(LauncherIntent.BackToHome) })
     }
 }
 

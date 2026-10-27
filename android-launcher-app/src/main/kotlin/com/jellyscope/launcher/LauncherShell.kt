@@ -150,12 +150,12 @@ internal fun LauncherShell(
         Log.i("Launcher", "stage=home-back event=handled header=${homeFocus.parentFocused}")
         homeFocus.clearPending()
         if (moving) {
-            model.finishMoving()
+            model.accept(LauncherIntent.FinishMoving)
         } else if (jellyfinHome) {
             if (!homeFocus.parentFocused) {
                 headerFocus.request(LauncherTab.Jellyfin.focusKey)
             } else {
-                model.selectTab(LauncherTab.Essentials)
+                model.accept(LauncherIntent.SelectTab(LauncherTab.Essentials))
             }
         } else if (belowApps) {
             val app = homeFocus.rowTarget("apps", appKeys)
@@ -187,10 +187,10 @@ internal fun LauncherShell(
                     headerFocus,
                     homeFocus,
                     model,
-                    model::selectTab,
-                    { model.openSettings(account = true) },
+                    { tab, enterContent -> model.accept(LauncherIntent.SelectTab(tab, enterContent)) },
+                    { model.accept(LauncherIntent.OpenSettings(account = true)) },
                     {
-                        model.rememberInvoker("settings")
+                        model.accept(LauncherIntent.RememberInvoker("settings"))
                         systemSettings()
                     },
                 )
@@ -214,28 +214,30 @@ internal fun LauncherShell(
                         currentImages,
                         onApp = {
                             if (!suppressed) {
-                                model.rememberInvoker("apps:$it")
+                                model.accept(LauncherIntent.RememberInvoker("apps:$it"))
                                 openApp(it)
                             }
                         },
                         onMedia = { target, itemId ->
                             if (!suppressed) {
-                                model.rememberInvoker(target)
+                                model.accept(LauncherIntent.RememberInvoker(target))
                                 openMedia(itemId, state.boundaryKey)
                             }
                         },
                         pages = homePages,
-                        onContentEntry = { if (!suppressed) model.homeContentEntered() },
-                        onConnect = { if (!suppressed) model.beginLogin(LauncherLoginOrigin.Jellyfin) },
+                        onContentEntry = { if (!suppressed) model.accept(LauncherIntent.HomeContentEntered) },
+                        onConnect = { if (!suppressed) model.accept(LauncherIntent.BeginLogin(LauncherLoginOrigin.Jellyfin)) },
                         onSettings = {
                             if (!suppressed) {
-                                model.navigate(
-                                    LauncherRoute.Settings,
-                                    if (state.cleanupPending) JELLYFIN_RECOVERY else JELLYFIN_SETTINGS,
+                                model.accept(
+                                    LauncherIntent.Navigate(
+                                        LauncherRoute.Settings,
+                                        if (state.cleanupPending) JELLYFIN_RECOVERY else JELLYFIN_SETTINGS,
+                                    ),
                                 )
                             }
                         },
-                        onRefresh = { if (!suppressed) model.refresh() },
+                        onRefresh = { if (!suppressed) model.accept(LauncherIntent.Refresh) },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -245,7 +247,13 @@ internal fun LauncherShell(
             val modalFocus = remember(state.route) { LauncherFocus() }
             modalFocus.enabled = state.dialog == null
             val dismiss: () -> Unit = {
-                if (state.route == LauncherRoute.Login) model.cancelLogin() else model.backToHome()
+                if (state.route ==
+                    LauncherRoute.Login
+                ) {
+                    model.accept(LauncherIntent.CancelLogin)
+                } else {
+                    model.accept(LauncherIntent.BackToHome)
+                }
             }
             Dialog(
                 onDismissRequest = dismiss,
@@ -286,14 +294,31 @@ internal fun LauncherShell(
                                     .fillMaxHeight()
                                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)),
                             )
-                        LauncherRoute.Login -> LauncherLoginScreen(state, modalFocus, model, Modifier.fillMaxWidth())
+                        LauncherRoute.Login ->
+                            LauncherLoginScreen(
+                                serverUrl = state.serverUrl,
+                                restoring = state.restoring,
+                                busy = state.busy,
+                                signedIn = state.signedIn,
+                                cleanupPending = state.cleanupPending,
+                                dialog = state.dialog,
+                                focusGeneration = state.focusGeneration,
+                                authError = state.authError,
+                                focus = modalFocus,
+                                model = model,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         LauncherRoute.Home -> Unit
                     }
                 }
             }
         }
-        LauncherAppActions(state, model) { model.menuAppToOpen()?.let(openApp) }
-        state.dialog?.let { LauncherDialogContent(it, model::dismissDialog, model::logout, isDefaultHome, homeSettings) }
+        LauncherAppActions(state, model) { model.accept(LauncherIntent.MenuAppToOpen)?.let(openApp) }
+        state.dialog?.let {
+            LauncherDialogContent(it, {
+                model.accept(LauncherIntent.DismissDialog)
+            }, { model.accept(LauncherIntent.Logout) }, isDefaultHome, homeSettings)
+        }
     }
 }
 
@@ -334,7 +359,7 @@ private fun LauncherHeader(
                     if (tab != null) {
                         val available = state.homeContentKeys(tab).isNotEmpty()
                         if (state.route == LauncherRoute.Home && tab == state.selectedTab && available && content.enter()) {
-                            model.homeContentEntered()
+                            model.accept(LauncherIntent.HomeContentEntered)
                         } else if (state.route != LauncherRoute.Home || tab != state.selectedTab || available) {
                             // One update owns both tab selection and deferred entry.
                             selectTab(tab, available)
@@ -453,7 +478,7 @@ private fun LauncherHeaderControl(
                 latest.selectedTab != tab &&
                 epoch == Triple(latest.focusGeneration, latest.appEditEpoch, latest.restoring)
             ) {
-                model.selectTab(tab)
+                model.accept(LauncherIntent.SelectTab(tab))
             }
         }
     }
