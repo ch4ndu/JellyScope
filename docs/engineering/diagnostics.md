@@ -87,13 +87,15 @@ change collection consent, privacy, retention or delivery behavior.
   capabilities and source fields only when its backend matches the resolved
   report backend; stale cross-backend metadata is omitted and capabilities are
   probed for the resolved backend instead.
-- The in-memory holder behind that failure snapshot is written only when
-  playback fails. Two failure classes have separate owners: `PlaybackInfoPlanner`
-  records its capability fallbacks (it still returns a successful plan), while
-  the active presentation shell records controller failures through
-  `PlayerViewModel` or `TvPlaybackSessionPresenter`. Successful playback must
-  never write to it: recording current state on success would overwrite the
-  failure the report exists to explain.
+- The in-memory failure snapshot retains the last recorded failure.
+  `PlaybackInfoPlanner` records a sanitized snapshot when its primary
+  PlaybackInfo attempt fails, before propagating the failure, for every backend
+  and quality mode. This includes failed replans that leave installed playback
+  running; nested forced-transcode request failures retain their separate
+  attribution and do not write this planner snapshot. The active presentation
+  shell records controller failures through `PlayerViewModel` or
+  `TvPlaybackSessionPresenter`. Successful planning or playback never writes
+  current state over the failure the report exists to explain.
 - Release app entries retain the sanitized `LogBufferStore` writer and install
   a bounded platform writer that forwards only allowlisted structured
   diagnostics after the same scrubber accepts them. It drops ordinary messages

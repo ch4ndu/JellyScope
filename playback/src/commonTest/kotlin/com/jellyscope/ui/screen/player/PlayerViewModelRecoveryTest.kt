@@ -59,7 +59,7 @@ class PlayerViewModelRecoveryTest {
         }
 
     @Test
-    fun initialPlaybackInfoFailureKeepsVideoAndDoesNotGuessSubtitleDelivery() =
+    fun initialPlaybackInfoFailureShowsRetryableErrorWithoutPreparingLocalVideo() =
         runPlayerViewModelTest {
             try {
                 val streams = defaultSubtitlePlaybackStreams()
@@ -71,9 +71,8 @@ class PlayerViewModelRecoveryTest {
                     )
                 runCurrent()
 
-                val content = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
-                assertEquals(StreamMode.DirectPlay, fixture.controller.preparedPlan?.streamMode)
-                assertEquals(SubtitleRenderStatus.Unavailable, content.subtitleRenderInfo.status)
+                assertTrue(assertIs<PlayerUiState.Error>(fixture.viewModel.state.value).retryable)
+                assertEquals(0, fixture.controller.prepareCount)
                 assertEquals(1, fixture.repository.requests.size)
             } finally {
             }

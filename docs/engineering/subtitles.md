@@ -188,10 +188,12 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   `unknown`, `undetermined`, `mul`, `zxx`) canonicalizes to null, so it never
   creates a language conflict with a real tag; other unknown subtitle/audio
   codec and language values stay isolated rather than being guessed into a
-  family. Successful PlaybackInfo plans build descriptors only from the selected
-  response media source. Detail streams are consulted only after the initial
-  default PlaybackInfo request fails. Audio descriptors exclude external audio;
-  subtitle ordinals include only response-approved Embed/HLS streams, so
+  family. Successful PlaybackInfo plans build descriptors from the selected
+  response media source, retaining capability-approved detail-derived embedded
+  subtitle descriptors for indexes absent from the response's Embed descriptors.
+  A failed PlaybackInfo request returns no plan. Audio descriptors exclude
+  external audio; response-derived subtitle ordinals include only approved
+  Embed/HLS streams, so
   External, Encode, and Drop entries never shift them. Transcoding URLs carry
   only the resolved requested subtitle intent: when a server-attached
   `SubtitleStreamIndex` differs from that intent (including Off or a local
@@ -265,12 +267,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 ## Response-authoritative delivery
 
 - Successful PlaybackInfo response subtitle delivery is authoritative; detail
-  metadata never overrides it. On an initial/default PlaybackInfo failure, Off
-  remains direct play with subtitles disabled. A Track may use detail metadata
-  only when the platform profile proves its embedded/external delivery safe;
-  otherwise video continues with Unavailable and no retry of the failed request.
-  ForceEncode and decoder-fallback PlaybackInfo failures propagate to their
-  caller and must never silently reinstall the minimal direct-play plan. If the
+  metadata never overrides it. PlaybackInfo request failures propagate under
+  the [runtime request-failure contract](playback-runtime.md#runtime-request-fallback);
+  subtitle Off or a selected Track never permits an unverified local plan. If the
   selected subtitle is missing only from a successful PlaybackInfo response, its
   exact detail stream may supply a known format/kind for one Encode attempt;
   missing detail format disables the retry. A fallback response is accepted only

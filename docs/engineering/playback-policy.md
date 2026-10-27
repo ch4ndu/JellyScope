@@ -193,9 +193,9 @@ per-asset quality memory, or persisted learned capacity.
   Auto/Original do not add that quality restriction.
 
 - **[all]** Every path that hands source video to a decoder unchanged —
-  server-approved DirectPlay, server-approved DirectStream, and the local
-  PlaybackInfo-failure fallback — passes one planner preflight against that
-  reconciled bound (box, frame area, and throughput). Refusal recovers through a
+  server-approved DirectPlay and server-approved DirectStream — passes one
+  planner preflight against that reconciled bound (box, frame area, and
+  throughput). Refusal recovers through a
   bounded sequence according to policy: a transcode already in the response,
   else at most one backend-preserving re-request with DirectPlay and
   DirectStream disabled for Auto or eligible Fixed, else a real error/action
@@ -308,7 +308,7 @@ not seeded because their VLC paths have not shown the crash class.
   `AFTKRT`, `AFTKA`, `AFTKM`, and `AFTMM`; blank, case-different, near-match,
   and other model IDs infer nothing. The DTO still emits one positive
   `EqualsAny` allowlist. Local source-copy preflight applies the same explicit
-  exclusion before DirectPlay, DirectStream, or PlaybackInfo-failure fallback,
+  exclusion before server-approved DirectPlay or DirectStream,
   so local copy cannot bypass the wire subtraction. Auto and eligible Fixed may
   use the existing bounded forced-re-encode request; Original fails closed, and
   Unrestricted never removes a hardware exclusion. An empty exclusion map is

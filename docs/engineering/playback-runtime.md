@@ -296,10 +296,11 @@ suppresses interactive recovery until it is safe to show the consequence.
   offline plans cannot enter this compatibility path. The current quality and
   recovery policy is owned by
   [Error and audio recovery](#error-and-audio-recovery). Fallback requests
-  preserve the incoming backend and its capability data. A
-  request whose backend is not AVPlayer is non-default even when all stream
-  flags retain their defaults; its PlaybackInfo failure propagates rather than
-  silently reinstalling the local direct-play plan.
+  preserve the incoming backend and its capability data. PlaybackInfo request
+  failures propagate for every backend and quality mode, including uncapped
+  AVPlayer Auto. A failed request never installs an unverified local direct-play
+  plan or initiates the source-capability forced-transcode retry. Successful
+  responses still undergo source-copy preflight and its policy-bounded recovery.
 
 ## Audio activation and native mapping
 
@@ -628,6 +629,12 @@ server/user IDs, titles, paths, or raw native errors.
     server.
 
 ## Why
+
+- **A failed request provides no compatibility approval.** Local source-copy
+  bounds cannot establish the container, codec-tag, audio, and progressive-video
+  requirements normally evaluated during negotiation. Propagating the failure
+  avoids handing an unverified source to AVPlayer or forcing a video re-encode
+  without a successful response establishing the need.
 
 - **Font scanning has process and engine ownership.** The native API blocks and
   may scan for several seconds. Startup and prepare share one IO attempt, while

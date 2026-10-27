@@ -23,6 +23,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PlaybackInfoPlannerTest {
@@ -466,7 +467,7 @@ class PlaybackInfoPlannerTest {
         }
 
     @Test
-    fun defaultPolicyFallbackRecordsDiagnosticsEvenThoughPlanningSucceeds() =
+    fun defaultPolicyPlaybackInfoFailurePropagatesAndRecordsDiagnostics() =
         runTest {
             val context = PlaybackDiagnosticsContext()
             val capabilities =
@@ -475,9 +476,11 @@ class PlaybackInfoPlannerTest {
                     audioCodecs = listOf("aac"),
                     supportsDolbyVision = false,
                 )
+            val requestFailure = IllegalStateException("unavailable")
+            val repository = SequencedPlaybackInfoRepository(listOf(Result.failure(requestFailure)))
             val planner =
                 PlaybackInfoPlanner(
-                    mediaRepository = FailingPlaybackInfoRepository(),
+                    mediaRepository = repository,
                     directPlayPlanner = DirectPlayPlanner(),
                     deviceProfileProvider =
                         object : DeviceProfileProvider {
@@ -522,18 +525,23 @@ class PlaybackInfoPlannerTest {
                     ),
                 )
 
-            val plan =
-                planner.plan(
-                    session = testSession(),
-                    itemId = "item",
-                    mediaSourceId = "source",
-                    startPositionTicks = 0L,
-                    audioStreamIndex = 2,
-                    detailMediaStreams = streams,
-                    sourceContainer = "mkv",
-                )
+            // Locally compatible metadata must not turn a failed request into
+            // a direct URL or a second request.
+            val failure =
+                assertFailsWith<IllegalStateException> {
+                    planner.plan(
+                        session = testSession(),
+                        itemId = "item",
+                        mediaSourceId = "source",
+                        startPositionTicks = 0L,
+                        audioStreamIndex = 2,
+                        detailMediaStreams = streams,
+                        sourceContainer = "mkv",
+                    )
+                }
 
-            assertEquals(StreamMode.DirectPlay, plan.streamMode)
+            assertSame(requestFailure, failure)
+            assertEquals(1, repository.requests.size)
             val snapshot = assertNotNull(context.snapshot())
             assertEquals(PlayerBackend.AVPlayer, snapshot.backend)
             assertEquals(capabilities, snapshot.capabilities)
@@ -543,11 +551,16 @@ class PlaybackInfoPlannerTest {
         }
 
     @Test
-    fun fallbackSubtitleLookupsMatchEquivalentProviderFormatAliases() =
+    fun retainedEmbeddedSubtitleDescriptorsMatchEquivalentProviderFormatAliases() =
         runTest {
             val planner =
                 PlaybackInfoPlanner(
-                    mediaRepository = FailingPlaybackInfoRepository(),
+                    // The response omits the subtitle, so only the detail-derived
+                    // descriptor can describe it.
+                    mediaRepository =
+                        StaticPlaybackInfoRepository(
+                            copyModePlaybackInfo(StreamMode.DirectPlay, sourceVideo(width = 1_920, height = 1_080)),
+                        ),
                     directPlayPlanner = DirectPlayPlanner(),
                     deviceProfileProvider =
                         object : DeviceProfileProvider {
@@ -577,21 +590,6 @@ class PlaybackInfoPlannerTest {
                     detailMediaStreams =
                         listOf(
                             PlaybackMediaStream(
-                                index = 2,
-                                type = "Audio",
-                                displayTitle = null,
-                                title = null,
-                                language = "eng",
-                                codec = "aac",
-                                channelLayout = "stereo",
-                                bitRate = null,
-                                height = null,
-                                isDefault = true,
-                                isExternal = false,
-                                deliveryMethod = null,
-                                deliveryUrl = null,
-                            ),
-                            PlaybackMediaStream(
                                 index = 4,
                                 type = "Subtitle",
                                 displayTitle = null,
@@ -607,16 +605,12 @@ class PlaybackInfoPlannerTest {
                                 deliveryUrl = null,
                             ),
                         ),
-                    audioStreamIndex = 2,
-                    subtitleSelection = SubtitleSelectionIntent.Track(4),
                 )
 
-            val subtitle = assertIs<PlannedSubtitle.Track>(plan.plannedSubtitle)
-            assertEquals(SubtitleDeliveryMethod.Embed, subtitle.deliveryMethod)
-            assertEquals("vtt", subtitle.normalizedFormat)
-            assertEquals(4, subtitle.embeddedTrack?.jellyfinStreamIndex)
-            assertNull(subtitle.embeddedTrack?.responseAuthoritativeCohortSize)
-            assertNull(plan.embeddedAudioTracks.single().responseAuthoritativeCohortSize)
+            assertEquals(StreamMode.DirectPlay, plan.streamMode)
+            val descriptor = plan.embeddedSubtitleTracks.single()
+            assertEquals(4, descriptor.jellyfinStreamIndex)
+            assertNull(descriptor.responseAuthoritativeCohortSize)
         }
 
     @Test
@@ -898,17 +892,17 @@ class PlaybackInfoPlannerTest {
         }
 
     @Test
-    fun capabilityPreflightRefusesTheLocalPlaybackInfoFailureFallback() =
+    fun playbackInfoFailureIsNotTreatedAsSourceCopyRejection() =
         runTest {
             val repository =
                 SequencedPlaybackInfoRepository(
                     listOf(
                         Result.failure(IllegalStateException("unavailable")),
-                        Result.success(copyModePlaybackInfo(StreamMode.DirectPlay, sourceVideo(width = 3_840, height = 2_160))),
+                        Result.success(copyModePlaybackInfo(StreamMode.Transcode, sourceVideo(width = 3_840, height = 2_160))),
                     ),
                 )
 
-            assertFailsWith<PlaybackPlanningException.SourceVideoCopyUnsupported> {
+            assertFailsWith<IllegalStateException> {
                 boundedPlanner(repository).plan(
                     session = testSession(),
                     itemId = "item",
@@ -918,9 +912,7 @@ class PlaybackInfoPlannerTest {
                 )
             }
 
-            assertEquals(2, repository.requestPolicies.size)
-            assertEquals(false, repository.requestPolicies[1].enableDirectPlay)
-            assertEquals(false, repository.requestPolicies[1].enableDirectStream)
+            assertEquals(1, repository.requestPolicies.size)
         }
 
     @Test
@@ -1830,34 +1822,20 @@ class PlaybackInfoPlannerTest {
         }
 
     @Test
-    fun explicitFireTvRangeExclusionBlocksTheAutoLocalFallbackOnly() =
+    fun explicitFireTvRangeExclusionPlaybackInfoFailureFailsForEveryQualityPolicy() =
         runTest {
             val source = fireTvExcludedSource()
-            val autoRepository =
-                SequencedPlaybackInfoRepository(
-                    listOf(
-                        Result.failure(IllegalStateException("initial unavailable")),
-                        Result.success(copyModePlaybackInfo(StreamMode.Transcode, source)),
-                    ),
-                )
-
-            val plan =
-                fireTvRangeExcludedPlanner(autoRepository).plan(
-                    session = testSession(),
-                    itemId = "item",
-                    mediaSourceId = "source",
-                    startPositionTicks = 0L,
-                    detailMediaStreams = listOf(source),
-                )
-
-            assertEquals(StreamMode.Transcode, plan.streamMode)
-            assertEquals(2, autoRepository.requestPolicies.size)
-            assertFalse(autoRepository.requestPolicies.last().allowVideoStreamCopy)
-
-            listOf(PlaybackQualityPolicy.fixed(8_000_000L), PlaybackQualityPolicy.Original).forEach { qualityPolicy ->
+            listOf(
+                PlaybackQualityPolicy.Auto,
+                PlaybackQualityPolicy.fixed(8_000_000L),
+                PlaybackQualityPolicy.Original,
+            ).forEach { qualityPolicy ->
                 val repository =
                     SequencedPlaybackInfoRepository(
-                        listOf(Result.failure(IllegalStateException("initial unavailable"))),
+                        listOf(
+                            Result.failure(IllegalStateException("initial unavailable")),
+                            Result.success(copyModePlaybackInfo(StreamMode.Transcode, source)),
+                        ),
                     )
                 assertFailsWith<IllegalStateException> {
                     fireTvRangeExcludedPlanner(repository).plan(

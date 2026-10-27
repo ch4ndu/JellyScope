@@ -5,7 +5,6 @@ package com.jellyscope.core.domain.playback
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.repository.MediaRepository
 import com.jellyscope.core.domain.model.Session
-import com.jellyscope.core.domain.playback.PlaybackDiagnosticEvent.Fallback
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticEvent.Resolved
 import com.jellyscope.core.playback.PlaybackDiagnosticsContext
 import com.jellyscope.core.playback.toDiagnosticsSourceDescriptor
@@ -110,13 +109,6 @@ class PlaybackInfoPlanner(
                             deviceCapabilities = deviceCapabilities,
                         ),
                     selectedSubtitleStreamIndex = subtitleSelection.selectedIndexOrNull(),
-                    plannedSubtitle =
-                        fallbackPlannedSubtitle(
-                            session.serverUrl,
-                            detailMediaStreams,
-                            subtitleSelection,
-                            deviceCapabilities,
-                        ),
                     maxStreamingBitrate = effectiveMaxStreamingBitrate,
                     qualityCapOrigin = effectiveQualityCapOrigin,
                     resolutionPolicy =
@@ -191,34 +183,10 @@ class PlaybackInfoPlanner(
                     }
                 },
                 onFailure = { throwable ->
-                    // The local direct URL has no server-side cap. It is only a
-                    // safe fallback for the uncapped inherited Auto request;
-                    // every Fixed policy, including the VLC-family default,
-                    // must fail closed rather than bypass its finite quality.
-                    if (!effectiveRequestPolicy.isDefault || effectiveQualityPolicy.mode != PlaybackQualityMode.Auto) {
-                        throw throwable
-                    }
-                    playbackInfoPlannerLogger.w {
-                        formatPlaybackDiagnostic(
-                            PlaybackDiagnostic(
-                                stage = PlaybackDiagnosticStage.Planner,
-                                event = Fallback,
-                                platform = PlaybackDiagnosticPlatform.Shared,
-                                backend = effectiveRequestPolicy.backend,
-                                sessionSequence = effectiveRequestPolicy.diagnosticSessionSequence,
-                                exceptionType = throwable.playbackExceptionType(),
-                                requestPolicy = effectiveRequestPolicy.diagnosticClass(),
-                                clientTrigger = effectiveRequestPolicy.clientTrigger,
-                                qualityCapOrigin = effectiveQualityCapOrigin,
-                                requestCapBitrateBps = effectiveMaxStreamingBitrate,
-                                resolutionPolicy = directPlan.resolutionPolicy,
-                                startPositionMs = ticksToMilliseconds(startPositionTicks),
-                                qualityPolicyMode = effectiveQualityPolicy.mode,
-                                bitrateConstraint = effectiveRequestPolicy.bitrateConstraint.diagnosticName(),
-                                recoveryIntent = effectiveRequestPolicy.recoveryIntent,
-                            ),
-                        )
-                    }
+                    // A failed request is not compatibility evidence: never
+                    // admit an unverified local URL or a forced-transcode
+                    // retry. The snapshot keeps the attempted backend and
+                    // source context for the caller's existing failure report.
                     playbackDiagnosticsContext?.recordFailure(
                         backend = effectiveRequestPolicy.backend,
                         capabilities = deviceCapabilities,
@@ -228,52 +196,7 @@ class PlaybackInfoPlanner(
                                 selectedAudioStreamIndex = audioStreamIndex,
                             ),
                     )
-                    val fallbackPreflight =
-                        sourceVideoCopyPreflight(
-                            videoStream = detailMediaStreams.firstVideoStreamOrNull(),
-                            effectiveBound =
-                                effectivePlaybackCeiling(
-                                    videoStream = detailMediaStreams.firstVideoStreamOrNull(),
-                                    deviceCapabilities = deviceCapabilities,
-                                    qualityRungCeiling = effectiveRequestPolicy.qualityResolutionCap,
-                                    userResolutionCeiling = effectiveRequestPolicy.userVideoResolutionCap,
-                                ),
-                            unsupportedRangeTypesByCodec =
-                                deviceCapabilities?.unsupportedVideoRangeTypesByCodec.orEmpty(),
-                            resolutionPolicy = directPlan.resolutionPolicy,
-                            finiteLimitSources =
-                                finiteLimitSourcesFor(
-                                    videoStream = detailMediaStreams.firstVideoStreamOrNull(),
-                                    deviceCapabilities = deviceCapabilities,
-                                    resolutionPolicy = directPlan.resolutionPolicy,
-                                ),
-                        )
-                    fallbackPreflight.rejectionDetail?.let { detail ->
-                        logSourceVideoCopyRejection(
-                            detail = detail,
-                            directPlan = directPlan,
-                            requestPolicy = effectiveRequestPolicy,
-                        )
-                    }
-                    if (fallbackPreflight.allowsSourceCopy) {
-                        directPlan.copy(
-                            diagnosticSessionSequence = effectiveRequestPolicy.diagnosticSessionSequence,
-                        )
-                    } else {
-                        recoverWithForcedTranscode(
-                            directPlan = directPlan,
-                            itemId = itemId,
-                            mediaSourceId = mediaSourceId,
-                            startPositionTicks = startPositionTicks,
-                            audioStreamIndex = audioStreamIndex,
-                            subtitleStreamIndex = playbackInfoSubtitleStreamIndex,
-                            serverUrl = session.serverUrl,
-                            subtitleSelection = subtitleSelection,
-                            deviceCapabilities = deviceCapabilities,
-                            detailMediaStreams = detailMediaStreams,
-                            requestPolicy = effectiveRequestPolicy,
-                        )
-                    }
+                    throw throwable
                 },
             )
         return if (
@@ -431,65 +354,6 @@ class PlaybackInfoPlanner(
             )
         }
     }
-
-    private fun fallbackPlannedSubtitle(
-        serverUrl: String,
-        detailMediaStreams: List<PlaybackMediaStream>,
-        subtitleSelection: SubtitleSelectionIntent,
-        deviceCapabilities: DeviceDecodingCapabilities?,
-    ): PlannedSubtitle =
-        when (subtitleSelection) {
-            SubtitleSelectionIntent.Off, SubtitleSelectionIntent.Unspecified -> PlannedSubtitle.Off
-            is SubtitleSelectionIntent.LocalAsset -> PlannedSubtitle.Off
-            is SubtitleSelectionIntent.Track -> {
-                val stream = detailMediaStreams.firstOrNull { candidate -> candidate.index == subtitleSelection.streamIndex }
-                if (stream == null) {
-                    PlannedSubtitle.Unavailable(
-                        streamIndex = subtitleSelection.streamIndex,
-                        kind = SubtitleKind.Text,
-                        reason = "Subtitle metadata unavailable",
-                    )
-                } else {
-                    val format = stream.normalizedSubtitleFormat()
-                    val kind = subtitleKind(format)
-                    val capability =
-                        deviceCapabilities
-                            ?.subtitleProfiles
-                            ?.firstOrNull { profile -> subtitleFormatsEquivalent(profile.format, format) }
-                    val delivery = if (stream.isExternalSubtitle()) SubtitleDeliveryMethod.External else SubtitleDeliveryMethod.Embed
-                    val external = stream.toExternalSubtitle(serverUrl)
-                    if (
-                        capability != null &&
-                        delivery in capability.deliveryMethods &&
-                        (delivery != SubtitleDeliveryMethod.External || external != null)
-                    ) {
-                        PlannedSubtitle.Track(
-                            streamIndex = subtitleSelection.streamIndex,
-                            embeddedTrack =
-                                if (delivery == SubtitleDeliveryMethod.Embed) {
-                                    fallbackEmbeddedSubtitleTracks(detailMediaStreams, deviceCapabilities)
-                                        .firstOrNull { descriptor ->
-                                            descriptor.jellyfinStreamIndex == subtitleSelection.streamIndex
-                                        }
-                                } else {
-                                    null
-                                },
-                            deliveryMethod = delivery,
-                            kind = kind,
-                            externalResource = external,
-                            normalizedFormat = format,
-                        )
-                    } else {
-                        PlannedSubtitle.Unavailable(
-                            streamIndex = subtitleSelection.streamIndex,
-                            kind = kind,
-                            normalizedFormat = format,
-                            reason = "PlaybackInfo unavailable and local delivery is unverified",
-                        )
-                    }
-                }
-            }
-        }
 
     private fun fallbackEmbeddedSubtitleTracks(
         streams: List<PlaybackMediaStream>,
