@@ -48,7 +48,7 @@ class TvSessionPresenterTest {
                     dispatchers = testDispatchers(StandardTestDispatcher(testScheduler)),
                 )
 
-            presenter.signOut()
+            presenter.accept(TvSessionIntent.SignOut)
             runCurrent()
 
             assertEquals(1, authRepository.logoutCount)

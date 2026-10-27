@@ -108,9 +108,31 @@ class TvOfflinePlaybackPresenter(
         }
     }
 
+    private fun reduce(change: TvOfflinePlaybackChange) = reduce { change }
+
+    private fun reduce(change: () -> TvOfflinePlaybackChange) {
+        _state.update { current -> reduceTvOfflinePlayback(current, change()) }
+    }
+
+    fun accept(intent: TvOfflinePlaybackIntent) {
+        when (intent) {
+            TvOfflinePlaybackIntent.Start -> start()
+            TvOfflinePlaybackIntent.Retry -> retry()
+            TvOfflinePlaybackIntent.Play -> play()
+            TvOfflinePlaybackIntent.Pause -> pause()
+            TvOfflinePlaybackIntent.TogglePlayPause -> togglePlayPause()
+            is TvOfflinePlaybackIntent.SeekTo -> seekTo(intent.positionMs)
+            is TvOfflinePlaybackIntent.SelectAudio -> selectAudio(intent.streamIndex)
+            is TvOfflinePlaybackIntent.SelectSubtitle -> selectSubtitle(intent.streamIndex)
+            is TvOfflinePlaybackIntent.SeekToChapter -> seekToChapter(intent.index)
+            is TvOfflinePlaybackIntent.SetPlaybackSpeed -> setPlaybackSpeed(intent.speed)
+            is TvOfflinePlaybackIntent.SetDiagnosticsVisible -> setDiagnosticsVisible(intent.visible)
+        }
+    }
+
     fun watchState(onChange: (TvOfflinePlaybackUiState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun start() {
+    private fun start() {
         if (started || closed) return
         started = true
         val expectedGeneration = ++launchGeneration
@@ -193,7 +215,7 @@ class TvOfflinePlaybackPresenter(
             }
     }
 
-    fun retry() {
+    private fun retry() {
         if (closed) return
         startJob?.cancel()
         observeJob?.cancel()
@@ -207,16 +229,16 @@ class TvOfflinePlaybackPresenter(
         completedPersisted = false
         reprepareIntent = null
         started = false
-        _state.value = TvOfflinePlaybackUiState()
+        reduce(TvOfflinePlaybackChange.Reset)
         start()
     }
 
-    fun play() {
+    private fun play() {
         reprepareIntent = reprepareIntent?.copy(playWhenReady = true)
         installedController?.play()
     }
 
-    fun pause() {
+    private fun pause() {
         reprepareIntent = reprepareIntent?.copy(playWhenReady = false)
         val controller = installedController ?: return
         controller.pause()
@@ -224,7 +246,7 @@ class TvOfflinePlaybackPresenter(
         persistProgress(positionMs)
     }
 
-    fun togglePlayPause() {
+    private fun togglePlayPause() {
         reprepareIntent?.let { intent ->
             if (intent.playWhenReady) pause() else play()
             return
@@ -236,7 +258,7 @@ class TvOfflinePlaybackPresenter(
         }
     }
 
-    fun seekTo(positionMs: Long) {
+    private fun seekTo(positionMs: Long) {
         val controller = installedController ?: return
         val duration = controller.playbackState.value.durationMs ?: state.value.durationMs
         val target = positionMs.coerceAtLeast(0L).let { value -> duration?.let(value::coerceAtMost) ?: value }
@@ -245,7 +267,7 @@ class TvOfflinePlaybackPresenter(
         persistProgress(target)
     }
 
-    fun selectAudio(streamIndex: Int) {
+    private fun selectAudio(streamIndex: Int) {
         val controller = installedController ?: return
         val currentPlan = plan ?: return
         val descriptor =
@@ -257,7 +279,7 @@ class TvOfflinePlaybackPresenter(
         publish(controller.playbackState.value)
     }
 
-    fun selectSubtitle(streamIndex: Int?) {
+    private fun selectSubtitle(streamIndex: Int?) {
         val controller = installedController ?: return
         val currentPlan = plan ?: return
         val replacementRequired = reprepareIntent != null
@@ -328,12 +350,12 @@ class TvOfflinePlaybackPresenter(
         publish(controller.playbackState.value)
     }
 
-    fun seekToChapter(index: Int) {
+    private fun seekToChapter(index: Int) {
         val chapter = plan?.chapters?.getOrNull(index) ?: return
         seekTo(chapter.startMs)
     }
 
-    fun setPlaybackSpeed(speed: Float) {
+    private fun setPlaybackSpeed(speed: Float) {
         val controller = installedController ?: return
         if (!speed.isFinite() || speed !in tvPlaybackSpeedValues) return
         plan = plan?.copy(playbackSpeed = speed)
@@ -341,26 +363,25 @@ class TvOfflinePlaybackPresenter(
         publish(controller.playbackState.value.copy(playbackSpeed = speed))
     }
 
-    fun setDiagnosticsVisible(visible: Boolean) {
+    private fun setDiagnosticsVisible(visible: Boolean) {
         diagnosticsJob?.cancel()
         diagnosticsJob = null
         if (!visible) {
-            _state.update { current -> current.copy(diagnostics = emptyList()) }
+            reduce(TvOfflinePlaybackChange.DiagnosticsHidden)
             return
         }
         val controller = installedController ?: return
         diagnosticsJob =
             scope.launch {
                 controller.runtimeDiagnostics.collect { runtime ->
-                    _state.update { current ->
-                        current.copy(
-                            diagnostics =
-                                tvPlaybackDiagnosticRows(
-                                    backend = controller.activeBackend,
-                                    plan = plan,
-                                    playbackState = controller.playbackState.value,
-                                    runtime = runtime,
-                                ),
+                    reduce {
+                        TvOfflinePlaybackChange.DiagnosticsLoaded(
+                            tvPlaybackDiagnosticRows(
+                                backend = controller.activeBackend,
+                                plan = plan,
+                                playbackState = controller.playbackState.value,
+                                runtime = runtime,
+                            ),
                         )
                     }
                 }
@@ -466,7 +487,7 @@ class TvOfflinePlaybackPresenter(
         reprepareIntent = desiredIntent.copy(replacementMediaPrepared = false)
         reprepareJob =
             scope.launch {
-                _state.update { current -> current.copy(phase = TvPlaybackPhase.Loading) }
+                reduce(TvOfflinePlaybackChange.Loading)
                 when (val result = controller.prepareOffline(preparedPlan)) {
                     OfflinePrepareResult.Started -> {
                         currentCoroutineContext().ensureActive()
@@ -632,20 +653,11 @@ class TvOfflinePlaybackPresenter(
     }
 
     private fun publish(projectedState: TvOfflinePlaybackUiState) {
-        _state.update { current ->
-            projectedState.copy(diagnostics = current.diagnostics)
-        }
+        reduce(TvOfflinePlaybackChange.Projected(projectedState))
     }
 
     private fun publishFailure(error: PlaybackError) {
-        _state.update { current ->
-            current.copy(
-                playerInstalled = installedController != null,
-                playerIdentity = playerIdentity,
-                phase = TvPlaybackPhase.Failed,
-                error = error,
-            )
-        }
+        reduce { TvOfflinePlaybackChange.Failed(installedController != null, playerIdentity, error) }
     }
 
     private fun releaseController() {

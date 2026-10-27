@@ -447,6 +447,21 @@ Search content takes only search/language/install/quota values and callbacks, ex
 local selection, deletion and sync state. This narrows source dependencies without a
 claim of measured SwiftUI rendering gains or device playback validation.
 
+### Native tvOS offline playback and session MVI slice
+
+Offline playback controls and session sign-out dispatch typed intents from Swift.
+Offline state reduction preserves diagnostics during controller projection, resets
+all fields on retry, and evaluates controller/plan reads inside atomic update retries.
+Controller acquisition/release, account-qualified artifact preparation, track
+activation, subtitle re-preparation, and serialized progress persistence remain in
+the presenter. Session state stays a projection of the shared session owner; sign-out
+does not optimistically change routing before that owner publishes.
+
+The diagnostics panel consumes only diagnostic rows and visibility/close callbacks,
+not the full playback model. Native surfaces and lifecycle closure remain direct.
+This dependency narrowing is source-backed; device playback and frame behavior need
+separate runtime validation.
+
 ## Source Layout Target
 
 ```text
@@ -1012,6 +1027,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Offline MVI makes control dispatch explicit without transferring native resource
+  ownership into state. Session observation remains authoritative for routing;
+  narrow diagnostics inputs avoid a direct dependency on every playback tick.
 
 - Native detail has one state writer even when series loading and optimistic actions
   overlap. Typed subtitle changes retain acknowledgement revisions, while narrow

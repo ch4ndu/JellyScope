@@ -137,7 +137,7 @@ final class PlaybackModel: ObservableObject {
 
     func start() {
         onlinePresenter?.start()
-        offlinePresenter?.start()
+        offlinePresenter?.accept(intent: TvOfflinePlaybackIntentStart.shared)
     }
 
     func close() {
@@ -151,20 +151,20 @@ final class PlaybackModel: ObservableObject {
         vlcSurface = nil
     }
 
-    func play() { onlinePresenter?.play(); offlinePresenter?.play() }
-    func pause() { onlinePresenter?.pause(); offlinePresenter?.pause() }
-    func togglePlayPause() { onlinePresenter?.togglePlayPause(); offlinePresenter?.togglePlayPause() }
-    func seek(to positionMs: Int64) { onlinePresenter?.seekTo(positionMs: positionMs); offlinePresenter?.seekTo(positionMs: positionMs) }
+    func play() { onlinePresenter?.play(); offlinePresenter?.accept(intent: TvOfflinePlaybackIntentPlay.shared) }
+    func pause() { onlinePresenter?.pause(); offlinePresenter?.accept(intent: TvOfflinePlaybackIntentPause.shared) }
+    func togglePlayPause() { onlinePresenter?.togglePlayPause(); offlinePresenter?.accept(intent: TvOfflinePlaybackIntentTogglePlayPause.shared) }
+    func seek(to positionMs: Int64) { onlinePresenter?.seekTo(positionMs: positionMs); offlinePresenter?.accept(intent: TvOfflinePlaybackIntentSeekTo(positionMs: positionMs)) }
     func selectAudio(_ streamIndex: Int32, identity: PlaybackActionIdentity? = nil) {
         guard accepts(identity) else { return }
         onlinePresenter?.selectAudio(streamIndex: streamIndex)
-        offlinePresenter?.selectAudio(streamIndex: streamIndex)
+        offlinePresenter?.accept(intent: TvOfflinePlaybackIntentSelectAudio(streamIndex: streamIndex))
     }
     func selectSubtitle(_ streamIndex: Int32?, identity: PlaybackActionIdentity? = nil) {
         guard accepts(identity) else { return }
         let value = streamIndex.map { KotlinInt(int: $0) }
         onlinePresenter?.selectSubtitle(streamIndex: value)
-        offlinePresenter?.selectSubtitle(streamIndex: value)
+        offlinePresenter?.accept(intent: TvOfflinePlaybackIntentSelectSubtitle(streamIndex: value))
     }
     func selectLocalSubtitle(_ assetId: String?, context: PlaybackSubtitleContext) {
         guard context == subtitleContext else { return }
@@ -179,7 +179,7 @@ final class PlaybackModel: ObservableObject {
             presenter.selectQualityChoice(modeName: choice.mode.name, maxBitrateBps: choice.maxBitrateBps)
         }
     }
-    func setPlaybackSpeed(_ speed: Float) { onlinePresenter?.setPlaybackSpeed(speed: speed); offlinePresenter?.setPlaybackSpeed(speed: speed) }
+    func setPlaybackSpeed(_ speed: Float) { onlinePresenter?.setPlaybackSpeed(speed: speed); offlinePresenter?.accept(intent: TvOfflinePlaybackIntentSetPlaybackSpeed(speed: speed)) }
     func setSubtitleStyle(fontScale: Float, foreground: String?, background: String?, edgeStyleName: String) {
         onlinePresenter?.setSubtitleStyle(
             fontScale: fontScale,
@@ -188,10 +188,10 @@ final class PlaybackModel: ObservableObject {
             edgeStyleName: edgeStyleName
         )
     }
-    func setDiagnosticsVisible(_ visible: Bool) { onlinePresenter?.setDiagnosticsVisible(visible: visible); offlinePresenter?.setDiagnosticsVisible(visible: visible) }
+    func setDiagnosticsVisible(_ visible: Bool) { onlinePresenter?.setDiagnosticsVisible(visible: visible); offlinePresenter?.accept(intent: TvOfflinePlaybackIntentSetDiagnosticsVisible(visible: visible)) }
     func seekToChapter(_ index: Int) {
         if let offlinePresenter {
-            offlinePresenter.seekToChapter(index: Int32(index))
+            offlinePresenter.accept(intent: TvOfflinePlaybackIntentSeekToChapter(index: Int32(index)))
         } else if chapters.indices.contains(index) {
             seek(to: chapters[index].startMs)
         }
@@ -212,7 +212,7 @@ final class PlaybackModel: ObservableObject {
     }
     func handlePlaybackAction(_ action: PlaybackAction) { onlinePresenter?.handlePlaybackAction(action: action) }
     func dismissSubtitleNotice() { onlinePresenter?.dismissSubtitleNotice() }
-    func retry() { onlinePresenter?.handlePlaybackAction(action: PlaybackAction.retry); offlinePresenter?.retry() }
+    func retry() { onlinePresenter?.handlePlaybackAction(action: PlaybackAction.retry); offlinePresenter?.accept(intent: TvOfflinePlaybackIntentRetry.shared) }
     func recordVideoOutputReady(_ generation: Int64) { onlinePresenter?.recordVideoOutputReady(generation: generation) }
     func recordNativePlaybackIntent(isPlaying: Bool, identity: PlaybackActionIdentity) {
         guard accepts(identity) else { return }

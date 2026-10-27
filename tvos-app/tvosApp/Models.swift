@@ -156,7 +156,7 @@ final class SessionModel: ObservableObject {
     }
 
     func signOut() {
-        presenter.signOut()
+        presenter.accept(intent: TvSessionIntentSignOut.shared)
     }
 
     deinit {

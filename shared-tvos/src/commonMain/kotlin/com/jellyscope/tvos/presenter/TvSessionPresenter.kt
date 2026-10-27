@@ -41,30 +41,24 @@ class TvSessionPresenter(
     init {
         scope.launch {
             observeSessionState().collect { sessionState ->
-                _state.value = sessionState.toTvSessionState()
+                reduce(TvSessionChange.Observed(sessionState))
             }
+        }
+    }
+
+    private fun reduce(change: TvSessionChange) {
+        _state.value = reduceTvSession(change)
+    }
+
+    fun accept(intent: TvSessionIntent) {
+        when (intent) {
+            TvSessionIntent.SignOut -> signOut()
         }
     }
 
     fun watchState(onChange: (TvSessionState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun signOut() {
+    private fun signOut() {
         scope.launch { logoutAction() }
     }
 }
-
-private fun SessionState.toTvSessionState(): TvSessionState =
-    when (this) {
-        SessionState.Restoring -> TvSessionState(phase = TvSessionPhase.Restoring)
-        is SessionState.LoggedOut ->
-            TvSessionState(
-                phase = TvSessionPhase.LoggedOut,
-                lastServerUrl = serverUrl,
-            )
-        is SessionState.LoggedIn ->
-            TvSessionState(
-                phase = TvSessionPhase.LoggedIn,
-                session = session,
-                boundaryEpoch = boundaryEpoch,
-            )
-    }

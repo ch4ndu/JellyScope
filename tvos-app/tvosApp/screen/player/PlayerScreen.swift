@@ -225,7 +225,7 @@ struct PlayerScreen: View {
         case .subtitleStyle:
             PlayerSubtitleStyleView(model: model, onClose: closePanel)
         case .diagnostics:
-            PlayerDiagnosticsView(model: model, onClose: closePanel)
+            PlayerDiagnosticsView(diagnostics: model.diagnostics, onVisibilityChanged: model.setDiagnosticsVisible, onClose: closePanel)
         }
     }
 
