@@ -35,8 +35,8 @@ class TvSearchPresenterTest {
                 )
             val fixture = fixture(repository)
 
-            fixture.presenter.setQuery("al")
-            fixture.presenter.setQuery("alien")
+            fixture.presenter.accept(TvSearchIntent.SetQuery("al"))
+            fixture.presenter.accept(TvSearchIntent.SetQuery("alien"))
             advanceTimeBy(400L)
             runCurrent()
 
@@ -61,7 +61,7 @@ class TvSearchPresenterTest {
                 )
             val fixture = fixture(repository)
 
-            fixture.presenter.submit("first")
+            fixture.presenter.accept(TvSearchIntent.Submit("first"))
             runCurrent()
             assertEquals(
                 listOf("movie-first"),
@@ -71,8 +71,8 @@ class TvSearchPresenterTest {
 
             // A newer query supersedes; the old generation's result is dropped
             // even though both jobs complete.
-            fixture.presenter.setQuery("second")
-            fixture.presenter.submit("third")
+            fixture.presenter.accept(TvSearchIntent.SetQuery("second"))
+            fixture.presenter.accept(TvSearchIntent.Submit("third"))
             runCurrent()
             assertEquals(
                 listOf("movie-third"),
@@ -93,13 +93,13 @@ class TvSearchPresenterTest {
                 )
             val fixture = fixture(repository)
 
-            fixture.presenter.submit("alien")
+            fixture.presenter.accept(TvSearchIntent.Submit("alien"))
             runCurrent()
             assertEquals(listOf("alien"), fixture.presenter.state.value.recentSearches)
             assertEquals(fixture.store.expectedDispatcher, fixture.store.observedAddDispatcher)
             assertEquals(fixture.store.expectedDispatcher, fixture.store.observedListDispatcher)
 
-            fixture.presenter.clearRecents()
+            fixture.presenter.accept(TvSearchIntent.ClearRecents)
             runCurrent()
             assertTrue(
                 fixture.presenter.state.value.recentSearches
@@ -125,12 +125,12 @@ class TvSearchPresenterTest {
                 )
             val fixture = fixture(repository)
 
-            fixture.presenter.submit("first")
+            fixture.presenter.accept(TvSearchIntent.Submit("first"))
             runCurrent()
             assertTrue(fixture.presenter.state.value.hasResults)
 
             fail = true
-            fixture.presenter.submit("second")
+            fixture.presenter.accept(TvSearchIntent.Submit("second"))
             runCurrent()
             val state = fixture.presenter.state.value
             assertEquals(listOf("movie-1"), state.movies.map(TvMediaCard::id))
@@ -149,7 +149,7 @@ class TvSearchPresenterTest {
                 )
             val fixture = fixture(repository)
 
-            fixture.presenter.setQuery("partial")
+            fixture.presenter.accept(TvSearchIntent.SetQuery("partial"))
             advanceTimeBy(400L)
             runCurrent()
             assertTrue(fixture.presenter.state.value.hasResults)
@@ -158,7 +158,7 @@ class TvSearchPresenterTest {
                     .isEmpty(),
             )
 
-            fixture.presenter.submit("committed")
+            fixture.presenter.accept(TvSearchIntent.Submit("committed"))
             runCurrent()
             assertEquals(listOf("committed"), fixture.presenter.state.value.recentSearches)
             presenterClose(fixture)
@@ -177,7 +177,7 @@ class TvSearchPresenterTest {
             store.failAdds = true
             val fixture = fixture(repository, store = store)
 
-            fixture.presenter.submit("alien")
+            fixture.presenter.accept(TvSearchIntent.Submit("alien"))
             runCurrent()
 
             val state = fixture.presenter.state.value
@@ -197,11 +197,11 @@ class TvSearchPresenterTest {
                 )
             val fixture = fixture(repository, recents = listOf("older"))
 
-            fixture.presenter.submit("alien")
+            fixture.presenter.accept(TvSearchIntent.Submit("alien"))
             runCurrent()
             assertTrue(fixture.presenter.state.value.hasResults)
 
-            fixture.presenter.setQuery("")
+            fixture.presenter.accept(TvSearchIntent.SetQuery(""))
             runCurrent()
             val state = fixture.presenter.state.value
             assertTrue(!state.hasResults)
@@ -219,7 +219,7 @@ class TvSearchPresenterTest {
             assertEquals(listOf("older"), fixture.presenter.state.value.recentSearches)
 
             store.blockLists = true
-            fixture.presenter.submit("alien")
+            fixture.presenter.accept(TvSearchIntent.Submit("alien"))
             runCurrent()
             fixture.presenter.close()
             runCurrent()

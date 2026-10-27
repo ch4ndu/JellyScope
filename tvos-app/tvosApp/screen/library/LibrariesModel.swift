@@ -19,7 +19,7 @@ final class LibrariesModel: ObservableObject {
     }
 
     func reload() {
-        presenter.load()
+        presenter.accept(intent: TvLibrariesIntentLoad.shared)
     }
 
     deinit {

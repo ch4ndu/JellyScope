@@ -19,11 +19,11 @@ final class HomeModel: ObservableObject {
     }
 
     func reload() {
-        presenter.load()
+        presenter.accept(intent: TvHomeIntentLoad.shared)
     }
 
     func retry(_ row: TvHomeRowKind) {
-        presenter.retry(row: row)
+        presenter.accept(intent: TvHomeIntentRetry(row: row))
     }
 
     deinit {

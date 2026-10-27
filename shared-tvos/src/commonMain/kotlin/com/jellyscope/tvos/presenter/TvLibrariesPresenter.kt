@@ -28,12 +28,22 @@ class TvLibrariesPresenter(
     private var loadJob: Job? = null
     private var loadGeneration = 0L
 
+    private fun reduce(change: TvLibrariesChange) {
+        _state.update { current -> reduceTvLibraries(current, change) }
+    }
+
+    fun accept(intent: TvLibrariesIntent) {
+        when (intent) {
+            TvLibrariesIntent.Load -> load()
+        }
+    }
+
     fun watchState(onChange: (TvLibrariesState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun load() {
+    private fun load() {
         loadJob?.cancel()
         val generation = ++loadGeneration
-        _state.update { current -> current.copy(isLoading = true, error = null) }
+        reduce(TvLibrariesChange.LoadStarted)
         loadJob =
             scope.launch {
                 val result =
@@ -65,21 +75,10 @@ class TvLibrariesPresenter(
                 if (generation != loadGeneration) return@launch
                 result
                     .onSuccess { tiles ->
-                        _state.update { current ->
-                            current.copy(
-                                isLoading = false,
-                                libraries = tiles,
-                                error = null,
-                            )
-                        }
+                        reduce(TvLibrariesChange.Loaded(tiles))
                     }.onFailure { error ->
                         if (error is CancellationException) throw error
-                        _state.update { current ->
-                            current.copy(
-                                isLoading = false,
-                                error = error.toTvErrorKind(),
-                            )
-                        }
+                        reduce(TvLibrariesChange.Failed(error.toTvErrorKind()))
                     }
             }
     }

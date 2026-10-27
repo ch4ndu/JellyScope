@@ -58,38 +58,44 @@ class TvSearchPresenter(
         scope.launch { refreshRecents(keepExistingOnFailure = false) }
     }
 
+    private fun reduce(change: TvSearchChange) {
+        _state.update { current -> reduceTvSearch(current, change) }
+    }
+
+    fun accept(intent: TvSearchIntent) {
+        when (intent) {
+            is TvSearchIntent.SetQuery -> setQuery(intent.query)
+            is TvSearchIntent.Submit -> submit(intent.query)
+            TvSearchIntent.Retry -> retry()
+            is TvSearchIntent.ToggleGenre -> toggleGenre(intent.genre)
+            is TvSearchIntent.SetRuntimeBucket -> setRuntimeBucket(intent.bucket)
+            is TvSearchIntent.SetWatchedFilter -> setWatchedFilter(intent.filter)
+            is TvSearchIntent.SelectPerson -> selectPerson(intent.person)
+            TvSearchIntent.ClearPerson -> clearPerson()
+            is TvSearchIntent.SelectResultCategory -> selectResultCategory(intent.category)
+            TvSearchIntent.ClearRecents -> clearRecents()
+            TvSearchIntent.Refresh -> refresh()
+        }
+    }
+
     fun watchState(onChange: (TvSearchState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun setQuery(query: String) {
+    private fun setQuery(query: String) {
         val normalized = query.trim()
         val current = state.value
         if (normalized == current.query && current.selectedPerson == null) return
 
         invalidateSuggestions()
-        _state.update { state ->
-            state.copy(
-                query = normalized,
-                selectedPerson = null,
-                personSuggestions = emptyList(),
-                error = null,
-            )
-        }
+        reduce(TvSearchChange.QueryChanged(normalized))
         scheduleSearch()
     }
 
-    fun submit(query: String) {
+    private fun submit(query: String) {
         val normalized = query.trim()
         val current = state.value
         val preservesPerson = current.selectedPerson != null && normalized == current.query
         invalidateSuggestions()
-        _state.update { state ->
-            state.copy(
-                query = normalized,
-                selectedPerson = state.selectedPerson.takeIf { preservesPerson },
-                personSuggestions = emptyList(),
-                error = null,
-            )
-        }
+        reduce(TvSearchChange.Submitted(normalized, preservesPerson))
         if (!state.value.hasActiveQuery) {
             publishIdle()
             return
@@ -97,60 +103,38 @@ class TvSearchPresenter(
         executeSearch(recentLabel = state.value.recentLabel())
     }
 
-    fun retry() {
+    private fun retry() {
         if (!state.value.hasActiveQuery) return
         executeSearch(recentLabel = null)
     }
 
-    fun toggleGenre(genre: TvSearchGenre) {
-        _state.update { current ->
-            val genres =
-                if (genre in current.selectedGenres) {
-                    current.selectedGenres - genre
-                } else {
-                    current.selectedGenres + genre
-                }
-            current.copy(selectedGenres = genres, error = null)
-        }
+    private fun toggleGenre(genre: TvSearchGenre) {
+        reduce(TvSearchChange.GenreToggled(genre))
         scheduleSearch()
     }
 
-    fun setRuntimeBucket(bucket: RuntimeBucket) {
+    private fun setRuntimeBucket(bucket: RuntimeBucket) {
         if (state.value.runtimeBucket == bucket) return
-        _state.update { current -> current.copy(runtimeBucket = bucket, error = null) }
+        reduce(TvSearchChange.RuntimeChanged(bucket))
         scheduleSearch()
     }
 
-    fun setWatchedFilter(filter: WatchedFilter) {
+    private fun setWatchedFilter(filter: WatchedFilter) {
         if (state.value.watchedFilter == filter) return
-        _state.update { current -> current.copy(watchedFilter = filter, error = null) }
+        reduce(TvSearchChange.WatchedChanged(filter))
         scheduleSearch()
     }
 
-    fun selectPerson(person: TvSearchPerson) {
+    private fun selectPerson(person: TvSearchPerson) {
         invalidateSuggestions()
-        _state.update { current ->
-            current.copy(
-                query = person.name,
-                selectedPerson = person,
-                personSuggestions = emptyList(),
-                error = null,
-            )
-        }
+        reduce(TvSearchChange.PersonSelected(person))
         executeSearch(recentLabel = person.name)
     }
 
-    fun clearPerson() {
+    private fun clearPerson() {
         if (state.value.selectedPerson == null) return
         invalidateSuggestions()
-        _state.update { current ->
-            current.copy(
-                query = "",
-                selectedPerson = null,
-                personSuggestions = emptyList(),
-                error = null,
-            )
-        }
+        reduce(TvSearchChange.PersonCleared)
         if (state.value.hasActiveQuery) {
             executeSearch(recentLabel = null)
         } else {
@@ -158,11 +142,11 @@ class TvSearchPresenter(
         }
     }
 
-    fun selectResultCategory(category: TvSearchResultCategory) {
-        _state.update { current -> current.copy(selectedResultCategory = category) }
+    private fun selectResultCategory(category: TvSearchResultCategory) {
+        reduce(TvSearchChange.CategorySelected(category))
     }
 
-    fun clearRecents() {
+    private fun clearRecents() {
         recentsGeneration += 1
         scope.launch {
             try {
@@ -185,11 +169,11 @@ class TvSearchPresenter(
                 return@launch
             }
             recentsGeneration += 1
-            _state.update { current -> current.copy(recentSearches = emptyList()) }
+            reduce(TvSearchChange.RecentsCleared)
         }
     }
 
-    fun refresh() {
+    private fun refresh() {
         scope.launch { refreshRecents(keepExistingOnFailure = true) }
         refreshPersonSuggestions()
     }
@@ -209,7 +193,7 @@ class TvSearchPresenter(
         }
         val request = state.value.toRequest()
         val currentGeneration = generation
-        _state.update { current -> current.copy(isSearching = true, error = null) }
+        reduce(TvSearchChange.SearchStarted)
         searchJob =
             scope.launch {
                 delay(SEARCH_DEBOUNCE_MS)
@@ -222,7 +206,7 @@ class TvSearchPresenter(
         generation += 1
         val request = state.value.toRequest()
         val currentGeneration = generation
-        _state.update { current -> current.copy(isSearching = true, error = null) }
+        reduce(TvSearchChange.SearchStarted)
         searchJob =
             scope.launch {
                 persistRecent(recentLabel)
@@ -282,13 +266,7 @@ class TvSearchPresenter(
                     )
                 }
                 if (accepts(request, currentGeneration)) {
-                    _state.update { current ->
-                        current.copy(
-                            isSearching = false,
-                            personSuggestions = execution.suggestions,
-                            error = TvErrorKind.Network,
-                        )
-                    }
+                    reduce(TvSearchChange.SearchFailed(execution.suggestions))
                 }
             },
         )
@@ -309,16 +287,7 @@ class TvSearchPresenter(
                 )
             }
         if (!accepts(request, currentGeneration)) return
-        _state.update { current ->
-            current.copy(
-                isSearching = false,
-                movies = cards.movies,
-                shows = cards.shows,
-                episodes = cards.episodes,
-                personSuggestions = suggestions,
-                error = null,
-            )
-        }
+        reduce(TvSearchChange.ResultsLoaded(cards.movies, cards.shows, cards.episodes, suggestions))
     }
 
     private fun accepts(
@@ -329,17 +298,7 @@ class TvSearchPresenter(
     private fun publishIdle() {
         searchJob?.cancel()
         generation += 1
-        _state.update { current ->
-            current.copy(
-                isSearching = false,
-                movies = emptyList(),
-                shows = emptyList(),
-                episodes = emptyList(),
-                personSuggestions = emptyList(),
-                selectedResultCategory = TvSearchResultCategory.All,
-                error = null,
-            )
-        }
+        reduce(TvSearchChange.Idle)
     }
 
     private suspend fun persistRecent(label: String?) {
@@ -385,9 +344,9 @@ class TvSearchPresenter(
                 null
             }
         if (currentGeneration == recentsGeneration && recents != null) {
-            _state.update { current -> current.copy(recentSearches = recents) }
+            reduce(TvSearchChange.RecentsLoaded(recents))
         } else if (currentGeneration == recentsGeneration && !keepExistingOnFailure) {
-            _state.update { current -> current.copy(recentSearches = emptyList()) }
+            reduce(TvSearchChange.RecentsCleared)
         }
     }
 
@@ -417,7 +376,7 @@ class TvSearchPresenter(
                         null
                     } ?: return@launch
                 if (currentGeneration == suggestionsGeneration && state.value.toRequest() == request) {
-                    _state.update { current -> current.copy(personSuggestions = suggestions) }
+                    reduce(TvSearchChange.SuggestionsLoaded(suggestions))
                 }
             }
     }

@@ -4,7 +4,9 @@ import SharedTv
 import SwiftUI
 
 struct SearchQuestionnaireView: View {
-    let state: TvSearchState
+    let selectedGenres: [TvSearchGenre]
+    let runtimeBucket: RuntimeBucket
+    let watchedFilter: WatchedFilter
     let onToggleGenre: (TvSearchGenre) -> Void
     let onSetRuntimeBucket: (RuntimeBucket) -> Void
     let onSetWatchedFilter: (WatchedFilter) -> Void
@@ -21,7 +23,7 @@ struct SearchQuestionnaireView: View {
                     } label: {
                         Label(
                             SearchLabels.genre(genre),
-                            systemImage: state.selectedGenres.contains(genre) ? "checkmark.circle.fill" : "circle"
+                            systemImage: selectedGenres.contains(genre) ? "checkmark.circle.fill" : "circle"
                         )
                     }
                 }
@@ -49,7 +51,7 @@ struct SearchQuestionnaireView: View {
 
     private var runtimeBinding: Binding<String> {
         Binding(
-            get: { state.runtimeBucket.name },
+            get: { runtimeBucket.name },
             set: { name in
                 guard let bucket = SearchLabels.runtimeBuckets.first(where: { $0.name == name }) else { return }
                 onSetRuntimeBucket(bucket)
@@ -59,7 +61,7 @@ struct SearchQuestionnaireView: View {
 
     private var watchedBinding: Binding<String> {
         Binding(
-            get: { state.watchedFilter.name },
+            get: { watchedFilter.name },
             set: { name in
                 guard let filter = SearchLabels.watchedFilters.first(where: { $0.name == name }) else { return }
                 onSetWatchedFilter(filter)

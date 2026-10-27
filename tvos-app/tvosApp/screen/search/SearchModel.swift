@@ -29,58 +29,58 @@ final class SearchModel: ObservableObject {
             return
         }
         programmaticQueryEcho = nil
-        presenter.setQuery(query: query)
+        presenter.accept(intent: TvSearchIntentSetQuery(query: query))
     }
 
     func submit() {
-        presenter.submit(query: displayedQuery)
+        presenter.accept(intent: TvSearchIntentSubmit(query: displayedQuery))
     }
 
     func selectRecent(_ query: String) {
         programmaticQueryEcho = nil
         displayedQuery = query
-        presenter.submit(query: query)
+        presenter.accept(intent: TvSearchIntentSubmit(query: query))
     }
 
     func toggleGenre(_ genre: TvSearchGenre) {
-        presenter.toggleGenre(genre: genre)
+        presenter.accept(intent: TvSearchIntentToggleGenre(genre: genre))
     }
 
     func setRuntimeBucket(_ bucket: RuntimeBucket) {
-        presenter.setRuntimeBucket(bucket: bucket)
+        presenter.accept(intent: TvSearchIntentSetRuntimeBucket(bucket: bucket))
     }
 
     func setWatchedFilter(_ filter: WatchedFilter) {
-        presenter.setWatchedFilter(filter: filter)
+        presenter.accept(intent: TvSearchIntentSetWatchedFilter(filter: filter))
     }
 
     func selectPerson(_ person: TvSearchPerson) {
         programmaticQueryEcho = person.name
         displayedQuery = person.name
-        presenter.selectPerson(person: person)
+        presenter.accept(intent: TvSearchIntentSelectPerson(person: person))
     }
 
     func clearPerson() {
         programmaticQueryEcho = nil
         displayedQuery = ""
-        presenter.clearPerson()
+        presenter.accept(intent: TvSearchIntentClearPerson.shared)
     }
 
     func selectResultCategory(_ category: TvSearchResultCategory) {
-        presenter.selectResultCategory(category: category)
+        presenter.accept(intent: TvSearchIntentSelectResultCategory(category: category))
     }
 
     func retry() {
-        presenter.retry()
+        presenter.accept(intent: TvSearchIntentRetry.shared)
     }
 
     func clearRecents() {
-        presenter.clearRecents()
+        presenter.accept(intent: TvSearchIntentClearRecents.shared)
     }
 
     func viewAppeared() {
         if hasAppeared {
-            presenter.refresh()
+            presenter.accept(intent: TvSearchIntentRefresh.shared)
         } else {
             hasAppeared = true
         }

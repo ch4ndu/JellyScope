@@ -361,6 +361,20 @@ restoration eligibility, and app-order writes remain ViewModel-owned. The login
 screen receives only login fields and focus/dialog state, excluding media and
 app catalogue refreshes. Remote focus and launch behavior remain device checks.
 
+### Native tvOS entry screens MVI slice
+
+Swift Home, Libraries, and Search models send Kotlin intents to their presenters.
+Typed watch handles and explicit `close` remain the lifecycle bridge. Pure reducers
+own row/library/search transitions; Home checks each row generation inside its
+single state update. Search retains debounce, request and suggestion generations,
+recent-search mutation ordering, cancellation, and work-dispatcher projection.
+
+The Swift search questionnaire receives only genre, runtime, and watched filters,
+excluding query/result/loading changes. Home continues to preserve unchanged rows
+and returns the same state for equal row projections. SwiftUI rendering and remote
+focus require device validation; host tests and framework/app builds cover the
+intent bridge and existing deterministic behavior.
+
 ## Source Layout Target
 
 ```text
@@ -926,6 +940,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Native tvOS intents make Swift-to-Kotlin actions explicit while preserving typed
+  observation and owner-controlled closure. Narrow questionnaire inputs separate
+  filters from asynchronous search results without adding another state store.
 
 - Launcher transitions centralize focus and route changes while preserving atomic
   login-origin consumption and synchronous app-opening admission. Login inputs

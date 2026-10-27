@@ -34,9 +34,16 @@ class TvHomePresenter(
     private val rowJobs = mutableMapOf<TvHomeRowKind, Job>()
     private val rowGenerations = TvHomeRowKind.entries.associateWith { 0 }.toMutableMap()
 
+    fun accept(intent: TvHomeIntent) {
+        when (intent) {
+            TvHomeIntent.Load -> load()
+            is TvHomeIntent.Retry -> retry(intent.row)
+        }
+    }
+
     fun watchState(onChange: (TvHomeState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun load() {
+    private fun load() {
         TvHomeRowKind.entries.forEach { row ->
             val current = state.value.row(row)
             startLoad(
@@ -46,7 +53,7 @@ class TvHomePresenter(
         }
     }
 
-    fun retry(row: TvHomeRowKind) {
+    private fun retry(row: TvHomeRowKind) {
         startLoad(row = row, keepContentOnError = false)
     }
 
@@ -65,13 +72,7 @@ class TvHomePresenter(
         rowGenerations[row] = generation
 
         if (!keepContentOnError) {
-            updateRow(row, generation) { current ->
-                current.copy(
-                    status = TvHomeRowStatus.Loading,
-                    items = emptyList(),
-                    error = null,
-                )
-            }
+            reduce(row, generation, TvHomeChange.Started)
         }
 
         rowJobs[row] =
@@ -86,28 +87,11 @@ class TvHomePresenter(
                     }
                 result.fold(
                     onSuccess = { cards ->
-                        updateRow(row, generation) { current ->
-                            current.copy(
-                                status =
-                                    if (cards.isEmpty()) {
-                                        TvHomeRowStatus.Empty
-                                    } else {
-                                        TvHomeRowStatus.Content
-                                    },
-                                items = cards,
-                                error = null,
-                            )
-                        }
+                        reduce(row, generation, TvHomeChange.Loaded(cards))
                     },
                     onFailure = { failure ->
                         if (!keepContentOnError) {
-                            updateRow(row, generation) { current ->
-                                current.copy(
-                                    status = TvHomeRowStatus.Error,
-                                    items = emptyList(),
-                                    error = failure.toTvErrorKind(),
-                                )
-                            }
+                            reduce(row, generation, TvHomeChange.Failed(failure.toTvErrorKind()))
                         }
                     },
                 )
@@ -122,20 +106,13 @@ class TvHomePresenter(
             TvHomeRowKind.RecentlyAdded -> getRecentlyAdded()
         }
 
-    private fun updateRow(
+    private fun reduce(
         row: TvHomeRowKind,
         generation: Int,
-        transform: (TvMediaRow) -> TvMediaRow,
+        change: TvHomeChange,
     ) {
         _state.update { current ->
-            if (rowGenerations[row] != generation) {
-                return@update current
-            }
-            val nextRows =
-                current.rows.map { candidate ->
-                    if (candidate.kind == row) transform(candidate) else candidate
-                }
-            if (current.rows == nextRows) current else current.copy(rows = nextRows)
+            if (rowGenerations[row] != generation) current else reduceTvHome(current, row, change)
         }
     }
 }

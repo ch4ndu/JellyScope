@@ -33,7 +33,7 @@ class TvHomePresenterTest {
                 )
             val presenter = presenter(repository)
 
-            presenter.load()
+            presenter.accept(TvHomeIntent.Load)
             runCurrent()
 
             val rows = presenter.state.value.rows
@@ -73,7 +73,7 @@ class TvHomePresenterTest {
                 )
             val presenter = presenter(repository)
 
-            presenter.load()
+            presenter.accept(TvHomeIntent.Load)
             runCurrent()
 
             val rows = presenter.state.value.rows
@@ -94,11 +94,11 @@ class TvHomePresenterTest {
                 )
             val presenter = presenter(repository)
 
-            presenter.load()
+            presenter.accept(TvHomeIntent.Load)
             runCurrent()
             repository.favorites = Result.success(listOf(mediaItem(id = "favorite")))
 
-            presenter.retry(TvHomeRowKind.Favorites)
+            presenter.accept(TvHomeIntent.Retry(TvHomeRowKind.Favorites))
             runCurrent()
 
             val rows = presenter.state.value.rows
@@ -124,7 +124,7 @@ class TvHomePresenterTest {
                 )
             val presenter = presenter(repository)
 
-            presenter.load()
+            presenter.accept(TvHomeIntent.Load)
             runCurrent()
 
             val rows = presenter.state.value.rows
@@ -139,7 +139,7 @@ class TvHomePresenterTest {
         runTest {
             val presenter = presenter(FakeTvMediaRepository())
 
-            presenter.load()
+            presenter.accept(TvHomeIntent.Load)
             runCurrent()
 
             val rows = presenter.state.value.rows

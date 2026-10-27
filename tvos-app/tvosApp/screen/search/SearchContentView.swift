@@ -23,7 +23,9 @@ struct SearchContentView: View {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: TvDimensions.ribbonSpacing) {
                     SearchQuestionnaireView(
-                        state: state,
+                        selectedGenres: state.selectedGenres,
+                        runtimeBucket: state.runtimeBucket,
+                        watchedFilter: state.watchedFilter,
                         onToggleGenre: onToggleGenre,
                         onSetRuntimeBucket: onSetRuntimeBucket,
                         onSetWatchedFilter: onSetWatchedFilter
