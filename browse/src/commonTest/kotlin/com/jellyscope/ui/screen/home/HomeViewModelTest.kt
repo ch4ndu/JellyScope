@@ -108,7 +108,7 @@ class HomeViewModelTest {
 
                 assertIs<RowState.Error>(viewModel.state.value.continueWatching)
 
-                viewModel.retry(HomeRow.ContinueWatching)
+                viewModel.accept(HomeIntent.Retry(HomeRow.ContinueWatching))
                 advanceUntilIdle()
 
                 val row = assertIs<RowState.Content>(viewModel.state.value.continueWatching)
@@ -133,7 +133,7 @@ class HomeViewModelTest {
                 val viewModel = repository.homeViewModel()
                 runCurrent()
 
-                viewModel.retry(HomeRow.ContinueWatching)
+                viewModel.accept(HomeIntent.Retry(HomeRow.ContinueWatching))
                 runCurrent()
 
                 newLoad.complete(Result.success(listOf(mediaItem("new"))))
@@ -177,13 +177,13 @@ class HomeViewModelTest {
                 assertEquals(listOf("old"), initial.items.map { it.id })
 
                 // A failing silent refresh keeps the cached row on screen.
-                viewModel.refreshSilently()
+                viewModel.accept(HomeIntent.RefreshSilently)
                 advanceUntilIdle()
                 val afterFailure = assertIs<RowState.Content>(viewModel.state.value.continueWatching)
                 assertEquals(listOf("old"), afterFailure.items.map { it.id })
 
                 // A succeeding one swaps the data in without a Loading pass.
-                viewModel.refreshSilently()
+                viewModel.accept(HomeIntent.RefreshSilently)
                 advanceUntilIdle()
                 val afterSuccess = assertIs<RowState.Content>(viewModel.state.value.continueWatching)
                 assertEquals(listOf("new"), afterSuccess.items.map { it.id })

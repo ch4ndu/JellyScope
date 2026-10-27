@@ -243,6 +243,28 @@ not the complete content state, preserving option-list references and chapter
 position observation. This is a source-level boundary, not measured frame-time
 improvement. Native tvOS keeps its separate presenter.
 
+### Browse destinations MVI slice
+
+Home, Discover, View All (`Grid`), Collection, and Person expose screen-specific
+intents and pure reducers. Shared and Android TV callbacks, including resume
+refresh, use `accept`; Grid shuffle retains its synchronous queue result.
+Contracts keep their existing state shapes and effect ownership.
+
+Home retains per-row generations, equal-row identity reuse, and featured cards
+derived from Recently Added. Discover retains independent section jobs, one
+transient retry, and content-preserving silent refresh. Grid keeps separate
+state/sort-intent generations and serialized sort persistence; the current
+atomic generation is read inside each reducer update attempt. Collection and
+Person preserve paginator serialization, offsets, cancellation, append failures,
+and their distinct explicit/automatic retry paths. Card mapping stays outside
+state-update lambdas.
+
+Unchanged row/card references and existing narrow shelf inputs remain intact.
+The TV Collection header consumes only its count; the body consumes cards and
+paging flags, excluding collection identity, offset, and total count. Existing
+focus, lazy keys, scroll, and ambient ownership remain unchanged. No runtime
+recomposition gain is asserted.
+
 ## Source Layout Target
 
 ```text
@@ -808,6 +830,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Browse reducers isolate screen transitions without replacing the existing
+  generation, request, or pagination owners. Explicit intents keep shared and
+  TV actions consistent while preserving their different focus and retry flows.
 
 - Player commands use a synchronous intent boundary so existing acceptance and
   command ordering survive migration. Pure presentation transitions do not take

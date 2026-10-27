@@ -28,98 +28,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class DiscoverUiState(
-    val genres: DiscoverListState<DiscoverFacetUi> = DiscoverListState.Loading,
-    val studios: DiscoverListState<DiscoverFacetUi> = DiscoverListState.Loading,
-    val collections: DiscoverListState<MediaCardUi> = DiscoverListState.Loading,
-    val suggestions: DiscoverSuggestionsState = DiscoverSuggestionsState.Loading,
-    val upcoming: DiscoverListState<MediaCardUi> = DiscoverListState.Loading,
-) {
-    val collectionMediaState: DiscoverMediaItemsState
-        get() = collections.toMediaItemsState()
-
-    val suggestionMediaState: DiscoverMediaItemsState
-        get() = suggestions.toMediaItemsState()
-
-    val upcomingMediaState: DiscoverMediaItemsState
-        get() = upcoming.toMediaItemsState()
-}
-
-sealed interface DiscoverListState<out T> {
-    data object Loading : DiscoverListState<Nothing>
-
-    data class Error(
-        val retryable: Boolean = true,
-    ) : DiscoverListState<Nothing>
-
-    data object Empty : DiscoverListState<Nothing>
-
-    data class Content<T>(
-        val items: List<T>,
-    ) : DiscoverListState<T>
-}
-
-sealed interface DiscoverSuggestionsState {
-    data object Loading : DiscoverSuggestionsState
-
-    data class Error(
-        val retryable: Boolean = true,
-    ) : DiscoverSuggestionsState
-
-    data object Empty : DiscoverSuggestionsState
-
-    data class Content(
-        val seedItem: MediaCardUi?,
-        val items: List<MediaCardUi>,
-    ) : DiscoverSuggestionsState
-}
-
-sealed interface DiscoverMediaItemsState {
-    data object Loading : DiscoverMediaItemsState
-
-    data class Error(
-        val retryable: Boolean,
-    ) : DiscoverMediaItemsState
-
-    data object Empty : DiscoverMediaItemsState
-
-    data class Content(
-        val items: List<MediaCardUi>,
-    ) : DiscoverMediaItemsState
-}
-
-private fun DiscoverListState<MediaCardUi>.toMediaItemsState(): DiscoverMediaItemsState =
-    when (this) {
-        DiscoverListState.Loading -> DiscoverMediaItemsState.Loading
-        DiscoverListState.Empty -> DiscoverMediaItemsState.Empty
-        is DiscoverListState.Error -> DiscoverMediaItemsState.Error(retryable)
-        is DiscoverListState.Content ->
-            if (items.isEmpty()) {
-                DiscoverMediaItemsState.Empty
-            } else {
-                DiscoverMediaItemsState.Content(items)
-            }
-    }
-
-private fun DiscoverSuggestionsState.toMediaItemsState(): DiscoverMediaItemsState =
-    when (this) {
-        DiscoverSuggestionsState.Loading -> DiscoverMediaItemsState.Loading
-        DiscoverSuggestionsState.Empty -> DiscoverMediaItemsState.Empty
-        is DiscoverSuggestionsState.Error -> DiscoverMediaItemsState.Error(retryable)
-        is DiscoverSuggestionsState.Content ->
-            if (items.isEmpty()) {
-                DiscoverMediaItemsState.Empty
-            } else {
-                DiscoverMediaItemsState.Content(items)
-            }
-    }
-
-data class DiscoverFacetUi(
-    val id: String?,
-    val name: String,
-    val imageUrl: String?,
-)
-
 class DiscoverViewModel(
     private val session: Session,
     private val getGenresUseCase: GetGenresUseCase,
@@ -139,11 +47,27 @@ class DiscoverViewModel(
     private var suggestionsJob: Job? = null
     private var upcomingJob: Job? = null
 
+    private fun reduce(change: DiscoverChange) {
+        _state.update { current -> reduceDiscover(current, change) }
+    }
+
+    fun accept(intent: DiscoverIntent) {
+        when (intent) {
+            DiscoverIntent.Retry -> retry()
+            DiscoverIntent.RefreshSilently -> refreshSilently()
+            DiscoverIntent.RetryGenres -> retryGenres()
+            DiscoverIntent.RetryStudios -> retryStudios()
+            DiscoverIntent.RetryCollections -> retryCollections()
+            DiscoverIntent.RetrySuggestions -> retrySuggestions()
+            DiscoverIntent.RetryUpcoming -> retryUpcoming()
+        }
+    }
+
     init {
         retry()
     }
 
-    fun retry() {
+    private fun retry() {
         retryGenres()
         retryStudios()
         retryCollections()
@@ -154,7 +78,7 @@ class DiscoverViewModel(
     // Cached sections stay visible while the fresh request runs. Loading
     // sections are left to their initial request, and an in-flight section is
     // never restarted by repeated tab selection.
-    fun refreshSilently() {
+    private fun refreshSilently() {
         refreshGenresSilently()
         refreshStudiosSilently()
         refreshCollectionsSilently()
@@ -162,23 +86,23 @@ class DiscoverViewModel(
         refreshUpcomingSilently()
     }
 
-    fun retryGenres() {
+    private fun retryGenres() {
         loadGenres(keepContentOnError = false)
     }
 
-    fun retryStudios() {
+    private fun retryStudios() {
         loadStudios(keepContentOnError = false)
     }
 
-    fun retryCollections() {
+    private fun retryCollections() {
         loadCollections(keepContentOnError = false)
     }
 
-    fun retrySuggestions() {
+    private fun retrySuggestions() {
         loadSuggestions(keepContentOnError = false)
     }
 
-    fun retryUpcoming() {
+    private fun retryUpcoming() {
         loadUpcoming(keepContentOnError = false)
     }
 
@@ -205,7 +129,7 @@ class DiscoverViewModel(
     private fun loadGenres(keepContentOnError: Boolean) {
         if (genresJob?.isActive == true) return
         if (!keepContentOnError) {
-            _state.update { current -> current.copy(genres = DiscoverListState.Loading) }
+            reduce(DiscoverChange.Genres(DiscoverListState.Loading))
         }
         genresJob =
             viewModelScope.launch {
@@ -219,7 +143,7 @@ class DiscoverViewModel(
                             )
                     }
                 if (result.isSuccess || !keepContentOnError) {
-                    _state.update { current -> current.copy(genres = mapped) }
+                    reduce(DiscoverChange.Genres(mapped))
                 }
             }
     }
@@ -227,7 +151,7 @@ class DiscoverViewModel(
     private fun loadStudios(keepContentOnError: Boolean) {
         if (studiosJob?.isActive == true) return
         if (!keepContentOnError) {
-            _state.update { current -> current.copy(studios = DiscoverListState.Loading) }
+            reduce(DiscoverChange.Studios(DiscoverListState.Loading))
         }
         studiosJob =
             viewModelScope.launch {
@@ -241,7 +165,7 @@ class DiscoverViewModel(
                             )
                     }
                 if (result.isSuccess || !keepContentOnError) {
-                    _state.update { current -> current.copy(studios = mapped) }
+                    reduce(DiscoverChange.Studios(mapped))
                 }
             }
     }
@@ -249,7 +173,7 @@ class DiscoverViewModel(
     private fun loadCollections(keepContentOnError: Boolean) {
         if (collectionsJob?.isActive == true) return
         if (!keepContentOnError) {
-            _state.update { current -> current.copy(collections = DiscoverListState.Loading) }
+            reduce(DiscoverChange.Collections(DiscoverListState.Loading))
         }
         collectionsJob =
             viewModelScope.launch {
@@ -263,7 +187,7 @@ class DiscoverViewModel(
                             )
                     }
                 if (result.isSuccess || !keepContentOnError) {
-                    _state.update { current -> current.copy(collections = mapped) }
+                    reduce(DiscoverChange.Collections(mapped))
                 }
             }
     }
@@ -271,7 +195,7 @@ class DiscoverViewModel(
     private fun loadSuggestions(keepContentOnError: Boolean) {
         if (suggestionsJob?.isActive == true) return
         if (!keepContentOnError) {
-            _state.update { current -> current.copy(suggestions = DiscoverSuggestionsState.Loading) }
+            reduce(DiscoverChange.Suggestions(DiscoverSuggestionsState.Loading))
         }
         suggestionsJob =
             viewModelScope.launch {
@@ -285,7 +209,7 @@ class DiscoverViewModel(
                             )
                     }
                 if (result.isSuccess || !keepContentOnError) {
-                    _state.update { current -> current.copy(suggestions = mapped) }
+                    reduce(DiscoverChange.Suggestions(mapped))
                 }
             }
     }
@@ -293,7 +217,7 @@ class DiscoverViewModel(
     private fun loadUpcoming(keepContentOnError: Boolean) {
         if (upcomingJob?.isActive == true) return
         if (!keepContentOnError) {
-            _state.update { current -> current.copy(upcoming = DiscoverListState.Loading) }
+            reduce(DiscoverChange.Upcoming(DiscoverListState.Loading))
         }
         upcomingJob =
             viewModelScope.launch {
@@ -307,7 +231,7 @@ class DiscoverViewModel(
                             )
                     }
                 if (result.isSuccess || !keepContentOnError) {
-                    _state.update { current -> current.copy(upcoming = mapped) }
+                    reduce(DiscoverChange.Upcoming(mapped))
                 }
             }
     }

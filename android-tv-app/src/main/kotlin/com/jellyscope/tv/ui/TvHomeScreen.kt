@@ -27,6 +27,7 @@ import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.component.buildAuthenticatedImageRequest
 import com.jellyscope.ui.component.limitedTo
 import com.jellyscope.ui.component.scaledImageSize
+import com.jellyscope.ui.screen.home.HomeIntent
 import com.jellyscope.ui.screen.home.HomeRow
 import com.jellyscope.ui.screen.home.HomeViewModel
 import com.jellyscope.ui.screen.home.RowState
@@ -128,7 +129,7 @@ internal fun TvHomeScreen(
 
     // Show cached rows immediately, then refresh in the background.
     OnResumeEffect {
-        viewModel.refreshSilently()
+        viewModel.accept(HomeIntent.RefreshSilently)
     }
 
     // If refresh removes the focused card from its row, rescue within that row.
@@ -161,7 +162,7 @@ internal fun TvHomeScreen(
         restoredFocusIndex = initialFocusIndex,
         restoredFocusViewAll = initialFocusViewAll,
         ambientPresentation = ambientState.presentation,
-        onRetry = viewModel::retry,
+        onRetry = { value -> viewModel.accept(HomeIntent.Retry(value)) },
         onFocusedItem = ::updateFocusedItem,
         onPosterLoaded = ambientState.onPosterLoaded,
         onItemSelected = onItemSelected,

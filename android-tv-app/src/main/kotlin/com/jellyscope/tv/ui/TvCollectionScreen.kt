@@ -57,6 +57,7 @@ import com.jellyscope.tv.ui.focus.tvFocusScope
 import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.LoadMoreOnApproachEnd
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.screen.collection.CollectionIntent
 import com.jellyscope.ui.screen.collection.CollectionUiState
 import com.jellyscope.ui.screen.collection.CollectionViewModel
 import com.jellyscope.ui.screen.detail.requestFocusSafely
@@ -105,8 +106,8 @@ fun TvCollectionScreen(
         onSettingsSelected = onSettingsSelected,
         onItemSelected = onItemSelected,
         onItemPlayDirect = onItemPlayDirect,
-        onRetry = viewModel::retry,
-        onLoadMore = viewModel::loadMore,
+        onRetry = { viewModel.accept(CollectionIntent.Retry) },
+        onLoadMore = { viewModel.accept(CollectionIntent.LoadMore) },
         showGridHero = gridHeroEligible && showGridHero,
         modifier = modifier,
     )
@@ -174,7 +175,7 @@ private fun TvCollectionContent(
         ) {
             TvCollectionHeader(
                 title = title,
-                state = state,
+                totalCount = state.totalCount,
                 modifier =
                     Modifier.padding(
                         start = TvDimens.overscanHorizontal,
@@ -192,7 +193,11 @@ private fun TvCollectionContent(
             }
             TvCollectionBody(
                 session = session,
-                state = state,
+                items = state.items,
+                isLoading = state.isLoading,
+                isLoadingMore = state.isLoadingMore,
+                hasMore = state.hasMore,
+                error = state.error,
                 onRetry = onRetry,
                 onLoadMore = onLoadMore,
                 onItemSelected = onItemSelected,
@@ -208,7 +213,7 @@ private fun TvCollectionContent(
 @Composable
 private fun TvCollectionHeader(
     title: String,
-    state: CollectionUiState,
+    totalCount: Int,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -221,7 +226,7 @@ private fun TvCollectionHeader(
             maxLines = 1,
         )
         TvText(
-            text = stringResource(R.string.tv_grid_item_count, state.totalCount),
+            text = stringResource(R.string.tv_grid_item_count, totalCount),
             color = LocalJellyfinPalette.current.textSecondary,
             maxLines = 1,
         )
@@ -232,7 +237,11 @@ private fun TvCollectionHeader(
 @Composable
 private fun TvCollectionBody(
     session: Session,
-    state: CollectionUiState,
+    items: List<MediaCardUi>,
+    isLoading: Boolean,
+    isLoadingMore: Boolean,
+    hasMore: Boolean,
+    error: Boolean,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onItemSelected: (MediaCardUi) -> Unit,
@@ -242,14 +251,14 @@ private fun TvCollectionBody(
     modifier: Modifier = Modifier,
 ) {
     when {
-        state.isLoading ->
+        isLoading ->
             TvCenteredSpinner(modifier = modifier, drawBackground = false)
-        state.error && state.items.isEmpty() ->
+        error && items.isEmpty() ->
             TvCollectionError(
                 onRetry = onRetry,
                 modifier = Modifier.padding(horizontal = TvDimens.overscanHorizontal),
             )
-        state.items.isEmpty() ->
+        items.isEmpty() ->
             TvText(
                 text = stringResource(R.string.tv_library_empty),
                 modifier = Modifier.padding(horizontal = TvDimens.overscanHorizontal),
@@ -279,15 +288,15 @@ private fun TvCollectionBody(
             val focusNav =
                 rememberTvGridFocusNav(
                     gridState = gridState,
-                    itemCount = state.items.size,
+                    itemCount = items.size,
                     columnCount = columnCount,
-                    hasMore = state.hasMore && !state.isLoading && !state.isLoadingMore && !state.error,
+                    hasMore = hasMore && !isLoading && !isLoadingMore && !error,
                     onLoadMore = onLoadMore,
                 )
             val requestPageRetryFocus: (Int) -> Boolean = { returnIndex ->
                 pageRetryReturnIndex = returnIndex
                 focusScope.launch {
-                    gridState.animateScrollToItem(state.items.size)
+                    gridState.animateScrollToItem(items.size)
                     requestTvFocusWithRetry { pageRetryRequester.requestFocusSafely() }
                 }
                 true
@@ -304,22 +313,22 @@ private fun TvCollectionBody(
                 coordinator.updateRestoreStatus(TvFocusRestoreStatus.Resolving)
                 focusNav.requestFocus(index)
             }
-            LaunchedEffect(pendingRestore?.token, state.items, state.isLoadingMore, state.hasMore, state.error) {
+            LaunchedEffect(pendingRestore?.token, items, isLoadingMore, hasMore, error) {
                 val restore = pendingRestore ?: return@LaunchedEffect
                 when (
                     val resolution =
                         collectionRestoreResolution(
                             targetKey = restore.path.targetKey,
                             fallbackIndex = restore.path.fallbackIndex,
-                            itemIds = state.items.map { item -> item.id },
-                            hasMore = state.hasMore,
+                            itemIds = items.map { item -> item.id },
+                            hasMore = hasMore,
                         )
                 ) {
                     is TvFocusResolution.Exact -> resolveTo(resolution.index)
                     is TvFocusResolution.Fallback -> resolveTo(resolution.index)
                     TvFocusResolution.Deferred -> {
                         coordinator.updateRestoreStatus(TvFocusRestoreStatus.DeferredContent)
-                        if (!state.isLoadingMore && state.hasMore && !state.error) onLoadMore()
+                        if (!isLoadingMore && hasMore && !error) onLoadMore()
                     }
                     TvFocusResolution.Unavailable -> Unit
                 }
@@ -328,11 +337,11 @@ private fun TvCollectionBody(
             // writes it, so this was cancelled and relaunched on every D-pad move to
             // run a body that is a no-op after the first focus request. Reading it in
             // the body is untracked and gives the same value.
-            LaunchedEffect(state.items, ownedPendingRestore?.token) {
-                if (!initialFocusRequested && state.items.isNotEmpty() && ownedPendingRestore == null) {
+            LaunchedEffect(items, ownedPendingRestore?.token) {
+                if (!initialFocusRequested && items.isNotEmpty() && ownedPendingRestore == null) {
                     val targetIndex =
                         collectionFocusRestoreIndex(
-                            items = state.items,
+                            items = items,
                             focusedItemId = lastFocusedItemId,
                             firstVisibleItemIndex = gridState.firstVisibleItemIndex,
                         )
@@ -350,7 +359,7 @@ private fun TvCollectionBody(
                             .fillMaxSize()
                             .tvFocusScope(gridScope) {
                                 gridState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
-                                    state.items.getOrNull(info.index)?.let { item -> "item:${item.id}" }
+                                    items.getOrNull(info.index)?.let { item -> "item:${item.id}" }
                                 }
                             }.onPreviewKeyEvent { event ->
                                 if (
@@ -363,17 +372,17 @@ private fun TvCollectionBody(
                                 }
                                 val focusedIndex =
                                     lastFocusedItemId
-                                        ?.let { id -> state.items.indexOfFirst { item -> item.id == id } }
+                                        ?.let { id -> items.indexOfFirst { item -> item.id == id } }
                                         ?.takeIf { index -> index >= 0 }
                                 val lastRowStart =
-                                    ((state.items.lastIndex / columnCount.coerceAtLeast(1)) * columnCount.coerceAtLeast(1))
+                                    ((items.lastIndex / columnCount.coerceAtLeast(1)) * columnCount.coerceAtLeast(1))
                                 val retryDirection =
                                     event.type == KeyEventType.KeyDown &&
                                         focusedIndex != null &&
-                                        state.error &&
+                                        error &&
                                         (
                                             (event.key == Key.DirectionDown && focusedIndex >= lastRowStart) ||
-                                                (event.key == Key.DirectionRight && focusedIndex == state.items.lastIndex)
+                                                (event.key == Key.DirectionRight && focusedIndex == items.lastIndex)
                                         )
                                 if (retryDirection) {
                                     focusedIndex?.let(requestPageRetryFocus) == true
@@ -393,7 +402,7 @@ private fun TvCollectionBody(
                         ),
                 ) {
                     itemsIndexed(
-                        items = state.items,
+                        items = items,
                         key = { _, item -> item.id },
                     ) { index, item ->
                         val itemFocusRequester =
@@ -432,7 +441,7 @@ private fun TvCollectionBody(
                             onPlayDirect = { onItemPlayDirect(item) },
                         )
                     }
-                    if (state.isLoadingMore) {
+                    if (isLoadingMore) {
                         item(key = "loading-more") {
                             TvText(
                                 text = stringResource(R.string.tv_loading_more),
@@ -440,7 +449,7 @@ private fun TvCollectionBody(
                             )
                         }
                     }
-                    if (state.error) {
+                    if (error) {
                         item(
                             key = "collection:control:page-retry",
                             span = { GridItemSpan(maxLineSpan) },
@@ -478,11 +487,11 @@ private fun TvCollectionBody(
                     }
                 }
                 LoadMoreOnApproachEnd(
-                    itemCount = state.items.size,
-                    hasMore = state.hasMore,
-                    isLoading = state.isLoading,
-                    isLoadingMore = state.isLoadingMore,
-                    automaticPagingAllowed = !state.error,
+                    itemCount = items.size,
+                    hasMore = hasMore,
+                    isLoading = isLoading,
+                    isLoadingMore = isLoadingMore,
+                    automaticPagingAllowed = !error,
                     lastVisibleIndex = {
                         gridState.layoutInfo.visibleItemsInfo.maxOfOrNull { item -> item.index } ?: -1
                     },

@@ -12,7 +12,6 @@ import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.usecase.GetPersonItemsPageUseCase
 import com.jellyscope.core.domain.usecase.GetPersonItemsUseCase
 import com.jellyscope.core.domain.usecase.GetPersonUseCase
-import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.toMediaCardUi
 import com.jellyscope.ui.paging.Paginator
 import kotlinx.coroutines.CancellationException
@@ -22,33 +21,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-
-sealed interface PersonUiState {
-    data object Loading : PersonUiState
-
-    data class Error(
-        val retryable: Boolean = true,
-    ) : PersonUiState
-
-    data class Content(
-        val movies: List<MediaCardUi>,
-        val series: List<MediaCardUi>,
-        val header: PersonHeaderUi? = null,
-        val totalCount: Int = movies.size + series.size,
-        val startIndex: Int = 0,
-        val hasMore: Boolean = false,
-        val isLoadingMore: Boolean = false,
-        val error: Boolean = false,
-    ) : PersonUiState
-}
-
-data class PersonHeaderUi(
-    val id: String,
-    val name: String,
-    val overview: String?,
-    val imageUrl: String?,
-    val backdropUrl: String?,
-)
 
 class PersonViewModel(
     private val session: Session,
@@ -63,28 +35,38 @@ class PersonViewModel(
     val state: StateFlow<PersonUiState> = _state.asStateFlow()
     private val paginator = Paginator(viewModelScope, workDispatcher, ::loadPageLocked)
 
+    private fun reduce(change: PersonChange) {
+        _state.update { current -> reducePerson(current, change) }
+    }
+
+    fun accept(intent: PersonIntent) {
+        when (intent) {
+            PersonIntent.Retry -> retry()
+            PersonIntent.LoadMore -> loadMore()
+            PersonIntent.LoadMoreAutomatically -> loadMoreAutomatically()
+        }
+    }
+
     init {
         paginator.first()
     }
 
-    fun retry() {
+    private fun retry() {
         paginator.first()
     }
 
-    fun loadMore() {
+    private fun loadMore() {
         val content = _state.value as? PersonUiState.Content ?: return
         if (content.isLoadingMore || !content.hasMore) {
             return
         }
         if (content.error) {
-            _state.update { current ->
-                (current as? PersonUiState.Content)?.copy(error = false) ?: current
-            }
+            reduce(PersonChange.RetryPage)
         }
         paginator.more()
     }
 
-    fun loadMoreAutomatically() {
+    private fun loadMoreAutomatically() {
         val content = _state.value as? PersonUiState.Content ?: return
         if (content.error) return
         loadMore()
@@ -98,15 +80,7 @@ class PersonViewModel(
             } else {
                 currentContent?.itemCount ?: 0
             }
-        _state.update { current ->
-            if (reset) {
-                PersonUiState.Loading
-            } else {
-                (current as? PersonUiState.Content)
-                    ?.copy(isLoadingMore = true, error = false)
-                    ?: current
-            }
-        }
+        reduce(PersonChange.LoadStarted(reset))
 
         val header =
             try {
@@ -114,7 +88,7 @@ class PersonViewModel(
                     getPersonUseCase
                         ?.invoke(personId)
                         ?.getOrElse {
-                            _state.update { PersonUiState.Error() }
+                            reduce(PersonChange.LoadFailed(reset = true))
                             return
                         }?.toUi()
                 } else {
@@ -156,29 +130,23 @@ class PersonViewModel(
                         currentContent?.series.orEmpty() + pageSeries
                     }
 
-                _state.update {
-                    PersonUiState.Content(
-                        movies = movies,
-                        series = series,
-                        header = header ?: currentContent?.header,
-                        totalCount = filmography.totalCount,
-                        startIndex = filmography.startIndex,
-                        hasMore = movies.size + series.size < filmography.totalCount,
-                        isLoadingMore = false,
-                        error = false,
-                    )
-                }
+                reduce(
+                    PersonChange.Loaded(
+                        PersonUiState.Content(
+                            movies = movies,
+                            series = series,
+                            header = header ?: currentContent?.header,
+                            totalCount = filmography.totalCount,
+                            startIndex = filmography.startIndex,
+                            hasMore = movies.size + series.size < filmography.totalCount,
+                            isLoadingMore = false,
+                            error = false,
+                        ),
+                    ),
+                )
             },
             onFailure = {
-                _state.update { current ->
-                    if (reset) {
-                        PersonUiState.Error()
-                    } else {
-                        (current as? PersonUiState.Content)
-                            ?.copy(isLoadingMore = false, error = true)
-                            ?: PersonUiState.Error()
-                    }
-                }
+                reduce(PersonChange.LoadFailed(reset))
             },
         )
     }

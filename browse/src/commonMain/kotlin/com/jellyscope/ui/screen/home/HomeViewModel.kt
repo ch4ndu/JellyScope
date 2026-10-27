@@ -2,7 +2,6 @@
 
 package com.jellyscope.ui.screen.home
 
-import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
@@ -25,46 +24,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class HomeUiState(
-    val featured: RowState = RowState.Loading,
-    val continueWatching: RowState = RowState.Loading,
-    val nextUp: RowState = RowState.Loading,
-    val recentlyAdded: RowState = RowState.Loading,
-    val favorites: RowState = RowState.Loading,
-) {
-    fun rowState(row: HomeRow): RowState =
-        when (row) {
-            HomeRow.ContinueWatching -> continueWatching
-            HomeRow.NextUp -> nextUp
-            HomeRow.RecentlyAdded -> recentlyAdded
-            HomeRow.Favorites -> favorites
-        }
-}
-
-@Immutable
-sealed interface RowState {
-    @Immutable
-    data object Loading : RowState
-
-    @Immutable
-    data object Empty : RowState
-
-    @Immutable
-    data object Error : RowState
-
-    @Immutable
-    data class Content(
-        val items: List<MediaCardUi>,
-    ) : RowState
-}
-
-enum class HomeRow {
-    ContinueWatching,
-    NextUp,
-    RecentlyAdded,
-    Favorites,
-}
-
 class HomeViewModel(
     private val session: Session,
     private val getContinueWatchingUseCase: GetContinueWatchingUseCase,
@@ -78,13 +37,21 @@ class HomeViewModel(
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
     private val rowGenerations = HomeRow.entries.associateWith { 0 }.toMutableMap()
 
+    fun accept(intent: HomeIntent) {
+        when (intent) {
+            HomeIntent.Refresh -> refresh()
+            HomeIntent.RefreshSilently -> refreshSilently()
+            is HomeIntent.Retry -> retry(intent.row)
+        }
+    }
+
     init {
         refresh()
     }
 
-    fun refresh() {
+    private fun refresh() {
         viewModelScope.launch {
-            _state.value = HomeUiState()
+            reduce(HomeChange.Reset)
             HomeRow.entries
                 .map { row ->
                     val generation = nextRowGeneration(row)
@@ -97,7 +64,7 @@ class HomeViewModel(
     // fresh data loads, a row only changes once its new data arrives, and a
     // failed refresh never clobbers content that is already visible. Rows
     // still Loading are skipped — the initial load owns them.
-    fun refreshSilently() {
+    private fun refreshSilently() {
         val snapshot = _state.value
         viewModelScope.launch {
             HomeRow.entries
@@ -109,7 +76,7 @@ class HomeViewModel(
         }
     }
 
-    fun retry(row: HomeRow) {
+    private fun retry(row: HomeRow) {
         val generation = nextRowGeneration(row)
         updateRow(row, RowState.Loading, generation)
         viewModelScope.launch {
@@ -167,27 +134,11 @@ class HomeViewModel(
         rowState: RowState,
         generation: Int,
     ) {
-        _state.update { current ->
-            if (rowGenerations[row] != generation) {
-                return@update current
-            }
-            // Unchanged data keeps the same state instance so a silent
-            // refresh that finds nothing new recomposes nothing.
-            if (current.rowState(row) == rowState) {
-                current
-            } else {
-                when (row) {
-                    HomeRow.ContinueWatching -> current.copy(continueWatching = rowState)
-                    HomeRow.NextUp -> current.copy(nextUp = rowState)
-                    HomeRow.RecentlyAdded ->
-                        current.copy(
-                            recentlyAdded = rowState,
-                            featured = rowState.toFeaturedState(),
-                        )
-                    HomeRow.Favorites -> current.copy(favorites = rowState)
-                }
-            }
-        }
+        reduce(HomeChange.RowUpdated(row, rowState, generation))
+    }
+
+    private fun reduce(change: HomeChange) {
+        _state.update { current -> reduceHome(current, change, rowGenerations) }
     }
 
     private fun List<MediaCardUi>.toRowState(): RowState =
@@ -196,14 +147,4 @@ class HomeViewModel(
         } else {
             RowState.Content(this)
         }
-
-    private fun RowState.toFeaturedState(): RowState =
-        when (this) {
-            is RowState.Content -> RowState.Content(items.take(HOME_FEATURED_ITEM_LIMIT))
-            RowState.Empty -> RowState.Empty
-            RowState.Error -> RowState.Error
-            RowState.Loading -> RowState.Loading
-        }
 }
-
-private const val HOME_FEATURED_ITEM_LIMIT = 5

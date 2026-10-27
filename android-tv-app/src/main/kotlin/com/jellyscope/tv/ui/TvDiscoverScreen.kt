@@ -30,6 +30,7 @@ import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.discover.DiscoverFacetUi
+import com.jellyscope.ui.screen.discover.DiscoverIntent
 import com.jellyscope.ui.screen.discover.DiscoverListState
 import com.jellyscope.ui.screen.discover.DiscoverMediaItemsState
 import com.jellyscope.ui.screen.discover.DiscoverSection
@@ -61,7 +62,7 @@ fun TvDiscoverScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     OnResumeEffect {
-        viewModel.refreshSilently()
+        viewModel.accept(DiscoverIntent.RefreshSilently)
     }
 
     TvDiscoverContent(
@@ -73,11 +74,11 @@ fun TvDiscoverScreen(
         onCollectionSelected = onCollectionSelected,
         onItemSelected = onItemSelected,
         onItemPlayDirect = onItemPlayDirect,
-        onRetryGenres = viewModel::retryGenres,
-        onRetryStudios = viewModel::retryStudios,
-        onRetryCollections = viewModel::retryCollections,
-        onRetrySuggestions = viewModel::retrySuggestions,
-        onRetryUpcoming = viewModel::retryUpcoming,
+        onRetryGenres = { viewModel.accept(DiscoverIntent.RetryGenres) },
+        onRetryStudios = { viewModel.accept(DiscoverIntent.RetryStudios) },
+        onRetryCollections = { viewModel.accept(DiscoverIntent.RetryCollections) },
+        onRetrySuggestions = { viewModel.accept(DiscoverIntent.RetrySuggestions) },
+        onRetryUpcoming = { viewModel.accept(DiscoverIntent.RetryUpcoming) },
         modifier = modifier,
     )
 }

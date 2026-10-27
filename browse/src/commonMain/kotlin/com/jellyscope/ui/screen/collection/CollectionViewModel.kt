@@ -8,7 +8,6 @@ import com.jellyscope.core.domain.model.DEFAULT_DISCOVERY_PAGE_SIZE
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.usecase.GetCollectionItemsUseCase
-import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.toMediaCardUi
 import com.jellyscope.ui.paging.Paginator
 import kotlinx.coroutines.CancellationException
@@ -18,17 +17,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-
-data class CollectionUiState(
-    val collectionId: String,
-    val items: List<MediaCardUi> = emptyList(),
-    val totalCount: Int = 0,
-    val startIndex: Int = 0,
-    val hasMore: Boolean = false,
-    val isLoading: Boolean = true,
-    val isLoadingMore: Boolean = false,
-    val error: Boolean = false,
-)
 
 class CollectionViewModel(
     private val session: Session,
@@ -41,21 +29,32 @@ class CollectionViewModel(
     val state: StateFlow<CollectionUiState> = _state.asStateFlow()
     private val paginator = Paginator(viewModelScope, workDispatcher, ::loadPageLocked)
 
+    private fun reduce(change: CollectionChange) {
+        _state.update { current -> reduceCollection(current, change) }
+    }
+
+    fun accept(intent: CollectionIntent) {
+        when (intent) {
+            CollectionIntent.Retry -> retry()
+            CollectionIntent.LoadMore -> loadMore()
+        }
+    }
+
     init {
         paginator.first()
     }
 
-    fun retry() {
+    private fun retry() {
         val current = _state.value
         if (current.error && current.items.isNotEmpty()) {
-            _state.update { state -> state.copy(error = false) }
+            reduce(CollectionChange.RetryPage)
             paginator.more()
             return
         }
         paginator.first()
     }
 
-    fun loadMore() {
+    private fun loadMore() {
         val current = _state.value
         if (current.isLoading || current.isLoadingMore || current.error || !current.hasMore) {
             return
@@ -70,13 +69,7 @@ class CollectionViewModel(
             } else {
                 _state.value.items.size
             }
-        _state.update { current ->
-            current.copy(
-                isLoading = reset,
-                isLoadingMore = !reset,
-                error = false,
-            )
-        }
+        reduce(CollectionChange.LoadStarted(reset))
 
         val result =
             try {
@@ -94,27 +87,10 @@ class CollectionViewModel(
         result.fold(
             onSuccess = { page ->
                 val pageItems = page.items.map { item -> item.toMediaCardUi(session, imageUrlBuilder) }
-                _state.update { current ->
-                    val nextItems = if (reset) pageItems else current.items + pageItems
-                    current.copy(
-                        items = nextItems,
-                        totalCount = page.totalCount,
-                        startIndex = page.startIndex,
-                        hasMore = nextItems.size < page.totalCount,
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = false,
-                    )
-                }
+                reduce(CollectionChange.PageLoaded(reset, pageItems, page.totalCount, page.startIndex))
             },
             onFailure = {
-                _state.update { current ->
-                    current.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = true,
-                    )
-                }
+                reduce(CollectionChange.LoadFailed)
             },
         )
     }

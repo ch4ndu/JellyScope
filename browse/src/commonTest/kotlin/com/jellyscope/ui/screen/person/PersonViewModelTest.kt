@@ -70,7 +70,7 @@ class PersonViewModelTest {
                 assertEquals(listOf("series-1"), first.series.map { item -> item.id })
                 assertEquals(true, first.hasMore)
 
-                viewModel.loadMore()
+                viewModel.accept(PersonIntent.LoadMore)
                 advanceUntilIdle()
 
                 val second = assertIs<PersonUiState.Content>(viewModel.state.value)

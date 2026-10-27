@@ -84,11 +84,11 @@ class GridViewModelTest {
                 media(id = "a", name = "alpha"),
                 media(id = "c", name = "charlie"),
             ) { fixture ->
-                fixture.viewModel.setSort(GridSort.Title)
+                fixture.viewModel.accept(GridIntent.SetSort(GridSort.Title))
                 advanceUntilIdle()
                 assertEquals(listOf("a", "b", "c"), fixture.contentItems())
 
-                fixture.viewModel.setSort(GridSort.Default)
+                fixture.viewModel.accept(GridIntent.SetSort(GridSort.Default))
                 advanceUntilIdle()
                 assertEquals(listOf("b", "a", "c"), fixture.contentItems())
             }
@@ -102,7 +102,7 @@ class GridViewModelTest {
                 media(id = "a", name = "Alpha"),
                 media(id = "c", name = "charlie"),
             ) { fixture ->
-                fixture.viewModel.setSort(GridSort.Title)
+                fixture.viewModel.accept(GridIntent.SetSort(GridSort.Title))
                 advanceUntilIdle()
 
                 assertEquals(listOf("a", "b", "c"), fixture.contentItems())
@@ -150,7 +150,7 @@ class GridViewModelTest {
                 ),
             ).forEach { case ->
                 withGridFixture(*case.items.toTypedArray()) { fixture ->
-                    fixture.viewModel.setSort(case.sort)
+                    fixture.viewModel.accept(GridIntent.SetSort(case.sort))
                     advanceUntilIdle()
 
                     assertEquals(case.expectedIds, fixture.contentItems())
@@ -177,8 +177,8 @@ class GridViewModelTest {
                 val viewModel = repository.gridViewModel(HomeRow.RecentlyAdded, dispatcher, store)
                 advanceUntilIdle()
 
-                viewModel.setSort(GridSort.Title)
-                viewModel.setSort(GridSort.Runtime)
+                viewModel.accept(GridIntent.SetSort(GridSort.Title))
+                viewModel.accept(GridIntent.SetSort(GridSort.Runtime))
                 advanceUntilIdle()
 
                 assertEquals(GridSort.Runtime, (viewModel.state.value as GridUiState.Content).sort)
@@ -207,8 +207,8 @@ class GridViewModelTest {
                 advanceUntilIdle()
 
                 // Start a sort, then invalidate it with a reload before it commits.
-                viewModel.setSort(GridSort.Title)
-                viewModel.retry()
+                viewModel.accept(GridIntent.SetSort(GridSort.Title))
+                viewModel.accept(GridIntent.Retry)
                 advanceUntilIdle()
 
                 // The reload republished content; the older sort must not have
@@ -244,8 +244,8 @@ class GridViewModelTest {
                 val viewModel = repository.gridViewModel(HomeRow.RecentlyAdded, dispatcher, store)
                 advanceUntilIdle()
 
-                viewModel.setSort(GridSort.Title)
-                viewModel.retry()
+                viewModel.accept(GridIntent.SetSort(GridSort.Title))
+                viewModel.accept(GridIntent.Retry)
                 advanceUntilIdle()
 
                 assertEquals(GridSort.Title.name, store.savedSort("server-1:${HomeRow.RecentlyAdded.name}"))

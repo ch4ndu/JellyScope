@@ -14,7 +14,6 @@ import com.jellyscope.core.domain.model.MediaRibbon
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.usecase.GetGridSortUseCase
 import com.jellyscope.core.domain.usecase.GetRibbonItemsUseCase
-import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.toMediaCardUi
 import com.jellyscope.ui.screen.home.HomeRow
 import kotlinx.coroutines.CoroutineDispatcher
@@ -28,28 +27,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.concurrent.atomics.AtomicLong
-
-sealed interface GridUiState {
-    data object Loading : GridUiState
-
-    data class Error(
-        val retryable: Boolean = true,
-    ) : GridUiState
-
-    data class Content(
-        val items: List<MediaCardUi>,
-        val sort: GridSort,
-        val row: HomeRow,
-    ) : GridUiState
-}
-
-enum class GridSort {
-    Default,
-    Title,
-    DateAdded,
-    ReleaseDate,
-    Runtime,
-}
 
 class GridViewModel(
     private val session: Session,
@@ -88,15 +65,29 @@ class GridViewModel(
             ?.let { name -> GridSort.entries.firstOrNull { sort -> sort.name == name } }
             ?: GridSort.Default
 
+    private fun reduce(change: GridChange) {
+        _state.update { current -> reduceGrid(current, change, generation.load()) }
+    }
+
+    fun accept(intent: GridIntent) {
+        when (intent) {
+            GridIntent.Retry -> retry()
+            is GridIntent.SetSort -> setSort(intent.sort)
+            GridIntent.BuildShuffleQueue -> {
+                accept(GridIntent.BuildShuffleQueue)
+            }
+        }
+    }
+
     init {
         load()
     }
 
-    fun retry() {
+    private fun retry() {
         load()
     }
 
-    fun setSort(sort: GridSort) {
+    private fun setSort(sort: GridSort) {
         if (state.value !is GridUiState.Content) {
             return
         }
@@ -119,28 +110,21 @@ class GridViewModel(
                 withContext(defaultDispatcher) {
                     serverItems.sortedForGrid(sort).map { item -> item.toMediaCardUi(session, imageUrlBuilder) }
                 }
-            _state.update { current ->
-                if (generation.load() != sortGeneration) {
-                    current
-                } else {
-                    // Only transform the CURRENT content, never a stale snapshot.
-                    (current as? GridUiState.Content)?.copy(sort = sort, items = items) ?: current
-                }
-            }
+            reduce(GridChange.Sorted(sort, items, sortGeneration))
         }
     }
 
-    fun buildShuffleQueue(): List<String> = serverItems.shuffled().map { item -> item.id }
+    fun accept(intent: GridIntent.BuildShuffleQueue): List<String> = serverItems.shuffled().map { item -> item.id }
 
     private fun load() {
         generation.addAndFetch(1L)
         val ribbon = row.toMediaRibbon()
         if (ribbon == null) {
-            _state.update { GridUiState.Error(retryable = false) }
+            reduce(GridChange.Failed(retryable = false))
             return
         }
 
-        _state.update { GridUiState.Loading }
+        reduce(GridChange.Loading)
         viewModelScope.launch {
             getRibbonItemsUseCase(ribbon = ribbon).fold(
                 onSuccess = { items ->
@@ -151,16 +135,10 @@ class GridViewModel(
                                 item.toMediaCardUi(session, imageUrlBuilder)
                             }
                         }
-                    _state.update {
-                        GridUiState.Content(
-                            items = cards,
-                            sort = currentSort,
-                            row = row,
-                        )
-                    }
+                    reduce(GridChange.Loaded(cards, currentSort, row))
                 },
                 onFailure = {
-                    _state.update { GridUiState.Error() }
+                    reduce(GridChange.Failed())
                 },
             )
         }

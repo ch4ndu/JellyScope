@@ -147,8 +147,8 @@ class DiscoverViewModelTest {
                 repository.suggestionsResult = Result.failure(IllegalStateException("suggestions unavailable"))
                 repository.upcomingResult = Result.failure(IllegalStateException("upcoming unavailable"))
 
-                viewModel.refreshSilently()
-                viewModel.refreshSilently()
+                viewModel.accept(DiscoverIntent.RefreshSilently)
+                viewModel.accept(DiscoverIntent.RefreshSilently)
                 runCurrent()
 
                 assertEquals(initial, viewModel.state.value)

@@ -53,16 +53,16 @@ fun DiscoverScreen(
         ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    OnResumeEffect(viewModel::refreshSilently)
+    OnResumeEffect({ viewModel.accept(DiscoverIntent.RefreshSilently) })
 
     DiscoverContent(
         session = session,
         state = state,
-        onRetryGenres = viewModel::retryGenres,
-        onRetryStudios = viewModel::retryStudios,
-        onRetryCollections = viewModel::retryCollections,
-        onRetrySuggestions = viewModel::retrySuggestions,
-        onRetryUpcoming = viewModel::retryUpcoming,
+        onRetryGenres = { viewModel.accept(DiscoverIntent.RetryGenres) },
+        onRetryStudios = { viewModel.accept(DiscoverIntent.RetryStudios) },
+        onRetryCollections = { viewModel.accept(DiscoverIntent.RetryCollections) },
+        onRetrySuggestions = { viewModel.accept(DiscoverIntent.RetrySuggestions) },
+        onRetryUpcoming = { viewModel.accept(DiscoverIntent.RetryUpcoming) },
         onGenreSelected = onGenreSelected,
         onStudioSelected = onStudioSelected,
         onCollectionSelected = onCollectionSelected,

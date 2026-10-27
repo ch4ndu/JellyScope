@@ -59,13 +59,13 @@ fun HomeScreen(
         ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    OnResumeEffect(viewModel::refreshSilently)
+    OnResumeEffect({ viewModel.accept(HomeIntent.RefreshSilently) })
 
     HomeContent(
         session = session,
         state = state,
-        onRefresh = viewModel::refresh,
-        onRetry = viewModel::retry,
+        onRefresh = { viewModel.accept(HomeIntent.Refresh) },
+        onRetry = { value -> viewModel.accept(HomeIntent.Retry(value)) },
         onItemSelected = onItemSelected,
         onViewAllSelected = onViewAllSelected,
         onPlayItem = onPlayItem,

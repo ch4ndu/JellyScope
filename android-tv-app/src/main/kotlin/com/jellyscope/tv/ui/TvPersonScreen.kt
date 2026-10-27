@@ -72,6 +72,7 @@ import com.jellyscope.ui.screen.detail.focusContainer
 import com.jellyscope.ui.screen.detail.rememberRouteDetailFocusContainer
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.person.PersonHeaderUi
+import com.jellyscope.ui.screen.person.PersonIntent
 import com.jellyscope.ui.screen.person.PersonUiState
 import com.jellyscope.ui.screen.person.PersonViewModel
 import com.jellyscope.ui.theme.LocalAppBackgroundBrush
@@ -118,9 +119,9 @@ fun TvPersonScreen(
         onSettingsSelected = onSettingsSelected,
         onItemSelected = onItemSelected,
         onItemPlayDirect = onItemPlayDirect,
-        onRetry = viewModel::retry,
-        onLoadMoreAutomatically = viewModel::loadMoreAutomatically,
-        onRetryPage = viewModel::loadMore,
+        onRetry = { viewModel.accept(PersonIntent.Retry) },
+        onLoadMoreAutomatically = { viewModel.accept(PersonIntent.LoadMoreAutomatically) },
+        onRetryPage = { viewModel.accept(PersonIntent.LoadMore) },
         modifier = modifier,
     )
 }

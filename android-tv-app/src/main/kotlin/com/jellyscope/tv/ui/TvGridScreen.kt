@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.screen.detail.requestFocusSafely
+import com.jellyscope.ui.screen.grid.GridIntent
 import com.jellyscope.ui.screen.grid.GridSort
 import com.jellyscope.ui.screen.grid.GridUiState
 import com.jellyscope.ui.screen.grid.GridViewModel
@@ -73,9 +74,9 @@ fun TvGridScreen(
         onSettingsSelected = onSettingsSelected,
         onItemSelected = onItemSelected,
         onItemPlayDirect = onItemPlayDirect,
-        onShuffle = { onShuffle(viewModel.buildShuffleQueue()) },
-        onRetry = viewModel::retry,
-        onSortSelected = viewModel::setSort,
+        onShuffle = { onShuffle(viewModel.accept(GridIntent.BuildShuffleQueue)) },
+        onRetry = { viewModel.accept(GridIntent.Retry) },
+        onSortSelected = { value -> viewModel.accept(GridIntent.SetSort(value)) },
         modifier = modifier,
     )
 }
