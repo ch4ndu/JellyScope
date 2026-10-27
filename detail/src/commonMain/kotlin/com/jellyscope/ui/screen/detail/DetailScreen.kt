@@ -84,12 +84,12 @@ fun DetailScreen(
                     onSelectSubtitle = { streamIndex ->
                         subtitleSelectionRevision += 1
                         installedAssetId = null
-                        viewModel.selectSubtitle(streamIndex)
+                        viewModel.accept(DetailIntent.SelectSubtitle(streamIndex))
                     },
                     onSelectLocalAsset = { assetId ->
                         subtitleSelectionRevision += 1
                         installedAssetId = assetId
-                        viewModel.selectLocalSubtitle(assetId)
+                        viewModel.accept(DetailIntent.SelectLocalSubtitle(assetId))
                     },
                     onSearchSubtitles = { searchVisible = true },
                     onDeleteLocalAsset = { assetId ->
@@ -99,9 +99,9 @@ fun DetailScreen(
                             subtitleSelectionRevision += 1
                             installedAssetId = null
                         }
-                        viewModel.deleteLocalSubtitle(assetId)
+                        viewModel.accept(DetailIntent.DeleteLocalSubtitle(assetId))
                     },
-                    onRetryLocalAssetSync = viewModel::retryLocalSubtitleSync,
+                    onRetryLocalAssetSync = { assetId -> viewModel.accept(DetailIntent.RetryLocalSubtitleSync(assetId)) },
                     returnFocusRequest = subtitleSearchReturnRequest,
                 )
             }
@@ -109,7 +109,7 @@ fun DetailScreen(
             session = session,
             state = state,
             onBack = onBack,
-            onRetry = viewModel::retry,
+            onRetry = { viewModel.accept(DetailIntent.Retry) },
             onPlayClick = { playItemId, ticks, sourceId, audioIndex, subtitleSelection ->
                 val localId = installedAssetId
                 if (localId != null && onPlayWithSubtitleIntent != null) {
@@ -120,9 +120,9 @@ fun DetailScreen(
             },
             onItemSelected = onItemSelected,
             onPersonSelected = onPersonSelected,
-            onToggleWatched = viewModel::toggleWatched,
-            onToggleFavorite = viewModel::toggleFavorite,
-            onSelectMediaVersion = viewModel::selectMediaVersion,
+            onToggleWatched = { viewModel.accept(DetailIntent.ToggleWatched) },
+            onToggleFavorite = { viewModel.accept(DetailIntent.ToggleFavorite) },
+            onSelectMediaVersion = { mediaSourceId -> viewModel.accept(DetailIntent.SelectMediaVersion(mediaSourceId)) },
             subtitleActions = subtitleActions,
             downloadEntryState = downloadEntryState.takeIf { detail != null && viewModel.isDownloadAvailable },
             downloadActionEnabled = !originalDownloadVisible,
@@ -130,7 +130,7 @@ fun DetailScreen(
             onDownloadClick = {
                 when (val entry = downloadEntryState) {
                     DetailDownloadEntryState.Add -> {
-                        viewModel.resetOriginalDownloadState()
+                        viewModel.accept(DetailIntent.ResetOriginalDownloadState)
                         originalDownloadVisible = true
                     }
                     is DetailDownloadEntryState.Manage -> onOpenDownloads()
@@ -147,14 +147,25 @@ fun DetailScreen(
                 fixedAvailable = viewModel.isFixedDownloadAvailable,
                 onDismiss = {
                     originalDownloadVisible = false
-                    viewModel.resetOriginalDownloadState()
+                    viewModel.accept(DetailIntent.ResetOriginalDownloadState)
                 },
-                onPreview = viewModel::previewOriginalDownload,
-                onConfirm = viewModel::enqueueOriginalDownload,
-                onPreviewFixed = viewModel::previewFixedDownload,
-                onConfirmFixedBurnIn = viewModel::confirmFixedBurnIn,
-                onCancelFixedBurnIn = viewModel::cancelFixedBurnIn,
-                onConfirmFixed = viewModel::enqueueFixedDownload,
+                onPreview = {
+                    selectedAudioStreamIndex,
+                    subtitleSelection,
+                    ->
+                    viewModel.accept(DetailIntent.PreviewOriginalDownload(selectedAudioStreamIndex, subtitleSelection))
+                },
+                onConfirm = { viewModel.accept(DetailIntent.EnqueueOriginalDownload) },
+                onPreviewFixed = {
+                    quality,
+                    selectedAudioStreamIndex,
+                    subtitleSelection,
+                    ->
+                    viewModel.accept(DetailIntent.PreviewFixedDownload(quality, selectedAudioStreamIndex, subtitleSelection))
+                },
+                onConfirmFixedBurnIn = { viewModel.accept(DetailIntent.ConfirmFixedBurnIn) },
+                onCancelFixedBurnIn = { viewModel.accept(DetailIntent.CancelFixedBurnIn) },
+                onConfirmFixed = { viewModel.accept(DetailIntent.EnqueueFixedDownload) },
             )
         }
         if (detail != null && sourceId != null) {

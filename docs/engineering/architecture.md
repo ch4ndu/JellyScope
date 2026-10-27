@@ -265,6 +265,30 @@ paging flags, excluding collection identity, offset, and total count. Existing
 focus, lazy keys, scroll, and ambient ownership remain unchanged. No runtime
 recomposition gain is asserted.
 
+### Detail, Series, and subtitle search MVI slice
+
+Shared/adaptive Detail and Series screens dispatch `DetailIntent` and
+`SeriesIntent`; the TV adapters reuse those screens. The navigation-owned season
+callback uses the same Series input. OpenSubtitles search/install use an internal
+intent contract that carries the existing subtitle-selection token.
+
+Detail's reducer preserves optimistic watched/favorite rollback, item/source
+checks, local subtitle merges, and Related shelves during silent refresh. The
+ViewModel supplies current load/source authority on every atomic update attempt;
+the load continuation proceeds only when its transition was applied. Download
+preview and entry state remain separate projections with one publication point
+each, preserving their existing admission and preview-generation checks.
+
+Series reducers apply existing pure episode/header transforms while cache and
+settlement effects remain ViewModel-owned. Season replacement still clears the
+separate focused-episode flow; focus changes do not rebuild the screen state.
+OpenSubtitles retains cancellable searches, single-install admission, quota/error
+state, and buffered token-qualified installation acknowledgements.
+
+Existing child parameters, list references, download projections, and the
+focused-episode flow retain their update boundaries. No combined screen state,
+new stability annotation, or measured recomposition claim is introduced.
+
 ## Source Layout Target
 
 ```text
@@ -830,6 +854,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Detail and Series keep selection, download, and playback-settlement authority
+  with their effect owners. Pure reducers merge onto current presentation state
+  so concurrent shelf and subtitle observations survive refresh and rollback.
 
 - Browse reducers isolate screen transitions without replacing the existing
   generation, request, or pagination owners. Explicit intents keep shared and

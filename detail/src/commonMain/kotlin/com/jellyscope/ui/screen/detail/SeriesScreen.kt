@@ -60,18 +60,23 @@ fun SeriesScreen(
         session = session,
         state = state,
         onBack = onBack,
-        onRetry = viewModel::retry,
-        onRetryEpisodes = viewModel::retryEpisodes,
-        onSeasonSelected = viewModel::selectSeason,
+        onRetry = { viewModel.accept(SeriesIntent.Retry) },
+        onRetryEpisodes = { viewModel.accept(SeriesIntent.RetryEpisodes) },
+        onSeasonSelected = { seasonId -> viewModel.accept(SeriesIntent.SelectSeason(seasonId)) },
         onSeasonRouteSelected = { seasonId ->
-            viewModel.selectSeason(seasonId)
+            viewModel.accept(SeriesIntent.SelectSeason(seasonId))
             onSeasonRouteSelected(seasonId)
         },
-        onEpisodeFocused = viewModel::focusEpisode,
-        onToggleSeriesFavorite = viewModel::toggleFavorite,
-        onToggleEpisodeWatched = viewModel::toggleFocusedEpisodeWatched,
-        onToggleEpisodeFavorite = viewModel::toggleFocusedEpisodeFavorite,
-        onSelectEpisodeMediaVersion = viewModel::selectEpisodeMediaVersion,
+        onEpisodeFocused = { itemId -> viewModel.accept(SeriesIntent.FocusEpisode(itemId)) },
+        onToggleSeriesFavorite = { viewModel.accept(SeriesIntent.ToggleFavorite) },
+        onToggleEpisodeWatched = { viewModel.accept(SeriesIntent.ToggleFocusedEpisodeWatched) },
+        onToggleEpisodeFavorite = { viewModel.accept(SeriesIntent.ToggleFocusedEpisodeFavorite) },
+        onSelectEpisodeMediaVersion = {
+            itemId,
+            mediaSourceId,
+            ->
+            viewModel.accept(SeriesIntent.SelectEpisodeMediaVersion(itemId, mediaSourceId))
+        },
         onPlayClick = onPlayClick,
         onPlayEpisode = onPlayEpisode,
         onItemSelected = onItemSelected,

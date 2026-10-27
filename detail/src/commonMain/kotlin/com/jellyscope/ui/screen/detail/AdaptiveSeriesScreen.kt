@@ -45,7 +45,7 @@ fun AdaptiveSeriesScreen(
         is SeriesUiState.Error ->
             AdaptiveSeriesError(
                 retryable = seriesState.retryable,
-                onRetry = viewModel::retry,
+                onRetry = { viewModel.accept(SeriesIntent.Retry) },
                 modifier = modifier,
             )
         is SeriesUiState.Content ->
@@ -55,11 +55,16 @@ fun AdaptiveSeriesScreen(
                 onBack = onBack,
                 onPlay = onPlay,
                 onSeasonSelected = { seasonId ->
-                    viewModel.selectSeason(seasonId)
+                    viewModel.accept(SeriesIntent.SelectSeason(seasonId))
                     onSeasonSelected(seasonId)
                 },
-                onToggleFavorite = viewModel::toggleSeriesFavorite,
-                onSelectEpisodeMediaVersion = viewModel::selectEpisodeMediaVersion,
+                onToggleFavorite = { viewModel.accept(SeriesIntent.ToggleSeriesFavorite) },
+                onSelectEpisodeMediaVersion = {
+                    itemId,
+                    mediaSourceId,
+                    ->
+                    viewModel.accept(SeriesIntent.SelectEpisodeMediaVersion(itemId, mediaSourceId))
+                },
                 onRelatedItemSelected = onRelatedItemSelected,
                 onPersonSelected = onPersonSelected,
                 modifier = modifier,
@@ -94,7 +99,7 @@ fun AdaptiveSeasonScreen(
             selectedSeasonId != null &&
             selectedSeasonId != desiredSeasonId
         ) {
-            viewModel.selectSeason(desiredSeasonId)
+            viewModel.accept(SeriesIntent.SelectSeason(desiredSeasonId))
         }
     }
 
@@ -103,15 +108,15 @@ fun AdaptiveSeasonScreen(
     // (ON_RESUME); TV: the route content is recomposed on return (LaunchedEffect).
     // refresh() is a no-op until the first load produced Content, so neither path
     // double-loads on first entry.
-    OnResumeEffect(viewModel::refresh)
-    LaunchedEffect(viewModel) { viewModel.refresh() }
+    OnResumeEffect({ viewModel.accept(SeriesIntent.Refresh) })
+    LaunchedEffect(viewModel) { viewModel.accept(SeriesIntent.Refresh) }
 
     when (val seriesState = state) {
         SeriesUiState.Loading -> AdaptiveCenteredSpinner(modifier = modifier)
         is SeriesUiState.Error ->
             AdaptiveSeriesError(
                 retryable = seriesState.retryable,
-                onRetry = viewModel::retry,
+                onRetry = { viewModel.accept(SeriesIntent.Retry) },
                 modifier = modifier,
             )
         is SeriesUiState.Content ->
@@ -142,16 +147,21 @@ fun AdaptiveSeasonScreen(
                         )
                     }
                 },
-                onToggleWatched = viewModel::toggleFocusedEpisodeWatched,
-                onToggleFavorite = viewModel::toggleFocusedEpisodeFavorite,
+                onToggleWatched = { viewModel.accept(SeriesIntent.ToggleFocusedEpisodeWatched) },
+                onToggleFavorite = { viewModel.accept(SeriesIntent.ToggleFocusedEpisodeFavorite) },
                 onSeasonSelected = { seasonId ->
                     desiredSeasonId = seasonId
-                    viewModel.selectSeason(seasonId)
+                    viewModel.accept(SeriesIntent.SelectSeason(seasonId))
                     onSeasonSelected(seasonId)
                 },
-                onFocusedEpisode = viewModel::focusEpisode,
-                onSelectEpisodeMediaVersion = viewModel::selectEpisodeMediaVersion,
-                onRetryEpisodes = viewModel::retryEpisodes,
+                onFocusedEpisode = { itemId -> viewModel.accept(SeriesIntent.FocusEpisode(itemId)) },
+                onSelectEpisodeMediaVersion = {
+                    itemId,
+                    mediaSourceId,
+                    ->
+                    viewModel.accept(SeriesIntent.SelectEpisodeMediaVersion(itemId, mediaSourceId))
+                },
+                onRetryEpisodes = { viewModel.accept(SeriesIntent.RetryEpisodes) },
                 onPersonSelected = onPersonSelected,
                 modifier = modifier,
                 ambientColorExtractor = ambientColorExtractor,

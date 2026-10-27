@@ -27,6 +27,7 @@ import com.jellyscope.ui.platform.LocalPlatformCapabilities
 import com.jellyscope.ui.screen.collection.CollectionScreen
 import com.jellyscope.ui.screen.detail.AdaptiveSeasonScreen
 import com.jellyscope.ui.screen.detail.DetailScreen
+import com.jellyscope.ui.screen.detail.SeriesIntent
 import com.jellyscope.ui.screen.detail.SeriesScreen
 import com.jellyscope.ui.screen.detail.SeriesViewModel
 import com.jellyscope.ui.screen.discover.DiscoverScreen
@@ -393,7 +394,7 @@ internal fun LoggedInNavGraph(
                                 ),
                             )
                         },
-                        onSeasonSelected = seriesViewModel::selectSeason,
+                        onSeasonSelected = { seasonId -> seriesViewModel.accept(SeriesIntent.SelectSeason(seasonId)) },
                         onPersonSelected = { personId -> navController.navigate(Routes.person(personId)) },
                         modifier = Modifier,
                         viewModel = seriesViewModel,

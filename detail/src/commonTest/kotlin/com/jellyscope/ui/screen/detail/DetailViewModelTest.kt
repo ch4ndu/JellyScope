@@ -125,16 +125,20 @@ class DetailViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.previewFixedDownload(
-                    quality = DownloadQuality.Fixed(4_000_000L),
-                    selectedAudioStreamIndex = 1,
-                    subtitleSelection = SubtitleSelectionIntent.Off,
+                viewModel.accept(
+                    DetailIntent.PreviewFixedDownload(
+                        quality = DownloadQuality.Fixed(4_000_000L),
+                        selectedAudioStreamIndex = 1,
+                        subtitleSelection = SubtitleSelectionIntent.Off,
+                    ),
                 )
                 runCurrent()
-                viewModel.previewFixedDownload(
-                    quality = DownloadQuality.Fixed(8_000_000L),
-                    selectedAudioStreamIndex = 1,
-                    subtitleSelection = SubtitleSelectionIntent.Off,
+                viewModel.accept(
+                    DetailIntent.PreviewFixedDownload(
+                        quality = DownloadQuality.Fixed(8_000_000L),
+                        selectedAudioStreamIndex = 1,
+                        subtitleSelection = SubtitleSelectionIntent.Off,
+                    ),
                 )
                 runCurrent()
 
@@ -172,13 +176,15 @@ class DetailViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.previewFixedDownload(
-                    quality = DownloadQuality.Fixed(4_000_000L),
-                    selectedAudioStreamIndex = 1,
-                    subtitleSelection = SubtitleSelectionIntent.Off,
+                viewModel.accept(
+                    DetailIntent.PreviewFixedDownload(
+                        quality = DownloadQuality.Fixed(4_000_000L),
+                        selectedAudioStreamIndex = 1,
+                        subtitleSelection = SubtitleSelectionIntent.Off,
+                    ),
                 )
                 runCurrent()
-                viewModel.resetDownloadState()
+                viewModel.accept(DetailIntent.ResetDownloadState)
                 admission.results[0].complete(
                     FixedDownloadAdmissionResult.Ready(admission.requests[0].toDownloadRequest()),
                 )
@@ -415,10 +421,12 @@ class DetailViewModelTest {
                 advanceUntilIdle()
 
                 assertFalse(viewModel.isDownloadAvailable)
-                viewModel.previewFixedDownload(
-                    quality = DownloadQuality.Fixed(4_000_000L),
-                    selectedAudioStreamIndex = 1,
-                    subtitleSelection = SubtitleSelectionIntent.Off,
+                viewModel.accept(
+                    DetailIntent.PreviewFixedDownload(
+                        quality = DownloadQuality.Fixed(4_000_000L),
+                        selectedAudioStreamIndex = 1,
+                        subtitleSelection = SubtitleSelectionIntent.Off,
+                    ),
                 )
 
                 assertIs<DetailDownloadState.Idle>(viewModel.downloadState.value)
@@ -576,7 +584,7 @@ class DetailViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.selectMediaVersion("source-2")
+                viewModel.accept(DetailIntent.SelectMediaVersion("source-2"))
                 advanceUntilIdle()
 
                 val selected = assertIs<DetailUiState.Content>(viewModel.state.value).detail
@@ -621,10 +629,10 @@ class DetailViewModelTest {
                 val viewModel = repository.detailViewModel(itemId = "episode-1")
                 advanceUntilIdle()
 
-                viewModel.toggleWatched()
-                viewModel.toggleFavorite()
+                viewModel.accept(DetailIntent.ToggleWatched)
+                viewModel.accept(DetailIntent.ToggleFavorite)
                 runCurrent()
-                viewModel.selectMediaVersion("source-2")
+                viewModel.accept(DetailIntent.SelectMediaVersion("source-2"))
                 advanceUntilIdle()
 
                 playedResult.complete(Result.failure(IllegalStateException("played failed")))
@@ -670,16 +678,16 @@ class DetailViewModelTest {
                 val viewModel = repository.detailViewModel(itemId = "episode-1")
                 advanceUntilIdle()
 
-                viewModel.selectMediaVersion("source-2")
+                viewModel.accept(DetailIntent.SelectMediaVersion("source-2"))
                 advanceUntilIdle()
-                viewModel.refresh()
+                viewModel.accept(DetailIntent.Refresh)
                 advanceUntilIdle()
                 assertEquals(
                     "source-2",
                     assertIs<DetailUiState.Content>(viewModel.state.value).detail.selectedMediaSourceId,
                 )
 
-                viewModel.refresh()
+                viewModel.accept(DetailIntent.Refresh)
                 advanceUntilIdle()
                 val fallback = assertIs<DetailUiState.Content>(viewModel.state.value).detail
                 assertEquals("source-1", fallback.selectedMediaSourceId)
@@ -711,12 +719,12 @@ class DetailViewModelTest {
                         observeLocalSubtitleAssetsUseCase = ObserveLocalSubtitleAssetsUseCase(assetStore),
                     )
                 advanceUntilIdle()
-                viewModel.selectMediaVersion("source-2")
+                viewModel.accept(DetailIntent.SelectMediaVersion("source-2"))
                 advanceUntilIdle()
 
-                viewModel.refresh()
+                viewModel.accept(DetailIntent.Refresh)
                 runCurrent()
-                viewModel.refresh()
+                viewModel.accept(DetailIntent.Refresh)
                 runCurrent()
                 repository.newerRefresh.complete(Result.success(detail))
                 runCurrent()
@@ -758,9 +766,9 @@ class DetailViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.selectMediaVersion("source-2")
+                viewModel.accept(DetailIntent.SelectMediaVersion("source-2"))
                 runCurrent()
-                viewModel.selectMediaVersion("source-3")
+                viewModel.accept(DetailIntent.SelectMediaVersion("source-3"))
                 runCurrent()
                 selectionStore.sourceThree.complete(PlaybackSelection(audioStreamIndex = 21))
                 runCurrent()
@@ -800,9 +808,9 @@ class DetailViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.selectMediaVersion("source-2")
+                viewModel.accept(DetailIntent.SelectMediaVersion("source-2"))
                 runCurrent()
-                viewModel.selectMediaVersion("source-1")
+                viewModel.accept(DetailIntent.SelectMediaVersion("source-1"))
                 runCurrent()
                 selectionStore.sourceTwo.complete(PlaybackSelection(audioStreamIndex = 11))
                 advanceUntilIdle()
@@ -841,9 +849,9 @@ class DetailViewModelTest {
                 val content = assertIs<DetailUiState.Content>(viewModel.state.value)
                 assertEquals("source-1", content.detail.playAction.mediaSourceId)
 
-                viewModel.selectSubtitle(null)
-                viewModel.selectSubtitle(2)
-                viewModel.selectLocalSubtitle("asset-1")
+                viewModel.accept(DetailIntent.SelectSubtitle(null))
+                viewModel.accept(DetailIntent.SelectSubtitle(2))
+                viewModel.accept(DetailIntent.SelectLocalSubtitle("asset-1"))
                 runCurrent()
                 val latestWrite = saveAction.latestWrite() ?: error("Expected a subtitle selection write")
                 latestWrite.await()
@@ -902,7 +910,7 @@ class DetailViewModelTest {
                         initialSubtitleExplicitlySelected = true,
                     )
 
-                viewModel.selectLocalSubtitle(detailLocalSubtitleAsset.id)
+                viewModel.accept(DetailIntent.SelectLocalSubtitle(detailLocalSubtitleAsset.id))
                 selectionState.selectLocalSubtitle()
                 saveAction.latestWrite()?.await() ?: error("Expected local subtitle selection write")
                 assertEquals(
@@ -911,7 +919,7 @@ class DetailViewModelTest {
                 )
                 assertEquals(SubtitleSelectionIntent.LocalAsset(detailLocalSubtitleAsset.id), saveAction.current(key))
 
-                viewModel.deleteLocalSubtitle(detailLocalSubtitleAsset.id)
+                viewModel.accept(DetailIntent.DeleteLocalSubtitle(detailLocalSubtitleAsset.id))
                 runCurrent()
                 advanceUntilIdle()
                 saveAction.latestWrite()?.await() ?: error("Expected local subtitle deletion write")
@@ -981,11 +989,11 @@ class DetailViewModelTest {
                         initialSubtitleExplicitlySelected = true,
                     )
 
-                viewModel.selectLocalSubtitle(detailLocalSubtitleAsset.id)
+                viewModel.accept(DetailIntent.SelectLocalSubtitle(detailLocalSubtitleAsset.id))
                 selectionState.selectLocalSubtitle()
                 saveAction.latestWrite()?.await() ?: error("Expected local subtitle selection write")
 
-                viewModel.deleteLocalSubtitle(detailLocalSubtitleAsset.id)
+                viewModel.accept(DetailIntent.DeleteLocalSubtitle(detailLocalSubtitleAsset.id))
                 runCurrent()
                 advanceUntilIdle()
                 saveAction.latestWrite()?.await() ?: error("Expected local subtitle deletion write")
@@ -1039,7 +1047,7 @@ class DetailViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.deleteLocalSubtitle(otherAsset.id)
+                viewModel.accept(DetailIntent.DeleteLocalSubtitle(otherAsset.id))
                 runCurrent()
                 advanceUntilIdle()
 
@@ -1079,7 +1087,7 @@ class DetailViewModelTest {
                 val viewModel = repository.detailViewModel(itemId = "episode-1")
                 advanceUntilIdle()
 
-                viewModel.refresh()
+                viewModel.accept(DetailIntent.Refresh)
                 advanceUntilIdle()
 
                 val state = assertIs<DetailUiState.Content>(viewModel.state.value)
@@ -1110,7 +1118,7 @@ class DetailViewModelTest {
                 )
                 runCurrent()
 
-                viewModel.refresh()
+                viewModel.accept(DetailIntent.Refresh)
                 runCurrent()
                 repository.relatedGroups.send(
                     RelatedGroup(
@@ -1164,7 +1172,7 @@ class DetailViewModelTest {
                 advanceUntilIdle()
                 val before = assertIs<DetailUiState.Content>(viewModel.state.value)
 
-                viewModel.refresh()
+                viewModel.accept(DetailIntent.Refresh)
                 advanceUntilIdle()
 
                 assertEquals(before, viewModel.state.value)
@@ -1215,7 +1223,7 @@ class DetailViewModelTest {
 
                 assertIs<DetailUiState.Error>(viewModel.state.value)
 
-                viewModel.retry()
+                viewModel.accept(DetailIntent.Retry)
                 advanceUntilIdle()
 
                 val state = assertIs<DetailUiState.Content>(viewModel.state.value)
@@ -1242,7 +1250,7 @@ class DetailViewModelTest {
                 val viewModel = repository.detailViewModel(itemId = "movie-1")
                 advanceUntilIdle()
 
-                viewModel.toggleWatched()
+                viewModel.accept(DetailIntent.ToggleWatched)
                 val optimistic = assertIs<DetailUiState.Content>(viewModel.state.value)
                 assertEquals(true, optimistic.detail.isWatched)
                 assertEquals(true, optimistic.detail.watchedToggleInFlight)
@@ -1272,7 +1280,7 @@ class DetailViewModelTest {
                 val viewModel = repository.detailViewModel(itemId = "movie-1")
                 advanceUntilIdle()
 
-                viewModel.toggleFavorite()
+                viewModel.accept(DetailIntent.ToggleFavorite)
                 val optimistic = assertIs<DetailUiState.Content>(viewModel.state.value)
                 assertEquals(true, optimistic.detail.isFavorite)
                 assertEquals(true, optimistic.detail.favoriteToggleInFlight)
@@ -1309,7 +1317,7 @@ class DetailViewModelTest {
                 val viewModel = repository.detailViewModel(itemId = "episode-1", settlementRegistry = registry)
                 advanceUntilIdle()
 
-                viewModel.refresh()
+                viewModel.accept(DetailIntent.Refresh)
                 advanceUntilIdle()
                 registry.publish(SettlementKey(session.serverId, session.userId, "episode-1"))
                 advanceUntilIdle()

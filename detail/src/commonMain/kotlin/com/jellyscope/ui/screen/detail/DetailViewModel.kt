@@ -30,7 +30,6 @@ import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.MediaPerson
 import com.jellyscope.core.domain.model.OriginalDownloadDraft
 import com.jellyscope.core.domain.model.PlaybackPreferences
-import com.jellyscope.core.domain.model.RELATED_GROUP_DISPLAY_LIMIT
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.PlaybackLaunchContext
@@ -171,26 +170,71 @@ class DetailViewModel(
     private var fixedDownloadPreviewJob: Job? = null
     private var fixedDownloadPreviewKey: FixedDownloadPreviewKey? = null
 
+    private fun reduce(change: DetailChange): Boolean {
+        var applied = false
+        _state.update { current ->
+            val next = reduceDetail(current, change, loadGeneration, mediaSourceSelectionGeneration, selectedMediaSourceId)
+            applied = next !== current
+            next
+        }
+        return applied
+    }
+
+    fun accept(intent: DetailIntent) {
+        when (intent) {
+            DetailIntent.Retry -> retry()
+            DetailIntent.Refresh -> refresh()
+            DetailIntent.ResetOriginalDownloadState -> resetOriginalDownloadState()
+            DetailIntent.ResetDownloadState -> resetDownloadState()
+            is DetailIntent.PreviewOriginalDownload -> previewOriginalDownload(intent.selectedAudioStreamIndex, intent.subtitleSelection)
+            DetailIntent.EnqueueOriginalDownload -> enqueueOriginalDownload()
+            is DetailIntent.PreviewFixedDownload ->
+                previewFixedDownload(
+                    intent.quality,
+                    intent.selectedAudioStreamIndex,
+                    intent.subtitleSelection,
+                )
+            DetailIntent.ConfirmFixedBurnIn -> confirmFixedBurnIn()
+            DetailIntent.CancelFixedBurnIn -> cancelFixedBurnIn()
+            DetailIntent.EnqueueFixedDownload -> enqueueFixedDownload()
+            DetailIntent.ToggleWatched -> toggleWatched()
+            DetailIntent.ToggleFavorite -> toggleFavorite()
+            is DetailIntent.DeleteLocalSubtitle -> deleteLocalSubtitle(intent.assetId)
+            is DetailIntent.RetryLocalSubtitleSync -> retryLocalSubtitleSync(intent.assetId)
+            is DetailIntent.SelectSubtitle -> selectSubtitle(intent.streamIndex)
+            is DetailIntent.SelectLocalSubtitle -> selectLocalSubtitle(intent.assetId)
+            is DetailIntent.SelectMediaVersion -> selectMediaVersion(intent.mediaSourceId)
+        }
+    }
+
+    private fun publishDownload(state: DetailDownloadState) {
+        _downloadState.value = state
+    }
+
+    private fun publishDownloadEntry(state: DetailDownloadEntryState) {
+        _downloadEntryState.value = state
+    }
+
     init {
         observeDownloads()
         observePlaybackStopSettlements()
         load()
     }
 
-    fun retry() {
+    private fun retry() {
         load()
     }
 
-    fun resetOriginalDownloadState() {
+    private fun resetOriginalDownloadState() {
         invalidateFixedDownloadPreview()
-        _downloadState.value = DetailDownloadState.Idle
+        publishDownload(DetailDownloadState.Idle)
     }
 
-    fun resetDownloadState() {
+    private fun resetDownloadState() {
         resetOriginalDownloadState()
     }
 
-    fun previewOriginalDownload(
+    private fun previewOriginalDownload(
         selectedAudioStreamIndex: Int?,
         subtitleSelection: SubtitleSelectionIntent,
     ) {
@@ -211,20 +255,21 @@ class DetailViewModel(
             )
         when (draftResult) {
             is OriginalDownloadDraftBuildResult.ExternalBitmap -> {
-                _downloadState.value = DetailDownloadState.BitmapSubtitleConfirmation(draftResult.streamIndex)
+                publishDownload(DetailDownloadState.BitmapSubtitleConfirmation(draftResult.streamIndex))
                 return
             }
             OriginalDownloadDraftBuildResult.Unsupported -> {
-                _downloadState.value =
+                publishDownload(
                     DetailDownloadState.Rejected(
                         DownloadAdmissionDecision.SourceChanged,
-                    )
+                    ),
+                )
                 return
             }
             is OriginalDownloadDraftBuildResult.Ready -> Unit
         }
         val draft = draftResult.draft
-        _downloadState.value = DetailDownloadState.Previewing
+        publishDownload(DetailDownloadState.Previewing)
         viewModelScope.launch {
             val result =
                 try {
@@ -236,15 +281,16 @@ class DetailViewModel(
                         DownloadAdmissionDecision.NetworkUnavailable,
                     )
                 }
-            _downloadState.value =
+            publishDownload(
                 when (result) {
                     is OriginalDownloadAdmissionResult.Ready -> DetailDownloadState.Ready(draft, result.request)
                     is OriginalDownloadAdmissionResult.Rejected -> DetailDownloadState.Rejected(result.decision)
-                }
+                },
+            )
         }
     }
 
-    fun enqueueOriginalDownload() {
+    private fun enqueueOriginalDownload() {
         if (!session.enableContentDownloading) return
         val enqueue = enqueueDownloadAction ?: return
         val ready = _downloadState.value as? DetailDownloadState.Ready ?: return
@@ -253,7 +299,7 @@ class DetailViewModel(
         }
     }
 
-    fun previewFixedDownload(
+    private fun previewFixedDownload(
         quality: DownloadQuality.Fixed,
         selectedAudioStreamIndex: Int?,
         subtitleSelection: SubtitleSelectionIntent,
@@ -267,7 +313,7 @@ class DetailViewModel(
         )
     }
 
-    fun confirmFixedBurnIn() {
+    private fun confirmFixedBurnIn() {
         if (!session.enableContentDownloading) return
         val confirmation = _downloadState.value as? DetailDownloadState.FixedBurnInConfirmation ?: return
         previewFixedDownloadInternal(
@@ -278,14 +324,14 @@ class DetailViewModel(
         )
     }
 
-    fun cancelFixedBurnIn() {
+    private fun cancelFixedBurnIn() {
         if (_downloadState.value is DetailDownloadState.FixedBurnInConfirmation) {
             invalidateFixedDownloadPreview()
-            _downloadState.value = DetailDownloadState.Idle
+            publishDownload(DetailDownloadState.Idle)
         }
     }
 
-    fun enqueueFixedDownload() {
+    private fun enqueueFixedDownload() {
         if (!session.enableContentDownloading) return
         val enqueue = enqueueFixedDownloadAction ?: return
         val ready = _downloadState.value as? DetailDownloadState.FixedReady ?: return
@@ -323,20 +369,20 @@ class DetailViewModel(
             )
         when (draftResult) {
             is FixedDownloadDraftBuildResult.NeedsBurnIn -> {
-                _downloadState.value =
+                publishDownload(
                     DetailDownloadState.FixedBurnInConfirmation(
                         quality = quality,
                         selectedAudioStreamIndex = selectedAudioStreamIndex,
                         subtitleStreamIndex = draftResult.streamIndex,
                         subtitleLabel = draftResult.label,
-                    )
+                    ),
+                )
                 return
             }
             FixedDownloadDraftBuildResult.Unsupported,
             FixedDownloadDraftBuildResult.UnsupportedSubtitle,
             -> {
-                _downloadState.value =
-                    DetailDownloadState.FixedRejected(DownloadAdmissionDecision.UnsupportedArtifact)
+                publishDownload(DetailDownloadState.FixedRejected(DownloadAdmissionDecision.UnsupportedArtifact))
                 return
             }
             is FixedDownloadDraftBuildResult.Ready -> Unit
@@ -353,7 +399,7 @@ class DetailViewModel(
                 subtitleSelection = draft.subtitleSelection,
             )
         fixedDownloadPreviewKey = previewKey
-        _downloadState.value = DetailDownloadState.Previewing
+        publishDownload(DetailDownloadState.Previewing)
         fixedDownloadPreviewJob =
             viewModelScope.launch {
                 val result =
@@ -367,11 +413,12 @@ class DetailViewModel(
                 if (!isCurrentFixedDownloadPreview(previewKey)) {
                     return@launch
                 }
-                _downloadState.value =
+                publishDownload(
                     when (result) {
                         is FixedDownloadAdmissionResult.Ready -> DetailDownloadState.FixedReady(draft, result.request)
                         is FixedDownloadAdmissionResult.Rejected -> DetailDownloadState.FixedRejected(result.decision)
-                    }
+                    },
+                )
                 fixedDownloadPreviewJob = null
             }
     }
@@ -416,7 +463,7 @@ class DetailViewModel(
             } catch (_: Throwable) {
                 DownloadEnqueueResult.Rejected(DownloadAdmissionDecision.NetworkUnavailable)
             }
-        _downloadState.value = result.toDetailDownloadState()
+        publishDownload(result.toDetailDownloadState())
     }
 
     private suspend fun enqueueReadyFixed(
@@ -431,12 +478,12 @@ class DetailViewModel(
             } catch (_: Throwable) {
                 DownloadEnqueueResult.Rejected(DownloadAdmissionDecision.NetworkUnavailable)
             }
-        _downloadState.value = result.toDetailDownloadState()
+        publishDownload(result.toDetailDownloadState())
     }
 
     private fun observeDownloads() {
         if (!session.enableContentDownloading) {
-            _downloadEntryState.value = DetailDownloadEntryState.Add
+            publishDownloadEntry(DetailDownloadEntryState.Add)
             return
         }
         val observe = observeDownloadsUseCase ?: return
@@ -454,13 +501,13 @@ class DetailViewModel(
 
     private fun reprojectDownloadEntry() {
         if (!session.enableContentDownloading) {
-            _downloadEntryState.value = DetailDownloadEntryState.Add
+            publishDownloadEntry(DetailDownloadEntryState.Add)
             return
         }
         val detail = (_state.value as? DetailUiState.Content)?.detail
         val selectedSourceId = detail?.selectedMediaSourceId
         if (selectedSourceId == null) {
-            _downloadEntryState.value = DetailDownloadEntryState.Add
+            publishDownloadEntry(DetailDownloadEntryState.Add)
             return
         }
         val matchingRecord =
@@ -473,13 +520,13 @@ class DetailViewModel(
                         is DownloadQuality.Fixed -> record.request.artifactKind == DownloadArtifactKind.LocalHlsPackage
                     }
             }
-        _downloadEntryState.value = matchingRecord.toDetailDownloadEntryState()
+        publishDownloadEntry(matchingRecord.toDetailDownloadEntryState())
     }
 
     // Silent reload used when the screen becomes active again (e.g. returning
     // from the player) so the resume position / watched state reflect the
     // latest server value without a loading flash. (#172)
-    fun refresh() {
+    private fun refresh() {
         if (_state.value is DetailUiState.Content) {
             load(showLoading = false)
         }
@@ -522,31 +569,15 @@ class DetailViewModel(
         }
     }
 
-    fun toggleWatched() {
+    private fun toggleWatched() {
         val content = _state.value as? DetailUiState.Content ?: return
         val previous = content.detail
         val played = !previous.isWatched
-        _state.update { current ->
-            if (current is DetailUiState.Content && current.detail.itemId == previous.itemId) {
-                current.copy(detail = current.detail.withWatched(played).copy(watchedToggleInFlight = true))
-            } else {
-                current
-            }
-        }
+        reduce(DetailChange.WatchedStarted(previous, played))
 
         viewModelScope.launch {
             val result = setItemPlayedAction(itemId = previous.itemId, played = played)
-            _state.update { current ->
-                if (current is DetailUiState.Content && current.detail.itemId == previous.itemId) {
-                    if (result.isSuccess) {
-                        current.copy(detail = current.detail.copy(watchedToggleInFlight = false))
-                    } else {
-                        current.copy(detail = current.detail.withWatchedRollbackFrom(previous))
-                    }
-                } else {
-                    current
-                }
-            }
+            reduce(DetailChange.WatchedFinished(previous, result.isSuccess))
         }
     }
 
@@ -556,66 +587,29 @@ class DetailViewModel(
     ) {
         val observe = observeLocalSubtitleAssetsUseCase ?: return
         localSubtitleAssetsJob?.cancel()
-        _state.update { current ->
-            if (current is DetailUiState.Content && current.detail.itemId == itemId) {
-                current.copy(detail = current.detail.withLocalSubtitleAssets(mediaSourceId, emptyList()))
-            } else {
-                current
-            }
-        }
+        reduce(DetailChange.AssetsCleared(itemId, mediaSourceId))
         localSubtitleAssetsJob =
             viewModelScope.launch {
                 observe(LocalSubtitleContext(session.serverId, session.userId, itemId, mediaSourceId))
                     .collect { assets ->
-                        _state.update { current ->
-                            if (current is DetailUiState.Content &&
-                                current.detail.itemId == itemId &&
-                                current.detail.selectedMediaSourceId == mediaSourceId
-                            ) {
-                                current.copy(detail = current.detail.withLocalSubtitleAssets(mediaSourceId, assets))
-                            } else {
-                                current
-                            }
-                        }
+                        reduce(DetailChange.AssetsUpdated(itemId, mediaSourceId, assets))
                     }
             }
     }
 
-    fun toggleFavorite() {
+    private fun toggleFavorite() {
         val content = _state.value as? DetailUiState.Content ?: return
         val previous = content.detail
         val favorite = !previous.isFavorite
-        _state.update { current ->
-            if (current is DetailUiState.Content && current.detail.itemId == previous.itemId) {
-                current.copy(detail = current.detail.copy(isFavorite = favorite, favoriteToggleInFlight = true))
-            } else {
-                current
-            }
-        }
+        reduce(DetailChange.FavoriteStarted(previous, favorite))
 
         viewModelScope.launch {
             val result = setItemFavoriteAction(itemId = previous.itemId, favorite = favorite)
-            _state.update { current ->
-                if (current is DetailUiState.Content && current.detail.itemId == previous.itemId) {
-                    if (result.isSuccess) {
-                        current.copy(detail = current.detail.copy(favoriteToggleInFlight = false))
-                    } else {
-                        current.copy(
-                            detail =
-                                current.detail.copy(
-                                    isFavorite = previous.isFavorite,
-                                    favoriteToggleInFlight = false,
-                                ),
-                        )
-                    }
-                } else {
-                    current
-                }
-            }
+            reduce(DetailChange.FavoriteFinished(previous, result.isSuccess))
         }
     }
 
-    fun deleteLocalSubtitle(assetId: String) {
+    private fun deleteLocalSubtitle(assetId: String) {
         val delete = deleteLocalSubtitleAction ?: return
         viewModelScope.launch {
             delete(assetId)
@@ -636,47 +630,19 @@ class DetailViewModel(
             withContext(workDispatcher) {
                 getPlaybackLaunchContextUseCase(session, detail.itemId, mediaSourceId)
             }
-        _state.update { current ->
-            // Read the defaults off the state being committed, not the snapshot
-            // above: a local-asset emission may have landed while the stores
-            // were being read, and that list must survive this update.
-            if (current is DetailUiState.Content &&
-                current.detail.itemId == detail.itemId &&
-                current.detail.trackSelection.mediaSourceId == mediaSourceId
-            ) {
-                val updatedTrackSelection =
-                    current.detail.trackSelection.reprojectSubtitleDefaults(
-                        playbackPreferences = launchContext.playbackPreferences,
-                        storedSubtitleSelection = launchContext.subtitleSelection,
-                    )
-                val selectedVersion =
-                    current.detail.versions.firstOrNull { version -> version.id == mediaSourceId }
-                current.copy(
-                    detail =
-                        if (selectedVersion != null) {
-                            current.detail.withSelectedMediaVersion(
-                                selectedVersion.copy(trackSelection = updatedTrackSelection),
-                            )
-                        } else {
-                            current.detail.copy(trackSelection = updatedTrackSelection)
-                        },
-                )
-            } else {
-                current
-            }
-        }
+        reduce(DetailChange.SubtitleDefaultsResolved(detail, mediaSourceId, launchContext))
     }
 
-    fun retryLocalSubtitleSync(assetId: String) {
+    private fun retryLocalSubtitleSync(assetId: String) {
         val retry = retryLocalSubtitleSyncAction ?: return
         viewModelScope.launch { retry(session, assetId) }
     }
 
-    fun selectSubtitle(streamIndex: Int?) {
+    private fun selectSubtitle(streamIndex: Int?) {
         saveSubtitleSelection(streamIndex.toExplicitSubtitleSelectionIntent())
     }
 
-    fun selectLocalSubtitle(assetId: String) {
+    private fun selectLocalSubtitle(assetId: String) {
         saveSubtitleSelection(SubtitleSelectionIntent.LocalAsset(assetId))
     }
 
@@ -688,7 +654,7 @@ class DetailViewModel(
         save.save(key, selection)
     }
 
-    fun selectMediaVersion(mediaSourceId: String) {
+    private fun selectMediaVersion(mediaSourceId: String) {
         val detail = (_state.value as? DetailUiState.Content)?.detail ?: return
         if (detail.versions.none { version -> version.id == mediaSourceId }) {
             return
@@ -710,26 +676,7 @@ class DetailViewModel(
                         getPlaybackLaunchContextUseCase(session, detail.itemId, mediaSourceId)
                     }
                 val rememberedSelection = rememberedSelectionFor(detail.itemId, mediaSourceId, launchContext)
-                _state.update { current ->
-                    val currentDetail = (current as? DetailUiState.Content)?.detail ?: return@update current
-                    val currentVersion =
-                        currentDetail.versions.firstOrNull { version -> version.id == mediaSourceId }
-                            ?: return@update current
-                    if (generation != mediaSourceSelectionGeneration ||
-                        currentDetail.itemId != detail.itemId ||
-                        selectedMediaSourceId != mediaSourceId
-                    ) {
-                        current
-                    } else {
-                        val resolvedVersion =
-                            currentVersion.resolveLaunchDefaults(
-                                playbackPreferences = launchContext.playbackPreferences,
-                                rememberedSelection = rememberedSelection,
-                                storedSubtitleSelection = launchContext.subtitleSelection,
-                            )
-                        current.copy(detail = currentDetail.withSelectedMediaVersion(resolvedVersion))
-                    }
-                }
+                reduce(DetailChange.MediaVersionResolved(detail, mediaSourceId, generation, launchContext, rememberedSelection))
                 reprojectDownloadEntry()
                 val selectedDetail = (_state.value as? DetailUiState.Content)?.detail
                 if (generation == mediaSourceSelectionGeneration &&
@@ -831,12 +778,12 @@ class DetailViewModel(
         val job =
             viewModelScope.launch {
                 if (showLoading) {
-                    _state.value = DetailUiState.Loading
+                    reduce(DetailChange.Loading)
                 }
                 val detail = getItemDetailUseCase(itemId).getOrNull()
                 if (detail == null) {
                     if (showLoading && generation == loadGeneration) {
-                        _state.update { DetailUiState.Error() }
+                        reduce(DetailChange.Failed)
                     }
                     return@launch
                 }
@@ -872,29 +819,7 @@ class DetailViewModel(
                         break
                     }
                 }
-                var committed = false
-                _state.update { current ->
-                    if (generation != loadGeneration) {
-                        current
-                    } else if (showLoading) {
-                        committed = true
-                        DetailUiState.Content(detail = detailUi)
-                    } else if (current is DetailUiState.Content && current.detail.itemId == detail.item.id) {
-                        // Related can still be streaming while a retained Detail route
-                        // silently refreshes. Merge at commit time so groups emitted
-                        // during the refresh are never overwritten or marked complete.
-                        committed = true
-                        DetailUiState.Content(
-                            detail =
-                                detailUi.copy(
-                                    relatedGroups = current.detail.relatedGroups,
-                                    relatedLoading = current.detail.relatedLoading,
-                                ),
-                        )
-                    } else {
-                        current
-                    }
-                }
+                val committed = reduce(DetailChange.Loaded(generation, showLoading, detailUi))
                 if (!committed || generation != loadGeneration) {
                     return@launch
                 }
@@ -928,35 +853,11 @@ class DetailViewModel(
                                         items = group.items.map { item -> item.toMediaCardUi(session, imageUrlBuilder) },
                                     )
                                 }
-                            _state.update { current ->
-                                if (current is DetailUiState.Content) {
-                                    val relatedGroups = current.detail.relatedGroups + groupUi
-                                    current.copy(
-                                        detail =
-                                            current.detail.copy(
-                                                relatedGroups = relatedGroups,
-                                                relatedLoading =
-                                                    if (relatedGroups.size >= RELATED_GROUP_DISPLAY_LIMIT) {
-                                                        false
-                                                    } else {
-                                                        current.detail.relatedLoading
-                                                    },
-                                            ),
-                                    )
-                                } else {
-                                    current
-                                }
-                            }
+                            reduce(DetailChange.RelatedAdded(groupUi))
                         }
                 }
                 if (showLoading) {
-                    _state.update { current ->
-                        if (current is DetailUiState.Content) {
-                            current.copy(detail = current.detail.copy(relatedLoading = false))
-                        } else {
-                            current
-                        }
-                    }
+                    reduce(DetailChange.RelatedCompleted)
                 }
             }
         activeLoadJob = job

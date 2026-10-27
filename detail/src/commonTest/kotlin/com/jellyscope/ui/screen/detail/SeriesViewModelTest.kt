@@ -96,7 +96,7 @@ class SeriesViewModelTest {
                 assertEquals("episode-next", initial.seriesPlayEpisode?.itemId)
                 assertIs<DetailPlayLabel.Resume>(initial.seriesPlayEpisode?.playAction?.label)
 
-                viewModel.selectSeason("season-1")
+                viewModel.accept(SeriesIntent.SelectSeason("season-1"))
                 advanceUntilIdle()
 
                 val switched = assertIs<SeriesUiState.Content>(viewModel.state.value).content
@@ -104,7 +104,7 @@ class SeriesViewModelTest {
                 assertEquals(listOf("season-2", "season-1"), repository.episodeCalls)
                 assertEquals(listOf<Int?>(2, 1), repository.episodeSeasonIndices)
 
-                viewModel.selectSeason("season-2")
+                viewModel.accept(SeriesIntent.SelectSeason("season-2"))
                 advanceUntilIdle()
 
                 val cached = assertIs<SeriesUiState.Content>(viewModel.state.value).content
@@ -208,7 +208,7 @@ class SeriesViewModelTest {
                 val viewModel = repository.seriesViewModel()
                 advanceUntilIdle()
 
-                viewModel.toggleFocusedEpisodeWatched()
+                viewModel.accept(SeriesIntent.ToggleFocusedEpisodeWatched)
 
                 val optimistic = assertIs<SeriesUiState.Content>(viewModel.state.value).content
                 assertEquals(true, optimistic.focusedEpisode?.isWatched)
@@ -244,12 +244,12 @@ class SeriesViewModelTest {
                 val viewModel = repository.seriesViewModel()
                 advanceUntilIdle()
 
-                viewModel.selectSeason("season-1")
+                viewModel.accept(SeriesIntent.SelectSeason("season-1"))
                 advanceUntilIdle()
-                viewModel.selectSeason("season-2")
-                viewModel.toggleFocusedEpisodeWatched()
+                viewModel.accept(SeriesIntent.SelectSeason("season-2"))
+                viewModel.accept(SeriesIntent.ToggleFocusedEpisodeWatched)
                 runCurrent()
-                viewModel.selectSeason("season-1")
+                viewModel.accept(SeriesIntent.SelectSeason("season-1"))
                 assertEquals(
                     true,
                     assertIs<SeasonEpisodesUiState.Content>(
@@ -267,7 +267,7 @@ class SeriesViewModelTest {
                 assertEquals(false, seasonOneEpisode.isWatched)
                 assertEquals(false, seasonOneEpisode.watchedToggleInFlight)
 
-                viewModel.selectSeason("season-2")
+                viewModel.accept(SeriesIntent.SelectSeason("season-2"))
                 val seasonTwoEpisode =
                     assertIs<SeasonEpisodesUiState.Content>(
                         assertIs<SeriesUiState.Content>(viewModel.state.value).content.episodesState,
@@ -344,7 +344,7 @@ class SeriesViewModelTest {
                 val viewModel = repository.seriesViewModel()
                 advanceUntilIdle()
 
-                viewModel.toggleSeriesFavorite()
+                viewModel.accept(SeriesIntent.ToggleSeriesFavorite)
                 val optimisticSeries = assertIs<SeriesUiState.Content>(viewModel.state.value).content
                 assertEquals(true, optimisticSeries.series.isFavorite)
                 assertEquals(true, optimisticSeries.series.favoriteToggleInFlight)
@@ -354,7 +354,7 @@ class SeriesViewModelTest {
                 val revertedSeries = assertIs<SeriesUiState.Content>(viewModel.state.value).content
                 assertEquals(false, revertedSeries.series.isFavorite)
 
-                viewModel.toggleFocusedEpisodeFavorite()
+                viewModel.accept(SeriesIntent.ToggleFocusedEpisodeFavorite)
                 val optimisticEpisode = assertIs<SeriesUiState.Content>(viewModel.state.value).content
                 assertEquals(true, optimisticEpisode.focusedEpisode?.isFavorite)
                 assertEquals(true, optimisticEpisode.focusedEpisode?.favoriteToggleInFlight)
@@ -390,7 +390,7 @@ class SeriesViewModelTest {
                 val viewModel = repository.seriesViewModel()
                 runCurrent()
 
-                viewModel.selectSeason("season-1")
+                viewModel.accept(SeriesIntent.SelectSeason("season-1"))
                 runCurrent()
 
                 seasonOne.complete(Result.success(listOf(episode("episode-1", seasonNumber = 1))))
@@ -413,7 +413,7 @@ class SeriesViewModelTest {
                     (afterStale.episodesState as SeasonEpisodesUiState.Content).episodes.map { episode -> episode.itemId },
                 )
 
-                viewModel.selectSeason("season-2")
+                viewModel.accept(SeriesIntent.SelectSeason("season-2"))
                 runCurrent()
 
                 val retrying = assertIs<SeriesUiState.Content>(viewModel.state.value).content
@@ -488,7 +488,7 @@ class SeriesViewModelTest {
                 val initialOrder =
                     (initial.episodesState as SeasonEpisodesUiState.Content).episodes.map(EpisodeUi::itemId)
 
-                viewModel.selectEpisodeMediaVersion("episode-2", "source-2")
+                viewModel.accept(SeriesIntent.SelectEpisodeMediaVersion("episode-2", "source-2"))
                 advanceUntilIdle()
 
                 val content = assertIs<SeriesUiState.Content>(viewModel.state.value).content
@@ -534,10 +534,10 @@ class SeriesViewModelTest {
                 val viewModel = repository.seriesViewModel()
                 advanceUntilIdle()
 
-                viewModel.toggleFocusedEpisodeWatched()
-                viewModel.toggleFocusedEpisodeFavorite()
+                viewModel.accept(SeriesIntent.ToggleFocusedEpisodeWatched)
+                viewModel.accept(SeriesIntent.ToggleFocusedEpisodeFavorite)
                 runCurrent()
-                viewModel.selectEpisodeMediaVersion("episode-2", "source-2")
+                viewModel.accept(SeriesIntent.SelectEpisodeMediaVersion("episode-2", "source-2"))
                 advanceUntilIdle()
 
                 playedResult.complete(Result.failure(IllegalStateException("played failed")))
@@ -593,9 +593,9 @@ class SeriesViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.selectEpisodeMediaVersion("episode-2", "source-2")
+                viewModel.accept(SeriesIntent.SelectEpisodeMediaVersion("episode-2", "source-2"))
                 runCurrent()
-                viewModel.selectEpisodeMediaVersion("episode-2", "source-1")
+                viewModel.accept(SeriesIntent.SelectEpisodeMediaVersion("episode-2", "source-1"))
                 runCurrent()
                 selectionStore.sourceTwo.complete(PlaybackSelection(audioStreamIndex = 11))
                 advanceUntilIdle()
@@ -643,9 +643,9 @@ class SeriesViewModelTest {
                 val viewModel = repository.seriesViewModel()
                 advanceUntilIdle()
 
-                viewModel.refresh()
+                viewModel.accept(SeriesIntent.Refresh)
                 runCurrent()
-                viewModel.selectEpisodeMediaVersion("episode-2", "source-2")
+                viewModel.accept(SeriesIntent.SelectEpisodeMediaVersion("episode-2", "source-2"))
                 advanceUntilIdle()
                 assertEquals(
                     "source-2",
@@ -711,19 +711,19 @@ class SeriesViewModelTest {
                     )
                 val viewModel = repository.seriesViewModel()
                 advanceUntilIdle()
-                viewModel.selectEpisodeMediaVersion("episode-2", "source-2")
+                viewModel.accept(SeriesIntent.SelectEpisodeMediaVersion("episode-2", "source-2"))
                 advanceUntilIdle()
 
-                viewModel.refresh()
+                viewModel.accept(SeriesIntent.Refresh)
                 runCurrent()
-                viewModel.refresh()
+                viewModel.accept(SeriesIntent.Refresh)
                 runCurrent()
                 newerRefresh.complete(Result.success(listOf(selectable)))
                 runCurrent()
                 staleRefresh.complete(Result.success(listOf(sourceOneOnly)))
                 advanceUntilIdle()
 
-                viewModel.refresh()
+                viewModel.accept(SeriesIntent.Refresh)
                 advanceUntilIdle()
                 val preserved =
                     assertIs<SeasonEpisodesUiState.Content>(
@@ -731,7 +731,7 @@ class SeriesViewModelTest {
                     ).episodes.single()
                 assertEquals("source-2", preserved.selectedMediaSourceId)
 
-                viewModel.refresh()
+                viewModel.accept(SeriesIntent.Refresh)
                 advanceUntilIdle()
                 val fallback =
                     assertIs<SeasonEpisodesUiState.Content>(

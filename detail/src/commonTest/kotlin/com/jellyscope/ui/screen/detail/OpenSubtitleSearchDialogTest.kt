@@ -143,7 +143,7 @@ class OpenSubtitleSearchDialogTest {
                 }
                 advanceUntilIdle()
 
-                viewModel.install(result, selectionToken)
+                viewModel.accept(OpenSubtitleSearchIntent.Install(result, selectionToken))
                 repository.downloadStarted.await()
                 val key = SubtitleSelectionKey("server-1", "user-1", "episode-1", "source-1")
                 val newerWrite = saveSelection.save(key, SubtitleSelectionIntent.Track(7))
@@ -158,7 +158,7 @@ class OpenSubtitleSearchDialogTest {
                 assertTrue(fileStore.exists(retainedAsset.fileId))
                 assertTrue(emitted.isEmpty())
 
-                viewModel.install(result, selectionToken)
+                viewModel.accept(OpenSubtitleSearchIntent.Install(result, selectionToken))
                 runCurrent()
                 advanceUntilIdle()
 

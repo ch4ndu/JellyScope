@@ -104,8 +104,8 @@ fun AdaptiveDetailScreen(
     // TV: the route content is recomposed on return (LaunchedEffect). refresh()
     // is a no-op until the first load has produced Content, so neither path
     // double-loads on first entry. (#172)
-    OnResumeEffect(viewModel::refresh)
-    LaunchedEffect(viewModel) { viewModel.refresh() }
+    OnResumeEffect({ viewModel.accept(DetailIntent.Refresh) })
+    LaunchedEffect(viewModel) { viewModel.accept(DetailIntent.Refresh) }
 
     Box(modifier = modifier.fillMaxSize()) {
         val detail = contentDetail
@@ -117,12 +117,12 @@ fun AdaptiveDetailScreen(
                     onSelectSubtitle = { streamIndex ->
                         subtitleSelectionRevision += 1
                         selectedLocalAssetId = null
-                        viewModel.selectSubtitle(streamIndex)
+                        viewModel.accept(DetailIntent.SelectSubtitle(streamIndex))
                     },
                     onSelectLocalAsset = { assetId ->
                         subtitleSelectionRevision += 1
                         selectedLocalAssetId = assetId
-                        viewModel.selectLocalSubtitle(assetId)
+                        viewModel.accept(DetailIntent.SelectLocalSubtitle(assetId))
                     },
                     onSearchSubtitles = { searchVisible = true },
                     onDeleteLocalAsset = { assetId ->
@@ -132,9 +132,9 @@ fun AdaptiveDetailScreen(
                             subtitleSelectionRevision += 1
                             selectedLocalAssetId = null
                         }
-                        viewModel.deleteLocalSubtitle(assetId)
+                        viewModel.accept(DetailIntent.DeleteLocalSubtitle(assetId))
                     },
-                    onRetryLocalAssetSync = viewModel::retryLocalSubtitleSync,
+                    onRetryLocalAssetSync = { assetId -> viewModel.accept(DetailIntent.RetryLocalSubtitleSync(assetId)) },
                     returnFocusRequest = subtitleSearchReturnRequest,
                 )
             }
@@ -143,7 +143,7 @@ fun AdaptiveDetailScreen(
             is DetailUiState.Error ->
                 AdaptiveDetailError(
                     retryable = detailState.retryable,
-                    onRetry = viewModel::retry,
+                    onRetry = { viewModel.accept(DetailIntent.Retry) },
                 )
             is DetailUiState.Content ->
                 AdaptiveDetailContent(
@@ -164,9 +164,9 @@ fun AdaptiveDetailScreen(
                             onPlay(playItemId, ticks, sourceId, audioIndex, subtitleSelection)
                         }
                     },
-                    onToggleWatched = viewModel::toggleWatched,
-                    onToggleFavorite = viewModel::toggleFavorite,
-                    onSelectMediaVersion = viewModel::selectMediaVersion,
+                    onToggleWatched = { viewModel.accept(DetailIntent.ToggleWatched) },
+                    onToggleFavorite = { viewModel.accept(DetailIntent.ToggleFavorite) },
+                    onSelectMediaVersion = { mediaSourceId -> viewModel.accept(DetailIntent.SelectMediaVersion(mediaSourceId)) },
                     subtitleActions = subtitleActions,
                     downloadEntryState = downloadEntryState.takeIf { viewModel.isDownloadAvailable },
                     downloadActionEnabled = !originalDownloadVisible,
@@ -174,7 +174,7 @@ fun AdaptiveDetailScreen(
                     onDownloadClick = {
                         when (val entry = downloadEntryState) {
                             DetailDownloadEntryState.Add -> {
-                                viewModel.resetOriginalDownloadState()
+                                viewModel.accept(DetailIntent.ResetOriginalDownloadState)
                                 originalDownloadVisible = true
                             }
                             is DetailDownloadEntryState.Manage -> onOpenDownloads()
@@ -195,14 +195,25 @@ fun AdaptiveDetailScreen(
                 fixedAvailable = viewModel.isFixedDownloadAvailable,
                 onDismiss = {
                     originalDownloadVisible = false
-                    viewModel.resetOriginalDownloadState()
+                    viewModel.accept(DetailIntent.ResetOriginalDownloadState)
                 },
-                onPreview = viewModel::previewOriginalDownload,
-                onConfirm = viewModel::enqueueOriginalDownload,
-                onPreviewFixed = viewModel::previewFixedDownload,
-                onConfirmFixedBurnIn = viewModel::confirmFixedBurnIn,
-                onCancelFixedBurnIn = viewModel::cancelFixedBurnIn,
-                onConfirmFixed = viewModel::enqueueFixedDownload,
+                onPreview = {
+                    selectedAudioStreamIndex,
+                    subtitleSelection,
+                    ->
+                    viewModel.accept(DetailIntent.PreviewOriginalDownload(selectedAudioStreamIndex, subtitleSelection))
+                },
+                onConfirm = { viewModel.accept(DetailIntent.EnqueueOriginalDownload) },
+                onPreviewFixed = {
+                    quality,
+                    selectedAudioStreamIndex,
+                    subtitleSelection,
+                    ->
+                    viewModel.accept(DetailIntent.PreviewFixedDownload(quality, selectedAudioStreamIndex, subtitleSelection))
+                },
+                onConfirmFixedBurnIn = { viewModel.accept(DetailIntent.ConfirmFixedBurnIn) },
+                onCancelFixedBurnIn = { viewModel.accept(DetailIntent.CancelFixedBurnIn) },
+                onConfirmFixed = { viewModel.accept(DetailIntent.EnqueueFixedDownload) },
             )
         }
         if (detail != null && sourceId != null) {

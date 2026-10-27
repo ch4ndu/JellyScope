@@ -94,7 +94,7 @@ internal fun OpenSubtitleSearchDialog(
                     OpenSubtitleDialogButton(
                         label = stringResource(Res.string.subtitles_search_retry),
                         dpad = dpad,
-                        onClick = viewModel::search,
+                        onClick = { viewModel.accept(OpenSubtitleSearchIntent.Search) },
                     )
                 state.results.isEmpty() -> Text(stringResource(Res.string.subtitles_search_empty))
                 else ->
@@ -137,7 +137,7 @@ internal fun OpenSubtitleSearchDialog(
                                     ).detailOnFocusChanged { focusState -> focused = focusState.isFocused }
                                     .fillMaxWidth()
                                     .clickable(enabled = result.selectable) {
-                                        viewModel.install(result, currentSelectionToken)
+                                        viewModel.accept(OpenSubtitleSearchIntent.Install(result, currentSelectionToken))
                                     }.detailFocusable(enabled = result.selectable)
                                     .padding(Dimensions.contentSpacing),
                             ) {

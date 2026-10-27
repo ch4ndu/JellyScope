@@ -108,19 +108,38 @@ class SeriesViewModel(
     private var activeEpisodesLoadJob: Job? = null
     private var topLevelLoadGeneration = 0L
 
+    private fun reduce(change: SeriesChange) {
+        _state.update { current -> reduceSeries(current, change) }
+    }
+
+    fun accept(intent: SeriesIntent) {
+        when (intent) {
+            SeriesIntent.Retry -> retry()
+            SeriesIntent.RetryEpisodes -> retryEpisodes()
+            SeriesIntent.Refresh -> refresh()
+            is SeriesIntent.SelectSeason -> selectSeason(intent.seasonId)
+            is SeriesIntent.FocusEpisode -> focusEpisode(intent.itemId)
+            is SeriesIntent.SelectEpisodeMediaVersion -> selectEpisodeMediaVersion(intent.itemId, intent.mediaSourceId)
+            SeriesIntent.ToggleFocusedEpisodeWatched -> toggleFocusedEpisodeWatched()
+            SeriesIntent.ToggleSeriesFavorite -> toggleSeriesFavorite()
+            SeriesIntent.ToggleFavorite -> toggleFavorite()
+            SeriesIntent.ToggleFocusedEpisodeFavorite -> toggleFocusedEpisodeFavorite()
+        }
+    }
+
     init {
         observePlaybackStopSettlements()
         load()
     }
 
-    fun retry() {
+    private fun retry() {
         load()
     }
 
-    fun retryEpisodes() {
+    private fun retryEpisodes() {
         val content = (_state.value as? SeriesUiState.Content)?.content ?: return
         val seasonId = content.selectedSeasonId ?: return
-        _state.updateEpisodesState(seasonId, SeasonEpisodesUiState.Loading)
+        updateEpisodesState(seasonId, SeasonEpisodesUiState.Loading)
         loadEpisodesForSeason(seasonId, content.seasonIndexFor(seasonId))
     }
 
@@ -132,7 +151,7 @@ class SeriesViewModel(
      * flash and focus/scroll are preserved (items are keyed by id). No-op until
      * the first load has produced Content.
      */
-    fun refresh() {
+    private fun refresh() {
         val content = (_state.value as? SeriesUiState.Content)?.content ?: return
         val seasonId = content.selectedSeasonId ?: return
         removeCachedSeason(seasonId)
@@ -188,7 +207,7 @@ class SeriesViewModel(
         )
     }
 
-    fun selectSeason(seasonId: String) {
+    private fun selectSeason(seasonId: String) {
         val content = (_state.value as? SeriesUiState.Content)?.content ?: return
         if (content.selectedSeasonId == seasonId) {
             return
@@ -196,14 +215,14 @@ class SeriesViewModel(
 
         val cached = episodeCache[seasonId]
         if (cached != null) {
-            _state.updateEpisodesState(seasonId, cached.toEpisodesState())
+            updateEpisodesState(seasonId, cached.toEpisodesState())
         } else {
-            _state.updateEpisodesState(seasonId, SeasonEpisodesUiState.Loading)
+            updateEpisodesState(seasonId, SeasonEpisodesUiState.Loading)
             loadEpisodesForSeason(seasonId, content.seasonIndexFor(seasonId))
         }
     }
 
-    fun focusEpisode(itemId: String) {
+    private fun focusEpisode(itemId: String) {
         val content = (_state.value as? SeriesUiState.Content)?.content ?: return
         val episodes = (content.episodesState as? SeasonEpisodesUiState.Content)?.episodes ?: return
         if (episodes.none { candidate -> candidate.itemId == itemId }) {
@@ -212,7 +231,7 @@ class SeriesViewModel(
         _focusedEpisodeId.value = itemId
     }
 
-    fun selectEpisodeMediaVersion(
+    private fun selectEpisodeMediaVersion(
         itemId: String,
         mediaSourceId: String,
     ) {
@@ -302,55 +321,10 @@ class SeriesViewModel(
                 },
             )
         }
-        _state.update { current ->
-            val currentContent = current as? SeriesUiState.Content ?: return@update current
-            val content = currentContent.content
-            val episodesState =
-                (content.episodesState as? SeasonEpisodesUiState.Content)?.let { episodes ->
-                    SeasonEpisodesUiState.Content(
-                        episodes.episodes.map { episode ->
-                            if (episode.itemId == selectedEpisode.itemId) {
-                                episode.withSourceProjectionFrom(selectedEpisode)
-                            } else {
-                                episode
-                            }
-                        },
-                    )
-                } ?: content.episodesState
-            currentContent.copy(
-                content =
-                    content.copy(
-                        episodesState = episodesState,
-                        focusedEpisode =
-                            content.focusedEpisode?.let { episode ->
-                                if (episode.itemId == selectedEpisode.itemId) {
-                                    episode.withSourceProjectionFrom(selectedEpisode)
-                                } else {
-                                    episode
-                                }
-                            },
-                        nextUpEpisode =
-                            content.nextUpEpisode?.let { episode ->
-                                if (episode.itemId == selectedEpisode.itemId) {
-                                    episode.withSourceProjectionFrom(selectedEpisode)
-                                } else {
-                                    episode
-                                }
-                            },
-                        seriesPlayEpisode =
-                            content.seriesPlayEpisode?.let { episode ->
-                                if (episode.itemId == selectedEpisode.itemId) {
-                                    episode.withSourceProjectionFrom(selectedEpisode)
-                                } else {
-                                    episode
-                                }
-                            },
-                    ),
-            )
-        }
+        reduce(SeriesChange.SourceProjected(selectedEpisode))
     }
 
-    fun toggleFocusedEpisodeWatched() {
+    private fun toggleFocusedEpisodeWatched() {
         val content = (_state.value as? SeriesUiState.Content)?.content ?: return
         val previous = currentFocusedEpisode() ?: return
         val played = !previous.isWatched
@@ -373,7 +347,7 @@ class SeriesViewModel(
         }
     }
 
-    fun toggleSeriesFavorite() {
+    private fun toggleSeriesFavorite() {
         val content = (_state.value as? SeriesUiState.Content)?.content ?: return
         val previous = content.series
         val favorite = !previous.isFavorite
@@ -396,11 +370,11 @@ class SeriesViewModel(
         }
     }
 
-    fun toggleFavorite() {
+    private fun toggleFavorite() {
         toggleSeriesFavorite()
     }
 
-    fun toggleFocusedEpisodeFavorite() {
+    private fun toggleFocusedEpisodeFavorite() {
         val previous = currentFocusedEpisode() ?: return
         val favorite = !previous.isFavorite
 
@@ -427,7 +401,7 @@ class SeriesViewModel(
         val generation = ++topLevelLoadGeneration
         viewModelScope.launch {
             _focusedEpisodeId.value = null
-            _state.value = SeriesUiState.Loading
+            reduce(SeriesChange.Loading)
             clearEpisodeCache()
 
             // These four requests only need seriesId, so fire them concurrently
@@ -540,7 +514,7 @@ class SeriesViewModel(
             if (generation != topLevelLoadGeneration) {
                 return@launch
             }
-            _state.update { nextState }
+            reduce(SeriesChange.Loaded(nextState))
             val selectedSeasonId = (nextState as? SeriesUiState.Content)?.content?.selectedSeasonId
             val content = (nextState as? SeriesUiState.Content)?.content
             if (selectedSeasonId != null && content != null) {
@@ -555,7 +529,7 @@ class SeriesViewModel(
         onComplete: (() -> Unit)? = null,
     ) {
         episodeCache[seasonId]?.let { cached ->
-            _state.updateEpisodesState(seasonId, cached.toEpisodesState())
+            updateEpisodesState(seasonId, cached.toEpisodesState())
             onComplete?.invoke()
             return
         }
@@ -707,13 +681,13 @@ class SeriesViewModel(
                             }
                             cacheSeasonEpisodes(seasonId, committedEpisodes)
                             if (currentSelectedSeasonId() == seasonId) {
-                                _state.updateEpisodesState(seasonId, committedEpisodes.toEpisodesState())
+                                updateEpisodesState(seasonId, committedEpisodes.toEpisodesState())
                             }
                         }
                     },
                     onFailure = {
                         if (isCurrentEpisodeProjection(request)) {
-                            _state.updateEpisodesState(seasonId, SeasonEpisodesUiState.Error)
+                            updateEpisodesState(seasonId, SeasonEpisodesUiState.Error)
                         }
                     },
                 )
@@ -822,44 +796,15 @@ class SeriesViewModel(
             ?: content.focusedEpisode
     }
 
-    private fun MutableStateFlow<SeriesUiState>.updateEpisodesState(
+    private fun updateEpisodesState(
         seasonId: String,
         episodesState: SeasonEpisodesUiState,
     ) {
-        val previousSeasonId = (value as? SeriesUiState.Content)?.content?.selectedSeasonId
+        val previousSeasonId = (_state.value as? SeriesUiState.Content)?.content?.selectedSeasonId
         if (previousSeasonId != seasonId) {
             _focusedEpisodeId.value = null
         }
-        update { current ->
-            val currentContent = current as? SeriesUiState.Content ?: return@update current
-            currentContent.copy(content = currentContent.content.withEpisodesState(seasonId, episodesState))
-        }
-    }
-
-    private fun SeriesContentUi.withEpisodesState(
-        seasonId: String,
-        episodesState: SeasonEpisodesUiState,
-    ): SeriesContentUi {
-        val episodes = (episodesState as? SeasonEpisodesUiState.Content)?.episodes.orEmpty()
-        val focused =
-            focusedEpisode
-                ?.takeIf { selectedSeasonId == seasonId }
-                ?.let { previous -> episodes.firstOrNull { episode -> episode.itemId == previous.itemId } }
-                ?: episodes.firstOrNull()
-        val refreshedNextUp =
-            nextUpEpisode
-                ?.let { nextUp -> episodes.firstOrNull { episode -> episode.itemId == nextUp.itemId } ?: nextUp }
-                ?.takeUnless { episode -> episode.isWatched }
-        return copy(
-            selectedSeasonId = seasonId,
-            episodesState = episodesState,
-            focusedEpisode = focused,
-            nextUpEpisode = refreshedNextUp,
-            seriesPlayEpisode =
-                refreshedNextUp
-                    ?: episodes.nextPlayableEpisode()
-                    ?: seriesPlayEpisode.takeIf { episodesState is SeasonEpisodesUiState.Loading },
-        )
+        reduce(SeriesChange.EpisodesUpdated(seasonId, episodesState))
     }
 
     private fun updateEpisode(
@@ -875,63 +820,18 @@ class SeriesViewModel(
                 },
             )
         }
-        _state.update { current ->
-            val currentContent = current as? SeriesUiState.Content ?: return@update current
-            val content = currentContent.content
-            val updateEpisode = { episode: EpisodeUi ->
-                if (episode.itemId == episodeId) transform(episode) else episode
-            }
-            currentContent.copy(
-                content =
-                    content.copy(
-                        episodesState =
-                            (content.episodesState as? SeasonEpisodesUiState.Content)?.let { episodes ->
-                                SeasonEpisodesUiState.Content(episodes.episodes.map(updateEpisode))
-                            } ?: content.episodesState,
-                        focusedEpisode = content.focusedEpisode?.let(updateEpisode),
-                        nextUpEpisode = content.nextUpEpisode?.let(updateEpisode),
-                        seriesPlayEpisode = content.seriesPlayEpisode?.let(updateEpisode),
-                    ),
-            )
-        }
+        reduce(SeriesChange.EpisodeUpdated(episodeId, transform))
     }
 
     private fun restoreNextUpEpisode(episodeId: String) {
-        _state.update { current ->
-            val currentContent = current as? SeriesUiState.Content ?: return@update current
-            val content = currentContent.content
-            val episode =
-                (content.episodesState as? SeasonEpisodesUiState.Content)
-                    ?.episodes
-                    ?.firstOrNull { candidate -> candidate.itemId == episodeId }
-                    ?: return@update current
-            if (episode.isWatched) {
-                current
-            } else {
-                currentContent.copy(
-                    content =
-                        content.copy(
-                            nextUpEpisode = episode,
-                            seriesPlayEpisode = episode,
-                        ),
-                )
-            }
-        }
+        reduce(SeriesChange.NextUpRestored(episodeId))
     }
 
     private fun updateSeriesHeader(
         seriesId: String,
         transform: (SeriesHeaderUi) -> SeriesHeaderUi,
     ) {
-        _state.update { current ->
-            val currentContent = current as? SeriesUiState.Content ?: return@update current
-            val content = currentContent.content
-            if (content.series.itemId != seriesId) {
-                current
-            } else {
-                currentContent.copy(content = content.copy(series = transform(content.series)))
-            }
-        }
+        reduce(SeriesChange.HeaderUpdated(seriesId, transform))
     }
 
     private fun MediaItemDetail.toSeriesHeaderUi(strings: DetailFormatterStrings): SeriesHeaderUi =
