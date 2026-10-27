@@ -289,6 +289,21 @@ Existing child parameters, list references, download projections, and the
 focused-episode flow retain their update boundaries. No combined screen state,
 new stability annotation, or measured recomposition claim is introduced.
 
+### Downloads MVI slice
+
+Shared and TV Downloads list/detail screens send `DownloadsIntent` for refresh,
+resume wake, quota changes, individual commands, and bulk resume. The ViewModel
+retains command admission, account-qualified effects, cancellation, safe
+failure diagnostics, conflated/cooled usage refresh, and artifact-lease reads.
+`DownloadsReducer.kt` owns records, quota/usage, leases, busy flags, and error
+transitions through one state writer. Record/card projection stays off Main.
+Artwork remains a suspending read owned by the composable lifecycle.
+
+The shared usage card consumes only usage; the TV card also consumes its refresh
+flag. Transfer-record and command updates therefore do not change those inputs.
+Existing card identity, semantic indices, focus restoration, deletion dialogs,
+and playback routing remain intact; runtime performance is not measured.
+
 ## Source Layout Target
 
 ```text
@@ -854,6 +869,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Download intents describe user commands without moving durable execution or
+  lease authority into presentation. Narrow usage inputs separate that UI from
+  transfer-record and command-state updates.
 
 - Detail and Series keep selection, download, and playback-settlement authority
   with their effect owners. Pure reducers merge onto current presentation state

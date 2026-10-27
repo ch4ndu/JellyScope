@@ -46,6 +46,7 @@ import com.jellyscope.core.domain.model.DOWNLOAD_BYTES_PER_GB
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadState
+import com.jellyscope.core.domain.model.DownloadUsage
 import com.jellyscope.core.domain.model.OfflineArtworkRole
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.wholeGbDownloadQuotaBytes
@@ -110,8 +111,8 @@ fun DownloadsScreen(
     var lastSelectedSemanticIndex by rememberSaveable(session.serverId, session.userId) { mutableStateOf<Int?>(null) }
     var pendingRestoreDownloadId by rememberSaveable(session.serverId, session.userId) { mutableStateOf<String?>(null) }
     OnResumeEffect {
-        viewModel.refresh()
-        viewModel.wakeQueueOnScreenResume()
+        viewModel.accept(DownloadsIntent.Refresh)
+        viewModel.accept(DownloadsIntent.WakeQueueOnScreenResume)
         pendingRestoreDownloadId = lastSelectedDownloadId
     }
 
@@ -119,7 +120,7 @@ fun DownloadsScreen(
         session = session,
         state = state,
         onBack = onBack,
-        onResumePausedDownloads = viewModel::resumePausedDownloads,
+        onResumePausedDownloads = { viewModel.accept(DownloadsIntent.ResumePausedDownloads) },
         onOpenDownloadDetail = { downloadId ->
             lastSelectedDownloadId = downloadId.value
             lastSelectedSemanticIndex = state.downloadGridSemanticIndex(downloadId)
@@ -139,7 +140,7 @@ fun DownloadsScreen(
             onDismiss = { allocationDialogVisible = false },
             onConfirm = { quotaBytes ->
                 allocationDialogVisible = false
-                viewModel.configureQuota(quotaBytes)
+                viewModel.accept(DownloadsIntent.ConfigureQuota(quotaBytes))
             },
             maximumQuotaBytes = state.usage?.maximumConfigurableQuotaBytes,
         )
@@ -197,7 +198,7 @@ internal fun DownloadsContent(
                 span = { GridItemSpan(maxLineSpan) },
             ) {
                 DownloadsUsageCard(
-                    state = state,
+                    usage = state.usage,
                     onOpenAllocation = onOpenAllocation,
                 )
             }
@@ -319,10 +320,9 @@ private fun DownloadsInterruptedCard(
 
 @Composable
 private fun DownloadsUsageCard(
-    state: DownloadsUiState,
+    usage: DownloadUsage?,
     onOpenAllocation: () -> Unit,
 ) {
-    val usage = state.usage
     val backgroundDownloadsAvailable = LocalPlatformCapabilities.current.backgroundDownloadsAvailable
     Card(
         modifier = Modifier.fillMaxWidth(),

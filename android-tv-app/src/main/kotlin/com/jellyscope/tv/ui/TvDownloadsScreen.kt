@@ -46,6 +46,7 @@ import com.jellyscope.core.domain.model.DownloadFailure
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadState
+import com.jellyscope.core.domain.model.DownloadUsage
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.wholeGbDownloadQuotaBytes
 import com.jellyscope.tv.R
@@ -57,6 +58,7 @@ import com.jellyscope.tv.ui.focus.tvFocusScope
 import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
+import com.jellyscope.ui.screen.downloads.DownloadsIntent
 import com.jellyscope.ui.screen.downloads.DownloadsSection
 import com.jellyscope.ui.screen.downloads.DownloadsSectionKind
 import com.jellyscope.ui.screen.downloads.DownloadsUiError
@@ -148,8 +150,8 @@ internal fun TvDownloadsScreen(
     var returnFocusKey by rememberSaveable(session.serverId, session.userId) { mutableStateOf<String?>(null) }
 
     OnResumeEffect {
-        viewModel.refresh()
-        viewModel.wakeQueueOnScreenResume()
+        viewModel.accept(DownloadsIntent.Refresh)
+        viewModel.accept(DownloadsIntent.WakeQueueOnScreenResume)
     }
 
     TvDownloadsContent(
@@ -160,7 +162,7 @@ internal fun TvDownloadsScreen(
         onReturnFocusConsumed = { returnFocusKey = null },
         onBack = onBack,
         onManageAllocation = { quotaDialogVisible = true },
-        onResumePausedDownloads = viewModel::resumePausedDownloads,
+        onResumePausedDownloads = { viewModel.accept(DownloadsIntent.ResumePausedDownloads) },
         onOpenDownloadDetail = onOpenDownloadDetail,
         viewModel = viewModel,
     )
@@ -176,7 +178,7 @@ internal fun TvDownloadsScreen(
             onSelected = { quotaBytes ->
                 quotaDialogVisible = false
                 returnFocusKey = TV_DOWNLOADS_MANAGE_FOCUS_KEY
-                viewModel.configureQuota(quotaBytes)
+                viewModel.accept(DownloadsIntent.ConfigureQuota(quotaBytes))
             },
         )
     }
@@ -360,7 +362,8 @@ private fun TvDownloadsContent(
                     maxLines = 1,
                 )
                 TvDownloadsUsageCard(
-                    state = state,
+                    usage = state.usage,
+                    isRefreshingUsage = state.isRefreshingUsage,
                     focusRequester = manageFocusRequester,
                     onFocusChanged = {
                         initialContentFocusCompleted = true
@@ -480,7 +483,8 @@ private fun TvDownloadsContent(
 
 @Composable
 private fun TvDownloadsUsageCard(
-    state: DownloadsUiState,
+    usage: DownloadUsage?,
+    isRefreshingUsage: Boolean,
     focusRequester: FocusRequester,
     onFocusChanged: () -> Unit,
     onRequestRailFocus: () -> Boolean,
@@ -525,7 +529,7 @@ private fun TvDownloadsUsageCard(
                     style = TvTitleStyle,
                     maxLines = 1,
                 )
-                if (state.isRefreshingUsage) {
+                if (isRefreshingUsage) {
                     TvSpinner(modifier = Modifier.size(TvDimens.settingsRowIconSize))
                 } else {
                     TvText(
@@ -536,7 +540,6 @@ private fun TvDownloadsUsageCard(
                     )
                 }
             }
-            val usage = state.usage
             if (usage == null) {
                 TvText(
                     text = stringResource(R.string.tv_downloads_usage_loading),

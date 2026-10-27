@@ -148,8 +148,8 @@ fun DownloadDetailScreen(
     var removal by remember(downloadId) { mutableStateOf<DownloadDetailRemoval?>(null) }
 
     OnResumeEffect {
-        viewModel.refresh()
-        viewModel.wakeQueueOnScreenResume()
+        viewModel.accept(DownloadsIntent.Refresh)
+        viewModel.accept(DownloadsIntent.WakeQueueOnScreenResume)
     }
 
     LaunchedEffect(downloadId, state.isLoading, detail) {
@@ -187,8 +187,8 @@ fun DownloadDetailScreen(
             onConfirm = {
                 removal = null
                 when (pending) {
-                    DownloadDetailRemoval.Cancel -> viewModel.cancel(detail.record.downloadId.value)
-                    DownloadDetailRemoval.Delete -> viewModel.delete(detail.record.downloadId.value)
+                    DownloadDetailRemoval.Cancel -> viewModel.accept(DownloadsIntent.Cancel(detail.record.downloadId.value))
+                    DownloadDetailRemoval.Delete -> viewModel.accept(DownloadsIntent.Delete(detail.record.downloadId.value))
                 }
             },
         )
@@ -277,9 +277,9 @@ private fun DownloadDetailContent(
                     busy = busy,
                     artifactLeased = artifactLeased,
                     onPlayOffline = onPlayOffline,
-                    onPause = { viewModel.pause(record.downloadId.value) },
-                    onResume = { viewModel.resume(record.downloadId.value) },
-                    onRetry = { viewModel.retry(record.downloadId.value) },
+                    onPause = { viewModel.accept(DownloadsIntent.Pause(record.downloadId.value)) },
+                    onResume = { viewModel.accept(DownloadsIntent.Resume(record.downloadId.value)) },
+                    onRetry = { viewModel.accept(DownloadsIntent.Retry(record.downloadId.value)) },
                     onRequestCancel = onRequestCancel,
                     onRequestDelete = onRequestDelete,
                 )

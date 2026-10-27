@@ -150,7 +150,7 @@ class DownloadsViewModelTest {
                     )
                 Logger.setLogWriters(writer)
                 advanceUntilIdle()
-                viewModel.pause("download-queued")
+                viewModel.accept(DownloadsIntent.Pause("download-queued"))
                 advanceUntilIdle()
             } finally {
                 Logger.setLogWriters(emptyList())
@@ -195,7 +195,7 @@ class DownloadsViewModelTest {
                     )
 
                 advanceUntilIdle()
-                viewModel.resumePausedDownloads()
+                viewModel.accept(DownloadsIntent.ResumePausedDownloads)
                 advanceUntilIdle()
 
                 assertEquals(listOf(firstPaused.downloadId, secondPaused.downloadId), repository.resumeCalls)

@@ -18,9 +18,7 @@ import com.jellyscope.core.domain.model.DownloadCommandResult
 import com.jellyscope.core.domain.model.DownloadDeletionResult
 import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.model.DownloadRecord
-import com.jellyscope.core.domain.model.DownloadSettings
 import com.jellyscope.core.domain.model.DownloadState
-import com.jellyscope.core.domain.model.DownloadUsage
 import com.jellyscope.core.domain.model.OfflineArtworkRole
 import com.jellyscope.core.domain.model.OfflinePersonCreditType
 import com.jellyscope.core.domain.model.OfflinePersonSnapshot
@@ -95,20 +93,6 @@ fun downloadSections(records: List<DownloadRecord>): List<DownloadsSection> =
             records = records.filter { record -> record.state == DownloadState.Failed },
         ),
     ).filter { section -> section.records.isNotEmpty() }
-
-data class DownloadsUiState(
-    val records: List<DownloadRecord> = emptyList(),
-    val sections: List<DownloadsSection> = downloadSections(records),
-    val usage: DownloadUsage? = null,
-    val settings: DownloadSettings? = null,
-    val isLoading: Boolean = true,
-    val isRefreshingUsage: Boolean = false,
-    val inFlightDownloadId: String? = null,
-    val isBulkResumeInFlight: Boolean = false,
-    val leasedDownloadIds: Set<String> = emptySet(),
-    val detailsByDownloadId: Map<DownloadId, DownloadDetailUi> = emptyMap(),
-    val error: DownloadsUiError? = null,
-)
 
 /** Presentation-ready local facts; the source row remains the only durable authority. */
 data class DownloadDetailUi(
@@ -298,6 +282,24 @@ class DownloadsViewModel(
     private var leaseRefreshJob: Job? = null
     private var leaseRefreshInitialized = false
 
+    fun accept(intent: DownloadsIntent) {
+        when (intent) {
+            DownloadsIntent.Refresh -> refresh()
+            DownloadsIntent.WakeQueueOnScreenResume -> wakeQueueOnScreenResume()
+            is DownloadsIntent.ConfigureQuota -> configureQuota(intent.quotaBytes)
+            is DownloadsIntent.Pause -> pause(intent.downloadId)
+            is DownloadsIntent.Resume -> resume(intent.downloadId)
+            DownloadsIntent.ResumePausedDownloads -> resumePausedDownloads()
+            is DownloadsIntent.Retry -> retry(intent.downloadId)
+            is DownloadsIntent.Cancel -> cancel(intent.downloadId)
+            is DownloadsIntent.Delete -> delete(intent.downloadId)
+        }
+    }
+
+    private fun reduce(change: DownloadsChange) {
+        _state.update { current -> reduceDownloads(current, change) }
+    }
+
     init {
         viewModelScope.launch {
             for (request in usageRefreshRequests) {
@@ -317,7 +319,7 @@ class DownloadsViewModel(
                             throwable = exception,
                         )
                     }
-                    _state.update { current -> current.copy(isLoading = false, error = DownloadsUiError.LoadFailed) }
+                    reduce(DownloadsChange.RecordsFailed)
                 }.collect { records ->
                     val projection =
                         withContext(workDispatcher) {
@@ -329,14 +331,7 @@ class DownloadsViewModel(
                                     },
                             )
                         }
-                    _state.update { current ->
-                        current.copy(
-                            records = records,
-                            sections = projection.sections,
-                            detailsByDownloadId = projection.detailsByDownloadId,
-                            isLoading = false,
-                        )
-                    }
+                    reduce(DownloadsChange.RecordsUpdated(records, projection.sections, projection.detailsByDownloadId))
                     requestUsageRefresh()
                     if (!leaseRefreshInitialized) {
                         requestLeaseRefresh()
@@ -346,12 +341,12 @@ class DownloadsViewModel(
         requestUsageRefresh()
     }
 
-    fun refresh() {
+    private fun refresh() {
         requestUsageRefresh()
         requestLeaseRefresh()
     }
 
-    fun wakeQueueOnScreenResume() {
+    private fun wakeQueueOnScreenResume() {
         viewModelScope.launch {
             val failure =
                 try {
@@ -374,9 +369,9 @@ class DownloadsViewModel(
         }
     }
 
-    fun configureQuota(quotaBytes: Long?) {
+    private fun configureQuota(quotaBytes: Long?) {
         viewModelScope.launch {
-            _state.update { current -> current.copy(isRefreshingUsage = true, error = null) }
+            reduce(DownloadsChange.QuotaStarted)
             try {
                 withContext(workDispatcher) { configureDownloadQuotaAction(quotaBytes) }
                 requestUsageRefresh()
@@ -391,12 +386,12 @@ class DownloadsViewModel(
                         throwable = exception,
                     )
                 }
-                _state.update { current -> current.copy(isRefreshingUsage = false, error = DownloadsUiError.QuotaRejected) }
+                reduce(DownloadsChange.QuotaFailed)
             }
         }
     }
 
-    fun pause(downloadId: String) {
+    private fun pause(downloadId: String) {
         findRecord(downloadId)?.let { record ->
             runCommand(downloadId, DiagnosticOperation.DownloadPause) {
                 pauseDownloadAction(accountIdentity, record.downloadId)
@@ -404,7 +399,7 @@ class DownloadsViewModel(
         }
     }
 
-    fun resume(downloadId: String) {
+    private fun resume(downloadId: String) {
         findRecord(downloadId)?.let { record ->
             runCommand(downloadId, DiagnosticOperation.DownloadResume) {
                 resumeDownloadAction(accountIdentity, record.downloadId)
@@ -412,7 +407,7 @@ class DownloadsViewModel(
         }
     }
 
-    fun resumePausedDownloads() {
+    private fun resumePausedDownloads() {
         if (_state.value.inFlightDownloadId != null || _state.value.isBulkResumeInFlight) return
         val pausedDownloadIds =
             _state.value.records
@@ -421,7 +416,7 @@ class DownloadsViewModel(
         if (pausedDownloadIds.isEmpty()) return
 
         viewModelScope.launch {
-            _state.update { current -> current.copy(isBulkResumeInFlight = true, error = null) }
+            reduce(DownloadsChange.BulkResumeStarted)
             val result =
                 try {
                     withContext(workDispatcher) { resumePausedDownloadsAction(accountIdentity, pausedDownloadIds) }
@@ -444,17 +439,12 @@ class DownloadsViewModel(
                         "result=${result.diagnosticValue()}"
                 }
             }
-            _state.update { current ->
-                current.copy(
-                    isBulkResumeInFlight = false,
-                    error = if (result == DownloadCommandResult.Applied) null else DownloadsUiError.CommandRejected,
-                )
-            }
+            reduce(DownloadsChange.BulkResumeFinished(result))
             requestUsageRefresh()
         }
     }
 
-    fun retry(downloadId: String) {
+    private fun retry(downloadId: String) {
         findRecord(downloadId)?.let { record ->
             runCommand(downloadId, DiagnosticOperation.DownloadRetry) {
                 retryDownloadAction(accountIdentity, record.downloadId)
@@ -462,7 +452,7 @@ class DownloadsViewModel(
         }
     }
 
-    fun cancel(downloadId: String) {
+    private fun cancel(downloadId: String) {
         findRecord(downloadId)?.let { record ->
             runDeletion(downloadId, DiagnosticOperation.DownloadCancel) {
                 cancelDownloadAction(accountIdentity, record.downloadId)
@@ -470,7 +460,7 @@ class DownloadsViewModel(
         }
     }
 
-    fun delete(downloadId: String) {
+    private fun delete(downloadId: String) {
         findRecord(downloadId)?.let { record ->
             runDeletion(downloadId, DiagnosticOperation.DownloadDelete) {
                 deleteDownloadAction(accountIdentity, record.downloadId)
@@ -517,7 +507,7 @@ class DownloadsViewModel(
             return
         }
         viewModelScope.launch {
-            _state.update { current -> current.copy(inFlightDownloadId = downloadId, error = null) }
+            reduce(DownloadsChange.CommandStarted(downloadId))
             val result =
                 try {
                     withContext(workDispatcher) { command() }
@@ -534,12 +524,7 @@ class DownloadsViewModel(
                     }
                     null
                 }
-            _state.update { current ->
-                current.copy(
-                    inFlightDownloadId = null,
-                    error = if (result == DownloadCommandResult.Applied) null else DownloadsUiError.CommandRejected,
-                )
-            }
+            reduce(DownloadsChange.CommandFinished(result))
             requestUsageRefresh()
         }
     }
@@ -553,7 +538,7 @@ class DownloadsViewModel(
             return
         }
         viewModelScope.launch {
-            _state.update { current -> current.copy(inFlightDownloadId = downloadId, error = null) }
+            reduce(DownloadsChange.CommandStarted(downloadId))
             val result =
                 try {
                     withContext(workDispatcher) { command() }
@@ -570,17 +555,7 @@ class DownloadsViewModel(
                     }
                     null
                 }
-            _state.update { current ->
-                current.copy(
-                    inFlightDownloadId = null,
-                    error =
-                        when (result) {
-                            DownloadDeletionResult.Deleted -> null
-                            DownloadDeletionResult.ArtifactInUse -> DownloadsUiError.ArtifactInUse
-                            else -> DownloadsUiError.CommandRejected
-                        },
-                )
-            }
+            reduce(DownloadsChange.DeletionFinished(result))
             requestUsageRefresh()
         }
     }
@@ -617,12 +592,12 @@ class DownloadsViewModel(
                                 }
                             record.downloadId.value.takeIf { inUse }
                         }.toSet()
-                _state.update { current -> current.copy(leasedDownloadIds = leased) }
+                reduce(DownloadsChange.LeasesUpdated(leased))
             }
     }
 
     private suspend fun refreshUsageNow() {
-        _state.update { current -> current.copy(isRefreshingUsage = true) }
+        reduce(DownloadsChange.UsageStarted)
         val usage =
             try {
                 withContext(workDispatcher) { getDownloadUsageUseCase(accountIdentity) }
@@ -637,7 +612,7 @@ class DownloadsViewModel(
                         throwable = exception,
                     )
                 }
-                _state.update { current -> current.copy(isRefreshingUsage = false, error = DownloadsUiError.LoadFailed) }
+                reduce(DownloadsChange.UsageFailed)
                 return
             }
         val settings =
@@ -654,12 +629,10 @@ class DownloadsViewModel(
                         throwable = exception,
                     )
                 }
-                _state.update { current -> current.copy(isRefreshingUsage = false, error = DownloadsUiError.LoadFailed) }
+                reduce(DownloadsChange.UsageFailed)
                 return
             }
-        _state.update { current ->
-            current.copy(usage = usage, settings = settings, isRefreshingUsage = false)
-        }
+        reduce(DownloadsChange.UsageUpdated(usage, settings))
     }
 }
 

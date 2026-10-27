@@ -75,6 +75,7 @@ import com.jellyscope.ui.component.DetailHeadlineStyle
 import com.jellyscope.ui.component.OnResumeEffect
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.downloads.DownloadDetailUi
+import com.jellyscope.ui.screen.downloads.DownloadsIntent
 import com.jellyscope.ui.screen.downloads.DownloadsUiError
 import com.jellyscope.ui.screen.downloads.DownloadsViewModel
 import com.jellyscope.ui.screen.downloads.detailUi
@@ -107,8 +108,8 @@ internal fun TvDownloadDetailScreen(
     var removal by remember(downloadId) { mutableStateOf<TvDetailRemoval?>(null) }
 
     OnResumeEffect {
-        viewModel.refresh()
-        viewModel.wakeQueueOnScreenResume()
+        viewModel.accept(DownloadsIntent.Refresh)
+        viewModel.accept(DownloadsIntent.WakeQueueOnScreenResume)
     }
     LaunchedEffect(downloadId, state.isLoading, detail) {
         if (!state.isLoading && detail == null) onBack()
@@ -141,8 +142,8 @@ internal fun TvDownloadDetailScreen(
             onConfirm = {
                 removal = null
                 when (pending) {
-                    TvDetailRemoval.Cancel -> viewModel.cancel(record.downloadId.value)
-                    TvDetailRemoval.Delete -> viewModel.delete(record.downloadId.value)
+                    TvDetailRemoval.Cancel -> viewModel.accept(DownloadsIntent.Cancel(record.downloadId.value))
+                    TvDetailRemoval.Delete -> viewModel.accept(DownloadsIntent.Delete(record.downloadId.value))
                 }
             },
         )
@@ -282,9 +283,12 @@ private fun TvDownloadDetailContent(
                                 when (option.action) {
                                     TvDownloadDetailAction.Play -> onPlayOffline(record, false)
                                     TvDownloadDetailAction.Restart -> onPlayOffline(record, true)
-                                    TvDownloadDetailAction.Pause -> viewModel.pause(record.downloadId.value)
-                                    TvDownloadDetailAction.ResumeTransfer -> viewModel.resume(record.downloadId.value)
-                                    TvDownloadDetailAction.Retry -> viewModel.retry(record.downloadId.value)
+                                    TvDownloadDetailAction.Pause -> viewModel.accept(DownloadsIntent.Pause(record.downloadId.value))
+                                    TvDownloadDetailAction.ResumeTransfer ->
+                                        viewModel.accept(
+                                            DownloadsIntent.Resume(record.downloadId.value),
+                                        )
+                                    TvDownloadDetailAction.Retry -> viewModel.accept(DownloadsIntent.Retry(record.downloadId.value))
                                     TvDownloadDetailAction.Cancel -> onRequestCancel()
                                     TvDownloadDetailAction.Delete -> onRequestDelete()
                                 }
