@@ -27,7 +27,7 @@ class TvLoginPresenterTest {
             val repository = FakeTvAuthRepository(validateResult = Result.failure(AuthError.NotReachable))
             val presenter = presenter(repository)
 
-            presenter.submitServer("bad")
+            presenter.accept(TvLoginIntent.SubmitServer("bad"))
             runCurrent()
 
             assertEquals(TvLoginPhase.EnterServer, presenter.state.value.phase)
@@ -41,7 +41,7 @@ class TvLoginPresenterTest {
             val repository = FakeTvAuthRepository()
             val presenter = presenter(repository)
 
-            presenter.submitServer("https://jellyfin.example")
+            presenter.accept(TvLoginIntent.SubmitServer("https://jellyfin.example"))
             runCurrent()
             repository.quickConnectUpdates.emit(
                 Result.success(QuickConnectLoginUpdate.CodeAvailable(QuickConnectCode(secret = "s", code = "123456"))),
@@ -60,7 +60,7 @@ class TvLoginPresenterTest {
         runTest {
             val repository = FakeTvAuthRepository()
             val presenter = presenter(repository)
-            presenter.submitServer("https://jellyfin.example")
+            presenter.accept(TvLoginIntent.SubmitServer("https://jellyfin.example"))
             runCurrent()
 
             repository.quickConnectUpdates.emit(
@@ -77,14 +77,14 @@ class TvLoginPresenterTest {
         runTest {
             val repository = FakeTvAuthRepository()
             val presenter = presenter(repository)
-            presenter.submitServer("https://jellyfin.example")
+            presenter.accept(TvLoginIntent.SubmitServer("https://jellyfin.example"))
             runCurrent()
 
             repository.quickConnectUpdates.emit(Result.failure(AuthError.QuickConnectExpired))
             runCurrent()
             assertEquals(TvErrorKind.QuickConnectExpired, presenter.state.value.quickConnectError)
 
-            presenter.retryQuickConnect()
+            presenter.accept(TvLoginIntent.RetryQuickConnect)
             runCurrent()
             assertNull(presenter.state.value.quickConnectError)
             assertEquals(2, repository.quickConnectCollections)
@@ -96,10 +96,10 @@ class TvLoginPresenterTest {
         runTest {
             val repository = FakeTvAuthRepository()
             val presenter = presenter(repository)
-            presenter.submitServer("https://jellyfin.example")
+            presenter.accept(TvLoginIntent.SubmitServer("https://jellyfin.example"))
             runCurrent()
 
-            presenter.submitCredentials("user", "pass")
+            presenter.accept(TvLoginIntent.SubmitCredentials("user", "pass"))
             runCurrent()
 
             assertEquals(TvLoginPhase.Done, presenter.state.value.phase)
@@ -112,9 +112,9 @@ class TvLoginPresenterTest {
         runTest {
             val repository = FakeTvAuthRepository()
             val presenter = presenter(repository)
-            presenter.submitServer("https://jellyfin.example")
+            presenter.accept(TvLoginIntent.SubmitServer("https://jellyfin.example"))
             runCurrent()
-            presenter.submitCredentials("user", "pass")
+            presenter.accept(TvLoginIntent.SubmitCredentials("user", "pass"))
             runCurrent()
 
             // Cancelled collection: a late poll result must not disturb state.
@@ -131,10 +131,10 @@ class TvLoginPresenterTest {
         runTest {
             val repository = FakeTvAuthRepository(loginResult = Result.failure(AuthError.InvalidCredentials))
             val presenter = presenter(repository)
-            presenter.submitServer("https://jellyfin.example")
+            presenter.accept(TvLoginIntent.SubmitServer("https://jellyfin.example"))
             runCurrent()
 
-            presenter.submitCredentials("user", "wrong")
+            presenter.accept(TvLoginIntent.SubmitCredentials("user", "wrong"))
             runCurrent()
 
             assertEquals(TvLoginPhase.SignIn, presenter.state.value.phase)

@@ -389,6 +389,20 @@ Person headers receive only header data and its loading flag, excluding paged
 filmography state. Existing row/card identities and unchanged references remain
 intact. This narrows dependencies without claiming measured SwiftUI redraw gains.
 
+### Native tvOS authentication and accounts MVI slice
+
+Login and Account Swift models dispatch presenter intents; reducers own their
+screen transitions. Login retains discovery, server-intent, validation,
+credentials, and Quick Connect generations and cancellation. Credentials and
+server-input intents avoid generated string representations. Watch/close remain
+lifecycle APIs.
+
+Accounts retains operation admission, account snapshots, removal preview scope,
+authorization, stale-confirmation refresh, cancellation, and non-cancellable lease
+release. Confirmation data is projected before the pure state transition. The
+Swift credentials form takes phase and error rather than all login state, keeping
+Quick Connect code and discovery updates outside its inputs.
+
 ## Source Layout Target
 
 ```text
@@ -954,6 +968,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Native authentication intents preserve request and removal ownership while
+  exposing user actions explicitly. Credential forms do not need polling or
+  discovery state; narrowing their inputs avoids unnecessary dependencies.
 
 - Native browse reducers retain current-generation checks and raw pagination
   offsets so stale requests cannot replace the current query. Header input

@@ -19,27 +19,27 @@ final class LoginModel: ObservableObject {
     }
 
     func startDiscovery() {
-        presenter.startDiscovery()
+        presenter.accept(intent: TvLoginIntentStartDiscovery.shared)
     }
 
     func retryDiscovery() {
-        presenter.retryDiscovery()
+        presenter.accept(intent: TvLoginIntentRetryDiscovery.shared)
     }
 
     func submitServer(_ url: String) {
-        presenter.submitServer(input: url)
+        presenter.accept(intent: TvLoginIntentSubmitServer(input: url))
     }
 
     func submitCredentials(username: String, password: String) {
-        presenter.submitCredentials(username: username, password: password)
+        presenter.accept(intent: TvLoginIntentSubmitCredentials(username: username, password: password))
     }
 
     func retryQuickConnect() {
-        presenter.retryQuickConnect()
+        presenter.accept(intent: TvLoginIntentRetryQuickConnect.shared)
     }
 
     func resetToServerEntry() {
-        presenter.resetToServerEntry()
+        presenter.accept(intent: TvLoginIntentResetToServerEntry.shared)
     }
 
     deinit {

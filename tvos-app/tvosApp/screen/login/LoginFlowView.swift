@@ -95,7 +95,8 @@ struct LoginFlowView: View {
 
                 CredentialsView(
                     serverName: model.state.serverName ?? String(localized: "Sign In"),
-                    state: model.state,
+                    phase: model.state.phase,
+                    error: model.state.error,
                     username: $username,
                     password: $password,
                     onSubmit: model.submitCredentials,

@@ -5,7 +5,8 @@ import SwiftUI
 
 struct CredentialsView: View {
     let serverName: String
-    let state: TvLoginState
+    let phase: TvLoginPhase
+    let error: TvErrorKind?
     @Binding var username: String
     @Binding var password: String
     let onSubmit: (String, String) -> Void
@@ -21,19 +22,19 @@ struct CredentialsView: View {
             SecureField(String(localized: "Password"), text: $password)
                 .textContentType(.password)
 
-            if let error = state.error {
+            if let error = error {
                 Label(error.loginMessage, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
             }
 
             Button(
-                state.phase == .loggingin
+                phase == .loggingin
                     ? String(localized: "Signing In…")
                     : String(localized: "Sign In")
             ) {
                 onSubmit(username, password)
             }
-            .disabled(state.phase == .loggingin || username.isEmpty)
+            .disabled(phase == .loggingin || username.isEmpty)
 
             Button(String(localized: "Change Server"), action: onChangeServer)
         }

@@ -75,24 +75,32 @@ class TvAccountsPresenter(
                         )
                     }
                 accountsById = projection.accountsById
-                _state.update { current ->
-                    current.copy(
-                        accounts = projection.summaries,
-                        activeAccountId = projection.activeAccountId,
-                    )
-                }
+                reduce(TvAccountsChange.AccountsObserved(projection.summaries, projection.activeAccountId))
             }
+        }
+    }
+
+    private fun reduce(change: TvAccountsChange) {
+        _state.update { current -> reduceTvAccounts(current, change) }
+    }
+
+    fun accept(intent: TvAccountsIntent) {
+        when (intent) {
+            is TvAccountsIntent.SwitchAccount -> switchAccount(intent.accountId)
+            is TvAccountsIntent.SignOutAccount -> signOutAccount(intent.accountId)
+            TvAccountsIntent.ConfirmPendingRemoval -> confirmPendingRemoval()
+            TvAccountsIntent.DismissPendingRemoval -> dismissPendingRemoval()
         }
     }
 
     fun watchState(onChange: (TvAccountsState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun switchAccount(accountId: String) {
+    private fun switchAccount(accountId: String) {
         if (state.value.operationInFlight || state.value.activeAccountId == accountId) return
         runSimpleOperation(accountId, "switch-failed") { switchAccountAction(accountId) }
     }
 
-    fun signOutAccount(accountId: String) {
+    private fun signOutAccount(accountId: String) {
         if (state.value.operationInFlight) return
         val account = accountsById[accountId] ?: return publishError(TvAccountError.AccountNotFound)
         val reader = getDownloadRemovalPreview
@@ -112,15 +120,7 @@ class TvAccountsPresenter(
         removalAccount = account
         removalPreview = null
         removalCancelRequested = false
-        _state.update { current ->
-            current.copy(
-                operationInFlight = true,
-                operationAccountId = accountId,
-                isLoadingRemovalPreview = true,
-                removalConfirmation = null,
-                error = null,
-            )
-        }
+        reduce(TvAccountsChange.RemovalStarted(accountId))
         scope.launch {
             val preview = readPreview(scopeSnapshot, reader, releaser)
             if (preview == null) {
@@ -138,15 +138,13 @@ class TvAccountsPresenter(
         }
     }
 
-    fun confirmPendingRemoval() {
+    private fun confirmPendingRemoval() {
         val account = removalAccount ?: return
         val scopeSnapshot = removalScope ?: return
         val preview = removalPreview ?: return
         val issuer = issueDownloadRemovalAuthorization ?: return
         if (state.value.removalConfirmation?.accountId != account.accountId) return
-        _state.update { current ->
-            current.copy(isLoadingRemovalPreview = true, removalConfirmation = null, error = null)
-        }
+        reduce(TvAccountsChange.RemovalConfirmed)
         scope.launch {
             if (!ownsPreview(scopeSnapshot, preview)) return@launch
             val authorization = issueAuthorization(scopeSnapshot, preview, issuer)
@@ -164,12 +162,12 @@ class TvAccountsPresenter(
         }
     }
 
-    fun dismissPendingRemoval() {
+    private fun dismissPendingRemoval() {
         val scopeSnapshot = removalScope
         val preview = removalPreview
         val releaser = releaseDownloadRemovalPreview
         removalCancelRequested = true
-        _state.update { current -> current.copy(removalConfirmation = null, isLoadingRemovalPreview = preview == null) }
+        reduce(TvAccountsChange.RemovalDismissed(preview == null))
         if (scopeSnapshot == null || preview == null || releaser == null) return
         removalPreview = null
         scope.launch {
@@ -205,21 +203,18 @@ class TvAccountsPresenter(
             finishRemovalReleasing(scopeSnapshot, preview, TvAccountError.Server)
             return
         }
-        _state.update { current ->
-            current.copy(
-                isLoadingRemovalPreview = false,
-                removalConfirmation =
-                    TvAccountRemovalConfirmation(
-                        accountId = account.accountId,
-                        serverName = account.serverName,
-                        userName = account.userName,
-                        downloadCount = confirmation.recordCount,
-                        displayedBytes = confirmation.displayedBytes,
-                        refreshedAfterStale = refreshedAfterStale,
-                    ),
-                error = null,
-            )
-        }
+        reduce(
+            TvAccountsChange.PreviewLoaded(
+                TvAccountRemovalConfirmation(
+                    account.accountId,
+                    account.serverName,
+                    account.userName,
+                    confirmation.recordCount,
+                    confirmation.displayedBytes,
+                    refreshedAfterStale,
+                ),
+            ),
+        )
     }
 
     private suspend fun refreshStalePreview(
@@ -386,15 +381,7 @@ class TvAccountsPresenter(
         operationKind: DiagnosticOperation? = null,
         operation: suspend () -> Result<*>,
     ) {
-        _state.update { current ->
-            current.copy(
-                operationInFlight = true,
-                operationAccountId = accountId,
-                isLoadingRemovalPreview = false,
-                removalConfirmation = null,
-                error = null,
-            )
-        }
+        reduce(TvAccountsChange.OperationStarted(accountId))
         scope.launch {
             val result =
                 try {
@@ -415,30 +402,14 @@ class TvAccountsPresenter(
         removalPreview = null
         removalAccount = null
         removalCancelRequested = false
-        _state.update { current ->
-            current.copy(
-                operationInFlight = false,
-                operationAccountId = null,
-                isLoadingRemovalPreview = false,
-                removalConfirmation = null,
-                error = error,
-            )
-        }
+        reduce(TvAccountsChange.OperationFinished(error))
     }
 
     private fun publishError(
         error: TvAccountError,
         keepOperation: Boolean = false,
     ) {
-        _state.update { current ->
-            current.copy(
-                operationInFlight = if (keepOperation) current.operationInFlight else false,
-                operationAccountId = if (keepOperation) current.operationAccountId else null,
-                isLoadingRemovalPreview = false,
-                removalConfirmation = null,
-                error = error,
-            )
-        }
+        reduce(TvAccountsChange.Failed(error, keepOperation))
     }
 }
 

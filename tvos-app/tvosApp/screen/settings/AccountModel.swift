@@ -31,13 +31,13 @@ final class AccountModel: ObservableObject {
     }
 
     func switchAccount(_ id: String) {
-        presenter.switchAccount(accountId: id)
+        presenter.accept(intent: TvAccountsIntentSwitchAccount(accountId: id))
     }
 
     func signOutAccount(_ id: String) {
         consumedRemovalPreview = nil
         consumedPreviewLeftPresentation = false
-        presenter.signOutAccount(accountId: id)
+        presenter.accept(intent: TvAccountsIntentSignOutAccount(accountId: id))
     }
 
     func confirmPendingRemoval(_ confirmation: TvAccountRemovalConfirmation) {
@@ -46,7 +46,7 @@ final class AccountModel: ObservableObject {
               state.removalConfirmation.map(RemovalPreviewIdentity.init) == identity else { return }
         consumedRemovalPreview = identity
         consumedPreviewLeftPresentation = false
-        presenter.confirmPendingRemoval()
+        presenter.accept(intent: TvAccountsIntentConfirmPendingRemoval.shared)
     }
 
     func dismissPendingRemoval(
@@ -96,7 +96,7 @@ final class AccountModel: ObservableObject {
         } else {
             guard expectedPreview == nil, consumedRemovalPreview?.accountId != accountId else { return }
         }
-        presenter.dismissPendingRemoval()
+        presenter.accept(intent: TvAccountsIntentDismissPendingRemoval.shared)
     }
 }
 

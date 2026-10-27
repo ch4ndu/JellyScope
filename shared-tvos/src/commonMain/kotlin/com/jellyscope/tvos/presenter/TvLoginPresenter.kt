@@ -44,16 +44,31 @@ class TvLoginPresenter(
     private var quickConnectJob: Job? = null
     private var discoveryJob: Job? = null
 
+    private fun reduce(change: TvLoginChange) {
+        _state.update { current -> reduceTvLogin(current, change) }
+    }
+
+    fun accept(intent: TvLoginIntent) {
+        when (intent) {
+            TvLoginIntent.StartDiscovery -> startDiscovery()
+            TvLoginIntent.RetryDiscovery -> retryDiscovery()
+            is TvLoginIntent.SubmitServer -> submitServer(intent.input)
+            is TvLoginIntent.SubmitCredentials -> submitCredentials(intent.username, intent.password)
+            TvLoginIntent.RetryQuickConnect -> retryQuickConnect()
+            TvLoginIntent.ResetToServerEntry -> resetToServerEntry()
+        }
+    }
+
     fun watchState(onChange: (TvLoginState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun startDiscovery() {
+    private fun startDiscovery() {
         if (!state.value.discoveryAvailable || state.value.phase != TvLoginPhase.EnterServer) {
             return
         }
         discoveryJob?.cancel()
         discoveryGeneration += 1
         val current = discoveryGeneration
-        _state.update { state -> state.copy(isDiscovering = true, discoveryError = null) }
+        reduce(TvLoginChange.DiscoveryStarted)
         discoveryJob =
             scope.launch {
                 tvLoginDiscoveryLogger.i { "stage=tvos-server-discovery event=started" }
@@ -73,11 +88,11 @@ class TvLoginPresenter(
                             if (current != discoveryGeneration) {
                                 return@collect
                             }
-                            _state.update { state -> state.copy(discoveredServers = updated) }
+                            reduce(TvLoginChange.ServersDiscovered(updated))
                         }
                     tvLoginDiscoveryLogger.i { "stage=tvos-server-discovery event=completed" }
                     if (current == discoveryGeneration) {
-                        _state.update { state -> state.copy(isDiscovering = false) }
+                        reduce(TvLoginChange.DiscoveryFinished)
                     }
                 } catch (exception: CancellationException) {
                     tvLoginDiscoveryLogger.i { "stage=tvos-server-discovery event=cancelled" }
@@ -91,22 +106,17 @@ class TvLoginPresenter(
                         )
                     }
                     if (current == discoveryGeneration) {
-                        _state.update { state ->
-                            state.copy(
-                                isDiscovering = false,
-                                discoveryError = TvErrorKind.Network,
-                            )
-                        }
+                        reduce(TvLoginChange.DiscoveryFailed)
                     }
                 }
             }
     }
 
-    fun retryDiscovery() {
+    private fun retryDiscovery() {
         startDiscovery()
     }
 
-    fun submitServer(input: String) {
+    private fun submitServer(input: String) {
         if (state.value.phase != TvLoginPhase.EnterServer || validationJob?.isActive == true) {
             return
         }
@@ -114,17 +124,7 @@ class TvLoginPresenter(
         validationGeneration += 1
         val currentValidation = validationGeneration
         val currentIntent = intentGeneration
-        _state.update { state ->
-            state.copy(
-                phase = TvLoginPhase.ValidatingServer,
-                serverName = null,
-                serverUrl = null,
-                quickConnectCode = null,
-                quickConnectError = null,
-                error = null,
-                isDiscovering = false,
-            )
-        }
+        reduce(TvLoginChange.ValidationStarted)
         validationJob =
             scope.launch {
                 val result =
@@ -142,27 +142,15 @@ class TvLoginPresenter(
                 result
                     .onSuccess { info ->
                         serverInfo = info
-                        _state.update { state ->
-                            state.copy(
-                                phase = TvLoginPhase.SignIn,
-                                serverName = info.serverName,
-                                serverUrl = info.serverUrl,
-                                error = null,
-                            )
-                        }
+                        reduce(TvLoginChange.ServerValidated(info))
                         startQuickConnect(info, currentIntent)
                     }.onFailure { error ->
-                        _state.update { state ->
-                            state.copy(
-                                phase = TvLoginPhase.EnterServer,
-                                error = error.toTvErrorKind(),
-                            )
-                        }
+                        reduce(TvLoginChange.ValidationFailed(error.toTvErrorKind()))
                     }
             }
     }
 
-    fun submitCredentials(
+    private fun submitCredentials(
         username: String,
         password: String,
     ) {
@@ -174,7 +162,7 @@ class TvLoginPresenter(
         credentialsGeneration += 1
         val currentCredentials = credentialsGeneration
         val currentIntent = intentGeneration
-        _state.update { state -> state.copy(phase = TvLoginPhase.LoggingIn, error = null) }
+        reduce(TvLoginChange.LoginStarted)
         credentialsJob =
             scope.launch {
                 val result =
@@ -197,14 +185,9 @@ class TvLoginPresenter(
                 credentialsJob = null
                 result
                     .onSuccess {
-                        _state.update { state -> state.copy(phase = TvLoginPhase.Done, error = null) }
+                        reduce(TvLoginChange.LoginSucceeded)
                     }.onFailure { error ->
-                        _state.update { state ->
-                            state.copy(
-                                phase = TvLoginPhase.SignIn,
-                                error = error.toTvErrorKind(),
-                            )
-                        }
+                        reduce(TvLoginChange.LoginFailed(error.toTvErrorKind()))
                         if (serverInfo == info && currentIntent == intentGeneration) {
                             startQuickConnect(info, currentIntent)
                         }
@@ -212,23 +195,17 @@ class TvLoginPresenter(
             }
     }
 
-    fun retryQuickConnect() {
+    private fun retryQuickConnect() {
         val info = serverInfo ?: return
         if (state.value.phase == TvLoginPhase.SignIn) {
             startQuickConnect(info, intentGeneration)
         }
     }
 
-    fun resetToServerEntry() {
+    private fun resetToServerEntry() {
         invalidateIntent()
         serverInfo = null
-        _state.update { state ->
-            TvLoginState(
-                discoveryAvailable = state.discoveryAvailable,
-                discoveredServers = state.discoveredServers,
-                discoveryError = state.discoveryError,
-            )
-        }
+        reduce(TvLoginChange.Reset)
     }
 
     override fun close() {
@@ -246,7 +223,7 @@ class TvLoginPresenter(
         cancelQuickConnect()
         quickConnectGeneration += 1
         val currentQuickConnect = quickConnectGeneration
-        _state.update { state -> state.copy(quickConnectCode = null, quickConnectError = null) }
+        reduce(TvLoginChange.QuickConnectStarted)
         quickConnectJob =
             scope.launch {
                 try {
@@ -264,23 +241,18 @@ class TvLoginPresenter(
                                 .onSuccess { update ->
                                     when (update) {
                                         is QuickConnectLoginUpdate.CodeAvailable ->
-                                            _state.update { state -> state.copy(quickConnectCode = update.code.code) }
+                                            reduce(TvLoginChange.QuickConnectCodeReceived(update.code.code))
                                         is QuickConnectLoginUpdate.Polling ->
-                                            _state.update { state -> state.copy(quickConnectCode = update.code.code) }
+                                            reduce(TvLoginChange.QuickConnectCodeReceived(update.code.code))
                                         is QuickConnectLoginUpdate.Success -> {
                                             credentialsJob?.cancel()
                                             credentialsGeneration += 1
                                             quickConnectGeneration += 1
-                                            _state.update { state -> state.copy(phase = TvLoginPhase.Done) }
+                                            reduce(TvLoginChange.QuickConnectSucceeded)
                                         }
                                     }
                                 }.onFailure { error ->
-                                    _state.update { state ->
-                                        state.copy(
-                                            quickConnectCode = null,
-                                            quickConnectError = error.toTvErrorKind(),
-                                        )
-                                    }
+                                    reduce(TvLoginChange.QuickConnectFailed(error.toTvErrorKind()))
                                 }
                         }
                 } catch (exception: CancellationException) {
@@ -291,12 +263,7 @@ class TvLoginPresenter(
                         currentQuickConnect == quickConnectGeneration &&
                         serverInfo == info
                     ) {
-                        _state.update { state ->
-                            state.copy(
-                                quickConnectCode = null,
-                                quickConnectError = exception.toTvErrorKind(),
-                            )
-                        }
+                        reduce(TvLoginChange.QuickConnectFailed(exception.toTvErrorKind()))
                     }
                 }
             }
