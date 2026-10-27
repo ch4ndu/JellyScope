@@ -56,48 +56,46 @@ class TvDownloadRequestPresenter(
         load()
     }
 
+    private fun reduce(change: TvDownloadRequestChange) {
+        _state.update { current -> reduceTvDownloadRequest(current, change) }
+    }
+
+    fun accept(intent: TvDownloadRequestIntent) {
+        when (intent) {
+            TvDownloadRequestIntent.RetryLoad -> retryLoad()
+            is TvDownloadRequestIntent.SelectQuality -> selectQuality(intent.qualityId)
+            is TvDownloadRequestIntent.SetFixedSubtitleOff -> setFixedSubtitleOff(intent.off)
+            TvDownloadRequestIntent.Preview -> preview()
+            TvDownloadRequestIntent.ConfirmOriginalWithoutSubtitle -> confirmOriginalWithoutSubtitle()
+            TvDownloadRequestIntent.ConfirmFixedBurnIn -> confirmFixedBurnIn()
+            TvDownloadRequestIntent.DismissConfirmation -> dismissConfirmation()
+            TvDownloadRequestIntent.Enqueue -> enqueue()
+        }
+    }
+
     fun watchState(onChange: (TvDownloadRequestState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun retryLoad() {
+    private fun retryLoad() {
         load()
     }
 
-    fun selectQuality(qualityId: String) {
+    private fun selectQuality(qualityId: String) {
         if (state.value.qualityChoices.none { choice -> choice.id == qualityId }) return
         invalidateOperation()
         val fixed =
             state.value.qualityChoices
                 .first { choice -> choice.id == qualityId }
                 .kind == TvDownloadQualityKind.Fixed
-        _state.update { current ->
-            current.copy(
-                stage = TvDownloadRequestStage.Choosing,
-                selectedQualityId = qualityId,
-                fixedSubtitleOff = if (fixed) current.fixedSubtitleOff else false,
-                estimatedBytes = null,
-                warningSubtitleLabel = null,
-                error = null,
-                outcome = null,
-            )
-        }
+        reduce(TvDownloadRequestChange.QualitySelected(qualityId, fixed))
     }
 
-    fun setFixedSubtitleOff(off: Boolean) {
+    private fun setFixedSubtitleOff(off: Boolean) {
         if (selectedQuality()?.kind != TvDownloadQualityKind.Fixed) return
         invalidateOperation()
-        _state.update { current ->
-            current.copy(
-                stage = TvDownloadRequestStage.Choosing,
-                fixedSubtitleOff = off,
-                estimatedBytes = null,
-                warningSubtitleLabel = null,
-                error = null,
-                outcome = null,
-            )
-        }
+        reduce(TvDownloadRequestChange.SubtitleOffChanged(off))
     }
 
-    fun preview() {
+    private fun preview() {
         if (loaded == null) {
             load()
         } else {
@@ -105,37 +103,31 @@ class TvDownloadRequestPresenter(
         }
     }
 
-    fun confirmOriginalWithoutSubtitle() {
+    private fun confirmOriginalWithoutSubtitle() {
         if (state.value.stage != TvDownloadRequestStage.ConfirmOriginalWithoutSubtitle) return
         startPreview(originalBitmapConfirmed = true, fixedBurnInConfirmed = false)
     }
 
-    fun confirmFixedBurnIn() {
+    private fun confirmFixedBurnIn() {
         if (state.value.stage != TvDownloadRequestStage.ConfirmFixedBurnIn) return
         startPreview(originalBitmapConfirmed = false, fixedBurnInConfirmed = true)
     }
 
-    fun dismissConfirmation() {
+    private fun dismissConfirmation() {
         if (state.value.stage != TvDownloadRequestStage.ConfirmOriginalWithoutSubtitle &&
             state.value.stage != TvDownloadRequestStage.ConfirmFixedBurnIn
         ) {
             return
         }
         invalidateOperation()
-        _state.update { current ->
-            current.copy(
-                stage = TvDownloadRequestStage.Choosing,
-                warningSubtitleLabel = null,
-                error = null,
-            )
-        }
+        reduce(TvDownloadRequestChange.ConfirmationDismissed)
     }
 
-    fun enqueue() {
+    private fun enqueue() {
         val ready = readyDraft ?: return
         if (state.value.stage != TvDownloadRequestStage.Ready) return
         val operationGeneration = ++generation
-        _state.update { current -> current.copy(stage = TvDownloadRequestStage.Submitting, error = null) }
+        reduce(TvDownloadRequestChange.EnqueueStarted)
         operationJob =
             scope.launch {
                 val result =
@@ -154,7 +146,7 @@ class TvDownloadRequestPresenter(
                     }
                 if (operationGeneration != generation || readyDraft !== ready) return@launch
                 readyDraft = null
-                _state.update { current -> result.applyTo(current) }
+                reduce(TvDownloadRequestChange.EnqueueFinished(result))
             }
     }
 
@@ -162,13 +154,16 @@ class TvDownloadRequestPresenter(
         invalidateOperation()
         loaded = null
         val loadGeneration = generation
-        _state.value = TvDownloadRequestState(stage = TvDownloadRequestStage.Loading)
+        reduce(TvDownloadRequestChange.LoadPublished(TvDownloadRequestState(stage = TvDownloadRequestStage.Loading)))
         if (!request.session.enableContentDownloading) {
-            _state.value =
-                TvDownloadRequestState(
-                    stage = TvDownloadRequestStage.Failed,
-                    error = TvDownloadRequestError.PermissionDenied,
-                )
+            reduce(
+                TvDownloadRequestChange.LoadPublished(
+                    TvDownloadRequestState(
+                        stage = TvDownloadRequestStage.Failed,
+                        error = TvDownloadRequestError.PermissionDenied,
+                    ),
+                ),
+            )
             return
         }
         operationJob =
@@ -193,22 +188,28 @@ class TvDownloadRequestPresenter(
                     }
                 if (loadGeneration != generation) return@launch
                 if (result == null) {
-                    _state.value =
-                        TvDownloadRequestState(
-                            stage = TvDownloadRequestStage.Failed,
-                            error = TvDownloadRequestError.SourceChanged,
-                        )
+                    reduce(
+                        TvDownloadRequestChange.LoadPublished(
+                            TvDownloadRequestState(
+                                stage = TvDownloadRequestStage.Failed,
+                                error = TvDownloadRequestError.SourceChanged,
+                            ),
+                        ),
+                    )
                     return@launch
                 }
                 loaded = result.loaded
-                _state.value =
-                    TvDownloadRequestState(
-                        stage = TvDownloadRequestStage.Choosing,
-                        summary = result.summary,
-                        qualityChoices = result.qualityChoices,
-                        selectedQualityId = TV_DOWNLOAD_ORIGINAL_QUALITY_ID,
-                        fixedSubtitleRequirement = result.fixedSubtitleRequirement,
-                    )
+                reduce(
+                    TvDownloadRequestChange.LoadPublished(
+                        TvDownloadRequestState(
+                            stage = TvDownloadRequestStage.Choosing,
+                            summary = result.summary,
+                            qualityChoices = result.qualityChoices,
+                            selectedQualityId = TV_DOWNLOAD_ORIGINAL_QUALITY_ID,
+                            fixedSubtitleRequirement = result.fixedSubtitleRequirement,
+                        ),
+                    ),
+                )
             }
     }
 
@@ -263,9 +264,7 @@ class TvDownloadRequestPresenter(
             state.value.fixedSubtitleRequirement == TvFixedSubtitleRequirement.OffRequired &&
             !state.value.fixedSubtitleOff
         ) {
-            _state.update { current ->
-                current.copy(stage = TvDownloadRequestStage.Choosing, error = TvDownloadRequestError.SubtitleUnavailable)
-            }
+            reduce(TvDownloadRequestChange.SubtitleUnavailable)
             return
         }
         invalidateOperation()
@@ -284,50 +283,26 @@ class TvDownloadRequestPresenter(
             )
         when (buildResult) {
             is TvDownloadDraftBuildResult.OriginalBitmapConfirmation -> {
-                _state.update { current ->
-                    current.copy(
-                        stage = TvDownloadRequestStage.ConfirmOriginalWithoutSubtitle,
-                        warningSubtitleLabel = buildResult.subtitleLabel,
-                        error = null,
-                    )
-                }
+                reduce(TvDownloadRequestChange.OriginalConfirmation(buildResult.subtitleLabel))
                 return
             }
             is TvDownloadDraftBuildResult.FixedBurnInConfirmation -> {
-                _state.update { current ->
-                    current.copy(
-                        stage = TvDownloadRequestStage.ConfirmFixedBurnIn,
-                        warningSubtitleLabel = buildResult.subtitleLabel,
-                        error = null,
-                    )
-                }
+                reduce(TvDownloadRequestChange.BurnInConfirmation(buildResult.subtitleLabel))
                 return
             }
             TvDownloadDraftBuildResult.SubtitleUnavailable -> {
-                _state.update { current ->
-                    current.copy(stage = TvDownloadRequestStage.Choosing, error = TvDownloadRequestError.SubtitleUnavailable)
-                }
+                reduce(TvDownloadRequestChange.SubtitleUnavailable)
                 return
             }
             TvDownloadDraftBuildResult.Unsupported -> {
-                _state.update { current ->
-                    current.copy(stage = TvDownloadRequestStage.Failed, error = TvDownloadRequestError.SourceChanged)
-                }
+                reduce(TvDownloadRequestChange.SourceChanged)
                 return
             }
             is TvDownloadDraftBuildResult.OriginalReady,
             is TvDownloadDraftBuildResult.FixedReady,
             -> Unit
         }
-        _state.update { current ->
-            current.copy(
-                stage = TvDownloadRequestStage.Previewing,
-                estimatedBytes = null,
-                warningSubtitleLabel = null,
-                error = null,
-                outcome = null,
-            )
-        }
+        reduce(TvDownloadRequestChange.PreviewStarted)
         operationJob =
             scope.launch {
                 val preview =
@@ -349,15 +324,11 @@ class TvDownloadRequestPresenter(
                 when (preview) {
                     is OriginalDownloadAdmissionResult.Ready -> {
                         readyDraft = ReadyDraft.Original((buildResult as TvDownloadDraftBuildResult.OriginalReady).draft)
-                        _state.update { current ->
-                            current.copy(stage = TvDownloadRequestStage.Ready, estimatedBytes = preview.request.admissionEstimateBytes)
-                        }
+                        reduce(TvDownloadRequestChange.Ready(preview.request.admissionEstimateBytes))
                     }
                     is FixedDownloadAdmissionResult.Ready -> {
                         readyDraft = ReadyDraft.Fixed((buildResult as TvDownloadDraftBuildResult.FixedReady).draft)
-                        _state.update { current ->
-                            current.copy(stage = TvDownloadRequestStage.Ready, estimatedBytes = preview.request.admissionEstimateBytes)
-                        }
+                        reduce(TvDownloadRequestChange.Ready(preview.request.admissionEstimateBytes))
                     }
                     is OriginalDownloadAdmissionResult.Rejected -> rejectPreview(preview.decision)
                     is FixedDownloadAdmissionResult.Rejected -> rejectPreview(preview.decision)
@@ -368,13 +339,7 @@ class TvDownloadRequestPresenter(
 
     private fun rejectPreview(decision: DownloadAdmissionDecision) {
         readyDraft = null
-        _state.update { current ->
-            current.copy(
-                stage = TvDownloadRequestStage.Choosing,
-                estimatedBytes = null,
-                error = decision.toTvDownloadRequestError(),
-            )
-        }
+        reduce(TvDownloadRequestChange.PreviewRejected(decision.toTvDownloadRequestError()))
     }
 
     private fun selectedQuality(): TvDownloadQualityChoice? =
@@ -404,44 +369,6 @@ private data class TvDownloadRequestLoadResult(
     val qualityChoices: List<TvDownloadQualityChoice>,
     val fixedSubtitleRequirement: TvFixedSubtitleRequirement,
 )
-
-private fun DownloadEnqueueResult.applyTo(state: TvDownloadRequestState): TvDownloadRequestState =
-    when (this) {
-        is DownloadEnqueueResult.Created ->
-            state.copy(stage = TvDownloadRequestStage.Finished, outcome = TvDownloadRequestOutcome.Queued, error = null)
-        is DownloadEnqueueResult.Existing ->
-            state.copy(stage = TvDownloadRequestStage.Finished, outcome = TvDownloadRequestOutcome.Existing, error = null)
-        is DownloadEnqueueResult.SchedulingRejected ->
-            state.copy(stage = TvDownloadRequestStage.Finished, outcome = TvDownloadRequestOutcome.SchedulingDelayed, error = null)
-        is DownloadEnqueueResult.Rejected ->
-            state.copy(
-                stage = TvDownloadRequestStage.Choosing,
-                estimatedBytes = null,
-                outcome = null,
-                error = decision.toTvDownloadRequestError(),
-            )
-        DownloadEnqueueResult.RemovalInProgress ->
-            state.copy(
-                stage = TvDownloadRequestStage.Choosing,
-                estimatedBytes = null,
-                outcome = null,
-                error = TvDownloadRequestError.RemovalInProgress,
-            )
-    }
-
-private fun DownloadAdmissionDecision.toTvDownloadRequestError(): TvDownloadRequestError =
-    when (this) {
-        DownloadAdmissionDecision.PermissionDenied -> TvDownloadRequestError.PermissionDenied
-        DownloadAdmissionDecision.QuotaUnconfigured -> TvDownloadRequestError.QuotaUnconfigured
-        DownloadAdmissionDecision.QuotaExceeded -> TvDownloadRequestError.QuotaExceeded
-        DownloadAdmissionDecision.DeviceStorageLow -> TvDownloadRequestError.DeviceStorageLow
-        DownloadAdmissionDecision.SizeUnavailable -> TvDownloadRequestError.SizeUnavailable
-        DownloadAdmissionDecision.SourceChanged -> TvDownloadRequestError.SourceChanged
-        DownloadAdmissionDecision.NetworkUnavailable -> TvDownloadRequestError.NetworkUnavailable
-        DownloadAdmissionDecision.UnsupportedArtifact -> TvDownloadRequestError.UnsupportedArtifact
-        DownloadAdmissionDecision.PlaybackUnsupported -> TvDownloadRequestError.PlaybackUnsupported
-        DownloadAdmissionDecision.Allowed -> TvDownloadRequestError.Unknown
-    }
 
 private fun newTvDownloadIdentity(): String =
     "download-${Clock.System.now().toEpochMilliseconds()}-${Random.nextLong().toString().removePrefix("-")}"

@@ -41,7 +41,7 @@ final class DownloadArtworkModel: ObservableObject {
     func activate() {
         guard !closed, !active else { return }
         active = true
-        presenter.load()
+        presenter.accept(intent: TvDownloadArtworkIntentLoad.shared)
     }
 
     func deactivate() {
@@ -51,7 +51,7 @@ final class DownloadArtworkModel: ObservableObject {
         decodeTask = nil
         image = nil
         latestState = nil
-        presenter.cancel()
+        presenter.accept(intent: TvDownloadArtworkIntentCancel.shared)
     }
 
     func close() {

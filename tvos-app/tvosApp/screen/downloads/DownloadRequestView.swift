@@ -20,35 +20,35 @@ private final class DownloadRequestModel: ObservableObject {
     }
 
     func selectQuality(_ id: String) {
-        presenter.selectQuality(qualityId: id)
+        presenter.accept(intent: TvDownloadRequestIntentSelectQuality(qualityId: id))
     }
 
     func setFixedSubtitleOff(_ off: Bool) {
-        presenter.setFixedSubtitleOff(off: off)
+        presenter.accept(intent: TvDownloadRequestIntentSetFixedSubtitleOff(off: off))
     }
 
     func preview() {
-        presenter.preview()
+        presenter.accept(intent: TvDownloadRequestIntentPreview.shared)
     }
 
     func confirmOriginalWithoutSubtitle() {
-        presenter.confirmOriginalWithoutSubtitle()
+        presenter.accept(intent: TvDownloadRequestIntentConfirmOriginalWithoutSubtitle.shared)
     }
 
     func confirmFixedBurnIn() {
-        presenter.confirmFixedBurnIn()
+        presenter.accept(intent: TvDownloadRequestIntentConfirmFixedBurnIn.shared)
     }
 
     func dismissConfirmation() {
-        presenter.dismissConfirmation()
+        presenter.accept(intent: TvDownloadRequestIntentDismissConfirmation.shared)
     }
 
     func enqueue() {
-        presenter.enqueue()
+        presenter.accept(intent: TvDownloadRequestIntentEnqueue.shared)
     }
 
     func retryLoad() {
-        presenter.retryLoad()
+        presenter.accept(intent: TvDownloadRequestIntentRetryLoad.shared)
     }
 
     func close() {

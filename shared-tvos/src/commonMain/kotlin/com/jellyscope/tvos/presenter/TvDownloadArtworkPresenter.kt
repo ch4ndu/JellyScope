@@ -57,12 +57,23 @@ class TvDownloadArtworkPresenter(
         load()
     }
 
+    private fun reduce(change: TvDownloadArtworkChange) {
+        _state.value = reduceTvDownloadArtwork(change)
+    }
+
+    fun accept(intent: TvDownloadArtworkIntent) {
+        when (intent) {
+            TvDownloadArtworkIntent.Load -> load()
+            TvDownloadArtworkIntent.Cancel -> cancel()
+        }
+    }
+
     fun watchState(onChange: (TvDownloadArtworkState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun load() {
+    private fun load() {
         val generation = ++loadGeneration
         loadJob?.cancel()
-        _state.value = TvDownloadArtworkState(isLoading = true, readGeneration = generation)
+        reduce(TvDownloadArtworkChange.Started(generation))
         loadJob =
             scope.launch {
                 val bytes =
@@ -88,16 +99,16 @@ class TvDownloadArtworkPresenter(
                         null
                     }
                 if (generation != loadGeneration) return@launch
-                _state.value = TvDownloadArtworkState(imageBytes = bytes, isLoading = false, readGeneration = generation)
+                reduce(TvDownloadArtworkChange.Loaded(bytes, generation))
             }
     }
 
     /** Cancels a view that is no longer visible without retaining its image bytes. */
-    fun cancel() {
+    private fun cancel() {
         loadGeneration += 1L
         loadJob?.cancel()
         loadJob = null
-        _state.value = TvDownloadArtworkState(isLoading = false, readGeneration = loadGeneration)
+        reduce(TvDownloadArtworkChange.Cancelled(loadGeneration))
     }
 
     override fun close() {

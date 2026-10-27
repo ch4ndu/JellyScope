@@ -72,24 +72,42 @@ class TvDownloadsPresenter(
         refreshStorage()
     }
 
+    private fun reduce(change: TvDownloadsChange) {
+        _state.update { current -> reduceTvDownloads(current, change) }
+    }
+
+    fun accept(intent: TvDownloadsIntent) {
+        when (intent) {
+            TvDownloadsIntent.Refresh -> refresh()
+            is TvDownloadsIntent.ConfigureQuota -> configureQuota(intent.wholeGb)
+            is TvDownloadsIntent.Pause -> pause(intent.downloadId)
+            is TvDownloadsIntent.Resume -> resume(intent.downloadId)
+            is TvDownloadsIntent.Retry -> retry(intent.downloadId)
+            TvDownloadsIntent.ResumeAll -> resumeAll()
+            TvDownloadsIntent.ResumeQueuedDownloads -> resumeQueuedDownloads()
+            is TvDownloadsIntent.Cancel -> cancel(intent.downloadId, intent.expectedAttemptGeneration)
+            is TvDownloadsIntent.Delete -> delete(intent.downloadId, intent.expectedAttemptGeneration)
+        }
+    }
+
     fun watchState(onChange: (TvDownloadsState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun refresh() {
+    private fun refresh() {
         if (observeJob?.isActive != true) startObservation()
         projectRows(records)
         refreshStorage()
     }
 
-    fun configureQuota(wholeGb: Long) {
+    private fun configureQuota(wholeGb: Long) {
         val quotaBytes = wholeGbDownloadQuotaBytes(wholeGb)
         val maximum = state.value.storage?.maximumConfigurableQuotaBytes
         if (quotaBytes == null || (maximum != null && quotaBytes > maximum)) {
-            _state.update { current -> current.copy(error = TvDownloadsError.QuotaRejected) }
+            reduce(TvDownloadsChange.QuotaRejected)
             return
         }
         if (state.value.isRefreshingStorage) return
         scope.launch {
-            _state.update { current -> current.copy(isRefreshingStorage = true, error = null) }
+            reduce(TvDownloadsChange.QuotaStarted)
             val succeeded =
                 try {
                     withContext(workDispatcher) { configureDownloadQuota(quotaBytes) }
@@ -101,29 +119,29 @@ class TvDownloadsPresenter(
                     false
                 }
             if (!succeeded) {
-                _state.update { current -> current.copy(isRefreshingStorage = false, error = TvDownloadsError.QuotaRejected) }
+                reduce(TvDownloadsChange.QuotaFailed)
             } else {
                 refreshStorage()
             }
         }
     }
 
-    fun pause(downloadId: String) {
+    private fun pause(downloadId: String) {
         val record = findRecord(downloadId) ?: return staleCommand()
         runCommand(record, DiagnosticOperation.DownloadPause) { pauseDownload(accountIdentity, it.downloadId) }
     }
 
-    fun resume(downloadId: String) {
+    private fun resume(downloadId: String) {
         val record = findRecord(downloadId) ?: return staleCommand()
         runCommand(record, DiagnosticOperation.DownloadResume) { resumeDownload(accountIdentity, it.downloadId) }
     }
 
-    fun retry(downloadId: String) {
+    private fun retry(downloadId: String) {
         val record = findRecord(downloadId) ?: return staleCommand()
         runCommand(record, DiagnosticOperation.DownloadRetry) { retryDownload(accountIdentity, it.downloadId) }
     }
 
-    fun resumeAll() {
+    private fun resumeAll() {
         val current = state.value
         if (current.inFlightDownloadId != null || current.isBulkResumeInFlight || current.isQueueWakeInFlight) return
         val snapshot = records
@@ -140,7 +158,7 @@ class TvDownloadsPresenter(
             ) {
                 return@launch
             }
-            _state.update { value -> value.copy(isBulkResumeInFlight = true, error = null) }
+            reduce(TvDownloadsChange.ResumeAllStarted)
             val result =
                 try {
                     withContext(workDispatcher) { resumePausedDownloads(accountIdentity, ids) }
@@ -150,17 +168,12 @@ class TvDownloadsPresenter(
                     logFailure("resume-all", DiagnosticOperation.DownloadResumeAll, error)
                     null
                 }
-            _state.update { value ->
-                value.copy(
-                    isBulkResumeInFlight = false,
-                    error = if (result == DownloadCommandResult.Applied) null else TvDownloadsError.CommandRejected,
-                )
-            }
+            reduce(TvDownloadsChange.ResumeAllFinished(result))
             refreshStorage()
         }
     }
 
-    fun resumeQueuedDownloads() {
+    private fun resumeQueuedDownloads() {
         val current = state.value
         if (
             !current.hasQueuedDownloads ||
@@ -170,7 +183,7 @@ class TvDownloadsPresenter(
         ) {
             return
         }
-        _state.update { value -> value.copy(isQueueWakeInFlight = true, error = null) }
+        reduce(TvDownloadsChange.WakeStarted)
         scope.launch {
             val failure =
                 try {
@@ -183,16 +196,11 @@ class TvDownloadsPresenter(
             if (failure != null) {
                 logFailure("scheduling-wake", DiagnosticOperation.DownloadSchedulingWake, failure)
             }
-            _state.update { value ->
-                value.copy(
-                    isQueueWakeInFlight = false,
-                    error = if (failure == null) null else TvDownloadsError.QueueWakeRejected,
-                )
-            }
+            reduce(TvDownloadsChange.WakeFinished(failure != null))
         }
     }
 
-    fun cancel(
+    private fun cancel(
         downloadId: String,
         expectedAttemptGeneration: Long,
     ) {
@@ -200,13 +208,13 @@ class TvDownloadsPresenter(
         runDeletion(record, DiagnosticOperation.DownloadCancel) { cancelDownload(accountIdentity, it.downloadId) }
     }
 
-    fun delete(
+    private fun delete(
         downloadId: String,
         expectedAttemptGeneration: Long,
     ) {
         val record = findRecord(downloadId, expectedAttemptGeneration) ?: return staleCommand()
         if (isProjectedAsLeased(downloadId)) {
-            _state.update { current -> current.copy(error = TvDownloadsError.ArtifactInUse) }
+            reduce(TvDownloadsChange.ArtifactInUse)
             return
         }
         runDeletion(record, DiagnosticOperation.DownloadDelete) { deleteDownload(accountIdentity, it.downloadId) }
@@ -242,20 +250,12 @@ class TvDownloadsPresenter(
                     } catch (error: Throwable) {
                         logFailure("projection", DiagnosticOperation.DownloadObserve, error)
                         if (generation == projectionGeneration) {
-                            _state.update { current -> current.copy(isLoading = false, error = TvDownloadsError.LoadFailed) }
+                            reduce(TvDownloadsChange.LoadFailed)
                         }
                         return@launch
                     }
                 if (generation != projectionGeneration || records !== snapshot) return@launch
-                _state.update { current ->
-                    current.copy(
-                        sections = projection.sections,
-                        isLoading = false,
-                        hasPausedDownloads = projection.hasPausedDownloads,
-                        hasQueuedDownloads = projection.hasQueuedDownloads,
-                        error = current.error.takeUnless { error -> error == TvDownloadsError.LoadFailed },
-                    )
-                }
+                reduce(TvDownloadsChange.RowsLoaded(projection))
             }
     }
 
@@ -267,7 +267,7 @@ class TvDownloadsPresenter(
                     .catch { error ->
                         if (error is CancellationException) throw error
                         logFailure("observe", DiagnosticOperation.DownloadObserve, error)
-                        _state.update { current -> current.copy(isLoading = false, error = TvDownloadsError.LoadFailed) }
+                        reduce(TvDownloadsChange.LoadFailed)
                     }.collect { observed ->
                         records = observed
                         projectRows(observed)
@@ -281,7 +281,7 @@ class TvDownloadsPresenter(
         storageJob?.cancel()
         storageJob =
             scope.launch {
-                _state.update { current -> current.copy(isRefreshingStorage = true) }
+                reduce(TvDownloadsChange.StorageStarted)
                 val storage =
                     try {
                         withContext(workDispatcher) {
@@ -293,14 +293,12 @@ class TvDownloadsPresenter(
                     } catch (error: Throwable) {
                         logFailure("storage", DiagnosticOperation.GetDownloadUsage, error)
                         if (generation == storageGeneration) {
-                            _state.update { current ->
-                                current.copy(isRefreshingStorage = false, isLoading = false, error = TvDownloadsError.LoadFailed)
-                            }
+                            reduce(TvDownloadsChange.StorageFailed)
                         }
                         return@launch
                     }
                 if (generation != storageGeneration) return@launch
-                _state.update { current -> current.copy(storage = storage, isRefreshingStorage = false) }
+                reduce(TvDownloadsChange.StorageLoaded(storage))
             }
     }
 
@@ -317,7 +315,7 @@ class TvDownloadsPresenter(
             return
         }
         scope.launch {
-            _state.update { current -> current.copy(inFlightDownloadId = record.downloadId.value, error = null) }
+            reduce(TvDownloadsChange.CommandStarted(record.downloadId.value))
             val result =
                 try {
                     withContext(workDispatcher) { command(record) }
@@ -327,12 +325,7 @@ class TvDownloadsPresenter(
                     logFailure("command", operation, error)
                     null
                 }
-            _state.update { current ->
-                current.copy(
-                    inFlightDownloadId = null,
-                    error = if (result == DownloadCommandResult.Applied) null else TvDownloadsError.CommandRejected,
-                )
-            }
+            reduce(TvDownloadsChange.CommandFinished(result))
             refreshStorage()
         }
     }
@@ -350,7 +343,7 @@ class TvDownloadsPresenter(
             return
         }
         scope.launch {
-            _state.update { current -> current.copy(inFlightDownloadId = record.downloadId.value, error = null) }
+            reduce(TvDownloadsChange.CommandStarted(record.downloadId.value))
             val result =
                 try {
                     withContext(workDispatcher) { command(record) }
@@ -360,17 +353,7 @@ class TvDownloadsPresenter(
                     logFailure("deletion", operation, error)
                     null
                 }
-            _state.update { current ->
-                current.copy(
-                    inFlightDownloadId = null,
-                    error =
-                        when (result) {
-                            DownloadDeletionResult.Deleted -> null
-                            DownloadDeletionResult.ArtifactInUse -> TvDownloadsError.ArtifactInUse
-                            else -> TvDownloadsError.CommandRejected
-                        },
-                )
-            }
+            reduce(TvDownloadsChange.DeletionFinished(result))
             refreshStorage()
         }
     }
@@ -414,7 +397,7 @@ class TvDownloadsPresenter(
         }
 
     private fun staleCommand() {
-        _state.update { current -> current.copy(error = TvDownloadsError.StaleConfirmation) }
+        reduce(TvDownloadsChange.StaleConfirmation)
     }
 
     private fun logFailure(
@@ -433,7 +416,7 @@ class TvDownloadsPresenter(
     }
 }
 
-private data class TvDownloadsProjection(
+internal data class TvDownloadsProjection(
     val sections: List<TvDownloadSection>,
     val hasPausedDownloads: Boolean,
     val hasQueuedDownloads: Boolean,

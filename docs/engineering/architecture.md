@@ -419,6 +419,19 @@ server/user labels and loading state rather than the entire Settings state, so
 preference/diagnostic changes do not change those inputs. Appearance stays a
 separate observable owner; no runtime redraw reduction is claimed.
 
+### Native tvOS downloads MVI slice
+
+Downloads, Download Request, and saved-artwork Swift models dispatch typed intents.
+Reducers own list/command/storage transitions, request load resets and admission
+outcomes, and artwork read states. Presenters retain account-qualified commands,
+attempt-generation checks, artifact leases, queue wake/bulk admission, usage
+refresh coalescing, draft identity, subtitle confirmations, and work dispatch.
+
+Artwork stays a per-view state owner: cancel clears bytes and invalidates the read,
+while close also cancels its scope. Download sections retain narrow section/command
+inputs and stable keys; artwork bytes never enter the list state. Kotlin and Swift
+host builds do not establish offline transfer or device rendering behavior.
+
 ## Source Layout Target
 
 ```text
@@ -984,6 +997,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Native download intents preserve account and artifact ownership in presenters
+  while making UI actions explicit. Independent artwork state prevents image reads
+  from invalidating the transfer list; load resets retain their replacement semantics.
 
 - Native settings reducers separate state transitions from persistence while
   preserving live store reads during atomic retries. Narrow account inputs avoid
