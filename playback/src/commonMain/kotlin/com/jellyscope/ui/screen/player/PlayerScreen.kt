@@ -210,7 +210,7 @@ fun PlayerScreen(
         kidsFullscreen = false
         // Cancelling this effect cancels a waiting admission and leaves current playback intact.
         if (viewModel.acceptKidsLaunch(request.itemId, request.options)) {
-            kidsWatchViewModel?.acceptExternalLaunch(request.itemId, request.options.offlineDownloadId)
+            kidsWatchViewModel?.accept(KidsWatchIntent.ExternalLaunchAccepted(request.itemId, request.options.offlineDownloadId))
         }
     }
     LaunchedEffect(
@@ -224,7 +224,7 @@ fun PlayerScreen(
             viewModel.state.value == playerError &&
             viewModel.selectedPlaybackTarget.value == selectedTarget
         ) {
-            kidsWatchViewModel?.removeOfflineTarget(selectedOfflineDownloadId)
+            kidsWatchViewModel?.accept(KidsWatchIntent.RemoveOfflineTarget(selectedOfflineDownloadId))
         }
     }
 
@@ -284,11 +284,11 @@ fun PlayerScreen(
                             restartFromBeginning = false,
                         )
                     ) {
-                        kidsWatchViewModel.selectAccepted(item.card.id)
+                        kidsWatchViewModel.accept(KidsWatchIntent.SelectionAccepted(item.card.id))
                     }
                 },
-                onRetryCatalogue = kidsWatchViewModel::retryCatalogue,
-                onRetryOffline = kidsWatchViewModel::retryOfflineQualification,
+                onRetryCatalogue = { kidsWatchViewModel.accept(KidsWatchIntent.RetryCatalogue) },
+                onRetryOffline = { kidsWatchViewModel.accept(KidsWatchIntent.RetryOfflineQualification) },
                 onOpenDownloads = ::stopAndOpenDownloads,
                 onPictureInPictureModeChanged = onPictureInPictureModeChangedCallback,
                 playerSourceBounds = playerSourceBounds,

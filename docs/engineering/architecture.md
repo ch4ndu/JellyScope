@@ -333,6 +333,20 @@ discovery-list updates preserve those inputs. Quick Connect remains a separately
 observed state owner. Focus, keyboard submission, password visibility, and
 navigation callbacks remain in the UI; no runtime performance gain is claimed.
 
+### Kids catalogue MVI slice
+
+`KidsWatchIntent` covers retries, accepted external launches and selections, and
+unavailable offline targets. The player still admits playback before the screen
+sends an accepted-selection intent. `KidsWatchContract.kt` owns catalogue state
+and pure transitions through one ViewModel writer. Account/session boundaries,
+shuffled order, qualification caches, generation checks, cancellation, and
+background card projection remain ViewModel responsibilities.
+
+The recommendation grid consumes catalogue/offline status and the two projected
+lists, excluding selected item identity. Selection alone preserves those inputs
+until a valid projection arrives. Grid keys and layout remain unchanged; runtime
+recomposition and playback behavior require separate device validation.
+
 ## Source Layout Target
 
 ```text
@@ -898,6 +912,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Kids catalogue intents describe accepted playback outcomes so recommendation
+  selection cannot imply playback admission. Projection stays off Main and narrow
+  grid inputs preserve existing lists while the replacement projection runs.
 
 - Authentication intents expose user inputs without transferring credentials,
   polling jobs, or navigation delivery to a shared store. Narrow URL-field inputs

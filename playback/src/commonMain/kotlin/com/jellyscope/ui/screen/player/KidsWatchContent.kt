@@ -708,7 +708,11 @@ internal fun KidsWatchContent(
                             KidsRecommendations(
                                 playingTitle = if (landscape) "" else content?.metadata?.title.orEmpty(),
                                 landscape = landscape,
-                                state = kidsState,
+                                catalogueState = kidsState.catalogueState,
+                                offlineState = kidsState.offlineState,
+                                recommendations = kidsState.recommendations,
+                                offlineFallback = kidsState.offlineFallback,
+                                hasMissingOfflineArtifacts = kidsState.hasMissingOfflineArtifacts,
                                 session = session,
                                 onSelectAsset = onSelectAsset,
                                 onRetryCatalogue = onRetryCatalogue,
@@ -1053,7 +1057,11 @@ internal fun KidsControlButton(
 private fun KidsRecommendations(
     playingTitle: String,
     landscape: Boolean,
-    state: KidsWatchUiState,
+    catalogueState: KidsCatalogueState,
+    offlineState: KidsOfflineState,
+    recommendations: List<KidsWatchItem>,
+    offlineFallback: List<KidsWatchItem>,
+    hasMissingOfflineArtifacts: Boolean,
     session: Session,
     onSelectAsset: (KidsWatchItem) -> Unit,
     onRetryCatalogue: () -> Unit,
@@ -1087,7 +1095,7 @@ private fun KidsRecommendations(
                 Text(playingTitle, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        when (state.catalogueState) {
+        when (catalogueState) {
             KidsCatalogueState.Loading ->
                 section(key = "catalogue-loading") {
                     CircularProgressIndicator()
@@ -1105,28 +1113,28 @@ private fun KidsRecommendations(
                 }
             KidsCatalogueState.Content -> Unit
         }
-        if (state.recommendations.isNotEmpty()) {
+        if (recommendations.isNotEmpty()) {
             section(key = "recommendations-title") {
                 Text(stringResource(Res.string.kids_recommendations), style = MaterialTheme.typography.titleMedium)
             }
             recommendationCards(
                 keyPrefix = "recommendation",
-                entries = state.recommendations,
+                entries = recommendations,
                 session = session,
                 onSelectAsset = onSelectAsset,
             )
-        } else if (state.catalogueState == KidsCatalogueState.Error && state.offlineFallback.isNotEmpty()) {
+        } else if (catalogueState == KidsCatalogueState.Error && offlineFallback.isNotEmpty()) {
             section(key = "offline-title") {
                 Text(stringResource(Res.string.kids_recommendations), style = MaterialTheme.typography.titleMedium)
             }
             recommendationCards(
                 keyPrefix = "offline",
-                entries = state.offlineFallback,
+                entries = offlineFallback,
                 session = session,
                 onSelectAsset = onSelectAsset,
             )
         }
-        if (state.offlineState == KidsOfflineState.Error && session.enableContentDownloading) {
+        if (offlineState == KidsOfflineState.Error && session.enableContentDownloading) {
             section(key = "offline-error") {
                 Column(verticalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing)) {
                     Text(stringResource(Res.string.kids_downloads_error))
@@ -1134,7 +1142,7 @@ private fun KidsRecommendations(
                 }
             }
         }
-        if (state.hasMissingOfflineArtifacts && session.enableContentDownloading) {
+        if (hasMissingOfflineArtifacts && session.enableContentDownloading) {
             section(key = "offline-recheck") {
                 Button(onClick = onRetryOffline) { Text(stringResource(Res.string.kids_retry_offline)) }
             }

@@ -33,36 +33,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-sealed interface KidsCatalogueState {
-    data object Loading : KidsCatalogueState
-
-    data object Empty : KidsCatalogueState
-
-    data object Error : KidsCatalogueState
-
-    data object Content : KidsCatalogueState
-}
-
-sealed interface KidsOfflineState {
-    data object Idle : KidsOfflineState
-
-    data object Error : KidsOfflineState
-}
-
-data class KidsWatchItem(
-    val card: MediaCardUi,
-    val offlineDownloadId: DownloadId? = null,
-)
-
-data class KidsWatchUiState(
-    val catalogueState: KidsCatalogueState = KidsCatalogueState.Loading,
-    val offlineState: KidsOfflineState = KidsOfflineState.Idle,
-    val selectedItemId: String,
-    val recommendations: List<KidsWatchItem> = emptyList(),
-    val offlineFallback: List<KidsWatchItem> = emptyList(),
-    val hasMissingOfflineArtifacts: Boolean = false,
-)
-
 /** Account- and session-bound recommendation state for a Kids watch session. */
 class KidsWatchViewModel(
     private val session: Session,
@@ -96,6 +66,20 @@ class KidsWatchViewModel(
     // Downloaded playback recommends only qualified downloads and makes no remote catalogue requests.
     private var offlineMode = initialOfflineDownloadId != null
 
+    fun accept(intent: KidsWatchIntent) {
+        when (intent) {
+            KidsWatchIntent.RetryCatalogue -> retryCatalogue()
+            KidsWatchIntent.RetryOfflineQualification -> retryOfflineQualification()
+            is KidsWatchIntent.ExternalLaunchAccepted -> acceptExternalLaunch(intent.itemId, intent.offlineDownloadId)
+            is KidsWatchIntent.SelectionAccepted -> selectAccepted(intent.itemId)
+            is KidsWatchIntent.RemoveOfflineTarget -> removeOfflineTarget(intent.downloadId)
+        }
+    }
+
+    private fun reduce(change: KidsWatchChange) {
+        _state.update { current -> reduceKidsWatch(current, change) }
+    }
+
     init {
         if (session.enableContentDownloading) {
             observeDownloads()
@@ -103,11 +87,11 @@ class KidsWatchViewModel(
         if (!offlineMode) {
             loadCatalogue()
         } else {
-            _state.update { current -> current.copy(catalogueState = KidsCatalogueState.Empty) }
+            reduce(KidsWatchChange.CatalogueChanged(KidsCatalogueState.Empty))
         }
     }
 
-    fun retryCatalogue() {
+    private fun retryCatalogue() {
         retryOfflineQualification()
         if (!offlineMode) {
             loadCatalogue()
@@ -115,7 +99,7 @@ class KidsWatchViewModel(
     }
 
     /** Applies a Play request the player accepted; same-mode launches keep the shuffled pool. */
-    fun acceptExternalLaunch(
+    private fun acceptExternalLaunch(
         itemId: String,
         offlineDownloadId: DownloadId?,
     ) {
@@ -128,9 +112,9 @@ class KidsWatchViewModel(
                 catalogueJob?.cancel()
                 catalogueJob = null
                 remoteOrder = emptyList()
-                _state.update { current ->
-                    current.copy(catalogueState = if (offlinePool.isEmpty()) KidsCatalogueState.Empty else KidsCatalogueState.Content)
-                }
+                reduce(
+                    KidsWatchChange.CatalogueChanged(if (offlinePool.isEmpty()) KidsCatalogueState.Empty else KidsCatalogueState.Content),
+                )
             } else {
                 loadCatalogue()
             }
@@ -138,11 +122,11 @@ class KidsWatchViewModel(
         selectAccepted(itemId)
     }
 
-    fun retryOfflineQualification() {
+    private fun retryOfflineQualification() {
         offlineRefreshGeneration += 1L
         suppressedDownloadAttempts.clear()
         downloadQualifications.clear()
-        _state.update { current -> current.copy(hasMissingOfflineArtifacts = false) }
+        reduce(KidsWatchChange.MissingArtifactsChanged(false))
         if (state.value.offlineState == KidsOfflineState.Error) {
             downloadsJob?.cancel()
             observeDownloads()
@@ -154,13 +138,13 @@ class KidsWatchViewModel(
         }
     }
 
-    fun selectAccepted(itemId: String) {
+    private fun selectAccepted(itemId: String) {
         if (itemId.isBlank()) return
-        _state.update { current -> current.copy(selectedItemId = itemId) }
+        reduce(KidsWatchChange.Selected(itemId))
         rebuildProjection()
     }
 
-    fun removeOfflineTarget(downloadId: DownloadId) {
+    private fun removeOfflineTarget(downloadId: DownloadId) {
         offlineRefreshGeneration += 1L
         offlineRefreshJob?.cancel()
         val attempts =
@@ -172,14 +156,14 @@ class KidsWatchViewModel(
         suppressedDownloadAttempts += attempts
         attempts.forEach { attempt -> downloadQualifications[attempt] = KidsDownloadQualification.Missing }
         offlinePool = offlinePool.filterNot { item -> item.offlineDownloadId == downloadId }
-        _state.update { current -> current.copy(hasMissingOfflineArtifacts = true) }
+        reduce(KidsWatchChange.MissingArtifactsChanged(true))
         rebuildProjection()
     }
 
     private fun loadCatalogue() {
         val generation = ++catalogueGeneration
         catalogueJob?.cancel()
-        _state.update { current -> current.copy(catalogueState = KidsCatalogueState.Loading) }
+        reduce(KidsWatchChange.CatalogueChanged(KidsCatalogueState.Loading))
         catalogueJob =
             viewModelScope.launch {
                 val result =
@@ -219,11 +203,11 @@ class KidsWatchViewModel(
                             }
                         if (generation != catalogueGeneration) return@fold
                         remoteOrder = mappedAndShuffled
-                        _state.update { current ->
-                            current.copy(
-                                catalogueState = if (remoteOrder.isEmpty()) KidsCatalogueState.Empty else KidsCatalogueState.Content,
-                            )
-                        }
+                        reduce(
+                            KidsWatchChange.CatalogueChanged(
+                                if (remoteOrder.isEmpty()) KidsCatalogueState.Empty else KidsCatalogueState.Content,
+                            ),
+                        )
                         rebuildProjection()
                     },
                     onFailure = { exception ->
@@ -236,19 +220,13 @@ class KidsWatchViewModel(
                             )
                         }
                         remoteOrder = emptyList()
-                        _state.update { current ->
-                            current.copy(
-                                catalogueState = KidsCatalogueState.Error,
-                            )
-                        }
+                        reduce(KidsWatchChange.CatalogueChanged(KidsCatalogueState.Error))
                         rebuildProjection()
                     },
                 ) ?: run {
                     if (generation != catalogueGeneration) return@launch
                     remoteOrder = emptyList()
-                    _state.update { current ->
-                        current.copy(catalogueState = KidsCatalogueState.Error)
-                    }
+                    reduce(KidsWatchChange.CatalogueChanged(KidsCatalogueState.Error))
                     rebuildProjection()
                 }
             }
@@ -268,7 +246,7 @@ class KidsWatchViewModel(
                                 throwable = exception,
                             )
                         }
-                        _state.update { current -> current.copy(offlineState = KidsOfflineState.Error) }
+                        reduce(KidsWatchChange.OfflineFailed)
                     }.collect { records ->
                         latestDownloadRecords = records
                         offlineRefreshJob?.cancel()
@@ -361,16 +339,9 @@ class KidsWatchViewModel(
                     KidsDownloadQualification.Missing
             } ||
                 suppressedDownloadAttempts.any { attempt -> attempt in completedAttempts }
-        _state.update { current ->
-            current.copy(
-                offlineState = KidsOfflineState.Idle,
-                hasMissingOfflineArtifacts = hasMissingOfflineArtifacts,
-            )
-        }
+        reduce(KidsWatchChange.OfflineQualified(hasMissingOfflineArtifacts))
         if (offlineMode) {
-            _state.update { current ->
-                current.copy(catalogueState = if (offlinePool.isEmpty()) KidsCatalogueState.Empty else KidsCatalogueState.Content)
-            }
+            reduce(KidsWatchChange.CatalogueChanged(if (offlinePool.isEmpty()) KidsCatalogueState.Empty else KidsCatalogueState.Content))
         }
         rebuildProjection()
     }
@@ -394,16 +365,7 @@ class KidsWatchViewModel(
                         )
                     }
                 if (generation != projectionGeneration || selectedId != state.value.selectedItemId) return@launch
-                _state.update { current ->
-                    if (selectedId != current.selectedItemId) {
-                        current
-                    } else {
-                        current.copy(
-                            recommendations = projection.recommendations,
-                            offlineFallback = projection.offlineFallback,
-                        )
-                    }
-                }
+                reduce(KidsWatchChange.ProjectionLoaded(selectedId, projection.recommendations, projection.offlineFallback))
             }
     }
 
