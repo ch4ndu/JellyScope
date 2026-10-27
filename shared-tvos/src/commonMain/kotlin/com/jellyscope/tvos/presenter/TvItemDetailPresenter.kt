@@ -76,7 +76,8 @@ class TvItemDetailPresenter(
             imageUrlBuilder = imageUrlBuilder,
             scope = scope,
             workDispatcher = workDispatcher,
-            state = _state,
+            state = state,
+            publish = { change -> reduce { TvItemDetailChange.Series(change()) } },
         )
     private var detail: MediaItemDetail? = null
     private var playbackIntent = TvDetailPlaybackIntent()
@@ -101,6 +102,29 @@ class TvItemDetailPresenter(
 
     init {
         observePlaybackStopSettlements()
+    }
+
+    private fun reduce(change: TvItemDetailChange) = reduce { change }
+
+    private fun reduce(change: () -> TvItemDetailChange) {
+        _state.update { current -> reduceTvItemDetail(current, change()) }
+    }
+
+    fun accept(intent: TvItemDetailIntent) {
+        when (intent) {
+            TvItemDetailIntent.Load -> load()
+            is TvItemDetailIntent.SelectVersion -> selectVersion(intent.mediaSourceId)
+            is TvItemDetailIntent.SelectAudio -> selectAudio(intent.streamIndex)
+            is TvItemDetailIntent.SelectSubtitle -> selectSubtitle(intent.streamIndex)
+            is TvItemDetailIntent.SelectLocalSubtitle -> selectLocalSubtitle(intent.assetId)
+            TvItemDetailIntent.TogglePlayed -> togglePlayed()
+            TvItemDetailIntent.ToggleFavorite -> toggleFavorite()
+            is TvItemDetailIntent.SelectSeason -> selectSeason(intent.seasonId)
+            TvItemDetailIntent.RetrySeasons -> retrySeasons()
+            TvItemDetailIntent.RetryEpisodes -> retryEpisodes()
+            is TvItemDetailIntent.ToggleEpisodePlayed -> toggleEpisodePlayed(intent.itemId)
+            is TvItemDetailIntent.ToggleEpisodeFavorite -> toggleEpisodeFavorite(intent.itemId)
+        }
     }
 
     fun watchState(onChange: (TvItemDetailState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
@@ -134,7 +158,7 @@ class TvItemDetailPresenter(
         }
     }
 
-    fun load() = load(onComplete = null)
+    private fun load() = load(onComplete = null)
 
     private fun load(onComplete: (() -> Unit)?) {
         val generation = ++detailGeneration
@@ -147,15 +171,7 @@ class TvItemDetailPresenter(
         val pendingPlayedGeneration = pendingPlayedIntentGeneration
         val pendingFavoriteGeneration = pendingFavoriteIntentGeneration
         val retained = _state.value.content
-        _state.update { current ->
-            current.copy(
-                isLoading = retained == null,
-                isRefreshing = retained != null,
-                relatedLoading = true,
-                error = null,
-                actionError = null,
-            )
-        }
+        reduce(TvItemDetailChange.LoadStarted(retained != null))
         val job =
             scope.launch {
                 val intentSnapshot = playbackIntent
@@ -264,14 +280,7 @@ class TvItemDetailPresenter(
                         }
                     }.onFailure { error ->
                         if (error is CancellationException) throw error
-                        _state.update { current ->
-                            current.copy(
-                                isLoading = false,
-                                isRefreshing = false,
-                                relatedLoading = false,
-                                error = error.toTvErrorKind(),
-                            )
-                        }
+                        reduce(TvItemDetailChange.LoadFailed(error.toTvErrorKind()))
                     }
             }
         detailJob = job
@@ -286,60 +295,29 @@ class TvItemDetailPresenter(
         }
     }
 
-    fun selectVersion(mediaSourceId: String) {
+    private fun selectVersion(mediaSourceId: String) {
         val loaded = detail ?: return
         if (_state.value.versions.none { version -> version.id == mediaSourceId }) return
         invalidateLocalSubtitleSelection()
         playbackIntent = playbackIntent.selectVersion(itemId, mediaSourceId)
         selectedLocalSubtitleAssetId = null
-        _state.update { current ->
-            current.copy(
-                content = current.content?.copy(isPlayable = false),
-                versions =
-                    current.versions.map { version ->
-                        version.copy(selected = version.id == mediaSourceId)
-                    },
-                selectedMediaSourceId = mediaSourceId,
-                audioTracks = emptyList(),
-                subtitleTracks = emptyList(),
-                selectedSubtitleAssetId = null,
-                isSubtitleSelectionPending = false,
-                subtitleSelectionFailed = false,
-                mediaInfo = emptyList(),
-                actionError = null,
-            )
-        }
+        reduce(TvItemDetailChange.VersionSelected(mediaSourceId))
         projectOptions(loaded, playbackIntent, selectedLocalSubtitleAssetId)
     }
 
-    fun selectAudio(streamIndex: Int) {
+    private fun selectAudio(streamIndex: Int) {
         if (_state.value.audioTracks.none { track -> track.streamIndex == streamIndex }) return
         playbackIntent = playbackIntent.selectAudio(streamIndex)
-        _state.update { current ->
-            current.copy(
-                audioTracks = current.audioTracks.map { track -> track.copy(selected = track.streamIndex == streamIndex) },
-                actionError = null,
-            )
-        }
+        reduce(TvItemDetailChange.AudioSelected(streamIndex))
     }
 
-    fun selectSubtitle(streamIndex: Int?) {
+    private fun selectSubtitle(streamIndex: Int?) {
         if (streamIndex != null && _state.value.subtitleTracks.none { track -> track.streamIndex == streamIndex }) return
         val sourceId = _state.value.selectedMediaSourceId
         invalidateLocalSubtitleSelection()
         playbackIntent = playbackIntent.selectSubtitle(streamIndex)
         selectedLocalSubtitleAssetId = null
-        _state.update { current ->
-            current.copy(
-                subtitleMode = if (streamIndex == null) TvPlaybackSubtitleMode.Off else TvPlaybackSubtitleMode.Track,
-                selectedSubtitleStreamIndex = streamIndex,
-                selectedSubtitleAssetId = null,
-                subtitleTracks = current.subtitleTracks.map { track -> track.copy(selected = track.streamIndex == streamIndex) },
-                isSubtitleSelectionPending = false,
-                subtitleSelectionFailed = false,
-                actionError = null,
-            )
-        }
+        reduce(TvItemDetailChange.SubtitleSelected(streamIndex))
         if (sourceId != null) {
             val selection =
                 streamIndex?.let(SubtitleSelectionIntent::Track)
@@ -351,31 +329,19 @@ class TvItemDetailPresenter(
         }
     }
 
-    fun selectLocalSubtitle(assetId: String?) {
+    private fun selectLocalSubtitle(assetId: String?) {
         val sourceId = state.value.selectedMediaSourceId ?: return
         val getAsset = getLocalSubtitleAsset
         val saveSelection = saveSubtitleSelection
         if (getAsset == null || saveSelection == null) {
             invalidateLocalSubtitleSelection()
-            _state.update { current ->
-                current.copy(
-                    isSubtitleSelectionPending = false,
-                    subtitleSelectionFailed = true,
-                    actionError = TvErrorKind.Unknown,
-                )
-            }
+            reduce(TvItemDetailChange.LocalSelectionFailed)
             return
         }
         val context = LocalSubtitleContext(session.serverId, session.userId, itemId, sourceId)
         localSubtitleSelectionJob?.cancel()
         val generation = ++localSubtitleSelectionGeneration
-        _state.update { current ->
-            current.copy(
-                isSubtitleSelectionPending = true,
-                subtitleSelectionFailed = false,
-                actionError = null,
-            )
-        }
+        reduce(TvItemDetailChange.LocalSelectionStarted)
         localSubtitleSelectionJob =
             scope.launch {
                 val isValid =
@@ -419,17 +385,7 @@ class TvItemDetailPresenter(
                 }
                 selectedLocalSubtitleAssetId = assetId
                 playbackIntent = playbackIntent.selectSubtitle(null)
-                _state.update { current ->
-                    current.copy(
-                        subtitleMode = if (assetId == null) TvPlaybackSubtitleMode.Off else TvPlaybackSubtitleMode.LocalAsset,
-                        selectedSubtitleStreamIndex = null,
-                        selectedSubtitleAssetId = assetId,
-                        subtitleTracks = current.subtitleTracks.map { track -> track.copy(selected = false) },
-                        isSubtitleSelectionPending = false,
-                        subtitleSelectionFailed = false,
-                        actionError = null,
-                    )
-                }
+                reduce(TvItemDetailChange.LocalSelectionSaved(assetId))
             }
     }
 
@@ -470,7 +426,7 @@ class TvItemDetailPresenter(
 
     fun episodeCanRestart(itemId: String): Boolean = seriesContent.canRestart(itemId)
 
-    fun togglePlayed() {
+    private fun togglePlayed() {
         val content = state.value.content ?: return
         if (content.kind != TvCardKind.Movie && content.kind != TvCardKind.Episode) return
         val targetItemId = content.id
@@ -479,16 +435,7 @@ class TvItemDetailPresenter(
         pendingPlayedIntentGeneration = generation
         val optimisticProgress = TvPlayedProgress(played = target, playbackPositionTicks = 0L)
         detail = detail?.withPlayedProgress(optimisticProgress)
-        _state.update { current ->
-            current.copy(
-                content =
-                    current.content
-                        ?.takeIf { it.id == targetItemId }
-                        ?.withPlayedStatus(target, detail?.item)
-                        ?: current.content,
-                actionError = null,
-            )
-        }
+        reduce { TvItemDetailChange.PlayedChanged(targetItemId, target, detail?.item) }
         scope.launch {
             playedMutationMutex.withLock {
                 val result = withContext(workDispatcher) { setItemPlayed(targetItemId, target) }
@@ -502,14 +449,12 @@ class TvItemDetailPresenter(
                         if (pendingPlayedIntentGeneration == generation) {
                             pendingPlayedIntentGeneration = null
                             detail = detail?.withPlayedProgress(lastConfirmedPlayedProgress)
-                            _state.update { current ->
-                                current.copy(
-                                    content =
-                                        current.content
-                                            ?.takeIf { it.id == targetItemId }
-                                            ?.withPlayedStatus(lastConfirmedPlayedProgress.played, detail?.item)
-                                            ?: current.content,
-                                    actionError = error.toTvErrorKind(),
+                            reduce {
+                                TvItemDetailChange.PlayedRolledBack(
+                                    targetItemId,
+                                    lastConfirmedPlayedProgress.played,
+                                    detail?.item,
+                                    error.toTvErrorKind(),
                                 )
                             }
                         }
@@ -518,18 +463,13 @@ class TvItemDetailPresenter(
         }
     }
 
-    fun toggleFavorite() {
+    private fun toggleFavorite() {
         val content = state.value.content ?: return
         val targetItemId = content.id
         val target = !content.isFavorite
         val generation = ++favoriteIntentGeneration
         pendingFavoriteIntentGeneration = generation
-        _state.update { current ->
-            current.copy(
-                content = current.content?.takeIf { it.id == targetItemId }?.copy(isFavorite = target) ?: current.content,
-                actionError = null,
-            )
-        }
+        reduce(TvItemDetailChange.FavoriteChanged(targetItemId, target))
         scope.launch {
             favoriteMutationMutex.withLock {
                 val result = withContext(workDispatcher) { setItemFavorite(targetItemId, target) }
@@ -542,29 +482,22 @@ class TvItemDetailPresenter(
                     }.onFailure { error ->
                         if (pendingFavoriteIntentGeneration == generation) {
                             pendingFavoriteIntentGeneration = null
-                            _state.update { current ->
-                                current.copy(
-                                    content =
-                                        current.content?.takeIf { it.id == targetItemId }?.copy(isFavorite = lastConfirmedFavorite)
-                                            ?: current.content,
-                                    actionError = error.toTvErrorKind(),
-                                )
-                            }
+                            reduce { TvItemDetailChange.FavoriteRolledBack(targetItemId, lastConfirmedFavorite, error.toTvErrorKind()) }
                         }
                     }
             }
         }
     }
 
-    fun selectSeason(seasonId: String) = seriesContent.selectSeason(seasonId)
+    private fun selectSeason(seasonId: String) = seriesContent.selectSeason(seasonId)
 
-    fun retrySeasons() = seriesContent.load()
+    private fun retrySeasons() = seriesContent.load()
 
-    fun retryEpisodes() = seriesContent.retryEpisodes()
+    private fun retryEpisodes() = seriesContent.retryEpisodes()
 
-    fun toggleEpisodePlayed(itemId: String) = seriesContent.togglePlayed(itemId)
+    private fun toggleEpisodePlayed(itemId: String) = seriesContent.togglePlayed(itemId)
 
-    fun toggleEpisodeFavorite(itemId: String) = seriesContent.toggleFavorite(itemId)
+    private fun toggleEpisodeFavorite(itemId: String) = seriesContent.toggleFavorite(itemId)
 
     private fun invalidateLocalSubtitleSelection() {
         localSubtitleSelectionGeneration += 1
@@ -577,13 +510,7 @@ class TvItemDetailPresenter(
         sourceId: String,
     ) {
         if (generation != localSubtitleSelectionGeneration || state.value.selectedMediaSourceId != sourceId) return
-        _state.update { current ->
-            current.copy(
-                isSubtitleSelectionPending = false,
-                subtitleSelectionFailed = true,
-                actionError = TvErrorKind.Unknown,
-            )
-        }
+        reduce(TvItemDetailChange.LocalSelectionFailed)
     }
 
     private fun projectOptions(
@@ -592,15 +519,7 @@ class TvItemDetailPresenter(
         localSubtitleAssetId: String?,
     ) {
         if (intent != playbackIntent || localSubtitleAssetId != selectedLocalSubtitleAssetId) return
-        _state.update { current ->
-            current.copy(
-                content = current.content?.copy(isPlayable = false),
-                audioTracks = emptyList(),
-                subtitleTracks = emptyList(),
-                mediaInfo = emptyList(),
-                actionError = null,
-            )
-        }
+        reduce(TvItemDetailChange.OptionsStarted)
         optionJob?.cancel()
         val generation = ++optionGeneration
         optionJob =
@@ -673,7 +592,7 @@ class TvItemDetailPresenter(
                         )
                     }.onFailure { error ->
                         if (error is CancellationException) throw error
-                        _state.update { current -> current.copy(actionError = error.toTvErrorKind()) }
+                        reduce(TvItemDetailChange.ActionFailed(error.toTvErrorKind()))
                     }
             }
     }
@@ -682,25 +601,7 @@ class TvItemDetailPresenter(
         projection: TvDetailProjection,
         content: TvItemDetailContent,
     ) {
-        _state.update { current ->
-            current.copy(
-                isLoading = false,
-                isRefreshing = false,
-                content = content,
-                versions = projection.versions,
-                selectedMediaSourceId = projection.selectedMediaSourceId,
-                audioTracks = projection.audioTracks,
-                subtitleTracks = projection.subtitleTracks,
-                subtitleMode = projection.subtitleMode,
-                selectedSubtitleStreamIndex = projection.selectedSubtitleStreamIndex,
-                selectedSubtitleAssetId = projection.selectedSubtitleAssetId,
-                mediaInfo = projection.mediaInfo,
-                cast = projection.cast,
-                crew = projection.crew,
-                error = null,
-                actionError = current.actionError,
-            )
-        }
+        reduce(TvItemDetailChange.Projected(projection, content))
     }
 
     private suspend fun resolveLocalSubtitleAssetId(
@@ -744,37 +645,23 @@ class TvItemDetailPresenter(
                                 }
                             if (generation != detailGeneration) return@collect
                             groups += projected
-                            _state.update { current -> current.copy(relatedGroups = groups.toList()) }
+                            reduce(TvItemDetailChange.RelatedLoaded(groups.toList()))
                         }
                     if (generation == detailGeneration) {
-                        _state.update { current -> current.copy(relatedLoading = false) }
+                        reduce(TvItemDetailChange.RelatedFinished)
                     }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (_: Throwable) {
                     if (generation == detailGeneration) {
-                        _state.update { current -> current.copy(relatedLoading = false) }
+                        reduce(TvItemDetailChange.RelatedFinished)
                     }
                 }
             }
     }
 
     private fun clearSeriesState() {
-        _state.update { current ->
-            current.copy(
-                seasons = emptyList(),
-                seasonsLoading = false,
-                seasonsError = null,
-                selectedSeasonId = null,
-                episodes = emptyList(),
-                episodesLoading = false,
-                episodesError = null,
-                nextUpLoading = false,
-                nextUpError = null,
-                nextUpEpisodeId = null,
-                nextUpEpisode = null,
-            )
-        }
+        reduce(TvItemDetailChange.SeriesCleared)
     }
 }
 

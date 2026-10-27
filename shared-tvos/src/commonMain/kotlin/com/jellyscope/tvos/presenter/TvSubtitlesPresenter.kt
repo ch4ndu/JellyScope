@@ -65,9 +65,27 @@ class TvSubtitlesPresenter(
         load()
     }
 
+    private fun reduce(change: TvSubtitlesChange) = reduce { change }
+
+    private fun reduce(change: () -> TvSubtitlesChange) {
+        _state.update { current -> reduceTvSubtitles(current, change()) }
+    }
+
+    fun accept(intent: TvSubtitlesIntent) {
+        when (intent) {
+            TvSubtitlesIntent.Load -> load()
+            is TvSubtitlesIntent.SetLanguage -> setLanguage(intent.language)
+            TvSubtitlesIntent.Search -> search()
+            is TvSubtitlesIntent.Install -> install(intent.fileId)
+            is TvSubtitlesIntent.SelectLocalSubtitle -> selectLocalSubtitle(intent.assetId)
+            is TvSubtitlesIntent.Delete -> delete(intent.assetId)
+            is TvSubtitlesIntent.RetrySync -> retrySync(intent.assetId)
+        }
+    }
+
     fun watchState(onChange: (TvSubtitlesState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun load() {
+    private fun load() {
         contextJob?.cancel()
         searchJob?.cancel()
         installJob?.cancel()
@@ -81,7 +99,7 @@ class TvSubtitlesPresenter(
         searchGeneration += 1
         selectionGeneration += 1
         val selectionRevision = _state.value.selectionRevision
-        _state.value = TvSubtitlesState(selectionRevision = selectionRevision)
+        reduce(TvSubtitlesChange.Reset(selectionRevision))
         contextJob =
             scope.launch {
                 val resolution =
@@ -132,50 +150,37 @@ class TvSubtitlesPresenter(
                     is ContextResolution.Available -> {
                         activeContext = resolution.context
                         selectedAssetId = resolution.selectedAssetId
-                        _state.update { current ->
-                            current.copy(
-                                availability = TvSubtitlesAvailability.Available,
-                                selectedLanguage = resolution.language,
-                                selectedLocalAssetId = resolution.selectedAssetId,
-                            )
-                        }
+                        reduce(TvSubtitlesChange.Available(resolution.language, resolution.selectedAssetId))
                         observeLocalAssets(resolution.context, generation)
                         search()
                     }
                     ContextResolution.Unsupported -> {
-                        _state.update { current -> current.copy(availability = TvSubtitlesAvailability.Unsupported) }
+                        reduce(TvSubtitlesChange.Unsupported)
                     }
                     ContextResolution.Failed -> {
-                        _state.update { current -> current.copy(availability = TvSubtitlesAvailability.Failed) }
+                        reduce(TvSubtitlesChange.Failed)
                     }
                 }
             }
     }
 
-    fun setLanguage(language: String) {
+    private fun setLanguage(language: String) {
         if (state.value.languageChoices.none { choice -> choice.code == language }) return
         if (state.value.selectedLanguage == language) return
-        _state.update { current -> current.copy(selectedLanguage = language) }
+        reduce(TvSubtitlesChange.LanguageSelected(language))
         installJob?.cancel()
         installJob = null
         search()
     }
 
-    fun search() {
+    private fun search() {
         val context = activeContext ?: return
         val contextVersion = contextGeneration
         val generation = ++searchGeneration
         val language = state.value.selectedLanguage
         searchJob?.cancel()
         rawSearchResults = emptyList()
-        _state.update { current ->
-            current.copy(
-                isSearching = true,
-                searchResults = emptyList(),
-                searchError = false,
-                installationError = false,
-            )
-        }
+        reduce(TvSubtitlesChange.SearchStarted)
         searchJob =
             scope.launch {
                 val result =
@@ -199,38 +204,21 @@ class TvSubtitlesPresenter(
                 when (result) {
                     is SearchResult.Success -> {
                         rawSearchResults = result.raw
-                        _state.update { current ->
-                            current.copy(
-                                isSearching = false,
-                                searchResults = result.projected,
-                                searchError = false,
-                            )
-                        }
+                        reduce(TvSubtitlesChange.SearchLoaded(result.projected))
                     }
                     SearchResult.Failed -> {
-                        _state.update { current ->
-                            current.copy(
-                                isSearching = false,
-                                searchResults = emptyList(),
-                                searchError = true,
-                            )
-                        }
+                        reduce(TvSubtitlesChange.SearchFailed)
                     }
                 }
             }
     }
 
-    fun install(fileId: String) {
+    private fun install(fileId: String) {
         val context = activeContext ?: return
         val result = rawSearchResults.firstOrNull { candidate -> candidate.fileId == fileId && candidate.selectable } ?: return
         if (installJob?.isActive == true) return
         val contextVersion = contextGeneration
-        _state.update { current ->
-            current.copy(
-                installingFileId = fileId,
-                installationError = false,
-            )
-        }
+        reduce(TvSubtitlesChange.InstallStarted(fileId))
         installJob =
             scope.launch {
                 val installed =
@@ -253,45 +241,20 @@ class TvSubtitlesPresenter(
                 installed
                     .onSuccess { value ->
                         if (value.selectionApplied) selectedAssetId = value.asset.id
-                        _state.update { current ->
-                            current.copy(
-                                localSubtitles =
-                                    current.localSubtitles.map { asset ->
-                                        asset.copy(selected = value.selectionApplied && asset.id == value.asset.id)
-                                    },
-                                selectedLocalAssetId =
-                                    if (value.selectionApplied) value.asset.id else current.selectedLocalAssetId,
-                                installingFileId = null,
-                                installationError = false,
-                                quotaRemaining = value.quotaRemaining,
-                                quotaResetTime = value.quotaResetTime,
-                                selectionRevision =
-                                    if (value.selectionApplied) current.selectionRevision + 1L else current.selectionRevision,
-                                selectionAssetId =
-                                    if (value.selectionApplied) value.asset.id else current.selectionAssetId,
-                            )
-                        }
+                        reduce(
+                            TvSubtitlesChange.Installed(value.selectionApplied, value.asset.id, value.quotaRemaining, value.quotaResetTime),
+                        )
                     }.onFailure {
-                        _state.update { current ->
-                            current.copy(
-                                installingFileId = null,
-                                installationError = true,
-                            )
-                        }
+                        reduce(TvSubtitlesChange.InstallFailed)
                     }
             }
     }
 
-    fun selectLocalSubtitle(assetId: String?) {
+    private fun selectLocalSubtitle(assetId: String?) {
         val context = activeContext ?: return
         val contextVersion = contextGeneration
         val generation = ++selectionGeneration
-        _state.update { current ->
-            current.copy(
-                isSelecting = true,
-                selectionError = false,
-            )
-        }
+        reduce(TvSubtitlesChange.SelectionStarted)
         scope.launch {
             val succeeded =
                 try {
@@ -319,35 +282,16 @@ class TvSubtitlesPresenter(
                 }
             if (!isCurrent(context, contextVersion) || generation != selectionGeneration) return@launch
             if (succeeded) selectedAssetId = assetId
-            _state.update { current ->
-                current.copy(
-                    localSubtitles =
-                        if (succeeded) {
-                            current.localSubtitles.map { asset -> asset.copy(selected = asset.id == assetId) }
-                        } else {
-                            current.localSubtitles
-                        },
-                    selectedLocalAssetId = if (succeeded) assetId else current.selectedLocalAssetId,
-                    isSelecting = false,
-                    selectionError = !succeeded,
-                    selectionRevision = if (succeeded) current.selectionRevision + 1L else current.selectionRevision,
-                    selectionAssetId = if (succeeded) assetId else current.selectionAssetId,
-                )
-            }
+            reduce(TvSubtitlesChange.SelectionFinished(succeeded, assetId))
         }
     }
 
-    fun delete(assetId: String) {
+    private fun delete(assetId: String) {
         val context = activeContext ?: return
         if (state.value.localSubtitles.none { asset -> asset.id == assetId }) return
         if (deleteJob?.isActive == true) return
         val contextVersion = contextGeneration
-        _state.update { current ->
-            current.copy(
-                deletingAssetId = assetId,
-                deleteErrorAssetId = null,
-            )
-        }
+        reduce(TvSubtitlesChange.DeleteStarted(assetId))
         deleteJob =
             scope.launch {
                 val succeeded =
@@ -371,30 +315,16 @@ class TvSubtitlesPresenter(
                 if (!isCurrent(context, contextVersion)) return@launch
                 val clearedSelection = succeeded && selectedAssetId == assetId
                 if (clearedSelection) selectedAssetId = null
-                _state.update { current ->
-                    current.copy(
-                        localSubtitles = if (succeeded) current.localSubtitles.filterNot { it.id == assetId } else current.localSubtitles,
-                        selectedLocalAssetId = if (clearedSelection) null else current.selectedLocalAssetId,
-                        deletingAssetId = null,
-                        deleteErrorAssetId = assetId.takeUnless { succeeded },
-                        selectionRevision = if (clearedSelection) current.selectionRevision + 1L else current.selectionRevision,
-                        selectionAssetId = if (clearedSelection) null else current.selectionAssetId,
-                    )
-                }
+                reduce(TvSubtitlesChange.DeleteFinished(succeeded, clearedSelection, assetId))
             }
     }
 
-    fun retrySync(assetId: String) {
+    private fun retrySync(assetId: String) {
         val context = activeContext ?: return
         val row = state.value.localSubtitles.firstOrNull { asset -> asset.id == assetId && asset.canRetrySync } ?: return
         if (syncJob?.isActive == true) return
         val contextVersion = contextGeneration
-        _state.update { current ->
-            current.copy(
-                syncingAssetId = row.id,
-                syncErrorAssetId = null,
-            )
-        }
+        reduce(TvSubtitlesChange.SyncStarted(row.id))
         syncJob =
             scope.launch {
                 val succeeded =
@@ -417,12 +347,7 @@ class TvSubtitlesPresenter(
                         false
                     }
                 if (!isCurrent(context, contextVersion)) return@launch
-                _state.update { current ->
-                    current.copy(
-                        syncingAssetId = null,
-                        syncErrorAssetId = assetId.takeUnless { succeeded },
-                    )
-                }
+                reduce(TvSubtitlesChange.SyncFinished(succeeded, assetId))
             }
     }
 
@@ -439,7 +364,7 @@ class TvSubtitlesPresenter(
                             assets.map { asset -> asset.toTvLocalSubtitle(selectedAssetId) }
                         }
                     if (!isCurrent(context, generation)) return@collect
-                    _state.update { current -> current.copy(localSubtitles = rows) }
+                    reduce(TvSubtitlesChange.AssetsLoaded(rows))
                 }
             }
     }

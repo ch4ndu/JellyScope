@@ -38,7 +38,7 @@ class TvItemDetailPresenterTest {
                 )
             val presenter = presenter(repository)
 
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
             val state = presenter.state.value
@@ -68,7 +68,7 @@ class TvItemDetailPresenterTest {
                 )
             val presenter = presenter(repository, itemId = "series-1")
 
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
             val state = presenter.state.value
@@ -98,10 +98,10 @@ class TvItemDetailPresenterTest {
                         ),
                 )
             val presenter = presenter(repository, itemId = "series-1")
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
-            presenter.selectSeason("season-2")
+            presenter.accept(TvItemDetailIntent.SelectSeason("season-2"))
             runCurrent()
 
             assertEquals("season-2", presenter.state.value.selectedSeasonId)
@@ -122,14 +122,14 @@ class TvItemDetailPresenterTest {
                     seasons = Result.failure(IllegalStateException("down")),
                 )
             val presenter = presenter(repository, itemId = "series-1")
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
             assertEquals(TvErrorKind.Network, presenter.state.value.seasonsError)
 
             repository.seasons = Result.success(listOf(mediaItem(id = "season-1", name = "Season 1")))
             repository.episodesBySeasonId = mapOf("season-1" to listOf(mediaItem(id = "episode-1", kind = MediaKind.Episode)))
-            presenter.retrySeasons()
+            presenter.accept(TvItemDetailIntent.RetrySeasons)
             runCurrent()
 
             assertEquals(null, presenter.state.value.seasonsError)
@@ -157,14 +157,14 @@ class TvItemDetailPresenterTest {
                     episodesFailure = true,
                 )
             val presenter = presenter(repository, itemId = "series-1")
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
             assertEquals(TvErrorKind.Network, presenter.state.value.episodesError)
 
             repository.episodesFailure = false
             repository.episodesBySeasonId = mapOf("season-1" to listOf(mediaItem(id = "episode-1", kind = MediaKind.Episode)))
-            presenter.retryEpisodes()
+            presenter.accept(TvItemDetailIntent.RetryEpisodes)
             runCurrent()
 
             assertEquals(null, presenter.state.value.episodesError)
@@ -193,7 +193,7 @@ class TvItemDetailPresenterTest {
                 )
             val presenter = presenter(repository)
 
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
             val badges = requireNotNull(presenter.state.value.content).badges
@@ -208,17 +208,17 @@ class TvItemDetailPresenterTest {
         runTest {
             val repository = FakeTvMediaRepository()
             val presenter = presenter(repository)
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
-            presenter.togglePlayed()
+            presenter.accept(TvItemDetailIntent.TogglePlayed)
             assertTrue(requireNotNull(presenter.state.value.content).played)
             runCurrent()
             assertEquals("item-1" to true, repository.playedCalls.single())
             assertTrue(requireNotNull(presenter.state.value.content).played)
 
             repository.setPlayedResult = Result.failure(IllegalStateException("down"))
-            presenter.togglePlayed()
+            presenter.accept(TvItemDetailIntent.TogglePlayed)
             assertTrue(!requireNotNull(presenter.state.value.content).played)
             runCurrent()
             // Failure reverts the optimistic flip back to the pre-toggle truth.
@@ -235,11 +235,11 @@ class TvItemDetailPresenterTest {
             repository.playedResponses.addLast(first)
             repository.playedResponses.addLast(second)
             val presenter = presenter(repository)
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
-            presenter.togglePlayed()
-            presenter.togglePlayed()
+            presenter.accept(TvItemDetailIntent.TogglePlayed)
+            presenter.accept(TvItemDetailIntent.TogglePlayed)
             runCurrent()
             assertEquals(listOf("item-1" to true), repository.playedCalls)
 
@@ -262,11 +262,11 @@ class TvItemDetailPresenterTest {
             repository.playedResponses.addLast(first)
             repository.playedResponses.addLast(second)
             val presenter = presenter(repository)
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
-            presenter.togglePlayed()
-            presenter.togglePlayed()
+            presenter.accept(TvItemDetailIntent.TogglePlayed)
+            presenter.accept(TvItemDetailIntent.TogglePlayed)
             runCurrent()
             first.complete(Result.failure(IllegalStateException("first")))
             runCurrent()
@@ -286,11 +286,11 @@ class TvItemDetailPresenterTest {
             repository.favoriteResponses.addLast(first)
             repository.favoriteResponses.addLast(second)
             val presenter = presenter(repository)
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
-            presenter.toggleFavorite()
-            presenter.toggleFavorite()
+            presenter.accept(TvItemDetailIntent.ToggleFavorite)
+            presenter.accept(TvItemDetailIntent.ToggleFavorite)
             runCurrent()
             assertEquals(listOf("item-1" to true), repository.favoriteCalls)
 
@@ -313,11 +313,11 @@ class TvItemDetailPresenterTest {
             repository.favoriteResponses.addLast(first)
             repository.favoriteResponses.addLast(second)
             val presenter = presenter(repository)
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
-            presenter.toggleFavorite()
-            presenter.toggleFavorite()
+            presenter.accept(TvItemDetailIntent.ToggleFavorite)
+            presenter.accept(TvItemDetailIntent.ToggleFavorite)
             runCurrent()
             first.complete(Result.failure(IllegalStateException("first")))
             runCurrent()
@@ -360,7 +360,7 @@ class TvItemDetailPresenterTest {
                 )
             val presenter = presenter(repository, itemId = "series-1")
 
-            presenter.load()
+            presenter.accept(TvItemDetailIntent.Load)
             runCurrent()
 
             assertEquals(listOf(true), repository.nextUpIncludeResumableCalls)

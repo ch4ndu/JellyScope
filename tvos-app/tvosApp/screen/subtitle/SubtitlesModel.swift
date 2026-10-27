@@ -39,31 +39,31 @@ final class SubtitlesModel: ObservableObject {
     }
 
     func reload() {
-        presenter.load()
+        presenter.accept(intent: TvSubtitlesIntentLoad.shared)
     }
 
     func setLanguage(_ language: String) {
-        presenter.setLanguage(language: language)
+        presenter.accept(intent: TvSubtitlesIntentSetLanguage(language: language))
     }
 
     func retrySearch() {
-        presenter.search()
+        presenter.accept(intent: TvSubtitlesIntentSearch.shared)
     }
 
     func install(_ result: TvOpenSubtitleResult) {
-        presenter.install(fileId: result.fileId)
+        presenter.accept(intent: TvSubtitlesIntentInstall(fileId: result.fileId))
     }
 
     func select(_ assetId: String?) {
-        presenter.selectLocalSubtitle(assetId: assetId)
+        presenter.accept(intent: TvSubtitlesIntentSelectLocalSubtitle(assetId: assetId))
     }
 
     func delete(_ assetId: String) {
-        presenter.delete(assetId: assetId)
+        presenter.accept(intent: TvSubtitlesIntentDelete(assetId: assetId))
     }
 
     func retrySync(_ assetId: String) {
-        presenter.retrySync(assetId: assetId)
+        presenter.accept(intent: TvSubtitlesIntentRetrySync(assetId: assetId))
     }
 
     func close() {

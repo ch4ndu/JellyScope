@@ -92,7 +92,20 @@ struct SubtitlesView: View {
                 }
             }
 
-            SubtitleSearchView(model: model)
+            SubtitleSearchView(
+                languageChoices: model.state.languageChoices,
+                selectedLanguage: model.state.selectedLanguage,
+                isSearching: model.state.isSearching,
+                searchResults: model.state.searchResults,
+                searchError: model.state.searchError,
+                installingFileId: model.state.installingFileId,
+                installationError: model.state.installationError,
+                quotaRemaining: model.state.quotaRemaining,
+                quotaResetTime: model.state.quotaResetTime,
+                onLanguage: model.setLanguage,
+                onRetry: model.retrySearch,
+                onInstall: model.install
+            )
         }
     }
 }

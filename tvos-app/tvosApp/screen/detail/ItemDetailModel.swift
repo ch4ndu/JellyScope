@@ -23,23 +23,23 @@ final class ItemDetailModel: ObservableObject {
     }
 
     func load() {
-        presenter.load()
+        presenter.accept(intent: TvItemDetailIntentLoad.shared)
     }
 
     func selectVersion(_ mediaSourceId: String) {
-        presenter.selectVersion(mediaSourceId: mediaSourceId)
+        presenter.accept(intent: TvItemDetailIntentSelectVersion(mediaSourceId: mediaSourceId))
     }
 
     func selectAudio(_ streamIndex: Int32) {
-        presenter.selectAudio(streamIndex: streamIndex)
+        presenter.accept(intent: TvItemDetailIntentSelectAudio(streamIndex: streamIndex))
     }
 
     func selectSubtitle(_ streamIndex: Int32?) {
-        presenter.selectSubtitle(streamIndex: streamIndex.map { KotlinInt(int: $0) })
+        presenter.accept(intent: TvItemDetailIntentSelectSubtitle(streamIndex: streamIndex.map { KotlinInt(int: $0) }))
     }
 
     func selectLocalSubtitle(_ assetId: String?) {
-        presenter.selectLocalSubtitle(assetId: assetId)
+        presenter.accept(intent: TvItemDetailIntentSelectLocalSubtitle(assetId: assetId))
     }
 
     func selectSubtitleTrack(_ streamIndex: Int32) {
@@ -47,31 +47,31 @@ final class ItemDetailModel: ObservableObject {
     }
 
     func selectSeason(_ seasonId: String) {
-        presenter.selectSeason(seasonId: seasonId)
+        presenter.accept(intent: TvItemDetailIntentSelectSeason(seasonId: seasonId))
     }
 
     func retrySeasons() {
-        presenter.retrySeasons()
+        presenter.accept(intent: TvItemDetailIntentRetrySeasons.shared)
     }
 
     func retryEpisodes() {
-        presenter.retryEpisodes()
+        presenter.accept(intent: TvItemDetailIntentRetryEpisodes.shared)
     }
 
     func togglePlayed() {
-        presenter.togglePlayed()
+        presenter.accept(intent: TvItemDetailIntentTogglePlayed.shared)
     }
 
     func toggleFavorite() {
-        presenter.toggleFavorite()
+        presenter.accept(intent: TvItemDetailIntentToggleFavorite.shared)
     }
 
     func toggleEpisodePlayed(_ itemId: String) {
-        presenter.toggleEpisodePlayed(itemId: itemId)
+        presenter.accept(intent: TvItemDetailIntentToggleEpisodePlayed(itemId: itemId))
     }
 
     func toggleEpisodeFavorite(_ itemId: String) {
-        presenter.toggleEpisodeFavorite(itemId: itemId)
+        presenter.accept(intent: TvItemDetailIntentToggleEpisodeFavorite(itemId: itemId))
     }
 
     func downloadSelection() -> TvDetailPlaybackSelection? {

@@ -432,6 +432,21 @@ while close also cancels its scope. Download sections retain narrow section/comm
 inputs and stable keys; artwork bytes never enter the list state. Kotlin and Swift
 host builds do not establish offline transfer or device rendering behavior.
 
+### Native tvOS detail and subtitles MVI slice
+
+Detail and subtitle-search Swift models dispatch typed mutation intents. Detail's
+reducer owns both item and series transitions; the series helper observes read-only
+state and publishes changes through that owner. Reducers preserve generation checks
+inside atomic updates, optimistic played/favorite rollback, and independent related
+shelves. Read-only playback-selection and episode-presentation queries remain direct.
+
+Subtitle reducers preserve context/search/selection generations, durable selection
+acknowledgement, install quota, deletion and sync outcomes. The Swift model consumes
+selection revisions once; closing still cancels observation and presenter work.
+Search content takes only search/language/install/quota values and callbacks, excluding
+local selection, deletion and sync state. This narrows source dependencies without a
+claim of measured SwiftUI rendering gains or device playback validation.
+
 ## Source Layout Target
 
 ```text
@@ -997,6 +1012,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Native detail has one state writer even when series loading and optimistic actions
+  overlap. Typed subtitle changes retain acknowledgement revisions, while narrow
+  search inputs keep unrelated local-asset operations outside search dependencies.
 
 - Native download intents preserve account and artifact ownership in presenters
   while making UI actions explicit. Independent artwork state prevents image reads

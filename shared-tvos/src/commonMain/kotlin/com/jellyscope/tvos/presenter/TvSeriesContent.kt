@@ -20,13 +20,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,7 +44,8 @@ internal class TvSeriesContent(
     private val imageUrlBuilder: JellyfinImageUrlBuilder,
     private val scope: CoroutineScope,
     private val workDispatcher: CoroutineDispatcher,
-    private val state: MutableStateFlow<TvItemDetailState>,
+    private val state: StateFlow<TvItemDetailState>,
+    private val publish: (() -> TvSeriesChange) -> Unit,
 ) {
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
@@ -112,6 +112,10 @@ internal class TvSeriesContent(
         }
     }
 
+    private fun reduce(change: TvSeriesChange) = publish { change }
+
+    private fun reduce(change: () -> TvSeriesChange) = publish(change)
+
     fun load() = load(onComplete = null)
 
     private fun load(onComplete: (() -> Unit)?) {
@@ -120,14 +124,7 @@ internal class TvSeriesContent(
         val selectionRevision = seasonSelectionRevision
         val playedRevisionsAtLoad = playedIntentRevisions.toMap()
         val pendingPlayedAtLoad = pendingPlayedRevisions.keys.toSet()
-        state.update { current ->
-            current.copy(
-                seasonsLoading = true,
-                seasonsError = null,
-                nextUpLoading = true,
-                nextUpError = null,
-            )
-        }
+        reduce(TvSeriesChange.LoadStarted)
         var completionDelegated = false
         val job =
             scope.launch {
@@ -210,27 +207,18 @@ internal class TvSeriesContent(
                 val selectedSeasonId =
                     requestedSeasonId?.takeIf { id -> availableSeasons.any { season -> season.id == id } }
                         ?: availableSeasons.firstOrNull()?.id
-                state.update { current ->
-                    if (generation != seasonsGeneration) {
-                        current
-                    } else {
-                        current.copy(
-                            seasons =
-                                if (result.seasons.isSuccess && !selectionChanged) seasons else current.seasons,
-                            seasonsLoading = false,
-                            seasonsError = result.seasons.exceptionOrNull()?.toTvErrorKind(),
-                            nextUpLoading = false,
-                            nextUpError = result.nextUp.exceptionOrNull()?.toTvErrorKind(),
-                            nextUpEpisodeId =
-                                if (result.nextUp.isSuccess) {
-                                    nextUpCard?.id.takeIf { nextUpSeasonId != null }
-                                } else {
-                                    current.nextUpEpisodeId
-                                },
-                            nextUpEpisode =
-                                if (result.nextUp.isSuccess) nextUpCard else current.nextUpEpisode,
-                        )
-                    }
+                reduce {
+                    TvSeriesChange.SeasonsLoaded(
+                        generation == seasonsGeneration,
+                        result.seasons.isSuccess,
+                        result.nextUp.isSuccess,
+                        selectionChanged,
+                        seasons,
+                        result.seasons.exceptionOrNull()?.toTvErrorKind(),
+                        result.nextUp.exceptionOrNull()?.toTvErrorKind(),
+                        nextUpCard,
+                        nextUpSeasonId,
+                    )
                 }
                 if (generation == seasonsGeneration && !selectionChanged && selectedSeasonId != null) {
                     completionDelegated = true
@@ -286,7 +274,7 @@ internal class TvSeriesContent(
                             updateEpisodeItem(itemId) { episode -> episode.withPlayedProgress(confirmed) }
                             updateEpisode(itemId) { episode -> episode.withPlayedProgress(confirmed) }
                             pendingPlayedRevisions.remove(itemId)
-                            state.update { current -> current.copy(actionError = error.toTvErrorKind()) }
+                            reduce(TvSeriesChange.ActionFailed(error.toTvErrorKind()))
                         }
                     }
             }
@@ -316,7 +304,7 @@ internal class TvSeriesContent(
                             updateEpisodeItem(itemId) { episode -> episode.copy(isFavorite = confirmed) }
                             updateEpisode(itemId) { episode -> episode.copy(isFavorite = confirmed) }
                             pendingFavoriteRevisions.remove(itemId)
-                            state.update { current -> current.copy(actionError = error.toTvErrorKind()) }
+                            reduce(TvSeriesChange.ActionFailed(error.toTvErrorKind()))
                         }
                     }
             }
@@ -369,13 +357,7 @@ internal class TvSeriesContent(
         val favoriteRevisionsAtLoad = favoriteIntentRevisions.toMap()
         val pendingPlayedAtLoad = pendingPlayedRevisions.keys.toSet()
         val pendingFavoriteAtLoad = pendingFavoriteRevisions.keys.toSet()
-        state.update { current ->
-            current.copy(
-                selectedSeasonId = seasonId,
-                episodesLoading = true,
-                episodesError = null,
-            )
-        }
+        reduce(TvSeriesChange.EpisodesStarted(seasonId))
         val job =
             scope.launch {
                 val loadedResult =
@@ -467,29 +449,10 @@ internal class TvSeriesContent(
                                 confirmedFavorite[episode.id] = episode.isFavorite
                             }
                         }
-                        state.update { current ->
-                            if (generation == episodesGeneration && current.selectedSeasonId == seasonId) {
-                                current.copy(
-                                    episodes = projection.cards,
-                                    episodesLoading = false,
-                                    episodesError = null,
-                                )
-                            } else {
-                                current
-                            }
-                        }
+                        reduce { TvSeriesChange.EpisodesLoaded(generation == episodesGeneration, seasonId, projection.cards) }
                     }.onFailure { error ->
                         if (error is CancellationException) throw error
-                        state.update { current ->
-                            if (generation == episodesGeneration && current.selectedSeasonId == seasonId) {
-                                current.copy(
-                                    episodesLoading = false,
-                                    episodesError = error.toTvErrorKind(),
-                                )
-                            } else {
-                                current
-                            }
-                        }
+                        reduce { TvSeriesChange.EpisodesFailed(generation == episodesGeneration, seasonId, error.toTvErrorKind()) }
                     }
             }
         episodesJob = job
@@ -508,13 +471,7 @@ internal class TvSeriesContent(
         itemId: String,
         transform: (TvMediaCard) -> TvMediaCard,
     ) {
-        state.update { current ->
-            current.copy(
-                episodes = current.episodes.map { episode -> if (episode.id == itemId) transform(episode) else episode },
-                nextUpEpisode = current.nextUpEpisode?.let { episode -> if (episode.id == itemId) transform(episode) else episode },
-                actionError = null,
-            )
-        }
+        reduce(TvSeriesChange.EpisodeChanged(itemId, transform))
     }
 
     private fun updateEpisodeItem(
