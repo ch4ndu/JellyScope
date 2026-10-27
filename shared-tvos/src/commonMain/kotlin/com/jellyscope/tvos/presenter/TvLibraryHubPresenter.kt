@@ -84,14 +84,26 @@ class TvLibraryHubPresenter(
             if (restoreGeneration != viewIntentGeneration) return@launch
             val restored =
                 savedView?.takeIf { view -> rememberLastView.value && view in availableViews } ?: defaultView
-            _state.update { current -> current.copy(selectedView = restored) }
+            reduce(TvLibraryHubChange.ViewSelected(restored))
             loadSelectedView(restored)
+        }
+    }
+
+    private fun reduce(change: TvLibraryHubChange) {
+        _state.update { current -> reduceTvLibraryHub(current, change) }
+    }
+
+    fun accept(intent: TvLibraryHubIntent) {
+        when (intent) {
+            is TvLibraryHubIntent.SelectView -> selectView(intent.view)
+            is TvLibraryHubIntent.RetryRecommendation -> retryRecommendation(intent.section)
+            TvLibraryHubIntent.RefreshRecommendedSilently -> refreshRecommendedSilently()
         }
     }
 
     fun watchState(onChange: (TvLibraryHubState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun selectView(view: LibraryInnerView) {
+    private fun selectView(view: LibraryInnerView) {
         if (view !in availableViews) return
         viewIntentGeneration += 1
         if (rememberLastView.value) {
@@ -101,17 +113,17 @@ class TvLibraryHubPresenter(
             loadSelectedView(view)
             return
         }
-        _state.update { current -> current.copy(selectedView = view) }
+        reduce(TvLibraryHubChange.ViewSelected(view))
         loadSelectedView(view)
     }
 
-    fun retryRecommendation(section: LibraryRecommendationSection) {
+    private fun retryRecommendation(section: LibraryRecommendationSection) {
         if (section in recommendationSections) {
             loadRecommendation(section, keepContentOnError = false)
         }
     }
 
-    fun refreshRecommendedSilently() {
+    private fun refreshRecommendedSilently() {
         if (_state.value.selectedView != LibraryInnerView.Recommended) return
         recommendationSections.forEach { section ->
             loadRecommendation(section, keepContentOnError = true)
@@ -198,14 +210,7 @@ class TvLibraryHubPresenter(
         section: LibraryRecommendationSection,
         next: TvLibraryRecommendationSectionState,
     ) {
-        _state.update { current ->
-            current.copy(
-                recommendationSections =
-                    current.recommendationSections.map { state ->
-                        if (state.section == section) next else state
-                    },
-            )
-        }
+        reduce(TvLibraryHubChange.SectionChanged(section, next))
     }
 
     private fun LibraryRecommendationRow.toTvRow(): TvLibraryRecommendationRow? {

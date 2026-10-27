@@ -19,15 +19,15 @@ final class LibraryHubModel: ObservableObject {
     }
 
     func selectView(_ view: LibraryInnerView) {
-        presenter.selectView(view: view)
+        presenter.accept(intent: TvLibraryHubIntentSelectView(view: view))
     }
 
     func retryRecommendation(_ section: LibraryRecommendationSection) {
-        presenter.retryRecommendation(section: section)
+        presenter.accept(intent: TvLibraryHubIntentRetryRecommendation(section: section))
     }
 
     func refreshRecommendedSilently() {
-        presenter.refreshRecommendedSilently()
+        presenter.accept(intent: TvLibraryHubIntentRefreshRecommendedSilently.shared)
     }
 
     deinit {

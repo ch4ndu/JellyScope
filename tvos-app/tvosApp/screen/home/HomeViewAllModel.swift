@@ -17,23 +17,23 @@ final class HomeViewAllModel: ObservableObject {
         self.handle = presenter.watchState { [weak self] state in
             self?.state = state
         }
-        presenter.load()
+        presenter.accept(intent: TvHomeViewAllIntentLoad.shared)
     }
 
     func retry() {
-        presenter.retry()
+        presenter.accept(intent: TvHomeViewAllIntentRetry.shared)
     }
 
     func viewAppeared() {
         if hasAppeared {
-            presenter.refresh()
+            presenter.accept(intent: TvHomeViewAllIntentRefresh.shared)
         } else {
             hasAppeared = true
         }
     }
 
     func retryRefresh() {
-        presenter.refresh()
+        presenter.accept(intent: TvHomeViewAllIntentRefresh.shared)
     }
 
     deinit {

@@ -375,6 +375,20 @@ and returns the same state for equal row projections. SwiftUI rendering and remo
 focus require device validation; host tests and framework/app builds cover the
 intent bridge and existing deterministic behavior.
 
+### Native tvOS browse MVI slice
+
+Home View All, Library Browse, Library Hub, and Person models dispatch typed
+intents through their presenters. Pure reducers own UI transitions; presenters
+retain load jobs, admission, saved-sort/view writes, filter drafts, and off-Main
+projection. Library and Person page guards read live generation authority inside
+the atomic update, including silent-refresh and filter-projection guards.
+Pagination still advances by raw server counts and continues duplicate-only full
+pages; refresh failures retain prior content.
+
+Person headers receive only header data and its loading flag, excluding paged
+filmography state. Existing row/card identities and unchanged references remain
+intact. This narrows dependencies without claiming measured SwiftUI redraw gains.
+
 ## Source Layout Target
 
 ```text
@@ -940,6 +954,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Native browse reducers retain current-generation checks and raw pagination
+  offsets so stale requests cannot replace the current query. Header input
+  narrowing keeps independently paged filmography outside header dependencies.
 
 - Native tvOS intents make Swift-to-Kotlin actions explicit while preserving typed
   observation and owner-controlled closure. Narrow questionnaire inputs separate

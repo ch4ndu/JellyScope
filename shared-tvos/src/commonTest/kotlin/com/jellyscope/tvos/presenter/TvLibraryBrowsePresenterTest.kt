@@ -29,7 +29,7 @@ class TvLibraryBrowsePresenterTest {
             val repository = FakeTvMediaRepository(pageProvider = pagedLibrary(totalCount = 100))
             val presenter = presenter(repository)
 
-            presenter.load()
+            presenter.accept(TvLibraryBrowseIntent.Load)
             runCurrent()
 
             val state = presenter.state.value
@@ -45,10 +45,10 @@ class TvLibraryBrowsePresenterTest {
         runTest {
             val repository = FakeTvMediaRepository(pageProvider = pagedLibrary(totalCount = 70))
             val presenter = presenter(repository)
-            presenter.load()
+            presenter.accept(TvLibraryBrowseIntent.Load)
             runCurrent()
 
-            presenter.loadMoreIfNeeded(focusedIndex = presenter.state.value.items.size - 1)
+            presenter.accept(TvLibraryBrowseIntent.LoadMoreIfNeeded(focusedIndex = presenter.state.value.items.size - 1))
             runCurrent()
 
             val state = presenter.state.value
@@ -63,10 +63,10 @@ class TvLibraryBrowsePresenterTest {
         runTest {
             val repository = FakeTvMediaRepository(pageProvider = pagedLibrary(totalCount = 100))
             val presenter = presenter(repository)
-            presenter.load()
+            presenter.accept(TvLibraryBrowseIntent.Load)
             runCurrent()
 
-            presenter.loadMoreIfNeeded(focusedIndex = 0)
+            presenter.accept(TvLibraryBrowseIntent.LoadMoreIfNeeded(focusedIndex = 0))
             runCurrent()
 
             assertEquals(60, presenter.state.value.items.size)
@@ -89,10 +89,10 @@ class TvLibraryBrowsePresenterTest {
                     },
                 )
             val presenter = presenter(repository)
-            presenter.load()
+            presenter.accept(TvLibraryBrowseIntent.Load)
             runCurrent()
 
-            presenter.loadMoreIfNeeded(focusedIndex = 59)
+            presenter.accept(TvLibraryBrowseIntent.LoadMoreIfNeeded(focusedIndex = 59))
             runCurrent()
 
             val state = presenter.state.value

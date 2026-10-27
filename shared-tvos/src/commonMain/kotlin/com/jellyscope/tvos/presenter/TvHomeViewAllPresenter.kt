@@ -16,14 +16,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class TvHomeViewAllState(
-    val row: TvHomeRowKind,
-    val status: TvHomeRowStatus = TvHomeRowStatus.Loading,
-    val items: List<TvMediaCard> = emptyList(),
-    val error: TvErrorKind? = null,
-    val isRefreshing: Boolean = false,
-)
-
 class TvHomeViewAllPresenter(
     private val session: Session,
     private val row: TvHomeRowKind,
@@ -37,20 +29,25 @@ class TvHomeViewAllPresenter(
     private var loadJob: Job? = null
     private var generation = 0
 
+    private fun reduce(change: TvHomeViewAllChange) {
+        _state.update { current -> reduceTvHomeViewAll(current, change) }
+    }
+
+    fun accept(intent: TvHomeViewAllIntent) {
+        when (intent) {
+            TvHomeViewAllIntent.Load -> load()
+            TvHomeViewAllIntent.Retry -> retry()
+            TvHomeViewAllIntent.Refresh -> refresh()
+        }
+    }
+
     fun watchState(onChange: (TvHomeViewAllState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun load() {
+    private fun load() {
         loadJob?.cancel()
         generation += 1
         val loadGeneration = generation
-        _state.update { current ->
-            current.copy(
-                status = TvHomeRowStatus.Loading,
-                items = emptyList(),
-                error = null,
-                isRefreshing = false,
-            )
-        }
+        reduce(TvHomeViewAllChange.Started)
         loadJob =
             scope.launch {
                 val result =
@@ -62,42 +59,23 @@ class TvHomeViewAllPresenter(
                 result.fold(
                     onSuccess = { cards ->
                         if (generation == loadGeneration) {
-                            _state.update { current ->
-                                current.copy(
-                                    status =
-                                        if (cards.isEmpty()) {
-                                            TvHomeRowStatus.Empty
-                                        } else {
-                                            TvHomeRowStatus.Content
-                                        },
-                                    items = cards,
-                                    error = null,
-                                    isRefreshing = false,
-                                )
-                            }
+                            reduce(TvHomeViewAllChange.Loaded(cards))
                         }
                     },
                     onFailure = { failure ->
                         if (generation == loadGeneration) {
-                            _state.update { current ->
-                                current.copy(
-                                    status = TvHomeRowStatus.Error,
-                                    items = emptyList(),
-                                    error = failure.toTvErrorKind(),
-                                    isRefreshing = false,
-                                )
-                            }
+                            reduce(TvHomeViewAllChange.Failed(failure.toTvErrorKind()))
                         }
                     },
                 )
             }
     }
 
-    fun retry() {
+    private fun retry() {
         load()
     }
 
-    fun refresh() {
+    private fun refresh() {
         if (state.value.status != TvHomeRowStatus.Content) {
             load()
             return
@@ -106,7 +84,7 @@ class TvHomeViewAllPresenter(
         loadJob?.cancel()
         generation += 1
         val refreshGeneration = generation
-        _state.update { current -> current.copy(isRefreshing = true, error = null) }
+        reduce(TvHomeViewAllChange.RefreshStarted)
         loadJob =
             scope.launch {
                 val result =
@@ -118,29 +96,12 @@ class TvHomeViewAllPresenter(
                 result.fold(
                     onSuccess = { cards ->
                         if (generation == refreshGeneration) {
-                            _state.update { current ->
-                                current.copy(
-                                    status =
-                                        if (cards.isEmpty()) {
-                                            TvHomeRowStatus.Empty
-                                        } else {
-                                            TvHomeRowStatus.Content
-                                        },
-                                    items = cards,
-                                    error = null,
-                                    isRefreshing = false,
-                                )
-                            }
+                            reduce(TvHomeViewAllChange.Loaded(cards))
                         }
                     },
                     onFailure = { failure ->
                         if (generation == refreshGeneration) {
-                            _state.update { current ->
-                                current.copy(
-                                    error = failure.toTvErrorKind(),
-                                    isRefreshing = false,
-                                )
-                            }
+                            reduce(TvHomeViewAllChange.RefreshFailed(failure.toTvErrorKind()))
                         }
                     },
                 )

@@ -85,9 +85,38 @@ class TvLibraryBrowsePresenter(
         }
     }
 
+    private fun reduce(change: TvLibraryBrowseChange) {
+        _state.update { current ->
+            reduceTvLibraryBrowse(
+                current,
+                change,
+                queryGeneration,
+                pageRequestGeneration,
+                filterProjectionGeneration,
+                appliedFilters.activeCount,
+            )
+        }
+    }
+
+    fun accept(intent: TvLibraryBrowseIntent) {
+        when (intent) {
+            TvLibraryBrowseIntent.Load -> load()
+            TvLibraryBrowseIntent.Retry -> retry()
+            is TvLibraryBrowseIntent.LoadMoreIfNeeded -> loadMoreIfNeeded(intent.focusedIndex)
+            TvLibraryBrowseIntent.RefreshSilently -> refreshSilently()
+            is TvLibraryBrowseIntent.SetSort -> setSort(intent.sortBy, intent.sortOrder)
+            TvLibraryBrowseIntent.BeginEditingFilters -> beginEditingFilters()
+            is TvLibraryBrowseIntent.ToggleDraftFilter -> toggleDraftFilter(intent.group, intent.key)
+            TvLibraryBrowseIntent.ResetDraftFilters -> resetDraftFilters()
+            TvLibraryBrowseIntent.ApplyFilters -> applyFilters()
+            TvLibraryBrowseIntent.CancelFilterEditing -> cancelFilterEditing()
+            TvLibraryBrowseIntent.RetryFilters -> retryFilters()
+        }
+    }
+
     fun watchState(onChange: (TvLibraryBrowseState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun load() {
+    private fun load() {
         if (loadedOnce) return
         loadedOnce = true
         loadFilters()
@@ -106,27 +135,27 @@ class TvLibraryBrowsePresenter(
                 }
             if (restoreGeneration != sortIntentGeneration) return@launch
             hasResolvedInitialSort = true
-            _state.update { current ->
-                current.copy(
-                    sortBy = savedSort?.sortBy ?: LibrarySortBy.Name,
-                    sortOrder = savedSort?.sortOrder ?: LibrarySortOrder.Ascending,
-                )
-            }
+            reduce(
+                TvLibraryBrowseChange.SortRestored(
+                    savedSort?.sortBy ?: LibrarySortBy.Name,
+                    savedSort?.sortOrder ?: LibrarySortOrder.Ascending,
+                ),
+            )
             loadFirstPage()
         }
     }
 
-    fun retry() {
+    private fun retry() {
         val appendOffset = failedAppendOffset
         if (_state.value.items.isNotEmpty() && appendOffset != null) {
-            _state.update { current -> current.copy(isLoadingMore = true, error = null) }
+            reduce(TvLibraryBrowseChange.AppendStarted)
             fetchPage(startIndex = appendOffset, append = true)
         } else {
             loadFirstPage()
         }
     }
 
-    fun loadMoreIfNeeded(focusedIndex: Int) {
+    private fun loadMoreIfNeeded(focusedIndex: Int) {
         val current = _state.value
         if (
             pageJob?.isActive == true ||
@@ -139,11 +168,11 @@ class TvLibraryBrowsePresenter(
         ) {
             return
         }
-        _state.update { it.copy(isLoadingMore = true, error = null) }
+        reduce(TvLibraryBrowseChange.AppendStarted)
         fetchPage(startIndex = current.consumedOffset, append = true)
     }
 
-    fun refreshSilently() {
+    private fun refreshSilently() {
         val snapshot = _state.value
         val windowSize = snapshot.consumedOffset
         if (
@@ -169,27 +198,12 @@ class TvLibraryBrowsePresenter(
                     return@launch
                 }
                 result.onSuccess { page ->
-                    _state.update { current ->
-                        if (
-                            generation != queryGeneration ||
-                            refreshPageGeneration != pageRequestGeneration
-                        ) {
-                            current
-                        } else {
-                            current.copy(
-                                items = page.items,
-                                totalCount = page.totalCount,
-                                consumedOffset = page.rawCount,
-                                endReached = page.rawCount < windowSize,
-                                error = null,
-                            )
-                        }
-                    }
+                    reduce(TvLibraryBrowseChange.Refreshed(generation, refreshPageGeneration, page, windowSize))
                 }
             }
     }
 
-    fun setSort(
+    private fun setSort(
         sortBy: LibrarySortBy,
         sortOrder: LibrarySortOrder,
     ) {
@@ -213,12 +227,12 @@ class TvLibraryBrowsePresenter(
         }
     }
 
-    fun beginEditingFilters() {
+    private fun beginEditingFilters() {
         draftFilters = appliedFilters
         publishFilterDraft(isEditing = true)
     }
 
-    fun toggleDraftFilter(
+    private fun toggleDraftFilter(
         group: TvLibraryFilterGroupKind,
         key: String,
     ) {
@@ -228,13 +242,13 @@ class TvLibraryBrowsePresenter(
         publishFilterDraft(isEditing = true)
     }
 
-    fun resetDraftFilters() {
+    private fun resetDraftFilters() {
         if (!_state.value.isEditingFilters) return
         draftFilters = LibraryFilterSelection()
         publishFilterDraft(isEditing = true)
     }
 
-    fun applyFilters() {
+    private fun applyFilters() {
         if (!_state.value.isEditingFilters) return
         val next = draftFilters
         if (next == appliedFilters) {
@@ -252,12 +266,12 @@ class TvLibraryBrowsePresenter(
         publishFilterSelection(isEditing = false)
     }
 
-    fun cancelFilterEditing() {
+    private fun cancelFilterEditing() {
         draftFilters = appliedFilters
         publishFilterDraft(isEditing = false)
     }
 
-    fun retryFilters() {
+    private fun retryFilters() {
         loadFilters()
     }
 
@@ -265,17 +279,7 @@ class TvLibraryBrowsePresenter(
         initialQueryStarted = true
         failedAppendOffset = null
         invalidateRequests()
-        _state.update { current ->
-            current.copy(
-                isLoading = true,
-                isLoadingMore = false,
-                items = emptyList(),
-                totalCount = null,
-                consumedOffset = 0,
-                endReached = false,
-                error = null,
-            )
-        }
+        reduce(TvLibraryBrowseChange.Started)
         fetchPage(startIndex = 0, append = false)
     }
 
@@ -302,21 +306,7 @@ class TvLibraryBrowsePresenter(
                                 page.addedCount == 0 &&
                                 page.rawCount == DEFAULT_LIBRARY_PAGE_SIZE
                         failedAppendOffset = null
-                        _state.update { current ->
-                            if (generation != queryGeneration || requestGeneration != pageRequestGeneration) {
-                                current
-                            } else {
-                                current.copy(
-                                    isLoading = false,
-                                    isLoadingMore = continuePaging,
-                                    items = page.items,
-                                    totalCount = page.totalCount,
-                                    consumedOffset = startIndex + page.rawCount,
-                                    endReached = page.rawCount < DEFAULT_LIBRARY_PAGE_SIZE,
-                                    error = null,
-                                )
-                            }
-                        }
+                        reduce(TvLibraryBrowseChange.Loaded(generation, requestGeneration, page, continuePaging, startIndex))
                         if (
                             continuePaging &&
                             generation == queryGeneration &&
@@ -331,17 +321,7 @@ class TvLibraryBrowsePresenter(
                     }.onFailure { error ->
                         if (error is CancellationException) throw error
                         failedAppendOffset = startIndex.takeIf { append }
-                        _state.update { current ->
-                            if (generation != queryGeneration || requestGeneration != pageRequestGeneration) {
-                                current
-                            } else {
-                                current.copy(
-                                    isLoading = false,
-                                    isLoadingMore = false,
-                                    error = error.toTvErrorKind(),
-                                )
-                            }
-                        }
+                        reduce(TvLibraryBrowseChange.Failed(generation, requestGeneration, error.toTvErrorKind()))
                     }
             }
     }
@@ -365,7 +345,7 @@ class TvLibraryBrowsePresenter(
         facetJob?.cancel()
         val generation = ++facetGeneration
         val selection = currentFilterSelection()
-        _state.update { current -> current.copy(facetStatus = TvLibraryFacetStatus.Loading) }
+        reduce(TvLibraryBrowseChange.FacetsLoading)
         facetJob =
             scope.launch {
                 val result =
@@ -387,20 +367,15 @@ class TvLibraryBrowsePresenter(
                         filterDefinitions = projection.definitions
                         val latestSelection = currentFilterSelection()
                         if (latestSelection == selection) {
-                            _state.update { current ->
-                                current.copy(
-                                    facetStatus = TvLibraryFacetStatus.Content,
-                                    filterGroups = projection.groups,
-                                )
-                            }
+                            reduce(TvLibraryBrowseChange.FacetsLoaded(projection.groups))
                         } else {
-                            _state.update { current -> current.copy(facetStatus = TvLibraryFacetStatus.Content) }
+                            reduce(TvLibraryBrowseChange.FacetsReady)
                             publishFilterSelection(isEditing = _state.value.isEditingFilters)
                         }
                     }.onFailure { error ->
                         if (error is CancellationException) throw error
                         if (generation != facetGeneration) return@onFailure
-                        _state.update { current -> current.copy(facetStatus = TvLibraryFacetStatus.Error) }
+                        reduce(TvLibraryBrowseChange.FacetsFailed)
                     }
             }
     }
@@ -414,24 +389,12 @@ class TvLibraryBrowsePresenter(
         val definitions = filterDefinitions
         filterProjectionJob?.cancel()
         val generation = ++filterProjectionGeneration
-        _state.update { current ->
-            current.copy(
-                isEditingFilters = isEditing,
-                appliedFilterCount = appliedFilters.activeCount,
-                draftFilterCount = selection.activeCount,
-            )
-        }
+        reduce(TvLibraryBrowseChange.EditingChanged(isEditing, selection.activeCount))
         filterProjectionJob =
             scope.launch {
                 val groups = withContext(workDispatcher) { definitions.toTvFilterGroups(selection) }
                 if (generation != filterProjectionGeneration) return@launch
-                _state.update { current ->
-                    if (generation == filterProjectionGeneration) {
-                        current.copy(filterGroups = groups)
-                    } else {
-                        current
-                    }
-                }
+                reduce(TvLibraryBrowseChange.FilterGroupsLoaded(generation, groups))
             }
     }
 
@@ -439,18 +402,7 @@ class TvLibraryBrowsePresenter(
         initialQueryStarted = true
         invalidateRequests()
         failedAppendOffset = null
-        _state.update { current ->
-            current.transform().copy(
-                isLoading = true,
-                isLoadingMore = false,
-                items = emptyList(),
-                totalCount = null,
-                consumedOffset = 0,
-                endReached = false,
-                error = null,
-                queryRevision = current.queryRevision + 1,
-            )
-        }
+        reduce(TvLibraryBrowseChange.QueryReset(transform))
         fetchPage(startIndex = 0, append = false)
     }
 
@@ -512,7 +464,7 @@ class TvLibraryBrowsePresenter(
     }
 }
 
-private data class TvLibraryPageProjection(
+internal data class TvLibraryPageProjection(
     val items: List<TvMediaCard>,
     val addedCount: Int,
     val rawCount: Int,

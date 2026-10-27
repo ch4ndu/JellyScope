@@ -19,47 +19,47 @@ final class LibraryBrowseModel: ObservableObject {
     }
 
     func load() {
-        presenter.load()
+        presenter.accept(intent: TvLibraryBrowseIntentLoad.shared)
     }
 
     func retry() {
-        presenter.retry()
+        presenter.accept(intent: TvLibraryBrowseIntentRetry.shared)
     }
 
     func loadMoreIfNeeded(focusedIndex: Int) {
-        presenter.loadMoreIfNeeded(focusedIndex: Int32(focusedIndex))
+        presenter.accept(intent: TvLibraryBrowseIntentLoadMoreIfNeeded(focusedIndex: Int32(focusedIndex)))
     }
 
     func refreshSilently() {
-        presenter.refreshSilently()
+        presenter.accept(intent: TvLibraryBrowseIntentRefreshSilently.shared)
     }
 
     func setSort(sortBy: LibrarySortBy, sortOrder: LibrarySortOrder) {
-        presenter.setSort(sortBy: sortBy, sortOrder: sortOrder)
+        presenter.accept(intent: TvLibraryBrowseIntentSetSort(sortBy: sortBy, sortOrder: sortOrder))
     }
 
     func beginEditingFilters() {
-        presenter.beginEditingFilters()
+        presenter.accept(intent: TvLibraryBrowseIntentBeginEditingFilters.shared)
     }
 
     func toggleDraftFilter(group: TvLibraryFilterGroupKind, key: String) {
-        presenter.toggleDraftFilter(group: group, key: key)
+        presenter.accept(intent: TvLibraryBrowseIntentToggleDraftFilter(group: group, key: key))
     }
 
     func resetDraftFilters() {
-        presenter.resetDraftFilters()
+        presenter.accept(intent: TvLibraryBrowseIntentResetDraftFilters.shared)
     }
 
     func applyFilters() {
-        presenter.applyFilters()
+        presenter.accept(intent: TvLibraryBrowseIntentApplyFilters.shared)
     }
 
     func cancelFilterEditing() {
-        presenter.cancelFilterEditing()
+        presenter.accept(intent: TvLibraryBrowseIntentCancelFilterEditing.shared)
     }
 
     func retryFilters() {
-        presenter.retryFilters()
+        presenter.accept(intent: TvLibraryBrowseIntentRetryFilters.shared)
     }
 
     deinit {

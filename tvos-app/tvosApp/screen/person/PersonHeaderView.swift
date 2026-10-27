@@ -4,14 +4,15 @@ import SharedTv
 import SwiftUI
 
 struct PersonHeaderView: View {
-    let state: TvPersonState
+    let header: TvPersonHeader?
+    let isLoading: Bool
     let onRetry: () -> Void
 
     @Environment(\.tvAppearance) private var appearance
 
     var body: some View {
         Group {
-            if let header = state.header {
+            if let header = header {
                 HStack(alignment: .top, spacing: 42) {
                     RemoteImage(url: header.imageUrl, contentMode: .fill, fallbackTitle: header.name)
                         .frame(
@@ -32,7 +33,7 @@ struct PersonHeaderView: View {
                     }
                     .frame(maxWidth: 880, alignment: .leading)
                 }
-            } else if state.headerLoading {
+            } else if isLoading {
                 MediaStatusView(status: .loading, title: String(localized: "Loading…"))
             } else {
                 MediaStatusView(

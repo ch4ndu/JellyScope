@@ -21,7 +21,8 @@ struct PersonView: View {
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: TvDimensions.ribbonSpacing) {
                     PersonHeaderView(
-                        state: model.state,
+                        header: model.state.header,
+                        isLoading: model.state.headerLoading,
                         onRetry: model.retryHeader
                     )
 

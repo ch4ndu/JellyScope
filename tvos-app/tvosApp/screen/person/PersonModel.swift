@@ -19,19 +19,19 @@ final class PersonModel: ObservableObject {
     }
 
     func load() {
-        presenter.load()
+        presenter.accept(intent: TvPersonIntentLoad.shared)
     }
 
     func retryHeader() {
-        presenter.retryHeader()
+        presenter.accept(intent: TvPersonIntentRetryHeader.shared)
     }
 
     func retry() {
-        presenter.retry()
+        presenter.accept(intent: TvPersonIntentRetry.shared)
     }
 
     func loadMoreIfNeeded(_ index: Int) {
-        presenter.loadMoreIfNeeded(focusedIndex: Int32(index))
+        presenter.accept(intent: TvPersonIntentLoadMoreIfNeeded(focusedIndex: Int32(index)))
     }
 
     deinit {

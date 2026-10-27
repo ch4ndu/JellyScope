@@ -37,30 +37,43 @@ class TvPersonPresenter(
     private var pageGeneration = 0L
     private var failedAppendOffset: Int? = null
 
+    private fun reduce(change: TvPersonChange) {
+        _state.update { current -> reduceTvPerson(current, change, pageGeneration) }
+    }
+
+    fun accept(intent: TvPersonIntent) {
+        when (intent) {
+            TvPersonIntent.Load -> load()
+            TvPersonIntent.RetryHeader -> retryHeader()
+            TvPersonIntent.Retry -> retry()
+            is TvPersonIntent.LoadMoreIfNeeded -> loadMoreIfNeeded(intent.focusedIndex)
+        }
+    }
+
     fun watchState(onChange: (TvPersonState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun load() {
+    private fun load() {
         if (loaded) return
         loaded = true
         loadHeader()
         loadFirstPage()
     }
 
-    fun retryHeader() {
+    private fun retryHeader() {
         loadHeader()
     }
 
-    fun retry() {
+    private fun retry() {
         val failedOffset = failedAppendOffset
         if (failedOffset != null && (state.value.movies.isNotEmpty() || state.value.shows.isNotEmpty())) {
-            _state.update { current -> current.copy(isLoadingMore = true, error = null) }
+            reduce(TvPersonChange.AppendStarted)
             fetchPage(failedOffset, append = true)
         } else {
             loadFirstPage()
         }
     }
 
-    fun loadMoreIfNeeded(focusedIndex: Int) {
+    private fun loadMoreIfNeeded(focusedIndex: Int) {
         val current = state.value
         val visibleCount = current.movies.size + current.shows.size
         if (
@@ -74,14 +87,14 @@ class TvPersonPresenter(
         ) {
             return
         }
-        _state.update { state -> state.copy(isLoadingMore = true, error = null) }
+        reduce(TvPersonChange.AppendStarted)
         fetchPage(current.consumedOffset, append = true)
     }
 
     private fun loadHeader() {
         headerJob?.cancel()
         val generation = ++headerGeneration
-        _state.update { current -> current.copy(headerLoading = true, headerError = null) }
+        reduce(TvPersonChange.HeaderStarted)
         headerJob =
             scope.launch {
                 val result =
@@ -97,10 +110,10 @@ class TvPersonPresenter(
                 if (generation != headerGeneration) return@launch
                 result
                     .onSuccess { header ->
-                        _state.update { current -> current.copy(headerLoading = false, header = header, headerError = null) }
+                        reduce(TvPersonChange.HeaderLoaded(header))
                     }.onFailure { error ->
                         if (error is CancellationException) throw error
-                        _state.update { current -> current.copy(headerLoading = false, headerError = error.toTvErrorKind()) }
+                        reduce(TvPersonChange.HeaderFailed(error.toTvErrorKind()))
                     }
             }
     }
@@ -109,18 +122,7 @@ class TvPersonPresenter(
         failedAppendOffset = null
         pageJob?.cancel()
         pageGeneration += 1L
-        _state.update { current ->
-            current.copy(
-                isLoading = true,
-                isLoadingMore = false,
-                movies = emptyList(),
-                shows = emptyList(),
-                totalCount = null,
-                consumedOffset = 0,
-                endReached = false,
-                error = null,
-            )
-        }
+        reduce(TvPersonChange.Started)
         fetchPage(startIndex = 0, append = false)
     }
 
@@ -153,22 +155,7 @@ class TvPersonPresenter(
                     .onSuccess { page ->
                         val continuePaging = append && page.addedCount == 0 && page.rawCount == DEFAULT_DISCOVERY_PAGE_SIZE
                         failedAppendOffset = null
-                        _state.update { current ->
-                            if (generation == pageGeneration) {
-                                current.copy(
-                                    isLoading = false,
-                                    isLoadingMore = continuePaging,
-                                    movies = page.movies,
-                                    shows = page.shows,
-                                    totalCount = page.totalCount,
-                                    consumedOffset = startIndex + page.rawCount,
-                                    endReached = page.rawCount < DEFAULT_DISCOVERY_PAGE_SIZE,
-                                    error = null,
-                                )
-                            } else {
-                                current
-                            }
-                        }
+                        reduce(TvPersonChange.Loaded(generation, page, continuePaging, startIndex))
                         if (continuePaging && generation == pageGeneration) {
                             pageJob = null
                             fetchPage(startIndex + page.rawCount, append = true)
@@ -176,17 +163,7 @@ class TvPersonPresenter(
                     }.onFailure { error ->
                         if (error is CancellationException) throw error
                         failedAppendOffset = startIndex.takeIf { append }
-                        _state.update { current ->
-                            if (generation == pageGeneration) {
-                                current.copy(
-                                    isLoading = false,
-                                    isLoadingMore = false,
-                                    error = error.toTvErrorKind(),
-                                )
-                            } else {
-                                current
-                            }
-                        }
+                        reduce(TvPersonChange.Failed(generation, error.toTvErrorKind()))
                     }
             }
     }
@@ -226,7 +203,7 @@ class TvPersonPresenter(
     }
 }
 
-private data class TvPersonPageProjection(
+internal data class TvPersonPageProjection(
     val movies: List<TvMediaCard>,
     val shows: List<TvMediaCard>,
     val rawCount: Int,
