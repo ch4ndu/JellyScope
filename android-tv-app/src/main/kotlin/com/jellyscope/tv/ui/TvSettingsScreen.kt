@@ -62,7 +62,9 @@ import com.jellyscope.core.domain.playback.PlayerHdrMode
 import com.jellyscope.core.domain.playback.playbackQualityChoices
 import com.jellyscope.core.domain.playback.vlcTranscodeBudgetOptions
 import com.jellyscope.tv.R
+import com.jellyscope.tv.TvSettingsPreferencesIntent
 import com.jellyscope.tv.TvSettingsPreferencesViewModel
+import com.jellyscope.ui.screen.account.AccountIntent
 import com.jellyscope.ui.screen.account.AccountUiError
 import com.jellyscope.ui.screen.account.AccountUiState
 import com.jellyscope.ui.screen.account.AccountViewModel
@@ -70,6 +72,7 @@ import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.settings.PlaybackTimelineActivity
 import com.jellyscope.ui.screen.settings.PlaybackTimelineDelivery
 import com.jellyscope.ui.screen.settings.PlaybackTimelineFeedback
+import com.jellyscope.ui.screen.settings.SettingsIntent
 import com.jellyscope.ui.screen.settings.SettingsUiState
 import com.jellyscope.ui.screen.settings.SettingsViewModel
 import com.jellyscope.ui.screen.settings.autoplayDelayOptions
@@ -151,55 +154,67 @@ fun TvSettingsScreen(
         onRequestRailFocus = ::requestRailFocus,
         onLogout = {
             logoutFailed = false
-            viewModel.logout(onLogoutComplete)
+            viewModel.accept(SettingsIntent.Logout(onLogoutComplete))
         },
-        onConfirmLogoutRemoval = { viewModel.confirmLogoutRemoval(onLogoutComplete) },
-        onDismissLogoutRemoval = viewModel::dismissLogoutRemoval,
-        onSwitchAccount = accountViewModel::switchTo,
-        onAddAccount = accountViewModel::addAccount,
-        onDefaultQualityPolicySelected = viewModel::setDefaultQualityPolicy,
-        onVlcTranscodeMaxBitrateSelected = viewModel::setVlcTranscodeMaxBitrateBps,
-        onDefaultPlayerBackendSelected = viewModel::setDefaultPlayerBackend,
-        onMpvVideoOutputSelected = viewModel::setAndroidTvMpvVideoOutput,
-        onRetryPlaybackPreferences = viewModel::reloadPlaybackPreferences,
-        onPreferredAudioLanguageChange = viewModel::setPreferredAudioLanguage,
-        onPreferredSubtitleLanguageChange = viewModel::setPreferredSubtitleLanguage,
-        onAutoPlayNextChange = viewModel::setAutoPlayNext,
-        onAutoPlayNextDelaySelected = viewModel::setAutoPlayNextDelaySeconds,
-        onStillWatchingPromptChange = viewModel::setStillWatchingPrompt,
-        onPlaybackWarningsEnabledChange = viewModel::setPlaybackWarningsEnabled,
-        onPlayerAudioModeSelected = viewModel::setPlayerAudioMode,
-        onPlayerHdrModeSelected = viewModel::setPlayerHdrMode,
-        onMatchDisplayRefreshRateChange = viewModel::setMatchDisplayRefreshRate,
-        onSegmentSkipPolicySelected = viewModel::setSegmentSkipPolicy,
-        onRefreshPlayerDevicePolicy = viewModel::refreshPlayerDevicePolicy,
-        onThemeSelected = viewModel::setAppTheme,
-        onTileSizeSelected = viewModel::setTileSize,
-        onImageQualitySelected = viewModel::setImageQuality,
+        onConfirmLogoutRemoval = { viewModel.accept(SettingsIntent.ConfirmLogoutRemoval(onLogoutComplete)) },
+        onDismissLogoutRemoval = { viewModel.accept(SettingsIntent.DismissLogoutRemoval) },
+        onSwitchAccount = { accountId -> accountViewModel.accept(AccountIntent.SwitchTo(accountId)) },
+        onAddAccount = {
+            serverUrl,
+            username,
+            password,
+            ->
+            accountViewModel.accept(AccountIntent.AddAccount(serverUrl, username, password))
+        },
+        onDefaultQualityPolicySelected = { policy -> viewModel.accept(SettingsIntent.SetDefaultQualityPolicy(policy)) },
+        onVlcTranscodeMaxBitrateSelected = { maxBitrateBps ->
+            viewModel.accept(SettingsIntent.SetVlcTranscodeMaxBitrateBps(maxBitrateBps))
+        },
+        onDefaultPlayerBackendSelected = { backend -> viewModel.accept(SettingsIntent.SetDefaultPlayerBackend(backend)) },
+        onMpvVideoOutputSelected = { output -> viewModel.accept(SettingsIntent.SetAndroidTvMpvVideoOutput(output)) },
+        onRetryPlaybackPreferences = { viewModel.accept(SettingsIntent.ReloadPlaybackPreferences) },
+        onPreferredAudioLanguageChange = { language -> viewModel.accept(SettingsIntent.SetPreferredAudioLanguage(language)) },
+        onPreferredSubtitleLanguageChange = { language -> viewModel.accept(SettingsIntent.SetPreferredSubtitleLanguage(language)) },
+        onAutoPlayNextChange = { enabled -> viewModel.accept(SettingsIntent.SetAutoPlayNext(enabled)) },
+        onAutoPlayNextDelaySelected = { delaySeconds -> viewModel.accept(SettingsIntent.SetAutoPlayNextDelaySeconds(delaySeconds)) },
+        onStillWatchingPromptChange = { enabled -> viewModel.accept(SettingsIntent.SetStillWatchingPrompt(enabled)) },
+        onPlaybackWarningsEnabledChange = { enabled -> viewModel.accept(SettingsIntent.SetPlaybackWarningsEnabled(enabled)) },
+        onPlayerAudioModeSelected = { audioMode -> viewModel.accept(SettingsIntent.SetPlayerAudioMode(audioMode)) },
+        onPlayerHdrModeSelected = { hdrMode -> viewModel.accept(SettingsIntent.SetPlayerHdrMode(hdrMode)) },
+        onMatchDisplayRefreshRateChange = { enabled -> viewModel.accept(SettingsIntent.SetMatchDisplayRefreshRate(enabled)) },
+        onSegmentSkipPolicySelected = { type, policy -> viewModel.accept(SettingsIntent.SetSegmentSkipPolicy(type, policy)) },
+        onRefreshPlayerDevicePolicy = { viewModel.accept(SettingsIntent.RefreshPlayerDevicePolicy) },
+        onThemeSelected = { theme -> viewModel.accept(SettingsIntent.SetAppTheme(theme)) },
+        onTileSizeSelected = { tileSize -> viewModel.accept(SettingsIntent.SetTileSize(tileSize)) },
+        onImageQualitySelected = { imageQuality -> viewModel.accept(SettingsIntent.SetImageQuality(imageQuality)) },
         focusedCardZoomEnabled = focusedCardZoomEnabled,
         showLibraryGridHero = showLibraryGridHero,
-        onFocusedCardZoomEnabledChange = preferenceViewModel::setFocusedCardZoomEnabled,
-        onShowLibraryGridHeroChange = preferenceViewModel::setShowLibraryGridHero,
-        onRememberLastLibraryViewChange = viewModel::setRememberLastLibraryView,
-        onOpenSubtitlesApiKeyChange = viewModel::setOpenSubtitlesApiKey,
-        onRetryOpenSubtitlesApiKeyLoad = viewModel::retryOpenSubtitlesApiKeyLoad,
-        onClearLocalSubtitles = viewModel::clearLocalSubtitles,
+        onFocusedCardZoomEnabledChange = { enabled ->
+            preferenceViewModel.accept(TvSettingsPreferencesIntent.SetFocusedCardZoomEnabled(enabled))
+        },
+        onShowLibraryGridHeroChange = { enabled ->
+            preferenceViewModel.accept(TvSettingsPreferencesIntent.SetShowLibraryGridHero(enabled))
+        },
+        onRememberLastLibraryViewChange = { enabled -> viewModel.accept(SettingsIntent.SetRememberLastLibraryView(enabled)) },
+        onOpenSubtitlesApiKeyChange = { value, onSuccess -> viewModel.accept(SettingsIntent.SetOpenSubtitlesApiKey(value, onSuccess)) },
+        onRetryOpenSubtitlesApiKeyLoad = { viewModel.accept(SettingsIntent.RetryOpenSubtitlesApiKeyLoad) },
+        onClearLocalSubtitles = { viewModel.accept(SettingsIntent.ClearLocalSubtitles) },
         logFeedback = logFeedback,
         logoutFailed = logoutFailed,
-        onCollectLogsChange = viewModel::setLogCollectionEnabled,
-        onVerboseLogcatChange = viewModel::setVerboseLogcatEnabled,
-        onPlaybackInfoAtStartChange = viewModel::setPlaybackInfoAtStartEnabled,
-        onPlayerClockChange = viewModel::setPlayerClockEnabled,
-        onSendClientLogs = viewModel::sendClientLogs,
+        onCollectLogsChange = { enabled -> viewModel.accept(SettingsIntent.SetLogCollectionEnabled(enabled)) },
+        onVerboseLogcatChange = { enabled -> viewModel.accept(SettingsIntent.SetVerboseLogcatEnabled(enabled)) },
+        onPlaybackInfoAtStartChange = { enabled -> viewModel.accept(SettingsIntent.SetPlaybackInfoAtStartEnabled(enabled)) },
+        onPlayerClockChange = { enabled -> viewModel.accept(SettingsIntent.SetPlayerClockEnabled(enabled)) },
+        onSendClientLogs = { viewModel.accept(SettingsIntent.SendClientLogs) },
         timelineSaveFeedback = timelineSaveFeedback,
         timelineSendFeedback = timelineSendFeedback,
         onSavePlaybackTimeline = {
             timelineSaveFeedback = null
-            viewModel.savePlaybackTimeline()
+            viewModel.accept(SettingsIntent.SavePlaybackTimeline)
         },
         onSendPlaybackTimeline = {
             timelineSendFeedback = null
-            viewModel.sendPlaybackTimeline()
+            viewModel.accept(SettingsIntent.SendPlaybackTimeline)
         },
         modifier = modifier.fillMaxSize(),
     )
@@ -1240,7 +1255,14 @@ private fun TvSettingsTileDialog(
                     onDismiss = onDismiss,
                 )
             }
-        TvSettingsTileAction.ClearSubtitles -> TvClearSubtitlesDialog(state, onClearLocalSubtitles, onDismiss)
+        TvSettingsTileAction.ClearSubtitles ->
+            TvClearSubtitlesDialog(
+                isClearing = state.isClearingLocalSubtitles,
+                completion = state.localSubtitlesClearCompletion,
+                hasError = state.localSubtitlesClearError,
+                onClear = onClearLocalSubtitles,
+                onDismiss = onDismiss,
+            )
         TvSettingsTileAction.CollectLogs ->
             TvBooleanDialog(
                 title = stringResource(R.string.tv_settings_collect_logs),
@@ -1801,17 +1823,19 @@ private const val TV_LOGOUT_BYTES_PER_MB = TV_LOGOUT_BYTES_PER_KB * TV_LOGOUT_BY
 
 @Composable
 private fun TvClearSubtitlesDialog(
-    state: SettingsUiState,
+    isClearing: Boolean,
+    completion: Int,
+    hasError: Boolean,
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val confirmRequester = remember { FocusRequester() }
     var submitted by remember { mutableStateOf(false) }
-    var completionAtSubmit by remember { mutableIntStateOf(state.localSubtitlesClearCompletion) }
+    var completionAtSubmit by remember { mutableIntStateOf(completion) }
     LaunchedEffect(confirmRequester) { requestTvFocusWithRetry { confirmRequester.requestFocusSafely() } }
-    LaunchedEffect(state.localSubtitlesClearCompletion, state.localSubtitlesClearError) {
-        if (submitted && state.localSubtitlesClearCompletion != completionAtSubmit) {
-            if (state.localSubtitlesClearError) {
+    LaunchedEffect(completion, hasError) {
+        if (submitted && completion != completionAtSubmit) {
+            if (hasError) {
                 submitted = false
             } else {
                 onDismiss()
@@ -1821,7 +1845,7 @@ private fun TvClearSubtitlesDialog(
     TvSettingsDialogFrame(
         title = stringResource(R.string.tv_settings_local_subtitles_clear),
         onDismiss = {
-            if (!submitted && !state.isClearingLocalSubtitles) onDismiss()
+            if (!submitted && !isClearing) onDismiss()
         },
     ) {
         TvText(
@@ -1829,8 +1853,8 @@ private fun TvClearSubtitlesDialog(
             color = com.jellyscope.ui.theme.LocalJellyfinPalette.current.textSecondary,
             maxLines = 3,
         )
-        if (state.isClearingLocalSubtitles) TvSpinner(size = TvDimens.spinnerSize)
-        if (state.localSubtitlesClearError) {
+        if (isClearing) TvSpinner(size = TvDimens.spinnerSize)
+        if (hasError) {
             TvText(
                 text = stringResource(R.string.tv_settings_clear_subtitles_error),
                 color = com.jellyscope.ui.theme.LocalJellyfinPalette.current.error,
@@ -1840,13 +1864,13 @@ private fun TvClearSubtitlesDialog(
         TvSettingsDialogAction(
             text =
                 stringResource(
-                    if (state.localSubtitlesClearError) R.string.tv_retry else R.string.tv_settings_dialog_confirm,
+                    if (hasError) R.string.tv_retry else R.string.tv_settings_dialog_confirm,
                 ),
             focusRequester = confirmRequester,
-            enabled = !submitted && !state.isClearingLocalSubtitles,
+            enabled = !submitted && !isClearing,
             destructive = true,
             onClick = {
-                completionAtSubmit = state.localSubtitlesClearCompletion
+                completionAtSubmit = completion
                 submitted = true
                 onClear()
             },

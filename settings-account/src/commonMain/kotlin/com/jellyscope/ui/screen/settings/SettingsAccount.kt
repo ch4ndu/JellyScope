@@ -82,7 +82,10 @@ import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal fun AccountSettingsSection(
-    state: SettingsUiState,
+    userName: String,
+    serverName: String,
+    serverUrl: String,
+    isLoggingOut: Boolean,
     accountState: AccountUiState,
     onLogout: () -> Unit,
     onAddAccount: (String, String, String) -> Unit,
@@ -128,8 +131,8 @@ internal fun AccountSettingsSection(
     val activeAccountValue =
         stringResource(
             Res.string.settings_account_active_value,
-            activeAccount?.userName ?: state.userName,
-            activeAccount?.serverName ?: state.serverName,
+            activeAccount?.userName ?: userName,
+            activeAccount?.serverName ?: serverName,
         )
 
     SettingsSectionCard(
@@ -141,7 +144,7 @@ internal fun AccountSettingsSection(
                         icon = SettingsRowId.Server.icon(),
                         iconRole = SettingsRowId.Server.iconRole(),
                         title = stringResource(Res.string.settings_server),
-                        value = stringResource(Res.string.settings_server_url, state.serverUrl),
+                        value = stringResource(Res.string.settings_server_url, serverUrl),
                         trailing = SettingsRowTrailing.None,
                     )
                 },
@@ -150,7 +153,7 @@ internal fun AccountSettingsSection(
                         icon = SettingsRowId.SignedInUser.icon(),
                         iconRole = SettingsRowId.SignedInUser.iconRole(),
                         title = stringResource(Res.string.settings_signed_in_user),
-                        value = state.userName,
+                        value = userName,
                         trailing = SettingsRowTrailing.None,
                     )
                 },
@@ -180,7 +183,7 @@ internal fun AccountSettingsSection(
                         title = stringResource(Res.string.settings_sign_out),
                         trailing = SettingsRowTrailing.Chevron,
                         onClick = { onOpenRow(SettingsRowId.SignOut) },
-                        enabled = !state.isLoggingOut,
+                        enabled = !isLoggingOut,
                     )
                 },
             ),
@@ -214,7 +217,7 @@ internal fun AccountSettingsSection(
     if (openRow == SettingsRowId.AddAccount) {
         AddAccountDialog(
             state = accountState,
-            initialServerUrl = accountState.accounts.firstOrNull()?.serverUrl ?: state.serverUrl,
+            initialServerUrl = accountState.accounts.firstOrNull()?.serverUrl ?: serverUrl,
             showError = addDialogSubmitted,
             onAddAccount = { serverUrl, username, password ->
                 addDialogSubmitted = true
@@ -231,7 +234,7 @@ internal fun AccountSettingsSection(
     }
     if (openRow == SettingsRowId.SignOut) {
         SignOutDialog(
-            isLoggingOut = state.isLoggingOut,
+            isLoggingOut = isLoggingOut,
             onConfirm = {
                 onLogout()
                 onDismiss()

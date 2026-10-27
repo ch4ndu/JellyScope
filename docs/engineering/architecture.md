@@ -304,6 +304,21 @@ flag. Transfer-record and command updates therefore do not change those inputs.
 Existing card identity, semantic indices, focus restoration, deletion dialogs,
 and playback routing remain intact; runtime performance is not measured.
 
+### Settings and account MVI slice
+
+Shared and TV settings send `SettingsIntent` and `AccountIntent`; TV-only
+preferences accept `TvSettingsPreferencesIntent` while retaining their existing
+persisted flows. Settings and account reducers own screen state transitions.
+The ViewModels retain persistence, latest-value writes, account removal admission,
+cancellation, diagnostics, and completion callbacks. Generation checks use current
+authority inside state updates; credential-bearing intents avoid generated string
+representations. Timeline export handoff remains a lifecycle acknowledgement.
+
+Account settings consumes only session labels and logout status from Settings;
+the TV subtitle-clear dialog consumes only clearing, completion, and error values.
+Unrelated preference updates preserve those inputs. Existing preference flows and
+unchanged state references are retained; runtime recomposition gains are unmeasured.
+
 ## Source Layout Target
 
 ```text
@@ -869,6 +884,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Settings and account intents make user actions explicit without moving persistence
+  or removal authorization into reducers. Narrow child inputs keep unrelated
+  preference and diagnostic changes out of account and subtitle-dialog inputs.
 
 - Download intents describe user commands without moving durable execution or
   lease authority into presentation. Narrow usage inputs separate that UI from

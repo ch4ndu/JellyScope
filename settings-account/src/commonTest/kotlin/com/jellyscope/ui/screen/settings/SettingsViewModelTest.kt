@@ -168,7 +168,7 @@ class SettingsViewModelTest {
                         physicalBytes = 42L,
                         currentAccountPhysicalBytes = 38L,
                     )
-                viewModel.refreshDownloadUsage()
+                viewModel.accept(SettingsIntent.RefreshDownloadUsage)
                 advanceUntilIdle()
 
                 assertEquals(
@@ -204,7 +204,7 @@ class SettingsViewModelTest {
 
                 runCurrent()
                 assertEquals(1, repository.usageReads)
-                viewModel.refreshDownloadUsage()
+                viewModel.accept(SettingsIntent.RefreshDownloadUsage)
                 runCurrent()
                 assertEquals(2, repository.usageReads)
 
@@ -262,7 +262,7 @@ class SettingsViewModelTest {
 
                 assertFalse(viewModel.state.value.verboseLogcatEnabled)
 
-                viewModel.setVerboseLogcatEnabled(true)
+                viewModel.accept(SettingsIntent.SetVerboseLogcatEnabled(true))
                 advanceUntilIdle()
 
                 assertTrue(viewModel.state.value.verboseLogcatEnabled)
@@ -303,7 +303,7 @@ class SettingsViewModelTest {
 
                 assertFalse(viewModel.state.value.playbackInfoAtStartEnabled)
 
-                viewModel.setPlaybackInfoAtStartEnabled(true)
+                viewModel.accept(SettingsIntent.SetPlaybackInfoAtStartEnabled(true))
                 runCurrent()
 
                 assertTrue(preferenceStore.playbackInfoAtStartEnabled.value)
@@ -342,12 +342,12 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.setLogCollectionEnabled(true)
+                viewModel.accept(SettingsIntent.SetLogCollectionEnabled(true))
                 advanceUntilIdle()
                 buffer.append("PlaybackInfoPlanner", Severity.Info, "stage=planner event=resolved")
                 runCurrent()
                 val event = async { viewModel.events.first() }
-                viewModel.sendClientLogs()
+                viewModel.accept(SettingsIntent.SendClientLogs)
                 advanceUntilIdle()
 
                 assertTrue(viewModel.state.value.collectLogs)
@@ -390,14 +390,14 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.setLogCollectionEnabled(true)
+                viewModel.accept(SettingsIntent.SetLogCollectionEnabled(true))
                 advanceUntilIdle()
 
                 assertTrue(viewModel.state.value.logCollectionPreferenceError)
                 assertFalse(viewModel.state.value.collectLogs)
 
                 preferenceStore.failEnabledWrites = false
-                viewModel.setLogCollectionEnabled(true)
+                viewModel.accept(SettingsIntent.SetLogCollectionEnabled(true))
                 advanceUntilIdle()
 
                 assertFalse(viewModel.state.value.logCollectionPreferenceError)
@@ -438,7 +438,7 @@ class SettingsViewModelTest {
                 runCurrent()
 
                 val event = async { viewModel.events.first() }
-                viewModel.sendClientLogs()
+                viewModel.accept(SettingsIntent.SendClientLogs)
                 advanceUntilIdle()
 
                 assertFalse(viewModel.state.value.collectLogs)
@@ -493,8 +493,8 @@ class SettingsViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.sendClientLogs()
-                viewModel.setDefaultPlayerBackend(PlayerBackend.ExoPlayer)
+                viewModel.accept(SettingsIntent.SendClientLogs)
+                viewModel.accept(SettingsIntent.SetDefaultPlayerBackend(PlayerBackend.ExoPlayer))
                 advanceUntilIdle()
 
                 assertEquals(PlayerBackend.ExoPlayer, viewModel.state.value.playbackPreferences.defaultPlayerBackend)
@@ -569,7 +569,7 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.logout { completed = true }
+                viewModel.accept(SettingsIntent.Logout { completed = true })
                 advanceUntilIdle()
 
                 assertEquals(1, repository.logoutCalls)
@@ -614,7 +614,7 @@ class SettingsViewModelTest {
                 var completed = false
 
                 Logger.setLogWriters(writer)
-                viewModel.logout { completed = true }
+                viewModel.accept(SettingsIntent.Logout { completed = true })
                 advanceUntilIdle()
 
                 assertEquals(1, repository.logoutCalls)
@@ -663,11 +663,11 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.logout()
+                viewModel.accept(SettingsIntent.Logout())
                 advanceUntilIdle()
                 assertEquals(preview, viewModel.state.value.logoutRemovalPreview)
 
-                viewModel.dismissLogoutRemoval()
+                viewModel.accept(SettingsIntent.DismissLogoutRemoval)
                 advanceUntilIdle()
                 assertEquals(1, releaser.calls)
                 assertEquals(preview, releaser.preview)
@@ -679,9 +679,9 @@ class SettingsViewModelTest {
                         authorizationIssuer = issuer,
                         workDispatcher = dispatcher,
                     )
-                confirmingViewModel.logout()
+                confirmingViewModel.accept(SettingsIntent.Logout())
                 advanceUntilIdle()
-                confirmingViewModel.confirmLogoutRemoval()
+                confirmingViewModel.accept(SettingsIntent.ConfirmLogoutRemoval())
                 advanceUntilIdle()
                 assertEquals(preview, issuer.preview)
                 assertEquals(1, repository.logoutCalls)
@@ -736,9 +736,9 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
                 Logger.setLogWriters(writer)
-                viewModel.logout()
+                viewModel.accept(SettingsIntent.Logout())
                 advanceUntilIdle()
-                viewModel.dismissLogoutRemoval()
+                viewModel.accept(SettingsIntent.DismissLogoutRemoval)
                 advanceUntilIdle()
 
                 assertEquals(1, releaser.calls)
@@ -784,9 +784,9 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.logout()
+                viewModel.accept(SettingsIntent.Logout())
                 advanceUntilIdle()
-                viewModel.dismissLogoutRemoval()
+                viewModel.accept(SettingsIntent.DismissLogoutRemoval)
                 viewModel.viewModelScope.cancel()
                 runCurrent()
                 assertTrue(releaser.started.isCompleted)
@@ -837,12 +837,12 @@ class SettingsViewModelTest {
                     viewModel.state.value.playbackPreferences,
                 )
 
-                viewModel.setDefaultMaxBitrateBps(8_000_000L)
-                viewModel.setVlcTranscodeMaxBitrateBps(20_000_000L)
-                viewModel.setPreferredAudioLanguage(" jpn ")
-                viewModel.setPreferredSubtitleLanguage("")
-                viewModel.setStillWatchingPrompt(true)
-                viewModel.setDefaultPlayerBackend(PlayerBackend.Mpv)
+                viewModel.accept(SettingsIntent.SetDefaultMaxBitrateBps(8_000_000L))
+                viewModel.accept(SettingsIntent.SetVlcTranscodeMaxBitrateBps(20_000_000L))
+                viewModel.accept(SettingsIntent.SetPreferredAudioLanguage(" jpn "))
+                viewModel.accept(SettingsIntent.SetPreferredSubtitleLanguage(""))
+                viewModel.accept(SettingsIntent.SetStillWatchingPrompt(true))
+                viewModel.accept(SettingsIntent.SetDefaultPlayerBackend(PlayerBackend.Mpv))
                 advanceUntilIdle()
 
                 assertEquals(
@@ -879,7 +879,7 @@ class SettingsViewModelTest {
                     )
                 runCurrent()
                 assertTrue(workDispatcher.pendingCount > 0)
-                viewModel.setOpenSubtitlesApiKey("newer-key")
+                viewModel.accept(SettingsIntent.SetOpenSubtitlesApiKey("newer-key"))
 
                 viewModel.viewModelScope.cancel()
                 runCurrent()
@@ -913,7 +913,7 @@ class SettingsViewModelTest {
                 runCurrent()
                 secureStore.readStarted.await()
 
-                viewModel.setOpenSubtitlesApiKey("new-key") {}
+                viewModel.accept(SettingsIntent.SetOpenSubtitlesApiKey("new-key", onSuccess = {}))
                 runCurrent()
                 assertFalse(viewModel.state.value.isOpenSubtitlesApiKeyLoaded)
                 assertEquals("", viewModel.state.value.openSubtitlesApiKey)
@@ -924,7 +924,7 @@ class SettingsViewModelTest {
                 assertTrue(viewModel.state.value.isOpenSubtitlesApiKeyLoaded)
                 assertEquals("old-key", viewModel.state.value.openSubtitlesApiKey)
 
-                viewModel.setOpenSubtitlesApiKey("new-key") {}
+                viewModel.accept(SettingsIntent.SetOpenSubtitlesApiKey("new-key", onSuccess = {}))
                 runCurrent()
                 secureStore.writeStarted.await()
                 assertTrue(viewModel.state.value.isSavingOpenSubtitlesApiKey)
@@ -957,7 +957,7 @@ class SettingsViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.setOpenSubtitlesApiKey("new-key") {}
+                viewModel.accept(SettingsIntent.SetOpenSubtitlesApiKey("new-key", onSuccess = {}))
                 advanceUntilIdle()
 
                 assertEquals("old-key", viewModel.state.value.openSubtitlesApiKey)
@@ -992,7 +992,7 @@ class SettingsViewModelTest {
                 assertTrue(viewModel.state.value.openSubtitlesApiKeyLoadError)
                 assertEquals("", viewModel.state.value.openSubtitlesApiKey)
 
-                viewModel.retryOpenSubtitlesApiKeyLoad()
+                viewModel.accept(SettingsIntent.RetryOpenSubtitlesApiKeyLoad)
                 assertFalse(viewModel.state.value.isOpenSubtitlesApiKeyLoaded)
                 assertTrue(viewModel.state.value.isLoadingOpenSubtitlesApiKey)
                 assertFalse(viewModel.state.value.openSubtitlesApiKeyLoadError)
@@ -1019,7 +1019,7 @@ class SettingsViewModelTest {
 
                 assertEquals(false, viewModel.state.value.playerDeviceSettings.matchDisplayRefreshRate)
 
-                viewModel.setMatchDisplayRefreshRate(true)
+                viewModel.accept(SettingsIntent.SetMatchDisplayRefreshRate(true))
                 advanceUntilIdle()
 
                 assertEquals(true, store.settings.value.matchDisplayRefreshRate)
@@ -1038,7 +1038,7 @@ class SettingsViewModelTest {
                 val store = FakePlayerDeviceSettingsStore()
                 val viewModel = settingsViewModel(playerDeviceSettingsStore = store, workDispatcher = dispatcher)
 
-                viewModel.setMaxVideoResolution(PlayerVideoResolutionLimit.Height1080)
+                viewModel.accept(SettingsIntent.SetMaxVideoResolution(PlayerVideoResolutionLimit.Height1080))
                 advanceUntilIdle()
 
                 assertEquals(PlayerVideoResolutionLimit.Height1080, store.settings.value.maxVideoResolution)
@@ -1047,7 +1047,7 @@ class SettingsViewModelTest {
                     viewModel.state.value.playerDeviceSettings.maxVideoResolution,
                 )
 
-                viewModel.setIosPlaybackCompatibilityMode(IosPlaybackCompatibilityMode.Unrestricted)
+                viewModel.accept(SettingsIntent.SetIosPlaybackCompatibilityMode(IosPlaybackCompatibilityMode.Unrestricted))
                 advanceUntilIdle()
 
                 assertEquals(
@@ -1078,8 +1078,8 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.refreshPlayerDevicePolicy()
-                viewModel.refreshPlayerDevicePolicy()
+                viewModel.accept(SettingsIntent.RefreshPlayerDevicePolicy)
+                viewModel.accept(SettingsIntent.RefreshPlayerDevicePolicy)
 
                 assertTrue(viewModel.state.value.isRefreshingPlayerDevicePolicy)
                 assertFalse(viewModel.state.value.playerDevicePolicyError)
@@ -1108,7 +1108,7 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.refreshPlayerDevicePolicy()
+                viewModel.accept(SettingsIntent.RefreshPlayerDevicePolicy)
                 advanceUntilIdle()
 
                 assertFalse(viewModel.state.value.isRefreshingPlayerDevicePolicy)
@@ -1223,8 +1223,8 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.clearLocalSubtitles()
-                viewModel.clearLocalSubtitles()
+                viewModel.accept(SettingsIntent.ClearLocalSubtitles)
+                viewModel.accept(SettingsIntent.ClearLocalSubtitles)
 
                 assertTrue(viewModel.state.value.isClearingLocalSubtitles)
                 assertFalse(viewModel.state.value.localSubtitlesClearError)
@@ -1258,7 +1258,7 @@ class SettingsViewModelTest {
                         workDispatcher = workDispatcher,
                     )
 
-                viewModel.clearLocalSubtitles()
+                viewModel.accept(SettingsIntent.ClearLocalSubtitles)
                 runCurrent()
                 assertTrue(viewModel.state.value.isClearingLocalSubtitles)
                 assertTrue(workDispatcher.pendingCount > 0)
@@ -1288,7 +1288,7 @@ class SettingsViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.setAppTheme(AppColorThemeId.Midnight)
+                viewModel.accept(SettingsIntent.SetAppTheme(AppColorThemeId.Midnight))
                 advanceUntilIdle()
 
                 assertEquals(AppColorThemeId.Midnight, store.theme.value)
@@ -1313,7 +1313,7 @@ class SettingsViewModelTest {
 
                 assertEquals(true, viewModel.state.value.pictureInPictureEnabled)
 
-                viewModel.setPictureInPictureEnabled(false)
+                viewModel.accept(SettingsIntent.SetPictureInPictureEnabled(false))
                 advanceUntilIdle()
 
                 assertEquals(false, store.enabled.value)
@@ -1338,7 +1338,7 @@ class SettingsViewModelTest {
 
                 assertEquals(TileSizeId.Medium, viewModel.state.value.tileSize)
 
-                viewModel.setTileSize(TileSizeId.Large)
+                viewModel.accept(SettingsIntent.SetTileSize(TileSizeId.Large))
                 advanceUntilIdle()
 
                 assertEquals(TileSizeId.Large, store.tileSize.value)
@@ -1362,8 +1362,8 @@ class SettingsViewModelTest {
                     )
                 advanceUntilIdle()
 
-                viewModel.setSegmentSkipPolicy(MediaSegmentType.Intro, SegmentSkipPolicy.AutoSkip)
-                viewModel.setSegmentSkipPolicy(MediaSegmentType.Commercial, SegmentSkipPolicy.Ignore)
+                viewModel.accept(SettingsIntent.SetSegmentSkipPolicy(MediaSegmentType.Intro, SegmentSkipPolicy.AutoSkip))
+                viewModel.accept(SettingsIntent.SetSegmentSkipPolicy(MediaSegmentType.Commercial, SegmentSkipPolicy.Ignore))
                 advanceUntilIdle()
 
                 val saved = store.savedPreferences.last()
@@ -1464,9 +1464,11 @@ class SettingsViewModelTest {
                 assertFalse(viewModel.state.value.isOpenSubtitleResultPreferenceLoaded)
                 assertTrue(viewModel.state.value.isLoadingOpenSubtitleResultPreference)
 
-                viewModel.setOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference) {
-                    preloadSuccessCallbacks += 1
-                }
+                viewModel.accept(
+                    SettingsIntent.SetOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference, onSuccess = {
+                        preloadSuccessCallbacks += 1
+                    }),
+                )
                 runCurrent()
 
                 assertEquals(0, preloadSuccessCallbacks)
@@ -1482,16 +1484,20 @@ class SettingsViewModelTest {
                 assertEquals(0, preloadSuccessCallbacks)
 
                 var confirmedSameValueCallbacks = 0
-                viewModel.setOpenSubtitleResultPreference(OpenSubtitleResultPreference.PreferForced) {
-                    confirmedSameValueCallbacks += 1
-                }
+                viewModel.accept(
+                    SettingsIntent.SetOpenSubtitleResultPreference(OpenSubtitleResultPreference.PreferForced, onSuccess = {
+                        confirmedSameValueCallbacks += 1
+                    }),
+                )
                 assertEquals(1, confirmedSameValueCallbacks)
                 assertEquals(0, secureStore.preferenceRemovals)
 
                 var persistenceSuccessCallbacks = 0
-                viewModel.setOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference) {
-                    persistenceSuccessCallbacks += 1
-                }
+                viewModel.accept(
+                    SettingsIntent.SetOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference, onSuccess = {
+                        persistenceSuccessCallbacks += 1
+                    }),
+                )
                 advanceUntilIdle()
 
                 assertEquals(1, persistenceSuccessCallbacks)
@@ -1529,12 +1535,16 @@ class SettingsViewModelTest {
                 assertTrue(viewModel.state.value.openSubtitleResultPreferenceLoadError)
                 assertEquals(OpenSubtitleResultPreference.NoPreference, viewModel.state.value.openSubtitleResultPreference)
 
-                viewModel.setOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference) {
-                    prematureSuccessCallbacks += 1
-                }
-                viewModel.setOpenSubtitleResultPreference(OpenSubtitleResultPreference.PreferForced) {
-                    prematureSuccessCallbacks += 10
-                }
+                viewModel.accept(
+                    SettingsIntent.SetOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference, onSuccess = {
+                        prematureSuccessCallbacks += 1
+                    }),
+                )
+                viewModel.accept(
+                    SettingsIntent.SetOpenSubtitleResultPreference(OpenSubtitleResultPreference.PreferForced, onSuccess = {
+                        prematureSuccessCallbacks += 10
+                    }),
+                )
                 runCurrent()
 
                 assertEquals(0, prematureSuccessCallbacks)
@@ -1542,7 +1552,7 @@ class SettingsViewModelTest {
                 assertFalse(secureStore.writeStarted.isCompleted)
                 assertEquals("PreferForced", secureStore.storedPreference())
 
-                viewModel.retryOpenSubtitleResultPreferenceLoad()
+                viewModel.accept(SettingsIntent.RetryOpenSubtitleResultPreferenceLoad)
                 assertFalse(viewModel.state.value.isOpenSubtitleResultPreferenceLoaded)
                 assertTrue(viewModel.state.value.isLoadingOpenSubtitleResultPreference)
                 assertFalse(viewModel.state.value.openSubtitleResultPreferenceLoadError)
@@ -1557,9 +1567,11 @@ class SettingsViewModelTest {
                 assertEquals(0, prematureSuccessCallbacks)
 
                 var persistenceSuccessCallbacks = 0
-                viewModel.setOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference) {
-                    persistenceSuccessCallbacks += 1
-                }
+                viewModel.accept(
+                    SettingsIntent.SetOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference, onSuccess = {
+                        persistenceSuccessCallbacks += 1
+                    }),
+                )
                 advanceUntilIdle()
 
                 assertEquals(1, persistenceSuccessCallbacks)
@@ -1590,14 +1602,24 @@ class SettingsViewModelTest {
                 advanceUntilIdle()
                 var successCallbacks = 0
 
-                viewModel.setOpenSubtitleResultPreference(OpenSubtitleResultPreference.PreferForced) { successCallbacks += 1 }
+                viewModel.accept(
+                    SettingsIntent.SetOpenSubtitleResultPreference(OpenSubtitleResultPreference.PreferForced, onSuccess = {
+                        successCallbacks +=
+                            1
+                    }),
+                )
                 runCurrent()
                 secureStore.writeStarted.await()
                 assertEquals(OpenSubtitleResultPreference.PreferHearingImpaired, viewModel.state.value.openSubtitleResultPreference)
                 assertEquals(true, viewModel.state.value.isSavingOpenSubtitleResultPreference)
                 assertEquals(0, successCallbacks)
 
-                viewModel.setOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference) { successCallbacks += 10 }
+                viewModel.accept(
+                    SettingsIntent.SetOpenSubtitleResultPreference(OpenSubtitleResultPreference.NoPreference, onSuccess = {
+                        successCallbacks +=
+                            10
+                    }),
+                )
                 secureStore.allowWrite.complete(Unit)
                 advanceUntilIdle()
 
@@ -1628,7 +1650,12 @@ class SettingsViewModelTest {
                 advanceUntilIdle()
                 var dismissed = false
 
-                viewModel.setOpenSubtitleResultPreference(OpenSubtitleResultPreference.PreferHearingImpaired) { dismissed = true }
+                viewModel.accept(
+                    SettingsIntent.SetOpenSubtitleResultPreference(OpenSubtitleResultPreference.PreferHearingImpaired, onSuccess = {
+                        dismissed =
+                            true
+                    }),
+                )
                 advanceUntilIdle()
 
                 assertEquals(OpenSubtitleResultPreference.PreferForced, viewModel.state.value.openSubtitleResultPreference)

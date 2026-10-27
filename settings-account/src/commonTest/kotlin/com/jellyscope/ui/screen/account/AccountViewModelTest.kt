@@ -71,7 +71,7 @@ class AccountViewModelTest {
                     )
 
                 advanceUntilIdle()
-                viewModel.signOut(account.accountId)
+                viewModel.accept(AccountIntent.SignOut(account.accountId))
                 advanceUntilIdle()
 
                 assertEquals(1, authRepository.signOutCalls)
@@ -129,19 +129,19 @@ class AccountViewModelTest {
                     )
 
                 advanceUntilIdle()
-                viewModel.signOut(account.accountId)
+                viewModel.accept(AccountIntent.SignOut(account.accountId))
                 advanceUntilIdle()
                 assertSame(preview, viewModel.state.value.removalPreview)
 
-                viewModel.confirmPendingRemoval()
+                viewModel.accept(AccountIntent.ConfirmPendingRemoval)
                 advanceUntilIdle()
                 assertSame(preview, issuer.preview)
                 assertEquals(1, authRepository.signOutCalls)
 
                 // A second preview is needed to exercise the explicit dismissal release path.
-                viewModel.signOut(account.accountId)
+                viewModel.accept(AccountIntent.SignOut(account.accountId))
                 advanceUntilIdle()
-                viewModel.dismissPendingRemoval()
+                viewModel.accept(AccountIntent.DismissPendingRemoval)
                 advanceUntilIdle()
                 assertEquals(1, releaser.calls)
                 assertEquals(preview, releaser.preview)
@@ -195,9 +195,9 @@ class AccountViewModelTest {
                     )
 
                 advanceUntilIdle()
-                viewModel.signOut(account.accountId)
+                viewModel.accept(AccountIntent.SignOut(account.accountId))
                 advanceUntilIdle()
-                viewModel.dismissPendingRemoval()
+                viewModel.accept(AccountIntent.DismissPendingRemoval)
                 viewModel.viewModelScope.cancel()
                 runCurrent()
                 assertTrue(releaser.started.isCompleted)

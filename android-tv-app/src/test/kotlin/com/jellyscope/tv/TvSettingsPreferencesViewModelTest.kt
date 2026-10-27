@@ -28,8 +28,8 @@ class TvSettingsPreferencesViewModelTest {
                         setLibraryGridHero = SetTvLibraryGridHeroAction { operations.showLibraryGridHero.value = it },
                     )
 
-                viewModel.setFocusedCardZoomEnabled(false)
-                viewModel.setShowLibraryGridHero(false)
+                viewModel.accept(TvSettingsPreferencesIntent.SetFocusedCardZoomEnabled(false))
+                viewModel.accept(TvSettingsPreferencesIntent.SetShowLibraryGridHero(false))
                 advanceUntilIdle()
 
                 assertEquals(false, operations.focusedCardZoomEnabled.value)

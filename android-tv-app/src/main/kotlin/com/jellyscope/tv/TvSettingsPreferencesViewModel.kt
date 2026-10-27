@@ -6,6 +6,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 
+internal sealed interface TvSettingsPreferencesIntent {
+    data class SetFocusedCardZoomEnabled(
+        val enabled: Boolean,
+    ) : TvSettingsPreferencesIntent
+
+    data class SetShowLibraryGridHero(
+        val enabled: Boolean,
+    ) : TvSettingsPreferencesIntent
+}
+
 internal class TvSettingsPreferencesViewModel(
     observeFocusedCardZoom: ObserveTvFocusedCardZoomUseCase,
     observeLibraryGridHero: ObserveTvLibraryGridHeroUseCase,
@@ -15,11 +25,12 @@ internal class TvSettingsPreferencesViewModel(
     val focusedCardZoomEnabled = observeFocusedCardZoom()
     val showLibraryGridHero = observeLibraryGridHero()
 
-    fun setFocusedCardZoomEnabled(enabled: Boolean) {
-        viewModelScope.launch { setFocusedCardZoom(enabled) }
-    }
-
-    fun setShowLibraryGridHero(enabled: Boolean) {
-        viewModelScope.launch { setLibraryGridHero(enabled) }
+    fun accept(intent: TvSettingsPreferencesIntent) {
+        viewModelScope.launch {
+            when (intent) {
+                is TvSettingsPreferencesIntent.SetFocusedCardZoomEnabled -> setFocusedCardZoom(intent.enabled)
+                is TvSettingsPreferencesIntent.SetShowLibraryGridHero -> setLibraryGridHero(intent.enabled)
+            }
+        }
     }
 }

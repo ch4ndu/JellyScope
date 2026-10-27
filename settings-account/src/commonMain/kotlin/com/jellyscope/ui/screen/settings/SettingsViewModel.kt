@@ -30,10 +30,7 @@ import com.jellyscope.core.domain.action.SetVerboseLogcatEnabledAction
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
 import com.jellyscope.core.domain.model.DesktopMpvPresentation
-import com.jellyscope.core.domain.model.DesktopMpvPresentationState
 import com.jellyscope.core.domain.model.DownloadRemovalPreview
-import com.jellyscope.core.domain.model.DownloadSettings
-import com.jellyscope.core.domain.model.DownloadUsage
 import com.jellyscope.core.domain.model.ImageQuality
 import com.jellyscope.core.domain.model.OpenSubtitleResultPreference
 import com.jellyscope.core.domain.model.PlaybackPreferences
@@ -46,7 +43,6 @@ import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.TileSizeId
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.AndroidTvMpvVideoOutput
-import com.jellyscope.core.domain.playback.EffectivePlayerDevicePolicy
 import com.jellyscope.core.domain.playback.IosPlaybackCompatibilityMode
 import com.jellyscope.core.domain.playback.MediaSegmentType
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
@@ -103,122 +99,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
-
-data class SettingsUiState(
-    val serverName: String,
-    val serverUrl: String,
-    val userName: String,
-    val versionName: String,
-    val sourceRevision: String = "unknown",
-    val playerBackendChoices: List<PlayerBackendChoice>,
-    val selectedPlayerBackend: PlayerBackend,
-    val isLoggingOut: Boolean = false,
-    val isLoadingLogoutRemovalPreview: Boolean = false,
-    val logoutRemovalPreview: DownloadRemovalPreview? = null,
-    val downloadUsage: DownloadUsage? = null,
-    val downloadSettings: DownloadSettings? = null,
-    val isLoadingDownloadUsage: Boolean = false,
-    val appTheme: AppColorThemeId = AppColorThemeId.Ember,
-    val tileSize: TileSizeId = TileSizeId.Medium,
-    val imageQuality: ImageQuality = ImageQuality.High,
-    val pictureInPictureEnabled: Boolean = true,
-    val playerClockEnabled: Boolean = true,
-    /** Null where the platform binds no desktop presentation store. */
-    val desktopMpvPresentation: DesktopMpvPresentationState? = null,
-    val desktopMpvPresentationError: Boolean = false,
-    val rememberLastLibraryView: Boolean = true,
-    val playbackPreferences: PlaybackPreferences = PlaybackPreferences(),
-    val isLoadingPlaybackPreferences: Boolean = false,
-    val playbackPreferencesError: Boolean = false,
-    val playerDeviceSettings: PlayerDeviceSettings = PlayerDeviceSettings(),
-    val playerDevicePolicy: EffectivePlayerDevicePolicy? = null,
-    val isRefreshingPlayerDevicePolicy: Boolean = false,
-    val playerDevicePolicyRefreshCompletion: Int = 0,
-    val playerDevicePolicyError: Boolean = false,
-    val openSubtitlesApiKey: String = "",
-    val isOpenSubtitlesApiKeyLoaded: Boolean = false,
-    val isLoadingOpenSubtitlesApiKey: Boolean = false,
-    val isSavingOpenSubtitlesApiKey: Boolean = false,
-    val openSubtitlesApiKeyLoadError: Boolean = false,
-    val openSubtitlesApiKeyError: Boolean = false,
-    val openSubtitleResultPreference: OpenSubtitleResultPreference = OpenSubtitleResultPreference.NoPreference,
-    val isOpenSubtitleResultPreferenceLoaded: Boolean = false,
-    val isLoadingOpenSubtitleResultPreference: Boolean = false,
-    val openSubtitleResultPreferenceLoadError: Boolean = false,
-    val isSavingOpenSubtitleResultPreference: Boolean = false,
-    val openSubtitleResultPreferenceError: Boolean = false,
-    val isClearingLocalSubtitles: Boolean = false,
-    val localSubtitlesClearCompletion: Int = 0,
-    val localSubtitlesClearError: Boolean = false,
-    val collectLogs: Boolean = false,
-    val verboseLogcatEnabled: Boolean = false,
-    val playbackInfoAtStartEnabled: Boolean = false,
-    val logBufferSize: LogBufferSize = LogBufferSize(),
-    val isSendingClientLogs: Boolean = false,
-    val logCollectionPreferenceError: Boolean = false,
-    /** False where no timeline action is bound, so the rows stay hidden. */
-    val playbackTimelineAvailable: Boolean = false,
-    /** The single save or send in progress; payloads stay in the ViewModel, never in state. */
-    val playbackTimelineActivity: PlaybackTimelineActivity? = null,
-)
-
-enum class PlaybackTimelineActivity {
-    Preparing,
-    Saving,
-    Sending,
-}
-
-/** One terminal, identity-free result per timeline save or send click. */
-sealed interface PlaybackTimelineFeedback {
-    data object CollectionDisabled : PlaybackTimelineFeedback
-
-    data object NoTimedEvents : PlaybackTimelineFeedback
-
-    data object PrepareFailed : PlaybackTimelineFeedback
-
-    data object Saved : PlaybackTimelineFeedback
-
-    data object SaveCancelled : PlaybackTimelineFeedback
-
-    data object SaveUnavailable : PlaybackTimelineFeedback
-
-    data object Interrupted : PlaybackTimelineFeedback
-
-    data object Expired : PlaybackTimelineFeedback
-
-    data object SaveFailed : PlaybackTimelineFeedback
-
-    data class Sent(
-        val filename: String,
-    ) : PlaybackTimelineFeedback
-
-    data object UploadDisallowed : PlaybackTimelineFeedback
-
-    data object SendFailed : PlaybackTimelineFeedback
-}
-
-sealed interface SettingsEvent {
-    data class ClientLogsSent(
-        val result: SendClientLogsResult,
-    ) : SettingsEvent
-
-    data object LogoutFailed : SettingsEvent
-
-    /** Carries only the operation id; the exporter fetches the live payload at handoff time. */
-    data class SavePlaybackTimeline(
-        val operationId: Long,
-    ) : SettingsEvent
-
-    data class PlaybackTimelineDelivered(
-        val delivery: PlaybackTimelineDelivery,
-        val feedback: PlaybackTimelineFeedback,
-    ) : SettingsEvent
-}
-
-enum class PlaybackTimelineDelivery {
-    Save,
-    Send,
-}
 
 class SettingsViewModel(
     private val session: Session,
@@ -293,7 +173,7 @@ class SettingsViewModel(
                 sourceRevision = sourceRevision,
                 playerBackendChoices = optimisticPlayerBackendChoices,
                 selectedPlayerBackend =
-                    effectivePlayerBackendSelection(
+                    playerBackendPolicy.effectivePlayerBackendSelection(
                         persistedBackend = PlaybackPreferences().defaultPlayerBackend,
                         choices = optimisticPlayerBackendChoices,
                     ),
@@ -381,7 +261,7 @@ class SettingsViewModel(
             },
             operation = DiagnosticOperation.SavePlaybackPreferences,
             onFailure = {
-                _state.update { current -> current.copy(playbackPreferencesError = true) }
+                reduce(SettingsChange.PlaybackWriteFailed)
             },
         )
     private val playerDeviceSettingsWriter =
@@ -391,9 +271,62 @@ class SettingsViewModel(
             write = savePlayerDeviceSettingsAction::invoke,
             operation = DiagnosticOperation.SavePlayerDeviceSettings,
             onFailure = {
-                _state.update { current -> current.copy(playerDevicePolicyError = true) }
+                reduce(SettingsChange.DeviceWriteFailed)
             },
         )
+
+    private fun reduce(change: SettingsChange) {
+        _state.update { current ->
+            reduceSettings(current, change, downloadUsageGeneration, openSubtitlesApiKeyLoadGeneration, playerBackendPolicy)
+        }
+    }
+
+    fun accept(intent: SettingsIntent) {
+        when (intent) {
+            SettingsIntent.RefreshDownloadUsage -> refreshDownloadUsage()
+            is SettingsIntent.Logout -> logout(intent.onComplete)
+            is SettingsIntent.ConfirmLogoutRemoval -> confirmLogoutRemoval(intent.onComplete)
+            SettingsIntent.DismissLogoutRemoval -> dismissLogoutRemoval()
+            SettingsIntent.ReloadPlaybackPreferences -> reloadPlaybackPreferences()
+            is SettingsIntent.SetDefaultMaxBitrateBps -> setDefaultMaxBitrateBps(intent.defaultMaxBitrateBps)
+            is SettingsIntent.SetDefaultQualityPolicy -> setDefaultQualityPolicy(intent.policy)
+            is SettingsIntent.SetVlcTranscodeMaxBitrateBps -> setVlcTranscodeMaxBitrateBps(intent.maxBitrateBps)
+            is SettingsIntent.SetDefaultPlayerBackend -> setDefaultPlayerBackend(intent.backend)
+            is SettingsIntent.SetPreferredAudioLanguage -> setPreferredAudioLanguage(intent.language)
+            is SettingsIntent.SetPreferredSubtitleLanguage -> setPreferredSubtitleLanguage(intent.language)
+            is SettingsIntent.SetAutoPlayNext -> setAutoPlayNext(intent.enabled)
+            is SettingsIntent.SetAutoPlayNextDelaySeconds -> setAutoPlayNextDelaySeconds(intent.delaySeconds)
+            is SettingsIntent.SetStillWatchingPrompt -> setStillWatchingPrompt(intent.enabled)
+            is SettingsIntent.SetPlaybackWarningsEnabled -> setPlaybackWarningsEnabled(intent.enabled)
+            is SettingsIntent.SetAllowInsecureDesktopTls -> setAllowInsecureDesktopTls(intent.enabled)
+            is SettingsIntent.SetSegmentSkipPolicy -> setSegmentSkipPolicy(intent.type, intent.policy)
+            is SettingsIntent.SetAndroidTvMpvVideoOutput -> setAndroidTvMpvVideoOutput(intent.output)
+            is SettingsIntent.SetPlayerAudioMode -> setPlayerAudioMode(intent.audioMode)
+            is SettingsIntent.SetPlayerHdrMode -> setPlayerHdrMode(intent.hdrMode)
+            is SettingsIntent.SetMaxVideoResolution -> setMaxVideoResolution(intent.limit)
+            is SettingsIntent.SetIosPlaybackCompatibilityMode -> setIosPlaybackCompatibilityMode(intent.mode)
+            is SettingsIntent.SetMatchDisplayRefreshRate -> setMatchDisplayRefreshRate(intent.enabled)
+            SettingsIntent.RefreshPlayerDevicePolicy -> refreshPlayerDevicePolicy()
+            is SettingsIntent.SetAppTheme -> setAppTheme(intent.theme)
+            is SettingsIntent.SetTileSize -> setTileSize(intent.tileSize)
+            is SettingsIntent.SetImageQuality -> setImageQuality(intent.imageQuality)
+            is SettingsIntent.SetPictureInPictureEnabled -> setPictureInPictureEnabled(intent.enabled)
+            is SettingsIntent.SetPlayerClockEnabled -> setPlayerClockEnabled(intent.enabled)
+            is SettingsIntent.SetRememberLastLibraryView -> setRememberLastLibraryView(intent.enabled)
+            is SettingsIntent.SetDesktopMpvPresentation -> setDesktopMpvPresentation(intent.presentation)
+            is SettingsIntent.SetOpenSubtitlesApiKey -> setOpenSubtitlesApiKey(intent.value, intent.onSuccess)
+            SettingsIntent.RetryOpenSubtitlesApiKeyLoad -> retryOpenSubtitlesApiKeyLoad()
+            is SettingsIntent.SetOpenSubtitleResultPreference -> setOpenSubtitleResultPreference(intent.preference, intent.onSuccess)
+            SettingsIntent.RetryOpenSubtitleResultPreferenceLoad -> retryOpenSubtitleResultPreferenceLoad()
+            SettingsIntent.ClearLocalSubtitles -> clearLocalSubtitles()
+            is SettingsIntent.SetLogCollectionEnabled -> setLogCollectionEnabled(intent.enabled)
+            is SettingsIntent.SetVerboseLogcatEnabled -> setVerboseLogcatEnabled(intent.enabled)
+            is SettingsIntent.SetPlaybackInfoAtStartEnabled -> setPlaybackInfoAtStartEnabled(intent.enabled)
+            SettingsIntent.SendClientLogs -> sendClientLogs()
+            SettingsIntent.SavePlaybackTimeline -> savePlaybackTimeline()
+            SettingsIntent.SendPlaybackTimeline -> sendPlaybackTimeline()
+        }
+    }
 
     init {
         observeAppTheme()
@@ -414,7 +347,7 @@ class SettingsViewModel(
         loadDownloadUsage()
     }
 
-    fun refreshDownloadUsage() {
+    private fun refreshDownloadUsage() {
         loadDownloadUsage()
     }
 
@@ -423,7 +356,7 @@ class SettingsViewModel(
         val getSettings = getDownloadSettingsUseCase ?: return
         val requestGeneration = ++downloadUsageGeneration
         viewModelScope.launch {
-            _state.update { current -> current.copy(isLoadingDownloadUsage = true) }
+            reduce(SettingsChange.UsageStarted)
             val usage =
                 try {
                     withContext(workDispatcher) { getUsage(session.accountIdentity()) }
@@ -431,9 +364,7 @@ class SettingsViewModel(
                     throw cancellation
                 } catch (exception: Throwable) {
                     logSettingsFailure("download-usage", DiagnosticOperation.GetDownloadUsage, exception)
-                    _state.update { current ->
-                        if (requestGeneration == downloadUsageGeneration) current.copy(isLoadingDownloadUsage = false) else current
-                    }
+                    reduce(SettingsChange.UsageFailed(requestGeneration))
                     return@launch
                 }
             val settings =
@@ -443,26 +374,14 @@ class SettingsViewModel(
                     throw cancellation
                 } catch (exception: Throwable) {
                     logSettingsFailure("download-settings", DiagnosticOperation.GetDownloadSettings, exception)
-                    _state.update { current ->
-                        if (requestGeneration == downloadUsageGeneration) current.copy(isLoadingDownloadUsage = false) else current
-                    }
+                    reduce(SettingsChange.UsageFailed(requestGeneration))
                     return@launch
                 }
-            _state.update { current ->
-                if (requestGeneration != downloadUsageGeneration) {
-                    current
-                } else {
-                    current.copy(
-                        downloadUsage = usage,
-                        downloadSettings = settings,
-                        isLoadingDownloadUsage = false,
-                    )
-                }
-            }
+            reduce(SettingsChange.UsageLoaded(requestGeneration, usage, settings))
         }
     }
 
-    fun logout(onComplete: () -> Unit = {}) {
+    private fun logout(onComplete: () -> Unit = {}) {
         if (_state.value.isLoggingOut || _state.value.logoutRemovalPreview != null) {
             return
         }
@@ -474,23 +393,15 @@ class SettingsViewModel(
                 performLogout(SessionRemovalAuthorization.None, onComplete, scope = null)
                 return@launch
             }
-            _state.update { current ->
-                current.copy(isLoggingOut = true, isLoadingLogoutRemovalPreview = true)
-            }
+            reduce(SettingsChange.LogoutPreviewStarted)
             val scope = fullLogoutScope()
             logoutRemovalScope = scope
             val preview = loadLogoutRemovalPreview(scope)
             if (preview == null) {
-                _state.update { current -> current.copy(isLoggingOut = false, isLoadingLogoutRemovalPreview = false) }
+                reduce(SettingsChange.LogoutPreviewFailed)
                 _events.send(SettingsEvent.LogoutFailed)
             } else if (preview.confirmations.any { confirmation -> confirmation.recordCount > 0L }) {
-                _state.update { current ->
-                    current.copy(
-                        isLoggingOut = false,
-                        isLoadingLogoutRemovalPreview = false,
-                        logoutRemovalPreview = preview,
-                    )
-                }
+                reduce(SettingsChange.LogoutPreviewLoaded(preview))
             } else {
                 val authorization =
                     try {
@@ -505,7 +416,7 @@ class SettingsViewModel(
                         null
                     }
                 if (authorization == null) {
-                    _state.update { current -> current.copy(isLoggingOut = false) }
+                    reduce(SettingsChange.LogoutStopped)
                     _events.send(SettingsEvent.LogoutFailed)
                 } else {
                     performLogout(authorization, onComplete, scope)
@@ -514,13 +425,13 @@ class SettingsViewModel(
         }
     }
 
-    fun confirmLogoutRemoval(onComplete: () -> Unit = {}) {
+    private fun confirmLogoutRemoval(onComplete: () -> Unit = {}) {
         val issueAuthorization = issueDownloadRemovalAuthorizationUseCase ?: return
         val preview = _state.value.logoutRemovalPreview ?: return
         val scope = logoutRemovalScope ?: return
         if (_state.value.isLoggingOut) return
         viewModelScope.launch {
-            _state.update { current -> current.copy(isLoggingOut = true, logoutRemovalPreview = null) }
+            reduce(SettingsChange.LogoutConfirmed)
             val authorization =
                 try {
                     withContext(workDispatcher) { issueAuthorization(scope, preview) }
@@ -534,7 +445,7 @@ class SettingsViewModel(
                     null
                 }
             if (authorization == null) {
-                _state.update { current -> current.copy(isLoggingOut = false) }
+                reduce(SettingsChange.LogoutStopped)
                 _events.send(SettingsEvent.LogoutFailed)
             } else {
                 performLogout(authorization, onComplete, scope)
@@ -542,19 +453,13 @@ class SettingsViewModel(
         }
     }
 
-    fun dismissLogoutRemoval() {
+    private fun dismissLogoutRemoval() {
         val preview = _state.value.logoutRemovalPreview
         val scope = logoutRemovalScope
         val release = releaseDownloadRemovalPreviewUseCase
         if (preview == null || scope == null || release == null) {
             logoutRemovalScope = null
-            _state.update { current ->
-                current.copy(
-                    isLoggingOut = false,
-                    isLoadingLogoutRemovalPreview = false,
-                    logoutRemovalPreview = null,
-                )
-            }
+            reduce(SettingsChange.LogoutDismissed)
             return
         }
 
@@ -573,13 +478,7 @@ class SettingsViewModel(
                 // A later lifecycle wake can resume the durable queue.
             } finally {
                 logoutRemovalScope = null
-                _state.update { current ->
-                    current.copy(
-                        isLoggingOut = false,
-                        isLoadingLogoutRemovalPreview = false,
-                        logoutRemovalPreview = null,
-                    )
-                }
+                reduce(SettingsChange.LogoutDismissed)
             }
         }
     }
@@ -589,7 +488,7 @@ class SettingsViewModel(
         onComplete: () -> Unit,
         scope: SessionRemovalScope.FullLogout?,
     ) {
-        _state.update { current -> current.copy(isLoggingOut = true) }
+        reduce(SettingsChange.LogoutStarted)
         val result =
             try {
                 withContext(workDispatcher) { logoutAction(authorization) }
@@ -607,7 +506,7 @@ class SettingsViewModel(
             result.exceptionOrNull()?.let { failure ->
                 logSettingsFailure("logout", DiagnosticOperation.Logout, failure)
             }
-            _state.update { current -> current.copy(isLoggingOut = false) }
+            reduce(SettingsChange.LogoutStopped)
             _events.send(SettingsEvent.LogoutFailed)
         }
     }
@@ -630,7 +529,7 @@ class SettingsViewModel(
     ) {
         val preview = loadLogoutRemovalPreview(scope)
         if (preview == null) {
-            _state.update { current -> current.copy(isLoggingOut = false, isLoadingLogoutRemovalPreview = false) }
+            reduce(SettingsChange.LogoutPreviewFailed)
             _events.send(SettingsEvent.LogoutFailed)
             return
         }
@@ -650,13 +549,7 @@ class SettingsViewModel(
                 return
             }
         }
-        _state.update { current ->
-            current.copy(
-                isLoggingOut = false,
-                isLoadingLogoutRemovalPreview = false,
-                logoutRemovalPreview = preview,
-            )
-        }
+        reduce(SettingsChange.LogoutPreviewLoaded(preview))
     }
 
     private fun fullLogoutScope(): SessionRemovalScope.FullLogout {
@@ -672,11 +565,11 @@ class SettingsViewModel(
         )
     }
 
-    fun reloadPlaybackPreferences() {
+    private fun reloadPlaybackPreferences() {
         loadPlaybackPreferences()
     }
 
-    fun setDefaultMaxBitrateBps(defaultMaxBitrateBps: Long?) {
+    private fun setDefaultMaxBitrateBps(defaultMaxBitrateBps: Long?) {
         val policy = defaultMaxBitrateBps?.let { bitrate -> PlaybackQualityPolicy.fixed(bitrate) } ?: PlaybackQualityPolicy.Auto
         savePlaybackPreferences { current ->
             current.copy(
@@ -686,7 +579,7 @@ class SettingsViewModel(
         }
     }
 
-    fun setDefaultQualityPolicy(policy: PlaybackQualityPolicy) {
+    private fun setDefaultQualityPolicy(policy: PlaybackQualityPolicy) {
         val normalized = policy.normalized()
         savePlaybackPreferences { current ->
             current.copy(
@@ -696,51 +589,51 @@ class SettingsViewModel(
         }
     }
 
-    fun setVlcTranscodeMaxBitrateBps(maxBitrateBps: Long?) {
+    private fun setVlcTranscodeMaxBitrateBps(maxBitrateBps: Long?) {
         savePlaybackPreferences { current ->
             current.copy(vlcTranscodeMaxBitrateBps = maxBitrateBps).normalized()
         }
     }
 
-    fun setDefaultPlayerBackend(backend: PlayerBackend) {
+    private fun setDefaultPlayerBackend(backend: PlayerBackend) {
         savePlaybackPreferences { current -> current.copy(defaultPlayerBackend = backend) }
     }
 
-    fun setPreferredAudioLanguage(language: String?) {
+    private fun setPreferredAudioLanguage(language: String?) {
         savePlaybackPreferences { current ->
             current.copy(preferredAudioLanguage = language.normalizedPreferenceText())
         }
     }
 
-    fun setPreferredSubtitleLanguage(language: String?) {
+    private fun setPreferredSubtitleLanguage(language: String?) {
         savePlaybackPreferences { current ->
             current.copy(preferredSubtitleLanguage = language.normalizedPreferenceText())
         }
     }
 
-    fun setAutoPlayNext(enabled: Boolean) {
+    private fun setAutoPlayNext(enabled: Boolean) {
         savePlaybackPreferences { current -> current.copy(autoPlayNext = enabled) }
     }
 
-    fun setAutoPlayNextDelaySeconds(delaySeconds: Int) {
+    private fun setAutoPlayNextDelaySeconds(delaySeconds: Int) {
         savePlaybackPreferences { current ->
             current.copy(autoPlayNextDelaySeconds = delaySeconds).normalized()
         }
     }
 
-    fun setStillWatchingPrompt(enabled: Boolean) {
+    private fun setStillWatchingPrompt(enabled: Boolean) {
         savePlaybackPreferences { current -> current.copy(stillWatchingPrompt = enabled) }
     }
 
-    fun setPlaybackWarningsEnabled(enabled: Boolean) {
+    private fun setPlaybackWarningsEnabled(enabled: Boolean) {
         savePlaybackPreferences { current -> current.copy(playbackWarningsEnabled = enabled) }
     }
 
-    fun setAllowInsecureDesktopTls(enabled: Boolean) {
+    private fun setAllowInsecureDesktopTls(enabled: Boolean) {
         savePlaybackPreferences { current -> current.copy(allowInsecureDesktopTls = enabled) }
     }
 
-    fun setSegmentSkipPolicy(
+    private fun setSegmentSkipPolicy(
         type: MediaSegmentType,
         policy: SegmentSkipPolicy,
     ) {
@@ -757,62 +650,57 @@ class SettingsViewModel(
         }
     }
 
-    fun setAndroidTvMpvVideoOutput(output: AndroidTvMpvVideoOutput) {
+    private fun setAndroidTvMpvVideoOutput(output: AndroidTvMpvVideoOutput) {
         savePlayerDeviceSettings { current -> current.copy(androidTvMpvVideoOutput = output) }
     }
 
-    fun setPlayerAudioMode(audioMode: PlayerAudioMode) {
+    private fun setPlayerAudioMode(audioMode: PlayerAudioMode) {
         savePlayerDeviceSettings { current -> current.copy(audioMode = audioMode) }
     }
 
-    fun setPlayerHdrMode(hdrMode: PlayerHdrMode) {
+    private fun setPlayerHdrMode(hdrMode: PlayerHdrMode) {
         savePlayerDeviceSettings { current -> current.copy(hdrMode = hdrMode) }
     }
 
-    fun setMaxVideoResolution(limit: PlayerVideoResolutionLimit) {
+    private fun setMaxVideoResolution(limit: PlayerVideoResolutionLimit) {
         savePlayerDeviceSettings { current -> current.copy(maxVideoResolution = limit) }
     }
 
-    fun setIosPlaybackCompatibilityMode(mode: IosPlaybackCompatibilityMode) {
+    private fun setIosPlaybackCompatibilityMode(mode: IosPlaybackCompatibilityMode) {
         savePlayerDeviceSettings { current -> current.copy(iosPlaybackCompatibilityMode = mode) }
     }
 
-    fun setMatchDisplayRefreshRate(enabled: Boolean) {
+    private fun setMatchDisplayRefreshRate(enabled: Boolean) {
         savePlayerDeviceSettings { current -> current.copy(matchDisplayRefreshRate = enabled) }
     }
 
-    fun refreshPlayerDevicePolicy() {
+    private fun refreshPlayerDevicePolicy() {
         if (_state.value.isRefreshingPlayerDevicePolicy) return
-        _state.update { current ->
-            current.copy(
-                isRefreshingPlayerDevicePolicy = true,
-                playerDevicePolicyError = false,
-            )
-        }
+        reduce(SettingsChange.DeviceRefreshStarted)
         policyRefreshRequests.trySend(Unit)
     }
 
-    fun setAppTheme(theme: AppColorThemeId) {
+    private fun setAppTheme(theme: AppColorThemeId) {
         appThemeWriter.submit(theme)
     }
 
-    fun setTileSize(tileSize: TileSizeId) {
+    private fun setTileSize(tileSize: TileSizeId) {
         tileSizeWriter.submit(tileSize)
     }
 
-    fun setImageQuality(imageQuality: ImageQuality) {
+    private fun setImageQuality(imageQuality: ImageQuality) {
         imageQualityWriter.submit(imageQuality)
     }
 
-    fun setPictureInPictureEnabled(enabled: Boolean) {
+    private fun setPictureInPictureEnabled(enabled: Boolean) {
         pictureInPictureWriter.submit(enabled)
     }
 
-    fun setPlayerClockEnabled(enabled: Boolean) {
+    private fun setPlayerClockEnabled(enabled: Boolean) {
         playerClockWriter.submit(enabled)
     }
 
-    fun setRememberLastLibraryView(enabled: Boolean) {
+    private fun setRememberLastLibraryView(enabled: Boolean) {
         rememberLastLibraryViewWriter.submit(enabled)
     }
 
@@ -821,12 +709,12 @@ class SettingsViewModel(
      * Its pending save outlives this screen and admits no other selection, so a reopened Settings
      * stays disabled until that save settles.
      */
-    fun setDesktopMpvPresentation(presentation: DesktopMpvPresentation) {
+    private fun setDesktopMpvPresentation(presentation: DesktopMpvPresentation) {
         val select = setDesktopMpvPresentationAction ?: return
         // The store's current value, not this screen's collected copy, so a pending save is never missed.
         val presentationState = desktopMpvPresentation?.value ?: return
         if (presentationState.isSaving || !presentationState.isSelectorEnabled) return
-        _state.update { state -> state.copy(desktopMpvPresentationError = false) }
+        reduce(SettingsChange.DesktopSaveStarted)
         if (presentationState.selected == presentation) return
         viewModelScope.launch {
             try {
@@ -835,49 +723,38 @@ class SettingsViewModel(
                 throw exception
             } catch (exception: Throwable) {
                 logSettingsFailure("desktop-mpv-presentation-save", DiagnosticOperation.SetDesktopMpvPresentation, exception)
-                _state.update { state -> state.copy(desktopMpvPresentationError = true) }
+                reduce(SettingsChange.DesktopSaveFailed)
             }
         }
     }
 
-    fun setOpenSubtitlesApiKey(
+    private fun setOpenSubtitlesApiKey(
         value: String,
         onSuccess: () -> Unit = {},
     ) {
         val setKey = setOpenSubtitlesApiKeyAction ?: return
         val current = _state.value
         if (!current.isOpenSubtitlesApiKeyLoaded || current.isSavingOpenSubtitlesApiKey) return
-        _state.update { state -> state.copy(isSavingOpenSubtitlesApiKey = true, openSubtitlesApiKeyError = false) }
+        reduce(SettingsChange.ApiKeySaveStarted)
         viewModelScope.launch {
             try {
                 withContext(workDispatcher) { setKey(value) }
-                _state.update { state ->
-                    state.copy(
-                        openSubtitlesApiKey = value,
-                        isSavingOpenSubtitlesApiKey = false,
-                        openSubtitlesApiKeyError = false,
-                    )
-                }
+                reduce(SettingsChange.ApiKeySaved(value))
                 onSuccess()
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Throwable) {
                 logSettingsFailure("open-subtitles-api-key-save", DiagnosticOperation.SetOpenSubtitlesApiKey, exception)
-                _state.update { state ->
-                    state.copy(
-                        isSavingOpenSubtitlesApiKey = false,
-                        openSubtitlesApiKeyError = true,
-                    )
-                }
+                reduce(SettingsChange.ApiKeySaveFailed)
             }
         }
     }
 
-    fun retryOpenSubtitlesApiKeyLoad() {
+    private fun retryOpenSubtitlesApiKeyLoad() {
         loadOpenSubtitlesApiKey()
     }
 
-    fun setOpenSubtitleResultPreference(
+    private fun setOpenSubtitleResultPreference(
         preference: OpenSubtitleResultPreference,
         onSuccess: () -> Unit = {},
     ) {
@@ -888,21 +765,11 @@ class SettingsViewModel(
             onSuccess()
             return
         }
-        _state.update { current ->
-            current.copy(
-                isSavingOpenSubtitleResultPreference = true,
-                openSubtitleResultPreferenceError = false,
-            )
-        }
+        reduce(SettingsChange.SubtitlePreferenceSaveStarted)
         viewModelScope.launch {
             try {
                 withContext(workDispatcher) { setPreference(preference) }
-                _state.update { current ->
-                    current.copy(
-                        openSubtitleResultPreference = preference,
-                        openSubtitleResultPreferenceError = false,
-                    )
-                }
+                reduce(SettingsChange.SubtitlePreferenceSaved(preference))
                 onSuccess()
             } catch (exception: CancellationException) {
                 throw exception
@@ -912,26 +779,21 @@ class SettingsViewModel(
                     DiagnosticOperation.SetOpenSubtitleResultPreference,
                     exception,
                 )
-                _state.update { current -> current.copy(openSubtitleResultPreferenceError = true) }
+                reduce(SettingsChange.SubtitlePreferenceSaveFailed)
             } finally {
-                _state.update { current -> current.copy(isSavingOpenSubtitleResultPreference = false) }
+                reduce(SettingsChange.SubtitlePreferenceSaveFinished)
             }
         }
     }
 
-    fun retryOpenSubtitleResultPreferenceLoad() {
+    private fun retryOpenSubtitleResultPreferenceLoad() {
         loadOpenSubtitleResultPreference()
     }
 
-    fun clearLocalSubtitles() {
+    private fun clearLocalSubtitles() {
         val clear = clearLocalSubtitlesAction ?: return
         if (_state.value.isClearingLocalSubtitles) return
-        _state.update { current ->
-            current.copy(
-                isClearingLocalSubtitles = true,
-                localSubtitlesClearError = false,
-            )
-        }
+        reduce(SettingsChange.SubtitleClearStarted)
         viewModelScope.launch {
             try {
                 withContext(workDispatcher) { clear() }
@@ -939,36 +801,31 @@ class SettingsViewModel(
                 throw exception
             } catch (exception: Throwable) {
                 logSettingsFailure("local-subtitle-clear", DiagnosticOperation.ClearLocalSubtitles, exception)
-                _state.update { current -> current.copy(localSubtitlesClearError = true) }
+                reduce(SettingsChange.SubtitleClearFailed)
             } finally {
-                _state.update { current ->
-                    current.copy(
-                        isClearingLocalSubtitles = false,
-                        localSubtitlesClearCompletion = current.localSubtitlesClearCompletion + 1,
-                    )
-                }
+                reduce(SettingsChange.SubtitleClearFinished)
             }
         }
     }
 
-    fun setLogCollectionEnabled(enabled: Boolean) {
+    private fun setLogCollectionEnabled(enabled: Boolean) {
         val setEnabled = setLogCollectionEnabledAction ?: return
         viewModelScope.launch {
             try {
                 withContext(workDispatcher) {
                     setEnabled(enabled)
                 }
-                _state.update { current -> current.copy(logCollectionPreferenceError = false) }
+                reduce(SettingsChange.LogCollectionSaved)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (exception: Throwable) {
                 logSettingsFailure("log-collection", DiagnosticOperation.SetLogCollectionEnabled, exception)
-                _state.update { current -> current.copy(logCollectionPreferenceError = true) }
+                reduce(SettingsChange.LogCollectionFailed)
             }
         }
     }
 
-    fun setVerboseLogcatEnabled(enabled: Boolean) {
+    private fun setVerboseLogcatEnabled(enabled: Boolean) {
         val setEnabled = setVerboseLogcatEnabledAction ?: return
         viewModelScope.launch {
             try {
@@ -983,7 +840,7 @@ class SettingsViewModel(
         }
     }
 
-    fun setPlaybackInfoAtStartEnabled(enabled: Boolean) {
+    private fun setPlaybackInfoAtStartEnabled(enabled: Boolean) {
         val setEnabled = setPlaybackInfoAtStartEnabledAction ?: return
         viewModelScope.launch {
             try {
@@ -998,12 +855,12 @@ class SettingsViewModel(
         }
     }
 
-    fun sendClientLogs() {
+    private fun sendClientLogs() {
         val sendLogs = sendClientLogsAction ?: return
         val currentState = _state.value
         if (currentState.isSendingClientLogs) return
         val preferredBackend = currentState.playbackPreferences.defaultPlayerBackend
-        _state.update { current -> current.copy(isSendingClientLogs = true) }
+        reduce(SettingsChange.ClientLogsStarted)
         viewModelScope.launch {
             try {
                 withContext(workDispatcher) { sendLogs(preferredBackend) }
@@ -1014,18 +871,18 @@ class SettingsViewModel(
                 logSettingsFailure("client-log-send", DiagnosticOperation.SendClientLogs, exception)
                 _events.send(SettingsEvent.ClientLogsSent(SendClientLogsResult.Failure))
             } finally {
-                _state.update { current -> current.copy(isSendingClientLogs = false) }
+                reduce(SettingsChange.ClientLogsFinished)
             }
         }
     }
 
     /** Prepares a timeline, then asks the screen's native exporter for a destination. */
-    fun savePlaybackTimeline() {
+    private fun savePlaybackTimeline() {
         startPlaybackTimelineOperation(send = null)
     }
 
     /** Prepares a timeline and explicitly uploads it; there is no save-to-upload fallback. */
-    fun sendPlaybackTimeline() {
+    private fun sendPlaybackTimeline() {
         val send = sendPlaybackTimelineAction ?: return
         startPlaybackTimelineOperation(send = send)
     }
@@ -1073,7 +930,7 @@ class SettingsViewModel(
         val operationId = newPlaybackTimelineOperationId()
         activePlaybackTimelineOperation = operationId
         activePlaybackTimelineDelivery = if (send == null) PlaybackTimelineDelivery.Save else PlaybackTimelineDelivery.Send
-        _state.update { current -> current.copy(playbackTimelineActivity = PlaybackTimelineActivity.Preparing) }
+        reduce(SettingsChange.TimelinePreparing)
         playbackTimelineJob =
             viewModelScope.launch {
                 val prepared =
@@ -1098,11 +955,11 @@ class SettingsViewModel(
                     }
                 if (send == null) {
                     pendingPlaybackTimeline = timeline
-                    _state.update { current -> current.copy(playbackTimelineActivity = PlaybackTimelineActivity.Saving) }
+                    reduce(SettingsChange.TimelineSaving)
                     _events.send(SettingsEvent.SavePlaybackTimeline(operationId))
                     return@launch
                 }
-                _state.update { current -> current.copy(playbackTimelineActivity = PlaybackTimelineActivity.Sending) }
+                reduce(SettingsChange.TimelineSending)
                 // The action makes the final collection check immediately before the repository call.
                 val sent =
                     try {
@@ -1156,7 +1013,7 @@ class SettingsViewModel(
         activePlaybackTimelineOperation = null
         pendingPlaybackTimeline = null
         playbackTimelineJob = null
-        _state.update { current -> current.copy(playbackTimelineActivity = null) }
+        reduce(SettingsChange.TimelineFinished)
     }
 
     private fun emitPlaybackTimelineFeedback(
@@ -1179,16 +1036,7 @@ class SettingsViewModel(
                     return@launch
                 }
             val choices = playerBackendChoices(playerBackendPolicy, availableBackends)
-            _state.update { current ->
-                current.copy(
-                    playerBackendChoices = choices,
-                    selectedPlayerBackend =
-                        effectivePlayerBackendSelection(
-                            persistedBackend = current.playbackPreferences.defaultPlayerBackend,
-                            choices = choices,
-                        ),
-                )
-            }
+            reduce(SettingsChange.BackendChoicesUpdated(choices))
         }
     }
 
@@ -1197,12 +1045,7 @@ class SettingsViewModel(
         val current = _state.value
         if (current.isOpenSubtitlesApiKeyLoaded || current.isLoadingOpenSubtitlesApiKey) return
         val loadGeneration = ++openSubtitlesApiKeyLoadGeneration
-        _state.update { state ->
-            state.copy(
-                isLoadingOpenSubtitlesApiKey = true,
-                openSubtitlesApiKeyLoadError = false,
-            )
-        }
+        reduce(SettingsChange.ApiKeyLoadStarted)
         viewModelScope.launch {
             val value =
                 try {
@@ -1211,32 +1054,10 @@ class SettingsViewModel(
                     throw cancellation
                 } catch (exception: Throwable) {
                     logSettingsFailure("open-subtitles-api-key", DiagnosticOperation.GetOpenSubtitlesApiKey, exception)
-                    _state.update { current ->
-                        if (loadGeneration == openSubtitlesApiKeyLoadGeneration) {
-                            current.copy(
-                                isLoadingOpenSubtitlesApiKey = false,
-                                openSubtitlesApiKeyLoadError = true,
-                            )
-                        } else {
-                            current
-                        }
-                    }
+                    reduce(SettingsChange.ApiKeyLoadFailed(loadGeneration))
                     return@launch
                 }
-            _state.update { current ->
-                if (loadGeneration != openSubtitlesApiKeyLoadGeneration) {
-                    current
-                } else if (current.isSavingOpenSubtitlesApiKey) {
-                    current.copy(isLoadingOpenSubtitlesApiKey = false)
-                } else {
-                    current.copy(
-                        openSubtitlesApiKey = value,
-                        isOpenSubtitlesApiKeyLoaded = true,
-                        isLoadingOpenSubtitlesApiKey = false,
-                        openSubtitlesApiKeyLoadError = false,
-                    )
-                }
-            }
+            reduce(SettingsChange.ApiKeyLoaded(loadGeneration, value))
         }
     }
 
@@ -1244,23 +1065,11 @@ class SettingsViewModel(
         val getPreference = getOpenSubtitleResultPreferenceUseCase ?: return
         val current = _state.value
         if (current.isOpenSubtitleResultPreferenceLoaded || current.isLoadingOpenSubtitleResultPreference) return
-        _state.update { state ->
-            state.copy(
-                isLoadingOpenSubtitleResultPreference = true,
-                openSubtitleResultPreferenceLoadError = false,
-            )
-        }
+        reduce(SettingsChange.SubtitlePreferenceLoadStarted)
         viewModelScope.launch {
             try {
                 val value = withContext(workDispatcher) { getPreference() }
-                _state.update { state ->
-                    state.copy(
-                        openSubtitleResultPreference = value,
-                        isOpenSubtitleResultPreferenceLoaded = true,
-                        isLoadingOpenSubtitleResultPreference = false,
-                        openSubtitleResultPreferenceLoadError = false,
-                    )
-                }
+                reduce(SettingsChange.SubtitlePreferenceLoaded(value))
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Throwable) {
@@ -1269,13 +1078,7 @@ class SettingsViewModel(
                     DiagnosticOperation.GetOpenSubtitleResultPreference,
                     exception,
                 )
-                _state.update { state ->
-                    state.copy(
-                        isOpenSubtitleResultPreferenceLoaded = false,
-                        isLoadingOpenSubtitleResultPreference = false,
-                        openSubtitleResultPreferenceLoadError = true,
-                    )
-                }
+                reduce(SettingsChange.SubtitlePreferenceLoadFailed)
             }
         }
     }
@@ -1283,7 +1086,7 @@ class SettingsViewModel(
     private fun observeAppTheme() {
         viewModelScope.launch {
             appTheme.collect { theme ->
-                _state.update { current -> current.copy(appTheme = theme) }
+                reduce(SettingsChange.ThemeObserved(theme))
             }
         }
     }
@@ -1291,7 +1094,7 @@ class SettingsViewModel(
     private fun observeTileSize() {
         viewModelScope.launch {
             tileSize.collect { value ->
-                _state.update { current -> current.copy(tileSize = value) }
+                reduce(SettingsChange.TileSizeObserved(value))
             }
         }
     }
@@ -1299,7 +1102,7 @@ class SettingsViewModel(
     private fun observeImageQuality() {
         viewModelScope.launch {
             imageQuality.collect { value ->
-                _state.update { current -> current.copy(imageQuality = value) }
+                reduce(SettingsChange.ImageQualityObserved(value))
             }
         }
     }
@@ -1307,7 +1110,7 @@ class SettingsViewModel(
     private fun observePictureInPicture() {
         viewModelScope.launch {
             pictureInPictureEnabled.collect { enabled ->
-                _state.update { current -> current.copy(pictureInPictureEnabled = enabled) }
+                reduce(SettingsChange.PipObserved(enabled))
             }
         }
     }
@@ -1315,7 +1118,7 @@ class SettingsViewModel(
     private fun observePlayerClock() {
         viewModelScope.launch {
             playerClockEnabled.collect { enabled ->
-                _state.update { current -> current.copy(playerClockEnabled = enabled) }
+                reduce(SettingsChange.ClockObserved(enabled))
             }
         }
     }
@@ -1324,7 +1127,7 @@ class SettingsViewModel(
         val presentation = desktopMpvPresentation ?: return
         viewModelScope.launch {
             presentation.collect { value ->
-                _state.update { current -> current.copy(desktopMpvPresentation = value) }
+                reduce(SettingsChange.DesktopObserved(value))
             }
         }
     }
@@ -1332,7 +1135,7 @@ class SettingsViewModel(
     private fun observeRememberLastLibraryView() {
         viewModelScope.launch {
             rememberLastLibraryView.collect { enabled ->
-                _state.update { current -> current.copy(rememberLastLibraryView = enabled) }
+                reduce(SettingsChange.RememberViewObserved(enabled))
             }
         }
     }
@@ -1375,38 +1178,13 @@ class SettingsViewModel(
                                 throwable = exception,
                             )
                         }
-                        _state.update { current ->
-                            current.copy(
-                                playerDeviceSettings = request.deviceSettings,
-                                playerDevicePolicyError = true,
-                                isRefreshingPlayerDevicePolicy = false,
-                                playerDevicePolicyRefreshCompletion =
-                                    if (request.forceRefresh) {
-                                        current.playerDevicePolicyRefreshCompletion + 1
-                                    } else {
-                                        current.playerDevicePolicyRefreshCompletion
-                                    },
-                            )
-                        }
+                        reduce(SettingsChange.DevicePolicyFailed(request.deviceSettings, request.forceRefresh))
                         return@collectLatest
                     }
                 if (playerDeviceSettings.value != request.deviceSettings) {
                     return@collectLatest
                 }
-                _state.update { current ->
-                    current.copy(
-                        playerDeviceSettings = request.deviceSettings,
-                        playerDevicePolicy = policy,
-                        playerDevicePolicyError = false,
-                        isRefreshingPlayerDevicePolicy = false,
-                        playerDevicePolicyRefreshCompletion =
-                            if (request.forceRefresh) {
-                                current.playerDevicePolicyRefreshCompletion + 1
-                            } else {
-                                current.playerDevicePolicyRefreshCompletion
-                            },
-                    )
-                }
+                reduce(SettingsChange.DevicePolicyLoaded(request.deviceSettings, request.forceRefresh, policy))
             }
         }
     }
@@ -1415,7 +1193,7 @@ class SettingsViewModel(
         logCollectionState?.let { collection ->
             viewModelScope.launch {
                 collection.collect { enabled ->
-                    _state.update { current -> current.copy(collectLogs = enabled) }
+                    reduce(SettingsChange.LogCollectionObserved(enabled))
                     if (!enabled) stopPlaybackTimelineForDisabledCollection()
                 }
             }
@@ -1423,7 +1201,7 @@ class SettingsViewModel(
         logBufferSize?.let { size ->
             viewModelScope.launch {
                 size.collect { value ->
-                    _state.update { current -> current.copy(logBufferSize = value) }
+                    reduce(SettingsChange.LogSizeObserved(value))
                 }
             }
         }
@@ -1433,7 +1211,7 @@ class SettingsViewModel(
         val verboseLogcat = verboseLogcatState ?: return
         viewModelScope.launch {
             verboseLogcat.collect { enabled ->
-                _state.update { current -> current.copy(verboseLogcatEnabled = enabled) }
+                reduce(SettingsChange.VerboseLogsObserved(enabled))
             }
         }
     }
@@ -1442,92 +1220,38 @@ class SettingsViewModel(
         val playbackInfoAtStart = playbackInfoAtStartState ?: return
         viewModelScope.launch {
             playbackInfoAtStart.collect { enabled ->
-                _state.update { current -> current.copy(playbackInfoAtStartEnabled = enabled) }
+                reduce(SettingsChange.PlaybackInfoObserved(enabled))
             }
         }
     }
 
     private fun loadPlaybackPreferences() {
-        _state.update { current ->
-            current.copy(
-                isLoadingPlaybackPreferences = true,
-                playbackPreferencesError = false,
-            )
-        }
+        reduce(SettingsChange.PlaybackLoadStarted)
         viewModelScope.launch {
             try {
                 val preferences =
                     withContext(workDispatcher) {
                         getPlaybackPreferencesUseCase(session.accountIdentity())
                     }.normalized()
-                _state.update { current ->
-                    current.copy(
-                        playbackPreferences = preferences,
-                        selectedPlayerBackend =
-                            effectivePlayerBackendSelection(
-                                persistedBackend = preferences.defaultPlayerBackend,
-                                choices = current.playerBackendChoices,
-                            ),
-                        isLoadingPlaybackPreferences = false,
-                        playbackPreferencesError = false,
-                    )
-                }
+                reduce(SettingsChange.PlaybackLoaded(preferences))
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Throwable) {
                 logSettingsFailure("playback-preferences-load", DiagnosticOperation.GetPlaybackPreferences, exception)
-                _state.update { current ->
-                    current.copy(
-                        isLoadingPlaybackPreferences = false,
-                        playbackPreferencesError = true,
-                    )
-                }
+                reduce(SettingsChange.PlaybackLoadFailed)
             }
         }
     }
 
     private fun savePlaybackPreferences(transform: (PlaybackPreferences) -> PlaybackPreferences) {
-        _state.update { current ->
-            val preferences = transform(current.playbackPreferences)
-            current.copy(
-                playbackPreferences = preferences,
-                selectedPlayerBackend =
-                    effectivePlayerBackendSelection(
-                        persistedBackend = preferences.defaultPlayerBackend,
-                        choices = current.playerBackendChoices,
-                    ),
-                playbackPreferencesError = false,
-            )
-        }
+        reduce(SettingsChange.PlaybackChanged(transform))
         val nextPreferences = _state.value.playbackPreferences
 
         playbackPreferencesWriter.submit(nextPreferences)
     }
 
-    private fun effectivePlayerBackendSelection(
-        persistedBackend: PlayerBackend?,
-        choices: List<PlayerBackendChoice>,
-    ): PlayerBackend {
-        val normalizedBackend = playerBackendPolicy.normalizePersisted(persistedBackend)
-        return normalizedBackend.takeIf { backend ->
-            choices.any { choice -> choice.backend == backend && choice.available }
-        } ?: choices.firstOrNull { choice -> choice.available }?.backend
-            ?: choices.firstOrNull()?.backend
-            ?: playerBackendPolicy.defaultBackend
-    }
-
     private fun savePlayerDeviceSettings(transform: (PlayerDeviceSettings) -> PlayerDeviceSettings) {
-        _state.update { current ->
-            val nextSettings = transform(current.playerDeviceSettings)
-            current.copy(
-                playerDeviceSettings = nextSettings,
-                playerDevicePolicy =
-                    current.playerDevicePolicy?.let { policy ->
-                        policy.copy(settings = nextSettings)
-                    },
-                playerDevicePolicyError = false,
-            )
-        }
+        reduce(SettingsChange.DeviceSettingsChanged(transform))
         val nextSettings = _state.value.playerDeviceSettings
 
         playerDeviceSettingsWriter.submit(nextSettings)

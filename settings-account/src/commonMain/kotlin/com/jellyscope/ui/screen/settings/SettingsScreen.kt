@@ -62,6 +62,7 @@ import com.jellyscope.ui.generated.resources.settings_logout_error
 import com.jellyscope.ui.generated.resources.settings_picker_cancel
 import com.jellyscope.ui.generated.resources.settings_source_notices
 import com.jellyscope.ui.generated.resources.settings_title
+import com.jellyscope.ui.screen.account.AccountIntent
 import com.jellyscope.ui.screen.account.AccountUiState
 import com.jellyscope.ui.screen.account.AccountViewModel
 import com.jellyscope.ui.screen.downloads.formatIntegerBytes
@@ -92,7 +93,7 @@ fun SettingsScreen(
     val logoutErrorMessage = stringResource(Res.string.settings_logout_error)
     val playbackTimelineExporter = rememberPlaybackTimelineExporter(viewModel)
 
-    OnResumeEffect(viewModel::refreshDownloadUsage)
+    OnResumeEffect({ viewModel.accept(SettingsIntent.RefreshDownloadUsage) })
 
     LaunchedEffect(viewModel, logoutErrorMessage, playbackTimelineExporter) {
         viewModel.events.collect { event ->
@@ -109,53 +110,66 @@ fun SettingsScreen(
         state = state,
         accountState = accountState,
         onBack = onBack,
-        onLogout = { viewModel.logout(onLogoutComplete) },
-        onReloadPlaybackPreferences = viewModel::reloadPlaybackPreferences,
-        onSetDefaultMaxBitrateBps = viewModel::setDefaultMaxBitrateBps,
-        onSetDefaultQualityPolicy = viewModel::setDefaultQualityPolicy,
-        onSetVlcTranscodeMaxBitrateBps = viewModel::setVlcTranscodeMaxBitrateBps,
-        onSetDefaultPlayerBackend = viewModel::setDefaultPlayerBackend,
-        onSetPreferredAudioLanguage = viewModel::setPreferredAudioLanguage,
-        onSetPreferredSubtitleLanguage = viewModel::setPreferredSubtitleLanguage,
-        onSetAutoPlayNext = viewModel::setAutoPlayNext,
-        onSetStillWatchingPrompt = viewModel::setStillWatchingPrompt,
-        onSetPlaybackWarningsEnabled = viewModel::setPlaybackWarningsEnabled,
-        onSetPlayerClockEnabled = viewModel::setPlayerClockEnabled,
-        onSetAllowInsecureDesktopTls = viewModel::setAllowInsecureDesktopTls,
-        onSetAutoPlayNextDelaySeconds = viewModel::setAutoPlayNextDelaySeconds,
-        onSetDesktopMpvPresentation = viewModel::setDesktopMpvPresentation,
-        onSetSegmentSkipPolicy = viewModel::setSegmentSkipPolicy,
-        onSetPlayerAudioMode = viewModel::setPlayerAudioMode,
-        onSetPlayerHdrMode = viewModel::setPlayerHdrMode,
-        onSetMaxVideoResolution = viewModel::setMaxVideoResolution,
-        onSetIosPlaybackCompatibilityMode = viewModel::setIosPlaybackCompatibilityMode,
-        onRefreshPlayerDevicePolicy = viewModel::refreshPlayerDevicePolicy,
-        onSetAppTheme = viewModel::setAppTheme,
-        onSetTileSize = viewModel::setTileSize,
-        onSetImageQuality = viewModel::setImageQuality,
-        onSetPictureInPictureEnabled = viewModel::setPictureInPictureEnabled,
-        onSetRememberLastLibraryView = viewModel::setRememberLastLibraryView,
-        onSetOpenSubtitlesApiKey = viewModel::setOpenSubtitlesApiKey,
-        onRetryOpenSubtitlesApiKeyLoad = viewModel::retryOpenSubtitlesApiKeyLoad,
-        onSetOpenSubtitleResultPreference = viewModel::setOpenSubtitleResultPreference,
-        onRetryOpenSubtitleResultPreferenceLoad = viewModel::retryOpenSubtitleResultPreferenceLoad,
-        onClearLocalSubtitles = viewModel::clearLocalSubtitles,
+        onLogout = { viewModel.accept(SettingsIntent.Logout(onLogoutComplete)) },
+        onReloadPlaybackPreferences = { viewModel.accept(SettingsIntent.ReloadPlaybackPreferences) },
+        onSetDefaultMaxBitrateBps = { defaultMaxBitrateBps ->
+            viewModel.accept(SettingsIntent.SetDefaultMaxBitrateBps(defaultMaxBitrateBps))
+        },
+        onSetDefaultQualityPolicy = { policy -> viewModel.accept(SettingsIntent.SetDefaultQualityPolicy(policy)) },
+        onSetVlcTranscodeMaxBitrateBps = { maxBitrateBps -> viewModel.accept(SettingsIntent.SetVlcTranscodeMaxBitrateBps(maxBitrateBps)) },
+        onSetDefaultPlayerBackend = { backend -> viewModel.accept(SettingsIntent.SetDefaultPlayerBackend(backend)) },
+        onSetPreferredAudioLanguage = { language -> viewModel.accept(SettingsIntent.SetPreferredAudioLanguage(language)) },
+        onSetPreferredSubtitleLanguage = { language -> viewModel.accept(SettingsIntent.SetPreferredSubtitleLanguage(language)) },
+        onSetAutoPlayNext = { enabled -> viewModel.accept(SettingsIntent.SetAutoPlayNext(enabled)) },
+        onSetStillWatchingPrompt = { enabled -> viewModel.accept(SettingsIntent.SetStillWatchingPrompt(enabled)) },
+        onSetPlaybackWarningsEnabled = { enabled -> viewModel.accept(SettingsIntent.SetPlaybackWarningsEnabled(enabled)) },
+        onSetPlayerClockEnabled = { enabled -> viewModel.accept(SettingsIntent.SetPlayerClockEnabled(enabled)) },
+        onSetAllowInsecureDesktopTls = { enabled -> viewModel.accept(SettingsIntent.SetAllowInsecureDesktopTls(enabled)) },
+        onSetAutoPlayNextDelaySeconds = { delaySeconds -> viewModel.accept(SettingsIntent.SetAutoPlayNextDelaySeconds(delaySeconds)) },
+        onSetDesktopMpvPresentation = { presentation -> viewModel.accept(SettingsIntent.SetDesktopMpvPresentation(presentation)) },
+        onSetSegmentSkipPolicy = { type, policy -> viewModel.accept(SettingsIntent.SetSegmentSkipPolicy(type, policy)) },
+        onSetPlayerAudioMode = { audioMode -> viewModel.accept(SettingsIntent.SetPlayerAudioMode(audioMode)) },
+        onSetPlayerHdrMode = { hdrMode -> viewModel.accept(SettingsIntent.SetPlayerHdrMode(hdrMode)) },
+        onSetMaxVideoResolution = { limit -> viewModel.accept(SettingsIntent.SetMaxVideoResolution(limit)) },
+        onSetIosPlaybackCompatibilityMode = { mode -> viewModel.accept(SettingsIntent.SetIosPlaybackCompatibilityMode(mode)) },
+        onRefreshPlayerDevicePolicy = { viewModel.accept(SettingsIntent.RefreshPlayerDevicePolicy) },
+        onSetAppTheme = { theme -> viewModel.accept(SettingsIntent.SetAppTheme(theme)) },
+        onSetTileSize = { tileSize -> viewModel.accept(SettingsIntent.SetTileSize(tileSize)) },
+        onSetImageQuality = { imageQuality -> viewModel.accept(SettingsIntent.SetImageQuality(imageQuality)) },
+        onSetPictureInPictureEnabled = { enabled -> viewModel.accept(SettingsIntent.SetPictureInPictureEnabled(enabled)) },
+        onSetRememberLastLibraryView = { enabled -> viewModel.accept(SettingsIntent.SetRememberLastLibraryView(enabled)) },
+        onSetOpenSubtitlesApiKey = { value, onSuccess -> viewModel.accept(SettingsIntent.SetOpenSubtitlesApiKey(value, onSuccess)) },
+        onRetryOpenSubtitlesApiKeyLoad = { viewModel.accept(SettingsIntent.RetryOpenSubtitlesApiKeyLoad) },
+        onSetOpenSubtitleResultPreference = {
+            preference,
+            onSuccess,
+            ->
+            viewModel.accept(SettingsIntent.SetOpenSubtitleResultPreference(preference, onSuccess))
+        },
+        onRetryOpenSubtitleResultPreferenceLoad = { viewModel.accept(SettingsIntent.RetryOpenSubtitleResultPreferenceLoad) },
+        onClearLocalSubtitles = { viewModel.accept(SettingsIntent.ClearLocalSubtitles) },
         logFeedback = logFeedback,
         snackbarHostState = snackbarHostState,
-        onSetLogCollectionEnabled = viewModel::setLogCollectionEnabled,
-        onSetVerboseLogcatEnabled = viewModel::setVerboseLogcatEnabled,
-        onSetPlaybackInfoAtStartEnabled = viewModel::setPlaybackInfoAtStartEnabled,
-        onSendClientLogs = viewModel::sendClientLogs,
+        onSetLogCollectionEnabled = { enabled -> viewModel.accept(SettingsIntent.SetLogCollectionEnabled(enabled)) },
+        onSetVerboseLogcatEnabled = { enabled -> viewModel.accept(SettingsIntent.SetVerboseLogcatEnabled(enabled)) },
+        onSetPlaybackInfoAtStartEnabled = { enabled -> viewModel.accept(SettingsIntent.SetPlaybackInfoAtStartEnabled(enabled)) },
+        onSendClientLogs = { viewModel.accept(SettingsIntent.SendClientLogs) },
         playbackTimelineFeedback = playbackTimelineFeedback,
         onSavePlaybackTimeline = {
             playbackTimelineFeedback = null
-            viewModel.savePlaybackTimeline()
+            viewModel.accept(SettingsIntent.SavePlaybackTimeline)
         },
-        onAddAccount = accountViewModel::addAccount,
-        onSwitchAccount = accountViewModel::switchTo,
-        onSignOutAccount = accountViewModel::signOut,
-        onConfirmAccountRemoval = accountViewModel::confirmPendingRemoval,
-        onDismissAccountRemoval = accountViewModel::dismissPendingRemoval,
+        onAddAccount = {
+            serverUrl,
+            username,
+            password,
+            ->
+            accountViewModel.accept(AccountIntent.AddAccount(serverUrl, username, password))
+        },
+        onSwitchAccount = { accountId -> accountViewModel.accept(AccountIntent.SwitchTo(accountId)) },
+        onSignOutAccount = { accountId -> accountViewModel.accept(AccountIntent.SignOut(accountId)) },
+        onConfirmAccountRemoval = { accountViewModel.accept(AccountIntent.ConfirmPendingRemoval) },
+        onDismissAccountRemoval = { accountViewModel.accept(AccountIntent.DismissPendingRemoval) },
         onOpenDownloads = onOpenDownloads,
         enableContentDownloading = session.enableContentDownloading,
         modifier = modifier,
@@ -163,8 +177,8 @@ fun SettingsScreen(
     state.logoutRemovalPreview?.let { preview ->
         LogoutDownloadRemovalConfirmationDialog(
             preview = preview,
-            onConfirm = { viewModel.confirmLogoutRemoval(onLogoutComplete) },
-            onDismiss = viewModel::dismissLogoutRemoval,
+            onConfirm = { viewModel.accept(SettingsIntent.ConfirmLogoutRemoval(onLogoutComplete)) },
+            onDismiss = { viewModel.accept(SettingsIntent.DismissLogoutRemoval) },
         )
     }
 }
@@ -296,7 +310,10 @@ fun SettingsContent(
             ) {
                 item(key = SettingsSectionId.Account) {
                     AccountSettingsSection(
-                        state = state,
+                        userName = state.userName,
+                        serverName = state.serverName,
+                        serverUrl = state.serverUrl,
+                        isLoggingOut = state.isLoggingOut,
                         accountState = accountState,
                         onLogout = onLogout,
                         onAddAccount = onAddAccount,

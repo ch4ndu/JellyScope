@@ -29,29 +29,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class AccountUiState(
-    val accounts: List<AccountSession> = emptyList(),
-    val isAddingAccount: Boolean = false,
-    val switchingAccountId: String? = null,
-    val signingOutAccountId: String? = null,
-    val isLoadingRemovalPreview: Boolean = false,
-    val removalPreview: DownloadRemovalPreview? = null,
-    val removalPreviewAccountId: String? = null,
-    val error: AccountUiError? = null,
-)
-
-sealed interface AccountUiError {
-    data object InvalidCredentials : AccountUiError
-
-    data object NotReachable : AccountUiError
-
-    data object AccountNotFound : AccountUiError
-
-    data object ServerError : AccountUiError
-
-    data object RemovalFailed : AccountUiError
-}
-
 class AccountViewModel(
     observeAccountsUseCase: ObserveAccountsUseCase,
     private val addAccountAction: AddAccountAction,
@@ -66,15 +43,29 @@ class AccountViewModel(
     val state: StateFlow<AccountUiState> = _state.asStateFlow()
     private var removalScope: SessionRemovalScope.Account? = null
 
+    private fun reduce(change: AccountChange) {
+        _state.update { current -> reduceAccount(current, change) }
+    }
+
+    fun accept(intent: AccountIntent) {
+        when (intent) {
+            is AccountIntent.AddAccount -> addAccount(intent.serverUrl, intent.username, intent.password)
+            is AccountIntent.SwitchTo -> switchTo(intent.accountId)
+            is AccountIntent.SignOut -> signOut(intent.accountId)
+            AccountIntent.ConfirmPendingRemoval -> confirmPendingRemoval()
+            AccountIntent.DismissPendingRemoval -> dismissPendingRemoval()
+        }
+    }
+
     init {
         viewModelScope.launch {
             observeAccountsUseCase().collect { accounts ->
-                _state.update { state -> state.copy(accounts = accounts) }
+                reduce(AccountChange.AccountsObserved(accounts))
             }
         }
     }
 
-    fun addAccount(
+    private fun addAccount(
         serverUrl: String,
         username: String,
         password: String,
@@ -84,7 +75,7 @@ class AccountViewModel(
         }
 
         viewModelScope.launch {
-            _state.update { state -> state.copy(isAddingAccount = true, error = null) }
+            reduce(AccountChange.AddStarted)
             val result =
                 withContext(workDispatcher) {
                     addAccountAction(
@@ -93,33 +84,23 @@ class AccountViewModel(
                         password = password,
                     )
                 }
-            _state.update { state ->
-                state.copy(
-                    isAddingAccount = false,
-                    error = result.exceptionOrNull()?.toUiError(),
-                )
-            }
+            reduce(AccountChange.AddFinished(result.exceptionOrNull()?.toUiError()))
         }
     }
 
-    fun switchTo(accountId: String) {
+    private fun switchTo(accountId: String) {
         if (_state.value.switchingAccountId != null) {
             return
         }
 
         viewModelScope.launch {
-            _state.update { state -> state.copy(switchingAccountId = accountId, error = null) }
+            reduce(AccountChange.SwitchStarted(accountId))
             val result = withContext(workDispatcher) { switchAccountAction(accountId) }
-            _state.update { state ->
-                state.copy(
-                    switchingAccountId = null,
-                    error = result.exceptionOrNull()?.toUiError(),
-                )
-            }
+            reduce(AccountChange.SwitchFinished(result.exceptionOrNull()?.toUiError()))
         }
     }
 
-    fun signOut(accountId: String) {
+    private fun signOut(accountId: String) {
         if (_state.value.signingOutAccountId != null) {
             return
         }
@@ -130,30 +111,17 @@ class AccountViewModel(
         val issueAuthorization = issueDownloadRemovalAuthorizationUseCase
         removalScope = scope
         viewModelScope.launch {
-            _state.update { state ->
-                state.copy(
-                    signingOutAccountId = accountId,
-                    isLoadingRemovalPreview = previewUseCase != null,
-                    removalPreview = null,
-                    removalPreviewAccountId = null,
-                    error = null,
-                )
-            }
+            reduce(AccountChange.RemovalStarted(accountId, previewUseCase != null))
             if (previewUseCase == null || issueAuthorization == null) {
                 signOutWithAuthorization(accountId, SessionRemovalAuthorization.None)
                 return@launch
             }
             val preview = loadRemovalPreview(scope)
-            _state.update { state -> state.copy(isLoadingRemovalPreview = false) }
+            reduce(AccountChange.PreviewFinished)
             if (preview == null) {
                 finishSignOut(accountId, AccountUiError.RemovalFailed)
             } else if (preview.confirmations.any { confirmation -> confirmation.recordCount > 0L }) {
-                _state.update { state ->
-                    state.copy(
-                        removalPreview = preview,
-                        removalPreviewAccountId = accountId,
-                    )
-                }
+                reduce(AccountChange.PreviewLoaded(preview, accountId))
             } else {
                 val authorization =
                     try {
@@ -175,14 +143,14 @@ class AccountViewModel(
         }
     }
 
-    fun confirmPendingRemoval() {
+    private fun confirmPendingRemoval() {
         val accountId = _state.value.removalPreviewAccountId ?: return
         val issueAuthorization = issueDownloadRemovalAuthorizationUseCase ?: return
         val preview = _state.value.removalPreview ?: return
         val scope = removalScope ?: return
         if (_state.value.signingOutAccountId == null) return
         viewModelScope.launch {
-            _state.update { state -> state.copy(removalPreview = null, removalPreviewAccountId = null) }
+            reduce(AccountChange.RemovalConfirmed)
             val authorization =
                 try {
                     withContext(workDispatcher) { issueAuthorization(scope, preview) }
@@ -202,20 +170,13 @@ class AccountViewModel(
         }
     }
 
-    fun dismissPendingRemoval() {
+    private fun dismissPendingRemoval() {
         val preview = _state.value.removalPreview
         val scope = removalScope
         val release = releaseDownloadRemovalPreviewUseCase
         if (preview == null || scope == null || release == null) {
             removalScope = null
-            _state.update { state ->
-                state.copy(
-                    signingOutAccountId = null,
-                    isLoadingRemovalPreview = false,
-                    removalPreview = null,
-                    removalPreviewAccountId = null,
-                )
-            }
+            reduce(AccountChange.RemovalDismissed)
             return
         }
 
@@ -233,14 +194,7 @@ class AccountViewModel(
                 // scheduling without keeping the destructive dialog visible.
             } finally {
                 removalScope = null
-                _state.update { state ->
-                    state.copy(
-                        signingOutAccountId = null,
-                        isLoadingRemovalPreview = false,
-                        removalPreview = null,
-                        removalPreviewAccountId = null,
-                    )
-                }
+                reduce(AccountChange.RemovalDismissed)
             }
         }
     }
@@ -257,15 +211,7 @@ class AccountViewModel(
             } catch (throwable: Throwable) {
                 Result.failure(throwable)
             }
-        _state.update { state ->
-            state.copy(
-                signingOutAccountId = null,
-                isLoadingRemovalPreview = false,
-                removalPreview = null,
-                removalPreviewAccountId = null,
-                error = result.exceptionOrNull()?.toUiError(),
-            )
-        }
+        reduce(AccountChange.RemovalFinished(result.exceptionOrNull()?.toUiError()))
         if (result.exceptionOrNull() is SessionRemovalError.ConfirmationStale) {
             showFreshRemovalPreview(accountId, removalScope ?: return)
         } else if (result.isSuccess) {
@@ -308,30 +254,14 @@ class AccountViewModel(
                 return
             }
         }
-        _state.update { state ->
-            state.copy(
-                signingOutAccountId = accountId,
-                isLoadingRemovalPreview = false,
-                removalPreview = preview,
-                removalPreviewAccountId = accountId,
-                error = null,
-            )
-        }
+        reduce(AccountChange.PreviewRefreshed(accountId, preview))
     }
 
     private fun finishSignOut(
         accountId: String,
         error: AccountUiError,
     ) {
-        _state.update { state ->
-            state.copy(
-                signingOutAccountId = null,
-                isLoadingRemovalPreview = false,
-                removalPreview = null,
-                removalPreviewAccountId = null,
-                error = error,
-            )
-        }
+        reduce(AccountChange.RemovalFinished(error))
     }
 }
 
