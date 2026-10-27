@@ -210,7 +210,14 @@ struct PlayerScreen: View {
     private func panelView(_ panel: PlayerPanel) -> some View {
         switch panel {
         case .queue:
-            PlayerQueueView(model: model, onClose: closePanel)
+            PlayerQueueView(
+                queue: model.queue,
+                onShuffle: model.shuffleQueue,
+                onSelectItem: model.selectQueueItem,
+                onPrevious: model.playPreviousEpisode,
+                onNext: { model.playNextEpisode() },
+                onClose: closePanel
+            )
         case .controls:
             PlayerControlsView(
                 model: model,

@@ -462,6 +462,24 @@ not the full playback model. Native surfaces and lifecycle closure remain direct
 This dependency narrowing is source-backed; device playback and frame behavior need
 separate runtime validation.
 
+### Native tvOS online playback MVI slice
+
+Online playback controls, quality policies, queue actions, and native observation
+callbacks dispatch `TvPlaybackSessionIntent`. Video-output observations carry the
+explicit prepare generation supplied by the native host; playback-intent callbacks
+retain player/plan/item qualification. The reducer owns state transitions and keeps
+current diagnostics when publishing a controller projection. Projection factories
+retain live controller, plan, queue, preference and recovery reads inside atomic
+update retries.
+
+Preparation, cancellation, controller/reporting ownership, recovery, track activation,
+subtitle persistence, and autoplay/still-watching policies stay in the presenter and
+existing collaborators. Native surface access, observation and close remain direct.
+The queue panel receives queue state and actions only, excluding playback position
+and diagnostics; focus keys and current-item focus restoration stay unchanged.
+Host checks establish wiring and deterministic contracts, not native playback or
+measured rendering performance.
+
 ## Source Layout Target
 
 ```text
@@ -1027,6 +1045,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Online playback intents expose user and native-host inputs without moving native
+  ownership into a reducer. Publishing merges current diagnostics, while narrow
+  queue inputs remove direct subscription to unrelated playback updates.
 
 - Offline MVI makes control dispatch explicit without transferring native resource
   ownership into state. Session observation remains authoritative for routing;

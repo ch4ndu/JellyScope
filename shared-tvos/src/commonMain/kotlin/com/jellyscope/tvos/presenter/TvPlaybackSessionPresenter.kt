@@ -265,7 +265,7 @@ class TvPlaybackSessionPresenter(
                 }
             },
             onGuidanceChanged = { guidance ->
-                _state.update { current -> current.copy(playbackGuidance = guidance) }
+                reduce { TvPlaybackSessionChange.GuidanceChanged(guidance) }
             },
             onSessionEnded = { summary -> logTvHealthSummary(summary) },
         )
@@ -304,6 +304,56 @@ class TvPlaybackSessionPresenter(
     private var localSubtitleSelectionJob: Job? = null
     private var diagnosticsJob: Job? = null
 
+    private fun reduce(change: TvPlaybackSessionChange) = reduce { change }
+
+    private fun reduce(change: () -> TvPlaybackSessionChange) {
+        _state.update { current -> reduceTvPlaybackSession(current, change()) }
+    }
+
+    fun accept(intent: TvPlaybackSessionIntent) {
+        when (intent) {
+            TvPlaybackSessionIntent.Start -> start()
+            TvPlaybackSessionIntent.Play -> play()
+            TvPlaybackSessionIntent.Pause -> pause()
+            TvPlaybackSessionIntent.TogglePlayPause -> togglePlayPause()
+            is TvPlaybackSessionIntent.SeekTo -> seekTo(intent.positionMs)
+            is TvPlaybackSessionIntent.SetPlaybackSpeed -> setPlaybackSpeed(intent.speed)
+            is TvPlaybackSessionIntent.SetSubtitleStyle ->
+                setSubtitleStyle(
+                    intent.fontScale,
+                    intent.foregroundColor,
+                    intent.backgroundColor,
+                    intent.edgeStyleName,
+                )
+            is TvPlaybackSessionIntent.SetDiagnosticsVisible -> setDiagnosticsVisible(intent.visible)
+            TvPlaybackSessionIntent.DismissSubtitleNotice -> dismissSubtitleNotice()
+            TvPlaybackSessionIntent.Stop -> stop()
+            TvPlaybackSessionIntent.SkipActiveSegment -> skipActiveSegment()
+            TvPlaybackSessionIntent.PlayNextEpisode -> playNextEpisode()
+            TvPlaybackSessionIntent.PlayPreviousEpisode -> playPreviousEpisode()
+            is TvPlaybackSessionIntent.SelectQueueItem -> selectQueueItem(intent.index)
+            TvPlaybackSessionIntent.ShuffleQueue -> shuffleQueue()
+            TvPlaybackSessionIntent.DismissNextUp -> dismissNextUp()
+            TvPlaybackSessionIntent.ContinueStillWatching -> continueStillWatching()
+            TvPlaybackSessionIntent.DismissStillWatching -> dismissStillWatching()
+            is TvPlaybackSessionIntent.SelectAudio -> selectAudio(intent.streamIndex)
+            is TvPlaybackSessionIntent.SelectSubtitle -> selectSubtitle(intent.streamIndex)
+            is TvPlaybackSessionIntent.SelectLocalSubtitle -> selectLocalSubtitle(intent.assetId)
+            is TvPlaybackSessionIntent.SelectQualityLimit -> selectQuality(intent.maxBitrateBps)
+            is TvPlaybackSessionIntent.SelectQualityPolicy -> selectQuality(intent.policy)
+            is TvPlaybackSessionIntent.SelectQualityChoice -> selectQualityChoice(intent.modeName, intent.maxBitrateBps)
+            is TvPlaybackSessionIntent.RecordVideoOutputReady -> recordVideoOutputReady(intent.generation)
+            is TvPlaybackSessionIntent.RecordNativePlaybackIntent ->
+                recordNativePlaybackIntent(
+                    intent.playerIdentity,
+                    intent.planEpoch,
+                    intent.itemId,
+                    intent.isPlaying,
+                )
+            is TvPlaybackSessionIntent.HandlePlaybackAction -> handlePlaybackAction(intent.action)
+        }
+    }
+
     fun watchState(onChange: (TvPlaybackUiState) -> Unit): WatchHandle {
         var previousPublished: TvPlaybackUiState? = null
         return state.watchIn(scope) { current ->
@@ -315,17 +365,12 @@ class TvPlaybackSessionPresenter(
         }
     }
 
-    fun start() {
+    private fun start() {
         if (started || closed) {
             return
         }
         started = true
-        _state.update { current ->
-            current.copy(
-                phase = TvPlaybackPhase.Loading,
-                error = null,
-            )
-        }
+        reduce(TvPlaybackSessionChange.StartLoading)
         val expectedGeneration = ++startupGeneration
         startupJob =
             scope.launch {
@@ -349,13 +394,7 @@ class TvPlaybackSessionPresenter(
                                     playbackState = installed.playbackState,
                                 )
                             observeControllerOutput()
-                            _state.update { current ->
-                                current.copy(
-                                    playerInstalled = true,
-                                    playerIdentity = playerIdentity,
-                                    backend = installed.activeBackend,
-                                )
-                            }
+                            reduce { TvPlaybackSessionChange.Installed(playerIdentity, installed.activeBackend) }
                         } catch (exception: Throwable) {
                             videoOutputJob?.cancel()
                             videoOutputJob = null
@@ -378,13 +417,7 @@ class TvPlaybackSessionPresenter(
                     throw exception
                 } catch (_: Throwable) {
                     if (!closed && expectedGeneration == startupGeneration) {
-                        _state.update { current ->
-                            current.copy(
-                                playerInstalled = installedPlayerController != null,
-                                phase = TvPlaybackPhase.Failed,
-                                error = PlaybackError.Unknown,
-                            )
-                        }
+                        reduce { TvPlaybackSessionChange.StartFailed(installedPlayerController != null) }
                     }
                 } finally {
                     candidateOwner.releaseUntransferred()
@@ -405,21 +438,21 @@ class TvPlaybackSessionPresenter(
             }
     }
 
-    fun play() {
+    private fun play() {
         val controller = installedPlayerController ?: return
         if (plan?.itemId != currentItemId) return
         playbackHealthCoordinator.restartEvidenceWindow()
         controller.play()
     }
 
-    fun pause() {
+    private fun pause() {
         val controller = installedPlayerController ?: return
         if (plan?.itemId != currentItemId) return
         playbackHealthCoordinator.restartEvidenceWindow()
         controller.pause()
     }
 
-    fun togglePlayPause() {
+    private fun togglePlayPause() {
         val controller = installedPlayerController ?: return
         if (plan?.itemId != currentItemId) return
         when (controller.playbackState.value.status) {
@@ -429,7 +462,7 @@ class TvPlaybackSessionPresenter(
         }
     }
 
-    fun seekTo(positionMs: Long) {
+    private fun seekTo(positionMs: Long) {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
         val target = positionMs.coerceAtLeast(0L)
@@ -453,7 +486,7 @@ class TvPlaybackSessionPresenter(
         )
     }
 
-    fun setPlaybackSpeed(speed: Float) {
+    private fun setPlaybackSpeed(speed: Float) {
         if (startInFlight || !speed.isFinite()) return
         val controller = installedPlayerController ?: return
         val normalized =
@@ -468,7 +501,7 @@ class TvPlaybackSessionPresenter(
         publish(controller.playbackState.value.copy(playbackSpeed = normalized))
     }
 
-    fun setSubtitleStyle(
+    private fun setSubtitleStyle(
         fontScale: Float,
         foregroundColor: String?,
         backgroundColor: String?,
@@ -489,38 +522,37 @@ class TvPlaybackSessionPresenter(
         publish(controller.playbackState.value.copy(subtitleStyle = subtitleStyle))
     }
 
-    fun setDiagnosticsVisible(visible: Boolean) {
+    private fun setDiagnosticsVisible(visible: Boolean) {
         diagnosticsJob?.cancel()
         diagnosticsJob = null
         if (!visible) {
-            _state.update { current -> current.copy(diagnostics = emptyList()) }
+            reduce(TvPlaybackSessionChange.DiagnosticsHidden)
             return
         }
         val controller = installedPlayerController ?: return
         diagnosticsJob =
             scope.launch {
                 controller.runtimeDiagnostics.collect { runtime ->
-                    _state.update { current ->
-                        current.copy(
-                            diagnostics =
-                                tvPlaybackDiagnosticRows(
-                                    backend = controller.activeBackend,
-                                    plan = plan,
-                                    playbackState = controller.playbackState.value,
-                                    runtime = runtime,
-                                ),
+                    reduce {
+                        TvPlaybackSessionChange.DiagnosticsLoaded(
+                            tvPlaybackDiagnosticRows(
+                                backend = controller.activeBackend,
+                                plan = plan,
+                                playbackState = controller.playbackState.value,
+                                runtime = runtime,
+                            ),
                         )
                     }
                 }
             }
     }
 
-    fun dismissSubtitleNotice() {
+    private fun dismissSubtitleNotice() {
         subtitleNotice = null
         installedPlayerController?.playbackState?.value?.let(::publish)
     }
 
-    fun stop() {
+    private fun stop() {
         val controller = installedPlayerController ?: return
         cancelAutoplaySurface()
         cancelAndInvalidateSubtitleFallback()
@@ -529,22 +561,22 @@ class TvPlaybackSessionPresenter(
         controller.stop()
     }
 
-    fun skipActiveSegment() {
+    private fun skipActiveSegment() {
         val segment = state.value.activeSegment ?: return
         seekTo(segment.endMs)
     }
 
-    fun playNextEpisode() {
+    private fun playNextEpisode() {
         val index = currentQueueIndex() + 1
         selectQueueItem(index)
     }
 
-    fun playPreviousEpisode() {
+    private fun playPreviousEpisode() {
         val index = currentQueueIndex() - 1
         selectQueueItem(index)
     }
 
-    fun selectQueueItem(index: Int) {
+    private fun selectQueueItem(index: Int) {
         val selected = episodeQueue?.getOrNull(index) ?: return
         if (selected.id == currentItemId) return
         stillWatchingState = stillWatchingState.resetForManualNavigation()
@@ -553,7 +585,7 @@ class TvPlaybackSessionPresenter(
         switchToQueueIndex(index = index, stopAlreadyReported = false)
     }
 
-    fun shuffleQueue() {
+    private fun shuffleQueue() {
         val controller = installedPlayerController ?: return
         val queue = episodeQueue ?: return
         val currentIndex = currentQueueIndex()
@@ -610,7 +642,7 @@ class TvPlaybackSessionPresenter(
             }
     }
 
-    fun dismissNextUp() {
+    private fun dismissNextUp() {
         autoplayDismissed = true
         cancelAutoplayCountdown()
         installedPlayerController?.playbackState?.value?.let { playbackState ->
@@ -618,14 +650,14 @@ class TvPlaybackSessionPresenter(
         }
     }
 
-    fun continueStillWatching() {
+    private fun continueStillWatching() {
         val pendingIndex = stillWatchingState.pendingQueueIndex ?: return
         stillWatchingState = stillWatchingState.confirm()
         cancelAutoplaySurface()
         switchToQueueIndex(index = pendingIndex, stopAlreadyReported = true)
     }
 
-    fun dismissStillWatching() {
+    private fun dismissStillWatching() {
         stillWatchingState = stillWatchingState.confirm()
         autoplayDismissed = true
         cancelAutoplayCountdown()
@@ -690,7 +722,7 @@ class TvPlaybackSessionPresenter(
             }
     }
 
-    fun selectAudio(streamIndex: Int) {
+    private fun selectAudio(streamIndex: Int) {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
         audioOptions(mediaStreams).firstOrNull { track -> track.streamIndex == streamIndex } ?: return
@@ -729,7 +761,7 @@ class TvPlaybackSessionPresenter(
         }
     }
 
-    fun selectSubtitle(streamIndex: Int?) {
+    private fun selectSubtitle(streamIndex: Int?) {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
         localSubtitleSelectionJob?.cancel()
@@ -747,7 +779,7 @@ class TvPlaybackSessionPresenter(
         subtitleNotice = null
         requestedSubtitleSelection =
             streamIndex?.let(SubtitleSelectionIntent::Track) ?: SubtitleSelectionIntent.Off
-        _state.update { current -> current.copy(localSubtitleSelected = false) }
+        reduce { TvPlaybackSessionChange.LocalSubtitleChanged(false) }
         persistSubtitleSelection(requestedSubtitleSelection)
 
         val currentPlan = plan ?: return
@@ -796,7 +828,7 @@ class TvPlaybackSessionPresenter(
         }
     }
 
-    fun selectLocalSubtitle(assetId: String?) {
+    private fun selectLocalSubtitle(assetId: String?) {
         if (assetId == null) {
             selectSubtitle(null)
             return
@@ -832,7 +864,7 @@ class TvPlaybackSessionPresenter(
                 requestedSubtitleStreamIndex = null
                 requestedLocalSubtitleAsset = asset
                 requestedSubtitleSelection = SubtitleSelectionIntent.LocalAsset(asset.id)
-                _state.update { current -> current.copy(localSubtitleSelected = true) }
+                reduce { TvPlaybackSessionChange.LocalSubtitleChanged(true) }
                 subtitleNotice = null
                 persistSubtitleSelection(requestedSubtitleSelection)
                 controller.selectEmbeddedSubtitle(null)
@@ -841,7 +873,7 @@ class TvPlaybackSessionPresenter(
             }
     }
 
-    fun selectQuality(maxBitrateBps: Long?) {
+    private fun selectQuality(maxBitrateBps: Long?) {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
         pendingRecoveredAutoQualityBps = null
@@ -857,7 +889,7 @@ class TvPlaybackSessionPresenter(
         replanAtPosition(controller.playbackState.value.positionMs)
     }
 
-    fun selectQuality(policy: PlaybackQualityPolicy) {
+    private fun selectQuality(policy: PlaybackQualityPolicy) {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
         pendingRecoveredAutoQualityBps = null
@@ -873,7 +905,7 @@ class TvPlaybackSessionPresenter(
         replanAtPosition(controller.playbackState.value.positionMs)
     }
 
-    fun selectQualityChoice(
+    private fun selectQualityChoice(
         modeName: String,
         maxBitrateBps: Long?,
     ) {
@@ -886,11 +918,11 @@ class TvPlaybackSessionPresenter(
         selectQuality(policy)
     }
 
-    fun recordVideoOutputReady(generation: Long = state.value.prepareEpoch) {
+    private fun recordVideoOutputReady(generation: Long = state.value.prepareEpoch) {
         installedPlayerController?.recordVideoOutputObservation(generation = generation)
     }
 
-    fun recordNativePlaybackIntent(
+    private fun recordNativePlaybackIntent(
         playerIdentity: Long,
         planEpoch: Long,
         itemId: String,
@@ -912,7 +944,7 @@ class TvPlaybackSessionPresenter(
         }
     }
 
-    fun handlePlaybackAction(action: PlaybackAction) {
+    private fun handlePlaybackAction(action: PlaybackAction) {
         when (action) {
             PlaybackAction.AcceptAuto -> selectQuality(PlaybackQualityPolicy.Auto)
             PlaybackAction.ClearQualityOverride -> clearQualityOverride()
@@ -945,12 +977,7 @@ class TvPlaybackSessionPresenter(
 
     private fun retryPlayback() {
         if (closed || startInFlight) return
-        _state.update { current ->
-            current.copy(
-                phase = TvPlaybackPhase.Loading,
-                error = null,
-            )
-        }
+        reduce(TvPlaybackSessionChange.StartLoading)
         val controller = installedPlayerController
         if (controller == null) {
             startupJob?.cancel()
@@ -1186,23 +1213,7 @@ class TvPlaybackSessionPresenter(
         )
         // Stale menus must not act on the outgoing item mid-switch.
         mediaStreams = emptyList()
-        _state.update { current ->
-            current.copy(
-                phase = TvPlaybackPhase.Loading,
-                itemId = itemId,
-                mediaSourceId = selectedMediaSourceId,
-                planEpoch = planEpoch,
-                activeSegment = null,
-                nextEpisode = nextEpisodePresentation,
-                upNextVisible = false,
-                queue = queuePresentation,
-                audioTracks = emptyList(),
-                subtitleTracks = emptyList(),
-                localSubtitleSelected = false,
-                qualityChoices = emptyList(),
-                chapters = emptyList(),
-            )
-        }
+        reduce { TvPlaybackSessionChange.ItemLoading(itemId, selectedMediaSourceId, planEpoch, nextEpisodePresentation, queuePresentation) }
 
         val detail =
             withContext(dispatchers.work) {
@@ -1407,12 +1418,7 @@ class TvPlaybackSessionPresenter(
             queueShuffled = false
             queueOrderGeneration += 1L
             queuePresentation = TvPlaybackQueueState()
-            _state.update { current ->
-                current.copy(
-                    nextEpisode = null,
-                    queue = queuePresentation,
-                )
-            }
+            reduce { TvPlaybackSessionChange.QueueChanged(null, queuePresentation) }
             return
         }
         episodeQueue?.takeIf { queue -> queue.any { episode -> episode.id == currentItemId } }?.let { queue ->
@@ -1421,12 +1427,7 @@ class TvPlaybackSessionPresenter(
             nextEpisodePresentation = queuePresentation.items.getOrNull(currentIndex + 1)?.media
             queueLoadPending = false
             queuePresentation = queuePresentation.copy(isPending = false)
-            _state.update { current ->
-                current.copy(
-                    nextEpisode = nextEpisodePresentation,
-                    queue = queuePresentation,
-                )
-            }
+            reduce { TvPlaybackSessionChange.QueueChanged(nextEpisodePresentation, queuePresentation) }
             return
         }
         val expectedItemId = currentItemId
@@ -1438,12 +1439,7 @@ class TvPlaybackSessionPresenter(
         nextEpisodeItem = null
         nextEpisodePresentation = null
         queuePresentation = TvPlaybackQueueState(isPending = true)
-        _state.update { current ->
-            current.copy(
-                nextEpisode = null,
-                queue = queuePresentation,
-            )
-        }
+        reduce { TvPlaybackSessionChange.QueueChanged(null, queuePresentation) }
         queueJob =
             scope.launch {
                 val (queue, presentation) =
@@ -1832,7 +1828,7 @@ class TvPlaybackSessionPresenter(
         replanJob =
             scope.launch {
                 val wasPaused = playerController.playbackState.value.status == PlaybackStatus.Paused
-                _state.update { current -> current.copy(phase = TvPlaybackPhase.Loading) }
+                reduce(TvPlaybackSessionChange.Loading)
                 val playbackPlan =
                     try {
                         withContext(dispatchers.work) {
@@ -2258,7 +2254,7 @@ class TvPlaybackSessionPresenter(
         requestedSubtitleStreamIndex = null
         requestedLocalSubtitleAsset = null
         requestedSubtitleSelection = SubtitleSelectionIntent.Off
-        _state.update { current -> current.copy(localSubtitleSelected = false) }
+        reduce { TvPlaybackSessionChange.LocalSubtitleChanged(false) }
         persistSubtitleSelection(SubtitleSelectionIntent.Off)
         playerController.selectEmbeddedSubtitle(null)
         publishLocalSubtitleUnavailableNotice()
@@ -2822,120 +2818,121 @@ class TvPlaybackSessionPresenter(
         val confirmedSubtitle = confirmedSubtitleStreamIndex(playbackState)
         val duration = playbackState.durationMs
         val inheritedQualityPolicy = preferences.effectiveDefaultQualityPolicy(controller.activeBackend)
-        _state.update { currentState ->
-            TvPlaybackUiState(
-                playerInstalled = installedPlayerController != null,
-                playerIdentity = playerIdentity,
-                backend = controller.activeBackend,
-                phase =
-                    when (playbackState.status) {
-                        PlaybackStatus.Failed -> TvPlaybackPhase.Failed
-                        PlaybackStatus.Completed ->
-                            when {
-                                retainCompletedHost -> TvPlaybackPhase.Active
-                                terminalCompleted -> TvPlaybackPhase.Completed
-                                else -> TvPlaybackPhase.Loading
-                            }
-                        PlaybackStatus.Idle, PlaybackStatus.Loading -> TvPlaybackPhase.Loading
-                        else -> TvPlaybackPhase.Active
-                    },
-                status = playbackState.status,
-                positionMs = playbackState.positionMs,
-                durationMs = duration,
-                bufferedPositionMs = playbackState.bufferedPositionMs,
-                isTranscode = plan?.streamMode == StreamMode.Transcode,
-                itemId = currentItemId,
-                mediaSourceId = selectedMediaSourceId,
-                planEpoch = planEpoch,
-                prepareEpoch = controller.runtimeDiagnostics.value.prepareEpoch ?: 0L,
-                title = title,
-                seriesName = seriesName,
-                episodeLabel = episodeLabel,
-                artworkUrl = artworkUrl,
-                chapters = plan?.chapters.orEmpty().map { chapter -> TvChapter(chapter.name, chapter.startMs) },
-                audioTracks =
-                    audioOptions(mediaStreams).map { option ->
-                        TvTrackChoice(
-                            streamIndex = option.streamIndex,
-                            languageCode = option.language,
-                            displayLabel = option.displayName?.takeIf(String::isNotBlank),
-                            ordinal = option.ordinal,
-                            selected = option.streamIndex == confirmedAudio,
-                        )
-                    },
-                subtitleTracks =
-                    subtitleOptions(mediaStreams).map { option ->
-                        TvTrackChoice(
-                            streamIndex = option.streamIndex,
-                            languageCode = option.language,
-                            displayLabel = option.displayName?.takeIf(String::isNotBlank),
-                            ordinal = option.ordinal,
-                            selected = option.streamIndex == confirmedSubtitle,
-                        )
-                    },
-                localSubtitleSelected =
-                    requestedLocalSubtitleAsset?.id?.let { assetId ->
-                        (requestedSubtitleSelection as? SubtitleSelectionIntent.LocalAsset)?.assetId == assetId
-                    } == true,
-                qualityChoices =
-                    playerQualityOptions(currentSourceBitrate(), selectedQualityPolicy).map { option ->
-                        TvQualityChoice(
-                            maxBitrateBps = option.maxBitrateBps,
-                            resolutionHeight = option.resolutionHeight,
-                            isCustom = option.isCustom,
-                            selected =
-                                if (option.inheritsDefault) {
-                                    !qualityOverrideExplicit
-                                } else {
-                                    qualityOverrideExplicit &&
-                                        option.mode == selectedQualityPolicy.mode &&
-                                        option.maxBitrateBps == selectedQualityPolicy.maxBitrateBps
-                                },
-                            inheritsPlaybackDefault = option.inheritsDefault,
-                            defaultSource =
-                                if (option.inheritsDefault) {
-                                    if (preferences.usesVlcDefaultQuality(controller.activeBackend)) {
-                                        TvQualityDefaultSource.VlcPlaybackSettings
+        reduce {
+            TvPlaybackSessionChange.Projected(
+                TvPlaybackUiState(
+                    playerInstalled = installedPlayerController != null,
+                    playerIdentity = playerIdentity,
+                    backend = controller.activeBackend,
+                    phase =
+                        when (playbackState.status) {
+                            PlaybackStatus.Failed -> TvPlaybackPhase.Failed
+                            PlaybackStatus.Completed ->
+                                when {
+                                    retainCompletedHost -> TvPlaybackPhase.Active
+                                    terminalCompleted -> TvPlaybackPhase.Completed
+                                    else -> TvPlaybackPhase.Loading
+                                }
+                            PlaybackStatus.Idle, PlaybackStatus.Loading -> TvPlaybackPhase.Loading
+                            else -> TvPlaybackPhase.Active
+                        },
+                    status = playbackState.status,
+                    positionMs = playbackState.positionMs,
+                    durationMs = duration,
+                    bufferedPositionMs = playbackState.bufferedPositionMs,
+                    isTranscode = plan?.streamMode == StreamMode.Transcode,
+                    itemId = currentItemId,
+                    mediaSourceId = selectedMediaSourceId,
+                    planEpoch = planEpoch,
+                    prepareEpoch = controller.runtimeDiagnostics.value.prepareEpoch ?: 0L,
+                    title = title,
+                    seriesName = seriesName,
+                    episodeLabel = episodeLabel,
+                    artworkUrl = artworkUrl,
+                    chapters = plan?.chapters.orEmpty().map { chapter -> TvChapter(chapter.name, chapter.startMs) },
+                    audioTracks =
+                        audioOptions(mediaStreams).map { option ->
+                            TvTrackChoice(
+                                streamIndex = option.streamIndex,
+                                languageCode = option.language,
+                                displayLabel = option.displayName?.takeIf(String::isNotBlank),
+                                ordinal = option.ordinal,
+                                selected = option.streamIndex == confirmedAudio,
+                            )
+                        },
+                    subtitleTracks =
+                        subtitleOptions(mediaStreams).map { option ->
+                            TvTrackChoice(
+                                streamIndex = option.streamIndex,
+                                languageCode = option.language,
+                                displayLabel = option.displayName?.takeIf(String::isNotBlank),
+                                ordinal = option.ordinal,
+                                selected = option.streamIndex == confirmedSubtitle,
+                            )
+                        },
+                    localSubtitleSelected =
+                        requestedLocalSubtitleAsset?.id?.let { assetId ->
+                            (requestedSubtitleSelection as? SubtitleSelectionIntent.LocalAsset)?.assetId == assetId
+                        } == true,
+                    qualityChoices =
+                        playerQualityOptions(currentSourceBitrate(), selectedQualityPolicy).map { option ->
+                            TvQualityChoice(
+                                maxBitrateBps = option.maxBitrateBps,
+                                resolutionHeight = option.resolutionHeight,
+                                isCustom = option.isCustom,
+                                selected =
+                                    if (option.inheritsDefault) {
+                                        !qualityOverrideExplicit
                                     } else {
-                                        TvQualityDefaultSource.PlaybackSettings
-                                    }
-                                } else {
-                                    null
-                                },
-                            mode = option.mode,
-                        )
-                    },
-                inheritedQualityPolicy = inheritedQualityPolicy,
-                inheritedQualityResolutionHeight =
-                    qualityRungForBitrate(inheritedQualityPolicy.maxBitrateBps)?.height,
-                inheritedQualityUsesVlcSetting = preferences.usesVlcDefaultQuality(controller.activeBackend),
-                activeSegment = activeSegment(playbackState),
-                nextEpisode = nextEpisodePresentation,
-                upNextVisible =
-                    nextEpisodeItem != null &&
-                        !autoplayDismissed &&
-                        (
-                            retainCompletedHost ||
-                                (
-                                    duration != null &&
-                                        duration - playbackState.positionMs <= UP_NEXT_WINDOW_MS
-                                )
-                        ),
-                queue = queuePresentation,
-                nextUpCountdownSeconds = autoplayCountdownSeconds,
-                nextUpDismissed = autoplayDismissed,
-                stillWatchingVisible = stillWatchingState.isPromptVisible,
-                playbackSpeed = playbackState.playbackSpeed,
-                playbackSpeedChoices = tvPlaybackSpeedChoices(playbackState.playbackSpeed),
-                subtitleStyle = playbackState.subtitleStyle,
-                subtitleStyleSupported = canApplySubtitleStyle(),
-                diagnostics = currentState.diagnostics,
-                playbackGuidance = playbackHealthCoordinator.guidance,
-                playbackActionNotice = playbackActionNotice,
-                playbackActions = playbackActionNotice?.actions.orEmpty().toList(),
-                subtitleNotice = subtitleNotice,
-                preferences = preferences,
-                error = playbackState.error,
+                                        qualityOverrideExplicit &&
+                                            option.mode == selectedQualityPolicy.mode &&
+                                            option.maxBitrateBps == selectedQualityPolicy.maxBitrateBps
+                                    },
+                                inheritsPlaybackDefault = option.inheritsDefault,
+                                defaultSource =
+                                    if (option.inheritsDefault) {
+                                        if (preferences.usesVlcDefaultQuality(controller.activeBackend)) {
+                                            TvQualityDefaultSource.VlcPlaybackSettings
+                                        } else {
+                                            TvQualityDefaultSource.PlaybackSettings
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                mode = option.mode,
+                            )
+                        },
+                    inheritedQualityPolicy = inheritedQualityPolicy,
+                    inheritedQualityResolutionHeight =
+                        qualityRungForBitrate(inheritedQualityPolicy.maxBitrateBps)?.height,
+                    inheritedQualityUsesVlcSetting = preferences.usesVlcDefaultQuality(controller.activeBackend),
+                    activeSegment = activeSegment(playbackState),
+                    nextEpisode = nextEpisodePresentation,
+                    upNextVisible =
+                        nextEpisodeItem != null &&
+                            !autoplayDismissed &&
+                            (
+                                retainCompletedHost ||
+                                    (
+                                        duration != null &&
+                                            duration - playbackState.positionMs <= UP_NEXT_WINDOW_MS
+                                    )
+                            ),
+                    queue = queuePresentation,
+                    nextUpCountdownSeconds = autoplayCountdownSeconds,
+                    nextUpDismissed = autoplayDismissed,
+                    stillWatchingVisible = stillWatchingState.isPromptVisible,
+                    playbackSpeed = playbackState.playbackSpeed,
+                    playbackSpeedChoices = tvPlaybackSpeedChoices(playbackState.playbackSpeed),
+                    subtitleStyle = playbackState.subtitleStyle,
+                    subtitleStyleSupported = canApplySubtitleStyle(),
+                    playbackGuidance = playbackHealthCoordinator.guidance,
+                    playbackActionNotice = playbackActionNotice,
+                    playbackActions = playbackActionNotice?.actions.orEmpty().toList(),
+                    subtitleNotice = subtitleNotice,
+                    preferences = preferences,
+                    error = playbackState.error,
+                ),
             )
         }
     }
@@ -2947,12 +2944,7 @@ class TvPlaybackSessionPresenter(
             terminalOutcome = PlaybackTerminalOutcome.Failed,
             error = error,
         )
-        _state.update { current ->
-            current.copy(
-                phase = TvPlaybackPhase.Failed,
-                error = error,
-            )
-        }
+        reduce { TvPlaybackSessionChange.Failed(error) }
     }
 }
 

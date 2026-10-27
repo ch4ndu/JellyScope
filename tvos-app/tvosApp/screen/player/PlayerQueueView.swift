@@ -4,7 +4,11 @@ import SharedTv
 import SwiftUI
 
 struct PlayerQueueView: View {
-    @ObservedObject var model: PlaybackModel
+    let queue: TvPlaybackQueueState
+    let onShuffle: () -> Void
+    let onSelectItem: (Int) -> Void
+    let onPrevious: () -> Void
+    let onNext: () -> Void
     let onClose: () -> Void
     @FocusState private var focusedItemId: String?
 
@@ -15,15 +19,15 @@ struct PlayerQueueView: View {
                     .font(.title2.bold())
                 Spacer()
                 Button("Shuffle") {
-                    model.shuffleQueue()
+                    onShuffle()
                 }
             }
 
             ScrollView {
                 LazyVStack(spacing: 12) {
-                    ForEach(model.queue.items, id: \.media.id) { item in
+                    ForEach(queue.items, id: \.media.id) { item in
                         Button {
-                            model.selectQueueItem(Int(item.index))
+                            onSelectItem(Int(item.index))
                             onClose()
                         } label: {
                             HStack(spacing: 16) {
@@ -52,10 +56,10 @@ struct PlayerQueueView: View {
             }
 
             HStack {
-                Button("Previous") { model.playPreviousEpisode(); onClose() }
-                    .disabled(!model.queue.hasPrevious)
-                Button("Next") { model.playNextEpisode(); onClose() }
-                    .disabled(!model.queue.hasNext)
+                Button("Previous") { onPrevious(); onClose() }
+                    .disabled(!queue.hasPrevious)
+                Button("Next") { onNext(); onClose() }
+                    .disabled(!queue.hasNext)
                 Spacer()
                 Button("Done", action: onClose)
             }
@@ -64,7 +68,7 @@ struct PlayerQueueView: View {
         .frame(width: 760, height: 760)
         .background(.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 22))
         .onAppear {
-            focusedItemId = model.queue.items.first(where: { $0.isCurrent })?.media.id
+            focusedItemId = queue.items.first(where: { $0.isCurrent })?.media.id
         }
     }
 }

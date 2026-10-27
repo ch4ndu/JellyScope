@@ -98,13 +98,13 @@ class TvPlaybackSessionPresenterTest {
             assertFalse(fixture.presenter.state.value.playerInstalled)
             assertTrue(fixture.repository.planRequests.isEmpty())
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(1, factoryCount)
             assertTrue(fixture.presenter.state.value.playerInstalled)
             assertEquals(1, installedController.preparedPlans.size)
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             assertEquals(1, factoryCount)
             fixture.presenter.close()
@@ -122,7 +122,7 @@ class TvPlaybackSessionPresenterTest {
                     },
                 )
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(1, factoryCount)
@@ -131,7 +131,7 @@ class TvPlaybackSessionPresenterTest {
             assertEquals(PlaybackError.Unknown, fixture.presenter.state.value.error)
             assertTrue(fixture.repository.planRequests.isEmpty())
             assertTrue(fixture.reporter.reports.isEmpty())
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             assertEquals(1, factoryCount)
             fixture.presenter.close()
@@ -148,7 +148,7 @@ class TvPlaybackSessionPresenterTest {
                     playerControllerFactory = { lateCandidate },
                 )
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             workerScheduler.runCurrent()
             fixture.presenter.close()
@@ -178,7 +178,7 @@ class TvPlaybackSessionPresenterTest {
                 }
             val fixture = fixture(playerControllerFactory = { installedController })
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertTrue(fixture.presenter.state.value.playerInstalled)
@@ -226,7 +226,7 @@ class TvPlaybackSessionPresenterTest {
                         storedSubtitle = SubtitleSelectionIntent.Track(2),
                         playbackDiagnosticsContext = diagnosticsContext,
                     )
-                fixture.presenter.start()
+                fixture.presenter.accept(TvPlaybackSessionIntent.Start)
                 runCurrent()
 
                 val session =
@@ -377,7 +377,7 @@ class TvPlaybackSessionPresenterTest {
         runTest {
             val fixture = fixture()
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(1, fixture.controller.preparedPlans.size)
@@ -403,7 +403,7 @@ class TvPlaybackSessionPresenterTest {
             val watched = mutableListOf<TvPlaybackUiState>()
             val handle = fixture.presenter.watchState(watched::add)
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value =
                 playbackState(PlaybackStatus.Playing, positionMs = 1_000L).copy(bufferedPositionMs = 4_000L)
@@ -434,7 +434,7 @@ class TvPlaybackSessionPresenterTest {
     fun reportsStartOnceThenPauseUnpauseEdges() =
         runTest {
             val fixture = fixture()
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
@@ -459,7 +459,7 @@ class TvPlaybackSessionPresenterTest {
     fun periodicTimeUpdatesFollowPlanInterval() =
         runTest {
             val fixture = fixture()
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
             runCurrent()
@@ -486,7 +486,7 @@ class TvPlaybackSessionPresenterTest {
                 fixture(
                     playbackInfos = List(2) { Result.success(directPlayInfo()) },
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value =
                 playbackState(PlaybackStatus.Failed, positionMs = 7_000L).copy(error = PlaybackError.Network)
@@ -518,7 +518,7 @@ class TvPlaybackSessionPresenterTest {
                             Result.success(transcodeInfo()),
                         ),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             val target =
                 fixture.controller.preparedPlans
@@ -553,7 +553,7 @@ class TvPlaybackSessionPresenterTest {
             fixture.controller.playbackHealthMeasurementCapabilities =
                 PlaybackHealthMeasurementCapabilities.BufferingOnly
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             advanceTimeBy(10_000L)
             runCurrent()
@@ -580,9 +580,9 @@ class TvPlaybackSessionPresenterTest {
             try {
                 fixture.controller.playbackHealthMeasurementCapabilities =
                     PlaybackHealthMeasurementCapabilities.BufferingOnly
-                fixture.presenter.start()
+                fixture.presenter.accept(TvPlaybackSessionIntent.Start)
                 runCurrent()
-                fixture.presenter.selectQuality(PlaybackQualityPolicy.Auto)
+                fixture.presenter.accept(TvPlaybackSessionIntent.SelectQualityPolicy(PlaybackQualityPolicy.Auto))
                 runCurrent()
                 // An explicit selection replans. Recovery evidence begins only after
                 // that plan's short lifecycle exclusion window.
@@ -626,7 +626,7 @@ class TvPlaybackSessionPresenterTest {
                     fixture.presenter.state.value.playbackActions
                         .toSet(),
                 )
-                fixture.presenter.handlePlaybackAction(PlaybackAction.TryHigherQuality)
+                fixture.presenter.accept(TvPlaybackSessionIntent.HandlePlaybackAction(PlaybackAction.TryHigherQuality))
                 runCurrent()
                 assertTrue(
                     fixture.presenter.state.value.qualityChoices
@@ -660,7 +660,7 @@ class TvPlaybackSessionPresenterTest {
                 )
             fixture.controller.playbackHealthMeasurementCapabilities =
                 PlaybackHealthMeasurementCapabilities.BufferingOnly
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
             runCurrent()
@@ -696,7 +696,7 @@ class TvPlaybackSessionPresenterTest {
         runTest {
             val fixture = fixture()
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             val fixedChoices =
@@ -716,7 +716,7 @@ class TvPlaybackSessionPresenterTest {
     fun completionReportsStoppedOnce() =
         runTest {
             val fixture = fixture()
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
             runCurrent()
@@ -740,7 +740,7 @@ class TvPlaybackSessionPresenterTest {
         runTest {
             val fixture = fixture()
             fixture.reporter.failingStarts = 1
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
@@ -766,7 +766,7 @@ class TvPlaybackSessionPresenterTest {
     fun neverStartedSessionNeverReportsStopped() =
         runTest {
             val fixture = fixture()
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             // Still Loading — never reached a ready state.
@@ -784,7 +784,7 @@ class TvPlaybackSessionPresenterTest {
     fun closeDrainsFinalStopPastPresenterCancellation() =
         runTest {
             val fixture = fixture()
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             assertTrue(fixture.presenter.state.value.playerInstalled)
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
@@ -809,13 +809,13 @@ class TvPlaybackSessionPresenterTest {
                     playbackInfos = listOf(Result.success(transcodeInfo()), Result.success(transcodeInfo())),
                 )
             fixture.controller.transcodeSeekRestartsStream = true
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
             runCurrent()
 
             // Buffered ahead only to 5s; seeking to 40s falls outside the window.
-            fixture.presenter.seekTo(40_000L)
+            fixture.presenter.accept(TvPlaybackSessionIntent.SeekTo(40_000L))
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 40_000L)
             runCurrent()
@@ -846,12 +846,12 @@ class TvPlaybackSessionPresenterTest {
         runTest {
             val fixture = fixture(playbackInfos = listOf(Result.success(transcodeInfo())))
             fixture.controller.transcodeSeekRestartsStream = true
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 30_000L)
             runCurrent()
 
-            fixture.presenter.seekTo(10_000L)
+            fixture.presenter.accept(TvPlaybackSessionIntent.SeekTo(10_000L))
             runCurrent()
 
             assertEquals(listOf(10_000L), fixture.controller.seekPositions)
@@ -874,7 +874,7 @@ class TvPlaybackSessionPresenterTest {
                             playbackWarningsEnabled = true,
                         ),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 3_000L)
             runCurrent()
@@ -909,7 +909,7 @@ class TvPlaybackSessionPresenterTest {
             val fixture = fixture()
             fixture.repository.detail = Result.failure(IllegalStateException("down"))
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(TvPlaybackPhase.Failed, fixture.presenter.state.value.phase)
@@ -924,7 +924,7 @@ class TvPlaybackSessionPresenterTest {
             fixture.repository.detail =
                 Result.success(testDetail(item = mediaItem(id = "item-1")).copy(versions = emptyList()))
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(PlaybackError.UnsupportedMedia, fixture.presenter.state.value.error)
@@ -935,7 +935,7 @@ class TvPlaybackSessionPresenterTest {
     fun transcodePlanExposesLinearPlaybackGating() =
         runTest {
             val fixture = fixture(playbackInfos = listOf(Result.success(transcodeInfo())))
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
             runCurrent()
@@ -959,12 +959,12 @@ class TvPlaybackSessionPresenterTest {
                     storedSubtitle = SubtitleSelectionIntent.Track(2),
                     detail = Result.success(testDetail(streams = streams)),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             assertEquals(1, fixture.repository.planRequests[0].audioStreamIndex)
             assertEquals(2, fixture.repository.planRequests[0].subtitleStreamIndex)
 
-            fixture.presenter.selectQuality(4_000_000L)
+            fixture.presenter.accept(TvPlaybackSessionIntent.SelectQualityLimit(4_000_000L))
             runCurrent()
 
             val replan = fixture.repository.planRequests[1]
@@ -994,7 +994,7 @@ class TvPlaybackSessionPresenterTest {
                         ),
                 )
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             val installedPlan = fixture.controller.preparedPlans.single()
@@ -1014,7 +1014,7 @@ class TvPlaybackSessionPresenterTest {
                         ),
                 )
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             val inherited =
@@ -1030,13 +1030,13 @@ class TvPlaybackSessionPresenterTest {
         runTest {
             val selectionStore = FakeTvPlaybackSelectionStore()
             val fixture = fixture(selectionStore = selectionStore)
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             // The initial audio is the automatic language/default resolution,
             // not a user choice. Changing only quality must not freeze it as a
             // per-title audio override.
-            fixture.presenter.selectQuality(PlaybackQualityPolicy.fixed(4_000_000L))
+            fixture.presenter.accept(TvPlaybackSessionIntent.SelectQualityPolicy(PlaybackQualityPolicy.fixed(4_000_000L)))
             advanceUntilIdle()
 
             assertNull(
@@ -1052,13 +1052,13 @@ class TvPlaybackSessionPresenterTest {
         runTest {
             val selectionStore = FakeTvPlaybackSelectionStore()
             val fixture = fixture(selectionStore = selectionStore)
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             // Stream 1 also happens to be the automatic default. The explicit
             // select call is still user intent and must remain durable.
-            fixture.presenter.selectAudio(1)
-            fixture.presenter.selectQuality(PlaybackQualityPolicy.fixed(4_000_000L))
+            fixture.presenter.accept(TvPlaybackSessionIntent.SelectAudio(1))
+            fixture.presenter.accept(TvPlaybackSessionIntent.SelectQualityPolicy(PlaybackQualityPolicy.fixed(4_000_000L)))
             advanceUntilIdle()
 
             val saved =
@@ -1079,7 +1079,7 @@ class TvPlaybackSessionPresenterTest {
                     storedSubtitle = SubtitleSelectionIntent.Track(9),
                     detail = Result.success(testDetail(streams = testStreamsWithSubtitle)),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(1, fixture.subtitleStore.deleteCount)
@@ -1099,11 +1099,11 @@ class TvPlaybackSessionPresenterTest {
                     storedSubtitle = SubtitleSelectionIntent.Track(2),
                     detail = Result.success(testDetail(streams = streams)),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             val plansBefore = fixture.repository.planRequests.size
 
-            fixture.presenter.selectSubtitle(null)
+            fixture.presenter.accept(TvPlaybackSessionIntent.SelectSubtitle(null))
             runCurrent()
 
             assertEquals(plansBefore, fixture.repository.planRequests.size)
@@ -1129,11 +1129,11 @@ class TvPlaybackSessionPresenterTest {
                         },
                     detail = Result.success(testDetail(streams = streams)),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             val plansBefore = fixture.repository.planRequests.size
 
-            fixture.presenter.selectSubtitle(2)
+            fixture.presenter.accept(TvPlaybackSessionIntent.SelectSubtitle(2))
             runCurrent()
 
             assertEquals(plansBefore + 1, fixture.repository.planRequests.size)
@@ -1160,7 +1160,7 @@ class TvPlaybackSessionPresenterTest {
                     detail = Result.success(testDetail(streams = testStreamsWithSubtitle)),
                 )
 
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(2, fixture.repository.planRequests.size)
@@ -1198,7 +1198,7 @@ class TvPlaybackSessionPresenterTest {
                     storedSubtitle = SubtitleSelectionIntent.Track(2),
                     detail = Result.success(testDetail(streams = streams)),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             val target =
@@ -1265,7 +1265,7 @@ class TvPlaybackSessionPresenterTest {
                     storedSubtitle = SubtitleSelectionIntent.Track(2),
                     detail = Result.success(testDetail(streams = testStreamsWithSubtitle)),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             val target =
                 fixture.controller.preparedPlans
@@ -1305,7 +1305,7 @@ class TvPlaybackSessionPresenterTest {
                     storedSubtitle = SubtitleSelectionIntent.Track(2),
                     detail = Result.success(testDetail(streams = testStreamsWithSubtitle)),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             val gate = CompletableDeferred<Unit>()
             fixture.repository.subtitleFallbackGate = gate
@@ -1320,7 +1320,7 @@ class TvPlaybackSessionPresenterTest {
             runCurrent()
             assertEquals(2, fixture.repository.planRequests.size)
 
-            fixture.presenter.stop()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Stop)
             gate.complete(Unit)
             runCurrent()
 
@@ -1344,7 +1344,7 @@ class TvPlaybackSessionPresenterTest {
                             .PlaybackPreferences(preferredAudioLanguage = "fre"),
                     detail = Result.success(testDetail(streams = streams)),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(3, fixture.repository.planRequests[0].audioStreamIndex)
@@ -1355,7 +1355,7 @@ class TvPlaybackSessionPresenterTest {
     fun resumePositionIsAlwaysHonoured() =
         runTest {
             val fixture = fixture(startTicks = 50_000_000L)
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(50_000_000L, fixture.repository.planRequests[0].startTimeTicks)
@@ -1380,7 +1380,7 @@ class TvPlaybackSessionPresenterTest {
                         endTicks = millisecondsToTicks(30_000L),
                     ),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             // Paused inside the segment: no skip.
@@ -1411,7 +1411,7 @@ class TvPlaybackSessionPresenterTest {
                         endTicks = millisecondsToTicks(55_000L),
                     ),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 45_000L)
@@ -1422,7 +1422,7 @@ class TvPlaybackSessionPresenterTest {
             assertTrue(segment.askUser)
             assertTrue(fixture.controller.seekPositions.isEmpty())
 
-            fixture.presenter.skipActiveSegment()
+            fixture.presenter.accept(TvPlaybackSessionIntent.SkipActiveSegment)
             assertEquals(listOf(55_000L), fixture.controller.seekPositions)
             fixture.presenter.close()
         }
@@ -1451,7 +1451,7 @@ class TvPlaybackSessionPresenterTest {
 
             val phases = mutableListOf<TvPlaybackPhase>()
             val handle = fixture.presenter.watchState { state -> phases += state.phase }
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             assertEquals(
                 "ep-2",
@@ -1496,7 +1496,7 @@ class TvPlaybackSessionPresenterTest {
                 )
             fixture.repository.seasons = Result.success(listOf(mediaItem(id = "season-1", name = "Season 1")))
             fixture.repository.episodesBySeasonId = mapOf("season-1" to listOf(episode1, episode2))
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
             runCurrent()
@@ -1522,7 +1522,7 @@ class TvPlaybackSessionPresenterTest {
                 )
             fixture.repository.seasons = Result.success(listOf(mediaItem(id = "season-1", name = "Season 1")))
             fixture.repository.episodesBySeasonId = mapOf("season-1" to listOf(episode1, episode2))
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 10_000L)
@@ -1556,7 +1556,7 @@ class TvPlaybackSessionPresenterTest {
                 )
             fixture.repository.seasons = Result.success(listOf(mediaItem(id = "season-1", name = "Season 1")))
             fixture.repository.episodesBySeasonId = mapOf("season-1" to listOf(episode1, episode2))
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
             runCurrent()
@@ -1595,7 +1595,7 @@ class TvPlaybackSessionPresenterTest {
             // startup gate is up — so recovery must run via the post-gate
             // reprocess of the newest sample.
             fixture.controller.failOnNextPlay = PlaybackError.Decoder
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             assertEquals(2, fixture.repository.planRequests.size)
@@ -1632,7 +1632,7 @@ class TvPlaybackSessionPresenterTest {
                 )
             fixture.repository.seasons = Result.success(listOf(mediaItem(id = "season-1", name = "Season 1")))
             fixture.repository.episodesBySeasonId = mapOf("season-1" to listOf(episode1, episode2))
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
             runCurrent()
@@ -1664,13 +1664,13 @@ class TvPlaybackSessionPresenterTest {
                             Result.success(transcodeInfo()),
                         ),
                 )
-            fixture.presenter.start()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
 
             val epochBefore = fixture.presenter.state.value.planEpoch
             assertTrue(epochBefore > 0)
 
-            fixture.presenter.selectQuality(4_000_000L)
+            fixture.presenter.accept(TvPlaybackSessionIntent.SelectQualityLimit(4_000_000L))
             runCurrent()
             assertTrue(fixture.presenter.state.value.planEpoch > epochBefore)
             fixture.presenter.close()
