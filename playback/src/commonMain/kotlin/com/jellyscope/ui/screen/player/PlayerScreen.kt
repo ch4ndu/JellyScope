@@ -209,7 +209,7 @@ fun PlayerScreen(
         kidsMinimized = false
         kidsFullscreen = false
         // Cancelling this effect cancels a waiting admission and leaves current playback intact.
-        if (viewModel.acceptKidsLaunch(request.itemId, request.options)) {
+        if (viewModel.accept(PlayerIntent.KidsLaunch(request.itemId, request.options))) {
             kidsWatchViewModel?.accept(KidsWatchIntent.ExternalLaunchAccepted(request.itemId, request.options.offlineDownloadId))
         }
     }
@@ -278,10 +278,12 @@ fun PlayerScreen(
                 onOpenPlaybackSettings = ::stopAndOpenPlaybackSettings,
                 onSelectAsset = { item ->
                     if (
-                        viewModel.selectPlaybackAsset(
-                            itemId = item.card.id,
-                            offlineDownloadId = item.offlineDownloadId,
-                            restartFromBeginning = false,
+                        viewModel.accept(
+                            PlayerIntent.SelectAsset(
+                                itemId = item.card.id,
+                                offlineDownloadId = item.offlineDownloadId,
+                                restartFromBeginning = false,
+                            ),
                         )
                     ) {
                         kidsWatchViewModel.accept(KidsWatchIntent.SelectionAccepted(item.card.id))

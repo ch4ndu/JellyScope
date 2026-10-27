@@ -6,12 +6,18 @@ plugins {
 
 android {
     namespace = "com.jellyscope.launcher.homehelper"
-    compileSdk = libs.versions.compileSdk.get().toInt()
+    compileSdk =
+        libs.versions.compileSdk
+            .get()
+            .toInt()
 
     defaultConfig {
         applicationId = "com.udnahc.jellyscope.launcher.homehelper"
         minSdk = 25
-        targetSdk = libs.versions.targetSdk.get().toInt()
+        targetSdk =
+            libs.versions.targetSdk
+                .get()
+                .toInt()
         versionCode = 1
         versionName = "0.1.0"
     }

@@ -50,7 +50,7 @@ class KidsPlaybackLaunchTest {
                     launchPolicy = PlayerLaunchPolicy.KidsSingleAsset,
                 )
 
-            assertTrue(fixture.viewModel.acceptKidsLaunch("item-2", options))
+            assertTrue(fixture.viewModel.accept(PlayerIntent.KidsLaunch("item-2", options)))
             runCurrent()
             assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
             val failedLaunchRequests = fixture.repository.requests.count { request -> request.itemId == "item-2" }

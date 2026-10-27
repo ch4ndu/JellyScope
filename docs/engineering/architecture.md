@@ -128,6 +128,36 @@ Review replay, fan-out, buffering, `.value`, atomicity, stable sharing, and even
 loss. Plain content must remain independent of ViewModels, repositories, and
 navigation controllers.
 
+### Presentation MVI coverage and boundaries
+
+Screen actions enter typed intents across shared Compose, Android TV, the Android
+launcher, and native tvOS. ViewModels/presenters own effects and cancellation;
+reducers update their presentation state. The coverage inventory comprises 22
+ViewModels and 21 concrete native tvOS presenters (excluding the lifecycle base):
+
+| Owners | Covered presentation paths |
+| --- | --- |
+| Shared authentication | Server entry, login, Quick Connect |
+| Shared browsing | Home, Find, Discover, grid, collection, person, library browse/hub/tab |
+| Shared details and downloads | Detail, Series, subtitle search, downloads |
+| Shared settings and playback | Account, settings, Player, Kids catalogue |
+| Android-specific | TV preferences and launcher |
+| Native tvOS | Home/view-all, libraries/browse/hub, search, person, detail/series helper, login/accounts/session, settings/appearance/device/subtitle settings, downloads/request/artwork, subtitles, online/offline playback |
+
+Player asset selection is a Boolean `PlayerIntent.Request`; Kids launch uses a
+separate suspending `PlayerIntent.Admission`. Callers publish catalogue selection
+or consume a launch request only after acceptance. Admission remains suspending
+through the existing install barrier, so it cannot silently become fire-and-forget.
+
+MVI applies to presentation mutations, not every object in the application.
+Read-only playback-selection and artwork queries, observation handles, native
+surface access, disposal, domain/repository operations, and controller/resource
+ownership remain direct. UI-local focus, scroll, animation, modal and navigation
+state—including the Kids playback host's route/store lifetime—remain local to
+their owners. Internal persistence helpers and pure projection helpers are not
+additional screen stores. A single screen state does not require every child to
+observe it; the workflow requires narrow inputs and appropriately scoped reads.
+
 ### Find MVI pilot
 
 Shared Find and Android TV Find send `FindIntent` values to
@@ -1045,6 +1075,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Player admission has a typed result because rejected launches must not advance
+  catalogue selection. Keeping suspending admission separate from ordinary intents
+  preserves cancellation and result consumption without another event channel.
 
 - Online playback intents expose user and native-host inputs without moving native
   ownership into a reducer. Publishing merges current diagnostics, while narrow

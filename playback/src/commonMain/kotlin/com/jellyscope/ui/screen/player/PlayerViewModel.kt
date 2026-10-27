@@ -545,6 +545,13 @@ class PlayerViewModel(
         when (intent) {
             is PlayerIntent.PlayNext -> playNext(intent.auto, intent.expectedGeneration)
             PlayerIntent.ReplayCurrent -> replayCurrentPlayback()
+            is PlayerIntent.SelectAsset ->
+                selectPlaybackAsset(intent.itemId, intent.offlineDownloadId, intent.restartFromBeginning, intent.allowCurrentTargetRetry)
+        }
+
+    suspend fun accept(intent: PlayerIntent.Admission): Boolean =
+        when (intent) {
+            is PlayerIntent.KidsLaunch -> acceptKidsLaunch(intent.itemId, intent.options)
         }
 
     private fun reduce(change: PlayerChange) {
@@ -758,7 +765,7 @@ class PlayerViewModel(
      * The accepted target is published before planning so recommendation selection cannot drift
      * when a newer request cancels an older one.
      */
-    fun selectPlaybackAsset(
+    private fun selectPlaybackAsset(
         itemId: String,
         offlineDownloadId: DownloadId? = null,
         restartFromBeginning: Boolean = false,
@@ -777,7 +784,7 @@ class PlayerViewModel(
      * barrier: selection runs after it is released, with no intervening suspension, so the
      * existing selection generations own the accepted replacement.
      */
-    suspend fun acceptKidsLaunch(
+    private suspend fun acceptKidsLaunch(
         itemId: String,
         options: PlayerLaunchOptions,
     ): Boolean {
@@ -945,7 +952,7 @@ class PlayerViewModel(
         return true
     }
 
-    fun retryCurrentPlayback(): Boolean =
+    private fun retryCurrentPlayback(): Boolean =
         selectPlaybackAsset(
             itemId = currentItemId,
             offlineDownloadId = currentOfflineDownloadId,
@@ -1643,7 +1650,7 @@ class PlayerViewModel(
         requestQualityChange(proposedQuality)
     }
 
-    fun acceptAutoPlayback() {
+    private fun acceptAutoPlayback() {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
@@ -1658,7 +1665,7 @@ class PlayerViewModel(
         requestQualityChange(qualitySession.inheritLaunchOrDefault(inheritedPolicy))
     }
 
-    fun keepRecoveredQualityForSession() {
+    private fun keepRecoveredQualityForSession() {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
@@ -1666,7 +1673,7 @@ class PlayerViewModel(
         requestQualityChange(qualitySession.retainRecoveredQuality(bitrate))
     }
 
-    fun tryHigherQualityOrOriginal() {
+    private fun tryHigherQualityOrOriginal() {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
@@ -1691,7 +1698,7 @@ class PlayerViewModel(
         )
     }
 
-    fun dismissPlaybackActionNotice() {
+    private fun dismissPlaybackActionNotice() {
         if (playbackChangeNotice != null) {
             playbackChangeNotice = null
         } else {
@@ -1700,7 +1707,7 @@ class PlayerViewModel(
         publishContent()
     }
 
-    fun retryPlaybackFromNotice() {
+    private fun retryPlaybackFromNotice() {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         playbackActionNotice = null

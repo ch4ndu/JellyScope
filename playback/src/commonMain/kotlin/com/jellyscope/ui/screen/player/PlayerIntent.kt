@@ -2,6 +2,7 @@
 
 package com.jellyscope.ui.screen.player
 
+import com.jellyscope.core.domain.model.DownloadId
 import com.jellyscope.core.domain.playback.PlaybackAction
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
 import com.jellyscope.core.domain.playback.PlayerBackend
@@ -130,4 +131,19 @@ sealed interface PlayerIntent {
     ) : Request
 
     data object ReplayCurrent : Request
+
+    data class SelectAsset(
+        val itemId: String,
+        val offlineDownloadId: DownloadId? = null,
+        val restartFromBeginning: Boolean = false,
+        val allowCurrentTargetRetry: Boolean = false,
+    ) : Request
+
+    /** Suspends until admission can be decided; the caller must consume the result. */
+    sealed interface Admission
+
+    data class KidsLaunch(
+        val itemId: String,
+        val options: PlayerLaunchOptions,
+    ) : Admission
 }

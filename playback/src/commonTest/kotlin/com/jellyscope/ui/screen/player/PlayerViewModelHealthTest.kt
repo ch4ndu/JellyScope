@@ -1016,7 +1016,9 @@ class PlayerViewModelHealthTest {
                 assertEquals(PlaybackQualityMode.Auto, content.selectedQualityPolicy.mode)
                 assertEquals(sessionLimit.bitrateBps, content.selectedQualityMaxBitrate)
 
-                fixture.viewModel.tryHigherQualityOrOriginal()
+                fixture.viewModel.accept(
+                    PlayerIntent.HandlePlaybackAction(com.jellyscope.core.domain.playback.PlaybackAction.TryHigherQuality),
+                )
                 runCurrent()
 
                 val tryHigherRequest = fixture.repository.requests.last()

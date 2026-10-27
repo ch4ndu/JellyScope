@@ -57,7 +57,9 @@ class HomeKeyService : AccessibilityService() {
     }
 }
 
-internal enum class LauncherAvailability(val message: Int) {
+internal enum class LauncherAvailability(
+    val message: Int,
+) {
     Available(R.string.launcher_available),
     Missing(R.string.launcher_missing),
     Disabled(R.string.launcher_disabled),
@@ -68,30 +70,33 @@ internal object LauncherTarget {
     private val component = ComponentName("com.udnahc.jellyscope.launcher", "com.jellyscope.launcher.MainActivity")
 
     @Suppress("DEPRECATION")
-    fun availability(context: Context): LauncherAvailability = try {
-        val packages = context.packageManager
-        val activity = packages.getActivityInfo(component, PackageManager.MATCH_DISABLED_COMPONENTS)
-        val applicationEnabled = enabled(packages.getApplicationEnabledSetting(component.packageName), activity.applicationInfo.enabled)
-        val activityEnabled = enabled(packages.getComponentEnabledSetting(component), activity.enabled)
-        when {
-            !applicationEnabled || !activityEnabled -> LauncherAvailability.Disabled
-            !activity.exported -> LauncherAvailability.Unavailable
-            else -> LauncherAvailability.Available
+    fun availability(context: Context): LauncherAvailability =
+        try {
+            val packages = context.packageManager
+            val activity = packages.getActivityInfo(component, PackageManager.MATCH_DISABLED_COMPONENTS)
+            val applicationEnabled = enabled(packages.getApplicationEnabledSetting(component.packageName), activity.applicationInfo.enabled)
+            val activityEnabled = enabled(packages.getComponentEnabledSetting(component), activity.enabled)
+            when {
+                !applicationEnabled || !activityEnabled -> LauncherAvailability.Disabled
+                !activity.exported -> LauncherAvailability.Unavailable
+                else -> LauncherAvailability.Available
+            }
+        } catch (_: PackageManager.NameNotFoundException) {
+            LauncherAvailability.Missing
+        } catch (_: IllegalArgumentException) {
+            // The package can disappear between the availability queries.
+            LauncherAvailability.Unavailable
+        } catch (_: SecurityException) {
+            LauncherAvailability.Unavailable
         }
-    } catch (_: PackageManager.NameNotFoundException) {
-        LauncherAvailability.Missing
-    } catch (_: IllegalArgumentException) {
-        // The package can disappear between the availability queries.
-        LauncherAvailability.Unavailable
-    } catch (_: SecurityException) {
-        LauncherAvailability.Unavailable
-    }
 
     fun open(context: Context): Boolean {
         if (availability(context) != LauncherAvailability.Available) return false
         return try {
             context.startActivity(
-                Intent(Intent.ACTION_MAIN).setComponent(component).addCategory(Intent.CATEGORY_HOME)
+                Intent(Intent.ACTION_MAIN)
+                    .setComponent(component)
+                    .addCategory(Intent.CATEGORY_HOME)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
             true
@@ -102,9 +107,13 @@ internal object LauncherTarget {
         }
     }
 
-    private fun enabled(setting: Int, manifestEnabled: Boolean): Boolean = when (setting) {
-        PackageManager.COMPONENT_ENABLED_STATE_DEFAULT -> manifestEnabled
-        PackageManager.COMPONENT_ENABLED_STATE_ENABLED -> true
-        else -> false
-    }
+    private fun enabled(
+        setting: Int,
+        manifestEnabled: Boolean,
+    ): Boolean =
+        when (setting) {
+            PackageManager.COMPONENT_ENABLED_STATE_DEFAULT -> manifestEnabled
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED -> true
+            else -> false
+        }
 }
