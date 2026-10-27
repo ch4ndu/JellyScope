@@ -15,14 +15,12 @@ import com.jellyscope.core.domain.model.MIN_AUTOPLAY_NEXT_DELAY_SECONDS
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PreparePlaybackTimelineResult
 import com.jellyscope.core.domain.model.SegmentSkipPolicy
-import com.jellyscope.core.domain.model.SendClientLogsResult
 import com.jellyscope.core.domain.model.SendPlaybackTimelineResult
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.MediaSegmentType
 import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
-import com.jellyscope.core.domain.playback.playbackQualityChoices
 import com.jellyscope.core.domain.usecase.GetLogCollectionStateUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackInfoAtStartStateUseCase
 import com.jellyscope.core.domain.usecase.GetPlaybackPreferencesUseCase
@@ -111,25 +109,20 @@ class TvSettingsPresenter(
         playerClockToggle.start()
         scope.launch {
             getLogCollectionState().collect { enabled ->
-                _state.update { current -> current.copy(diagnosticCollectionEnabled = enabled) }
+                reduce(TvSettingsChange.DiagnosticsObserved(enabled))
                 if (!enabled) stopPlaybackTimelineForDisabledCollection()
             }
         }
         scope.launch {
             playbackInfoAtStart.collect { enabled ->
                 if (playbackInfoAtStartIntent == null || playbackInfoAtStartIntent == enabled) {
-                    _state.update { current -> current.copy(playbackInfoAtStartEnabled = enabled) }
+                    reduce(TvSettingsChange.PlaybackInfoObserved(enabled))
                 }
             }
         }
         scope.launch {
             getLogCollectionState.bufferSize().collect { size ->
-                _state.update { current ->
-                    current.copy(
-                        diagnosticEntryCount = size.entryCount,
-                        diagnosticByteCount = size.byteCount,
-                    )
-                }
+                reduce(TvSettingsChange.LogSizeObserved(size.entryCount, size.byteCount))
             }
         }
         scope.launch {
@@ -156,7 +149,7 @@ class TvSettingsPresenter(
                             // Discard edits based on truth that failed to persist.
                         }
                         load()
-                        _state.update { current -> current.copy(saveError = true) }
+                        reduce(TvSettingsChange.SaveFailed)
                     }
                 }
             }
@@ -168,9 +161,39 @@ class TvSettingsPresenter(
         }
     }
 
+    private fun reduce(change: TvSettingsChange) = reduce { change }
+
+    // Evaluate observed store values inside each atomic update attempt.
+    private fun reduce(change: () -> TvSettingsChange) {
+        _state.update { current -> reduceTvSettings(current, change()) }
+    }
+
+    fun accept(intent: TvSettingsIntent) {
+        when (intent) {
+            is TvSettingsIntent.SetDefaultMaxBitrate -> setDefaultMaxBitrate(intent.maxBitrateBps)
+            is TvSettingsIntent.SetDefaultQualityPolicy -> setDefaultQualityPolicy(intent.policy)
+            is TvSettingsIntent.SetDefaultQualityChoice -> setDefaultQualityChoice(intent.modeName, intent.maxBitrateBps)
+            is TvSettingsIntent.SetPreferredAudioLanguage -> setPreferredAudioLanguage(intent.code)
+            is TvSettingsIntent.SetPreferredSubtitleLanguage -> setPreferredSubtitleLanguage(intent.code)
+            is TvSettingsIntent.SetPlaybackWarningsEnabled -> setPlaybackWarningsEnabled(intent.enabled)
+            is TvSettingsIntent.SetAutoPlayNext -> setAutoPlayNext(intent.enabled)
+            is TvSettingsIntent.SetStillWatchingPrompt -> setStillWatchingPrompt(intent.enabled)
+            is TvSettingsIntent.SetAutoPlayNextDelaySeconds -> setAutoPlayNextDelaySeconds(intent.seconds)
+            is TvSettingsIntent.SetRememberLastLibraryViewEnabled -> setRememberLastLibraryViewEnabled(intent.enabled)
+            is TvSettingsIntent.SetPlayerClockEnabled -> setPlayerClockEnabled(intent.enabled)
+            is TvSettingsIntent.SetSegmentPolicy -> setSegmentPolicy(intent.type, intent.policy)
+            is TvSettingsIntent.SetDiagnosticCollectionEnabled -> setDiagnosticCollectionEnabled(intent.enabled)
+            is TvSettingsIntent.SetPlaybackInfoAtStartEnabled -> setPlaybackInfoAtStartEnabled(intent.enabled)
+            TvSettingsIntent.RetryPlaybackInfoAtStart -> retryPlaybackInfoAtStart()
+            TvSettingsIntent.RetryLoad -> retryLoad()
+            TvSettingsIntent.SendClientLogs -> sendClientLogs()
+            TvSettingsIntent.SendPlaybackTimeline -> sendPlaybackTimeline()
+        }
+    }
+
     fun watchState(onChange: (TvSettingsState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun setDefaultMaxBitrate(maxBitrateBps: Long?) {
+    private fun setDefaultMaxBitrate(maxBitrateBps: Long?) {
         val policy =
             maxBitrateBps
                 ?.let { bitrate -> PlaybackQualityPolicy.fixed(bitrate) }
@@ -183,7 +206,7 @@ class TvSettingsPresenter(
         }
     }
 
-    fun setDefaultQualityPolicy(policy: PlaybackQualityPolicy) {
+    private fun setDefaultQualityPolicy(policy: PlaybackQualityPolicy) {
         val normalized = policy.normalized()
         mutate { preferences ->
             preferences.copy(
@@ -193,7 +216,7 @@ class TvSettingsPresenter(
         }
     }
 
-    fun setDefaultQualityChoice(
+    private fun setDefaultQualityChoice(
         modeName: String,
         maxBitrateBps: Long?,
     ) {
@@ -207,27 +230,27 @@ class TvSettingsPresenter(
         setDefaultQualityPolicy(policy)
     }
 
-    fun setPreferredAudioLanguage(code: String?) {
+    private fun setPreferredAudioLanguage(code: String?) {
         mutate { preferences -> preferences.copy(preferredAudioLanguage = code) }
     }
 
-    fun setPreferredSubtitleLanguage(code: String?) {
+    private fun setPreferredSubtitleLanguage(code: String?) {
         mutate { preferences -> preferences.copy(preferredSubtitleLanguage = code) }
     }
 
-    fun setPlaybackWarningsEnabled(enabled: Boolean) {
+    private fun setPlaybackWarningsEnabled(enabled: Boolean) {
         mutate { preferences -> preferences.copy(playbackWarningsEnabled = enabled) }
     }
 
-    fun setAutoPlayNext(enabled: Boolean) {
+    private fun setAutoPlayNext(enabled: Boolean) {
         mutate { preferences -> preferences.copy(autoPlayNext = enabled) }
     }
 
-    fun setStillWatchingPrompt(enabled: Boolean) {
+    private fun setStillWatchingPrompt(enabled: Boolean) {
         mutate { preferences -> preferences.copy(stillWatchingPrompt = enabled) }
     }
 
-    fun setAutoPlayNextDelaySeconds(seconds: Int) {
+    private fun setAutoPlayNextDelaySeconds(seconds: Int) {
         mutate { preferences ->
             preferences.copy(
                 autoPlayNextDelaySeconds =
@@ -239,15 +262,15 @@ class TvSettingsPresenter(
         }
     }
 
-    fun setRememberLastLibraryViewEnabled(enabled: Boolean) {
+    private fun setRememberLastLibraryViewEnabled(enabled: Boolean) {
         rememberLastLibraryViewToggle.set(enabled, current = state.value.rememberLastLibraryView)
     }
 
-    fun setPlayerClockEnabled(enabled: Boolean) {
+    private fun setPlayerClockEnabled(enabled: Boolean) {
         playerClockToggle.set(enabled, current = state.value.playerClockEnabled)
     }
 
-    fun setSegmentPolicy(
+    private fun setSegmentPolicy(
         type: MediaSegmentType,
         policy: SegmentSkipPolicy,
     ) {
@@ -263,14 +286,14 @@ class TvSettingsPresenter(
         }
     }
 
-    fun setDiagnosticCollectionEnabled(enabled: Boolean) {
+    private fun setDiagnosticCollectionEnabled(enabled: Boolean) {
         if (state.value.isLoading) {
             return
         }
         scope.launch {
             try {
                 withContext(workDispatcher) { setLogCollectionEnabled(enabled) }
-                _state.update { current -> current.copy(diagnosticPreferenceError = false) }
+                reduce(TvSettingsChange.DiagnosticPreferenceChanged(false))
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Throwable) {
@@ -282,23 +305,17 @@ class TvSettingsPresenter(
                         throwable = exception,
                     )
                 }
-                _state.update { current -> current.copy(diagnosticPreferenceError = true) }
+                reduce(TvSettingsChange.DiagnosticPreferenceChanged(true))
             }
         }
     }
 
-    fun setPlaybackInfoAtStartEnabled(enabled: Boolean) {
+    private fun setPlaybackInfoAtStartEnabled(enabled: Boolean) {
         if (!state.value.isSavingPlaybackInfoAtStart && state.value.playbackInfoAtStartEnabled == enabled) return
         playbackInfoAtStartGeneration += 1
         playbackInfoAtStartIntent = enabled
         failedPlaybackInfoAtStart = null
-        _state.update { current ->
-            current.copy(
-                playbackInfoAtStartEnabled = enabled,
-                isSavingPlaybackInfoAtStart = true,
-                playbackInfoAtStartSaveError = false,
-            )
-        }
+        reduce(TvSettingsChange.PlaybackInfoSaveStarted(enabled))
         pendingPlaybackInfoWrites.trySend(
             PlaybackInfoAtStartWrite(
                 enabled = enabled,
@@ -307,11 +324,11 @@ class TvSettingsPresenter(
         )
     }
 
-    fun retryPlaybackInfoAtStart() {
+    private fun retryPlaybackInfoAtStart() {
         failedPlaybackInfoAtStart?.let(::setPlaybackInfoAtStartEnabled)
     }
 
-    fun retryLoad() {
+    private fun retryLoad() {
         if (!state.value.loadError || retryLoadJob?.isActive == true) return
         retryLoadJob =
             scope.launch {
@@ -321,9 +338,9 @@ class TvSettingsPresenter(
             }
     }
 
-    fun sendClientLogs() {
+    private fun sendClientLogs() {
         scope.launch {
-            _state.update { current -> current.copy(diagnosticSendResult = TvDiagnosticsSendResult.Sending) }
+            reduce(TvSettingsChange.LogsStarted)
             val result =
                 try {
                     withContext(workDispatcher) { sendClientLogsAction() }
@@ -340,21 +357,12 @@ class TvSettingsPresenter(
                     }
                     null
                 }
-            _state.update { current ->
-                current.copy(
-                    diagnosticSendResult =
-                        when (result) {
-                            is SendClientLogsResult.Success -> TvDiagnosticsSendResult.Success
-                            SendClientLogsResult.UploadDisallowed -> TvDiagnosticsSendResult.UploadDisallowed
-                            SendClientLogsResult.Failure, null -> TvDiagnosticsSendResult.Failure
-                        },
-                )
-            }
+            reduce(TvSettingsChange.LogsFinished(result))
         }
     }
 
     /** Prepares a timeline, then explicitly uploads it; tvOS has no local document picker. */
-    fun sendPlaybackTimeline() {
+    private fun sendPlaybackTimeline() {
         if (playbackTimelineJob?.isActive == true) return
         playbackTimelineJob =
             scope.launch {
@@ -429,7 +437,7 @@ class TvSettingsPresenter(
         result: TvPlaybackTimelineSendResult,
         filename: String? = null,
     ) {
-        _state.update { current -> current.copy(playbackTimelineSendResult = result, playbackTimelineFilename = filename) }
+        reduce(TvSettingsChange.TimelineChanged(result, filename))
     }
 
     // Fixed stage/event and sanitized exception type only; never the timeline or a message.
@@ -447,21 +455,12 @@ class TvSettingsPresenter(
             return
         }
         val updated = transform(state.value.preferences).normalized()
-        _state.update { current ->
-            current.withPlaybackPreferences(updated).copy(saveError = false)
-        }
+        reduce(TvSettingsChange.PreferencesChanged(updated))
         pendingWrites.trySend(updated)
     }
 
     private suspend fun load() {
-        _state.update { current ->
-            current.copy(
-                isLoading = true,
-                serverName = session.serverName,
-                serverUrl = session.serverUrl,
-                userName = session.userName,
-            )
-        }
+        reduce(TvSettingsChange.LoadStarted(session.serverName, session.serverUrl, session.userName))
         val preferences =
             try {
                 withContext(workDispatcher) { getPlaybackPreferences(session.accountIdentity()) }
@@ -480,38 +479,12 @@ class TvSettingsPresenter(
             }?.normalized()
         if (preferences == null) {
             val confirmed = confirmedPreferences
-            _state.update { current ->
-                val failed = current.copy(isLoading = false, loadError = true)
-                if (confirmed == null) failed else failed.withPlaybackPreferences(confirmed)
-            }
+            reduce(TvSettingsChange.LoadFailed(confirmed))
             return
         }
         confirmedPreferences = preferences
-        _state.update { current ->
-            current.withPlaybackPreferences(preferences).copy(isLoading = false, loadError = false)
-        }
+        reduce(TvSettingsChange.Loaded(preferences))
     }
-
-    private fun TvSettingsState.withPlaybackPreferences(preferences: PlaybackPreferences): TvSettingsState =
-        copy(
-            preferences = preferences,
-            stillWatchingPrompt = preferences.stillWatchingPrompt,
-            autoPlayNextDelaySeconds = preferences.autoPlayNextDelaySeconds,
-            bitrateChoices = bitrateChoices(preferences.effectiveDefaultQualityPolicy()),
-        )
-
-    // Same shared quality ladder the in-player Quality menu renders, so a
-    // default picked here always matches a confirmed rung during playback.
-    private fun bitrateChoices(selected: PlaybackQualityPolicy): List<TvQualityChoice> =
-        playbackQualityChoices(selected).map { option ->
-            TvQualityChoice(
-                maxBitrateBps = option.maxBitrateBps,
-                resolutionHeight = option.resolutionHeight,
-                isCustom = option.isCustom,
-                selected = option.mode == selected.mode && option.maxBitrateBps == selected.maxBitrateBps,
-                mode = option.mode,
-            )
-        }
 
     private suspend fun writePlaybackInfoAtStart(request: PlaybackInfoAtStartWrite) {
         try {
@@ -519,13 +492,7 @@ class TvSettingsPresenter(
             if (request.generation == playbackInfoAtStartGeneration) {
                 playbackInfoAtStartIntent = null
                 failedPlaybackInfoAtStart = null
-                _state.update { current ->
-                    current.copy(
-                        playbackInfoAtStartEnabled = playbackInfoAtStart.value,
-                        isSavingPlaybackInfoAtStart = false,
-                        playbackInfoAtStartSaveError = false,
-                    )
-                }
+                reduce { TvSettingsChange.PlaybackInfoSaved(playbackInfoAtStart.value) }
             }
         } catch (exception: CancellationException) {
             throw exception
@@ -544,13 +511,7 @@ class TvSettingsPresenter(
                 }
                 playbackInfoAtStartIntent = null
                 failedPlaybackInfoAtStart = request.enabled
-                _state.update { current ->
-                    current.copy(
-                        playbackInfoAtStartEnabled = playbackInfoAtStart.value,
-                        isSavingPlaybackInfoAtStart = false,
-                        playbackInfoAtStartSaveError = true,
-                    )
-                }
+                reduce { TvSettingsChange.PlaybackInfoFailed(playbackInfoAtStart.value) }
             }
         }
     }
@@ -571,7 +532,7 @@ class TvSettingsPresenter(
                 stored.collect { enabled ->
                     if (intent == null || intent == enabled) {
                         intent = null
-                        _state.update { current -> publish(current, enabled) }
+                        reduce(TvSettingsChange.ToggleObserved(publish, enabled))
                     }
                 }
             }
@@ -581,7 +542,7 @@ class TvSettingsPresenter(
                         withContext(workDispatcher) { write(enabled) }
                         if (intent == enabled) {
                             intent = null
-                            _state.update { current -> publish(current, stored.value) }
+                            reduce { TvSettingsChange.ToggleObserved(publish, stored.value) }
                         }
                     } catch (exception: CancellationException) {
                         throw exception
@@ -598,7 +559,7 @@ class TvSettingsPresenter(
                             // Keep the store's last successful value after a failed write.
                         }
                         intent = null
-                        _state.update { current -> publish(current, stored.value).copy(saveError = true) }
+                        reduce { TvSettingsChange.ToggleFailed(publish, stored.value) }
                     }
                 }
             }
@@ -612,7 +573,7 @@ class TvSettingsPresenter(
                 return
             }
             intent = enabled
-            _state.update { state -> publish(state, enabled).copy(saveError = false) }
+            reduce(TvSettingsChange.ToggleChanged(publish, enabled))
             pendingWrites.trySend(enabled)
         }
     }

@@ -20,19 +20,19 @@ final class DeviceSettingsModel: ObservableObject {
     }
 
     func setAudioChoice(_ choice: TvDeviceAudioChoice) {
-        presenter.setAudioChoice(choice: choice)
+        presenter.accept(intent: TvDeviceSettingsIntentSetAudioChoice(choice: choice))
     }
 
     func setHdrChoice(_ choice: TvDeviceHdrChoice) {
-        presenter.setHdrChoice(choice: choice)
+        presenter.accept(intent: TvDeviceSettingsIntentSetHdrChoice(choice: choice))
     }
 
     func retryPolicy() {
-        presenter.retryPolicy()
+        presenter.accept(intent: TvDeviceSettingsIntentRetryPolicy.shared)
     }
 
     func retrySave() {
-        presenter.retrySave()
+        presenter.accept(intent: TvDeviceSettingsIntentRetrySave.shared)
     }
 
     deinit {

@@ -65,21 +65,21 @@ class TvAppearancePresenter(
         scope.launch {
             observedAppTheme.collect { appTheme ->
                 if (appThemeIntent == null || appThemeIntent == appTheme) {
-                    _state.update { current -> current.copy(appTheme = appTheme) }
+                    reduce(TvAppearanceChange.ThemeObserved(appTheme))
                 }
             }
         }
         scope.launch {
             observedTileSize.collect { tileSize ->
                 if (tileSizeIntent == null || tileSizeIntent == tileSize) {
-                    _state.update { current -> current.copy(tileSize = tileSize) }
+                    reduce(TvAppearanceChange.TileObserved(tileSize))
                 }
             }
         }
         scope.launch {
             observedImageQuality.collect { imageQuality ->
                 if (imageQualityIntent == null || imageQualityIntent == imageQuality) {
-                    _state.update { current -> current.copy(imageQuality = imageQuality) }
+                    reduce(TvAppearanceChange.ImageObserved(imageQuality))
                 }
             }
         }
@@ -100,59 +100,62 @@ class TvAppearancePresenter(
         }
     }
 
+    private fun reduce(change: TvAppearanceChange) = reduce { change }
+
+    // Evaluate observed store values inside each atomic update attempt.
+    private fun reduce(change: () -> TvAppearanceChange) {
+        _state.update { current -> reduceTvAppearance(current, change()) }
+    }
+
+    fun accept(intent: TvAppearanceIntent) {
+        when (intent) {
+            is TvAppearanceIntent.SetAppTheme -> setAppTheme(intent.appTheme)
+            is TvAppearanceIntent.SetTileSize -> setTileSize(intent.tileSize)
+            is TvAppearanceIntent.SetImageQuality -> setImageQuality(intent.imageQuality)
+            TvAppearanceIntent.RetryAppTheme -> retryAppTheme()
+            TvAppearanceIntent.RetryTileSize -> retryTileSize()
+            TvAppearanceIntent.RetryImageQuality -> retryImageQuality()
+        }
+    }
+
     fun watchState(onChange: (TvAppearanceState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun setAppTheme(appTheme: AppColorThemeId) {
+    private fun setAppTheme(appTheme: AppColorThemeId) {
         if (!state.value.isSavingAppTheme && appTheme == state.value.appTheme) return
         appThemeGeneration += 1
         appThemeIntent = appTheme
         failedAppTheme = null
-        _state.update { current ->
-            current.copy(
-                isSavingAppTheme = true,
-                appThemeSaveError = false,
-            )
-        }
+        reduce(TvAppearanceChange.ThemeStarted)
         appThemeWrites.trySend(AppThemeWrite(appTheme, appThemeGeneration))
     }
 
-    fun setTileSize(tileSize: TileSizeId) {
+    private fun setTileSize(tileSize: TileSizeId) {
         if (!state.value.isSavingTileSize && tileSize == state.value.tileSize) return
         tileSizeGeneration += 1
         tileSizeIntent = tileSize
         failedTileSize = null
-        _state.update { current ->
-            current.copy(
-                isSavingTileSize = true,
-                tileSizeSaveError = false,
-            )
-        }
+        reduce(TvAppearanceChange.TileStarted)
         tileSizeWrites.trySend(TileSizeWrite(tileSize, tileSizeGeneration))
     }
 
-    fun setImageQuality(imageQuality: ImageQuality) {
+    private fun setImageQuality(imageQuality: ImageQuality) {
         if (!state.value.isSavingImageQuality && imageQuality == state.value.imageQuality) return
         imageQualityGeneration += 1
         imageQualityIntent = imageQuality
         failedImageQuality = null
-        _state.update { current ->
-            current.copy(
-                isSavingImageQuality = true,
-                imageQualitySaveError = false,
-            )
-        }
+        reduce(TvAppearanceChange.ImageStarted)
         imageQualityWrites.trySend(ImageQualityWrite(imageQuality, imageQualityGeneration))
     }
 
-    fun retryAppTheme() {
+    private fun retryAppTheme() {
         failedAppTheme?.let(::setAppTheme)
     }
 
-    fun retryTileSize() {
+    private fun retryTileSize() {
         failedTileSize?.let(::setTileSize)
     }
 
-    fun retryImageQuality() {
+    private fun retryImageQuality() {
         failedImageQuality?.let(::setImageQuality)
     }
 
@@ -162,13 +165,7 @@ class TvAppearancePresenter(
             if (request.generation == appThemeGeneration) {
                 appThemeIntent = null
                 failedAppTheme = null
-                _state.update { current ->
-                    current.copy(
-                        appTheme = observedAppTheme.value,
-                        isSavingAppTheme = false,
-                        appThemeSaveError = false,
-                    )
-                }
+                reduce { TvAppearanceChange.ThemeSaved(observedAppTheme.value) }
             }
         } catch (exception: CancellationException) {
             throw exception
@@ -187,13 +184,7 @@ class TvAppearancePresenter(
                 }
                 appThemeIntent = null
                 failedAppTheme = request.value
-                _state.update { current ->
-                    current.copy(
-                        appTheme = observedAppTheme.value,
-                        isSavingAppTheme = false,
-                        appThemeSaveError = true,
-                    )
-                }
+                reduce { TvAppearanceChange.ThemeFailed(observedAppTheme.value) }
             }
         }
     }
@@ -204,13 +195,7 @@ class TvAppearancePresenter(
             if (request.generation == tileSizeGeneration) {
                 tileSizeIntent = null
                 failedTileSize = null
-                _state.update { current ->
-                    current.copy(
-                        tileSize = observedTileSize.value,
-                        isSavingTileSize = false,
-                        tileSizeSaveError = false,
-                    )
-                }
+                reduce { TvAppearanceChange.TileSaved(observedTileSize.value) }
             }
         } catch (exception: CancellationException) {
             throw exception
@@ -229,13 +214,7 @@ class TvAppearancePresenter(
                 }
                 tileSizeIntent = null
                 failedTileSize = request.value
-                _state.update { current ->
-                    current.copy(
-                        tileSize = observedTileSize.value,
-                        isSavingTileSize = false,
-                        tileSizeSaveError = true,
-                    )
-                }
+                reduce { TvAppearanceChange.TileFailed(observedTileSize.value) }
             }
         }
     }
@@ -246,13 +225,7 @@ class TvAppearancePresenter(
             if (request.generation == imageQualityGeneration) {
                 imageQualityIntent = null
                 failedImageQuality = null
-                _state.update { current ->
-                    current.copy(
-                        imageQuality = observedImageQuality.value,
-                        isSavingImageQuality = false,
-                        imageQualitySaveError = false,
-                    )
-                }
+                reduce { TvAppearanceChange.ImageSaved(observedImageQuality.value) }
             }
         } catch (exception: CancellationException) {
             throw exception
@@ -271,13 +244,7 @@ class TvAppearancePresenter(
                 }
                 imageQualityIntent = null
                 failedImageQuality = request.value
-                _state.update { current ->
-                    current.copy(
-                        imageQuality = observedImageQuality.value,
-                        isSavingImageQuality = false,
-                        imageQualitySaveError = true,
-                    )
-                }
+                reduce { TvAppearanceChange.ImageFailed(observedImageQuality.value) }
             }
         }
     }

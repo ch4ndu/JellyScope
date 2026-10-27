@@ -49,13 +49,7 @@ class TvDeviceSettingsPresenter(
         scope.launch {
             observedSettings.collect { settings ->
                 latestObservedSettings = settings
-                _state.update { current ->
-                    current.withSettings(
-                        settings = settings,
-                        audioIntent = audioIntent,
-                        hdrIntent = hdrIntent,
-                    )
-                }
+                reduce { TvDeviceSettingsChange.SettingsObserved(settings, audioIntent, hdrIntent) }
                 if (audioIntent == null && hdrIntent == null) {
                     loadPolicy()
                 }
@@ -68,27 +62,43 @@ class TvDeviceSettingsPresenter(
         }
     }
 
+    private fun reduce(change: TvDeviceSettingsChange) = reduce { change }
+
+    // Evaluate observed store values inside each atomic update attempt.
+    private fun reduce(change: () -> TvDeviceSettingsChange) {
+        _state.update { current -> reduceTvDeviceSettings(current, change()) }
+    }
+
+    fun accept(intent: TvDeviceSettingsIntent) {
+        when (intent) {
+            is TvDeviceSettingsIntent.SetAudioChoice -> setAudioChoice(intent.choice)
+            is TvDeviceSettingsIntent.SetHdrChoice -> setHdrChoice(intent.choice)
+            TvDeviceSettingsIntent.RetryPolicy -> retryPolicy()
+            TvDeviceSettingsIntent.RetrySave -> retrySave()
+        }
+    }
+
     fun watchState(onChange: (TvDeviceSettingsState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun setAudioChoice(choice: TvDeviceAudioChoice) {
+    private fun setAudioChoice(choice: TvDeviceAudioChoice) {
         val mode = choice.toPlayerAudioMode()
         if (audioIntent == null && latestObservedSettings.audioMode == mode) return
         audioIntent = mode
         enqueueWrite()
     }
 
-    fun setHdrChoice(choice: TvDeviceHdrChoice) {
+    private fun setHdrChoice(choice: TvDeviceHdrChoice) {
         val mode = choice.toPlayerHdrMode()
         if (hdrIntent == null && latestObservedSettings.hdrMode == mode) return
         hdrIntent = mode
         enqueueWrite()
     }
 
-    fun retryPolicy() {
+    private fun retryPolicy() {
         loadPolicy()
     }
 
-    fun retrySave() {
+    private fun retrySave() {
         val retry = failedIntent ?: return
         audioIntent = retry.audioMode
         hdrIntent = retry.hdrMode
@@ -105,18 +115,7 @@ class TvDeviceSettingsPresenter(
         writeGeneration += 1
         policyGeneration += 1
         policyJob?.cancel()
-        _state.update { current ->
-            current
-                .withSettings(
-                    settings = latestObservedSettings,
-                    audioIntent = audioIntent,
-                    hdrIntent = hdrIntent,
-                ).copy(
-                    isSaving = true,
-                    saveError = false,
-                    policyReadError = false,
-                )
-        }
+        reduce { TvDeviceSettingsChange.SaveStarted(latestObservedSettings, audioIntent, hdrIntent) }
         pendingWrites.trySend(writeGeneration)
     }
 
@@ -139,9 +138,7 @@ class TvDeviceSettingsPresenter(
                 pendingWrites.trySend(writeGeneration)
                 return
             }
-            _state.update { current ->
-                current.withSettings(latestObservedSettings).copy(isSaving = false, saveError = false)
-            }
+            reduce { TvDeviceSettingsChange.Saved(latestObservedSettings) }
             loadPolicy()
         } catch (exception: CancellationException) {
             throw exception
@@ -162,9 +159,7 @@ class TvDeviceSettingsPresenter(
                 audioIntent = null
                 hdrIntent = null
                 latestObservedSettings = observedSettings.value
-                _state.update { current ->
-                    current.withSettings(latestObservedSettings).copy(isSaving = false, saveError = true)
-                }
+                reduce { TvDeviceSettingsChange.SaveFailed(latestObservedSettings) }
                 loadPolicy()
             }
         }
@@ -173,7 +168,7 @@ class TvDeviceSettingsPresenter(
     private fun loadPolicy() {
         policyJob?.cancel()
         val generation = ++policyGeneration
-        _state.update { current -> current.copy(isLoading = current.videoCodecs.isEmpty(), policyReadError = false) }
+        reduce(TvDeviceSettingsChange.PolicyStarted)
         policyJob =
             scope.launch {
                 val projection =
@@ -193,13 +188,13 @@ class TvDeviceSettingsPresenter(
                             )
                         }
                         if (generation == policyGeneration) {
-                            _state.update { current -> current.copy(isLoading = false, policyReadError = true) }
+                            reduce(TvDeviceSettingsChange.PolicyFailed)
                         }
                         return@launch
                     }
                 if (generation != policyGeneration || audioIntent != null || hdrIntent != null) return@launch
                 latestObservedSettings = observedSettings.value
-                _state.update { current -> current.withPolicy(projection) }
+                reduce(TvDeviceSettingsChange.PolicyLoaded(projection))
             }
     }
 }
@@ -209,7 +204,7 @@ private data class DeviceSettingsIntent(
     val hdrMode: PlayerHdrMode?,
 )
 
-private data class DeviceSettingsPolicyProjection(
+internal data class DeviceSettingsPolicyProjection(
     val audioChoice: TvDeviceAudioChoice,
     val hdrChoice: TvDeviceHdrChoice,
     val effectiveAudioChoice: TvDeviceAudioChoice,
@@ -221,7 +216,7 @@ private data class DeviceSettingsPolicyProjection(
     val hdrFallbackReason: TvDeviceSettingFallbackReason?,
 )
 
-private fun TvDeviceSettingsState.withSettings(
+internal fun TvDeviceSettingsState.withSettings(
     settings: PlayerDeviceSettings,
     audioIntent: PlayerAudioMode? = null,
     hdrIntent: PlayerHdrMode? = null,
@@ -250,7 +245,7 @@ private fun EffectivePlayerDevicePolicy.toDeviceSettingsPolicyProjection(): Devi
         hdrFallbackReason = hdrFallbackReason(),
     )
 
-private fun TvDeviceSettingsState.withPolicy(projection: DeviceSettingsPolicyProjection): TvDeviceSettingsState =
+internal fun TvDeviceSettingsState.withPolicy(projection: DeviceSettingsPolicyProjection): TvDeviceSettingsState =
     copy(
         isLoading = false,
         audioChoice = projection.audioChoice,

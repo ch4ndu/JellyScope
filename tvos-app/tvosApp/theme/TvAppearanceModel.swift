@@ -36,27 +36,27 @@ final class TvAppearanceModel: ObservableObject {
     }
 
     func setAppTheme(_ appTheme: AppColorThemeId) {
-        presenter.setAppTheme(appTheme: appTheme)
+        presenter.accept(intent: TvAppearanceIntentSetAppTheme(appTheme: appTheme))
     }
 
     func setTileSize(_ tileSize: TileSizeId) {
-        presenter.setTileSize(tileSize: tileSize)
+        presenter.accept(intent: TvAppearanceIntentSetTileSize(tileSize: tileSize))
     }
 
     func setImageQuality(_ imageQuality: ImageQuality) {
-        presenter.setImageQuality(imageQuality: imageQuality)
+        presenter.accept(intent: TvAppearanceIntentSetImageQuality(imageQuality: imageQuality))
     }
 
     func retryImageQuality() {
-        presenter.retryImageQuality()
+        presenter.accept(intent: TvAppearanceIntentRetryImageQuality.shared)
     }
 
     func retryAppTheme() {
-        presenter.retryAppTheme()
+        presenter.accept(intent: TvAppearanceIntentRetryAppTheme.shared)
     }
 
     func retryTileSize() {
-        presenter.retryTileSize()
+        presenter.accept(intent: TvAppearanceIntentRetryTileSize.shared)
     }
 
     deinit {

@@ -56,69 +56,63 @@ class TvSubtitleSettingsPresenter(
         loadResultPreference()
     }
 
+    private fun reduce(change: TvSubtitleSettingsChange) = reduce { change }
+
+    // Evaluate observed store values inside each atomic update attempt.
+    private fun reduce(change: () -> TvSubtitleSettingsChange) {
+        _state.update { current -> reduceTvSubtitleSettings(current, change()) }
+    }
+
+    fun accept(intent: TvSubtitleSettingsIntent) {
+        when (intent) {
+            is TvSubtitleSettingsIntent.SaveApiKey -> saveApiKey(intent.value)
+            TvSubtitleSettingsIntent.ClearApiKey -> clearApiKey()
+            TvSubtitleSettingsIntent.RetryApiKeyLoad -> retryApiKeyLoad()
+            is TvSubtitleSettingsIntent.SetResultPreference -> setResultPreference(intent.preference)
+            TvSubtitleSettingsIntent.RetryResultPreferenceLoad -> retryResultPreferenceLoad()
+            TvSubtitleSettingsIntent.ClearDownloadedSubtitles -> clearDownloadedSubtitles()
+        }
+    }
+
     fun watchState(onChange: (TvSubtitleSettingsState) -> Unit): WatchHandle = state.watchIn(scope, onChange)
 
-    fun saveApiKey(value: String) {
+    private fun saveApiKey(value: String) {
         if (!state.value.isApiKeyLoaded) return
         apiKeyLoadGeneration += 1
         val generation = ++apiKeyIntentGeneration
-        _state.update { current ->
-            current.copy(
-                isSavingApiKey = true,
-                apiKeySaveError = false,
-                apiKeyLoadError = false,
-            )
-        }
+        reduce(TvSubtitleSettingsChange.ApiKeySaveStarted)
         apiKeyWrites.trySend(ApiKeyWrite(generation, value))
     }
 
-    fun clearApiKey() {
+    private fun clearApiKey() {
         saveApiKey("")
     }
 
-    fun retryApiKeyLoad() {
+    private fun retryApiKeyLoad() {
         if (state.value.isSavingApiKey) return
         loadApiKey(force = true)
     }
 
-    fun setResultPreference(preference: OpenSubtitleResultPreference) {
+    private fun setResultPreference(preference: OpenSubtitleResultPreference) {
         if (!state.value.isResultPreferenceLoaded) return
         resultPreferenceLoadGeneration += 1
         val generation = ++resultPreferenceIntentGeneration
-        _state.update { current ->
-            current.copy(
-                resultPreference = preference,
-                isSavingResultPreference = true,
-                resultPreferenceSaveError = false,
-                resultPreferenceLoadError = false,
-            )
-        }
+        reduce(TvSubtitleSettingsChange.PreferenceSaveStarted(preference))
         resultPreferenceWrites.trySend(ResultPreferenceWrite(generation, preference))
     }
 
-    fun retryResultPreferenceLoad() {
+    private fun retryResultPreferenceLoad() {
         if (state.value.isSavingResultPreference) return
         loadResultPreference(force = true)
     }
 
-    fun clearDownloadedSubtitles() {
+    private fun clearDownloadedSubtitles() {
         if (state.value.isClearingDownloadedSubtitles) return
-        _state.update { current ->
-            current.copy(
-                isClearingDownloadedSubtitles = true,
-                clearDownloadedSubtitlesError = false,
-            )
-        }
+        reduce(TvSubtitleSettingsChange.ClearStarted)
         scope.launch {
             try {
                 withContext(workDispatcher) { clearLocalSubtitles() }
-                _state.update { current ->
-                    current.copy(
-                        isClearingDownloadedSubtitles = false,
-                        clearDownloadedSubtitlesError = false,
-                        clearDownloadedSubtitlesRevision = current.clearDownloadedSubtitlesRevision + 1L,
-                    )
-                }
+                reduce(TvSubtitleSettingsChange.ClearFinished)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Throwable) {
@@ -128,12 +122,7 @@ class TvSubtitleSettingsPresenter(
                     operation = DiagnosticOperation.ClearLocalSubtitles,
                     error = error,
                 )
-                _state.update { current ->
-                    current.copy(
-                        isClearingDownloadedSubtitles = false,
-                        clearDownloadedSubtitlesError = true,
-                    )
-                }
+                reduce(TvSubtitleSettingsChange.ClearFailed)
             }
         }
     }
@@ -142,12 +131,7 @@ class TvSubtitleSettingsPresenter(
         val current = state.value
         if (current.isLoadingApiKey || current.isSavingApiKey || (!force && current.isApiKeyLoaded)) return
         val generation = ++apiKeyLoadGeneration
-        _state.update { value ->
-            value.copy(
-                isLoadingApiKey = true,
-                apiKeyLoadError = false,
-            )
-        }
+        reduce(TvSubtitleSettingsChange.ApiKeyLoadStarted)
         scope.launch {
             val configured =
                 try {
@@ -162,25 +146,12 @@ class TvSubtitleSettingsPresenter(
                         error = error,
                     )
                     if (generation == apiKeyLoadGeneration) {
-                        _state.update { value ->
-                            value.copy(
-                                isLoadingApiKey = false,
-                                isApiKeyLoaded = false,
-                                apiKeyLoadError = true,
-                            )
-                        }
+                        reduce(TvSubtitleSettingsChange.ApiKeyLoadFailed)
                     }
                     return@launch
                 }
             if (generation != apiKeyLoadGeneration) return@launch
-            _state.update { value ->
-                value.copy(
-                    isLoadingApiKey = false,
-                    isApiKeyLoaded = true,
-                    apiKeyConfigured = configured,
-                    apiKeyLoadError = false,
-                )
-            }
+            reduce(TvSubtitleSettingsChange.ApiKeyLoaded(configured))
         }
     }
 
@@ -188,12 +159,7 @@ class TvSubtitleSettingsPresenter(
         val current = state.value
         if (current.isLoadingResultPreference || current.isSavingResultPreference || (!force && current.isResultPreferenceLoaded)) return
         val generation = ++resultPreferenceLoadGeneration
-        _state.update { value ->
-            value.copy(
-                isLoadingResultPreference = true,
-                resultPreferenceLoadError = false,
-            )
-        }
+        reduce(TvSubtitleSettingsChange.PreferenceLoadStarted)
         scope.launch {
             val preference =
                 try {
@@ -208,25 +174,12 @@ class TvSubtitleSettingsPresenter(
                         error = error,
                     )
                     if (generation == resultPreferenceLoadGeneration) {
-                        _state.update { value ->
-                            value.copy(
-                                isLoadingResultPreference = false,
-                                isResultPreferenceLoaded = false,
-                                resultPreferenceLoadError = true,
-                            )
-                        }
+                        reduce(TvSubtitleSettingsChange.PreferenceLoadFailed)
                     }
                     return@launch
                 }
             if (generation != resultPreferenceLoadGeneration) return@launch
-            _state.update { value ->
-                value.copy(
-                    isLoadingResultPreference = false,
-                    isResultPreferenceLoaded = true,
-                    resultPreference = preference,
-                    resultPreferenceLoadError = false,
-                )
-            }
+            reduce(TvSubtitleSettingsChange.PreferenceLoaded(preference))
         }
     }
 
@@ -249,18 +202,7 @@ class TvSubtitleSettingsPresenter(
                 recoverApiKey()
             }
         if (write.generation != apiKeyIntentGeneration) return
-        _state.update { current ->
-            current.copy(
-                isLoadingApiKey = false,
-                isApiKeyLoaded = result.recovered,
-                apiKeyConfigured = result.configured,
-                apiKeyLoadError = !result.recovered,
-                isSavingApiKey = false,
-                apiKeySaveError = !result.saved,
-                apiKeyMutationRevision =
-                    if (result.saved) current.apiKeyMutationRevision + 1L else current.apiKeyMutationRevision,
-            )
-        }
+        reduce(TvSubtitleSettingsChange.ApiKeyWriteFinished(result))
     }
 
     private suspend fun recoverApiKey(): ApiKeyWriteResult =
@@ -297,16 +239,7 @@ class TvSubtitleSettingsPresenter(
                 recoverResultPreference()
             }
         if (write.generation != resultPreferenceIntentGeneration) return
-        _state.update { current ->
-            current.copy(
-                isLoadingResultPreference = false,
-                isResultPreferenceLoaded = result.recovered,
-                resultPreference = result.preference,
-                resultPreferenceLoadError = !result.recovered,
-                isSavingResultPreference = false,
-                resultPreferenceSaveError = !result.saved,
-            )
-        }
+        reduce(TvSubtitleSettingsChange.PreferenceWriteFinished(result))
     }
 
     private suspend fun recoverResultPreference(): ResultPreferenceWriteResult =
@@ -334,7 +267,7 @@ private data class ApiKeyWrite(
     val value: String,
 )
 
-private data class ApiKeyWriteResult(
+internal data class ApiKeyWriteResult(
     val configured: Boolean,
     val saved: Boolean = true,
     val recovered: Boolean = true,
@@ -345,7 +278,7 @@ private data class ResultPreferenceWrite(
     val preference: OpenSubtitleResultPreference,
 )
 
-private data class ResultPreferenceWriteResult(
+internal data class ResultPreferenceWriteResult(
     val preference: OpenSubtitleResultPreference,
     val saved: Boolean = true,
     val recovered: Boolean = true,

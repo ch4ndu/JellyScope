@@ -63,7 +63,13 @@ struct SettingsFormView: View {
                 }
             }
             SettingsDiagnosticsSection(model: model)
-            SettingsAccountSection(settingsState: model.state, accountModel: accountModel)
+            SettingsAccountSection(
+                serverName: model.state.serverName,
+                serverUrl: model.state.serverUrl,
+                userName: model.state.userName,
+                isLoading: model.state.isLoading,
+                accountModel: accountModel
+            )
             SettingsAboutSection()
         }
         .navigationTitle(String(localized: "Settings"))

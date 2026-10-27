@@ -403,6 +403,22 @@ release. Confirmation data is projected before the pure state transition. The
 Swift credentials form takes phase and error rather than all login state, keeping
 Quick Connect code and discovery updates outside its inputs.
 
+### Native tvOS settings MVI slice
+
+Settings, Appearance, Device Settings, and Subtitle Settings expose typed intents
+to Swift. Reducers own their state transitions; presenters retain serialized or
+conflated writes, optimistic intent reconciliation, failed-value retries, stored
+value recovery, policy refresh, diagnostic delivery, and generation guards.
+Private change factories evaluate live stored values inside atomic update retries;
+reducers receive values and remain pure. Existing toggle projection functions
+remain pure inputs to Settings transitions.
+
+Subtitle API-key intent values avoid generated string representations. State
+continues to expose only whether the key is configured. The account section takes
+server/user labels and loading state rather than the entire Settings state, so
+preference/diagnostic changes do not change those inputs. Appearance stays a
+separate observable owner; no runtime redraw reduction is claimed.
+
 ## Source Layout Target
 
 ```text
@@ -968,6 +984,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Native settings reducers separate state transitions from persistence while
+  preserving live store reads during atomic retries. Narrow account inputs avoid
+  coupling account rendering to preference saves and diagnostic counters.
 
 - Native authentication intents preserve request and removal ownership while
   exposing user actions explicitly. Credential forms do not need polling or

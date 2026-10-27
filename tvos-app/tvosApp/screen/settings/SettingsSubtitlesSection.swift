@@ -19,15 +19,15 @@ final class SubtitleSettingsModel: ObservableObject {
     }
 
     func saveApiKey(_ value: String) {
-        presenter.saveApiKey(value: value)
+        presenter.accept(intent: TvSubtitleSettingsIntentSaveApiKey(value: value))
     }
 
     func clearApiKey() {
-        presenter.clearApiKey()
+        presenter.accept(intent: TvSubtitleSettingsIntentClearApiKey.shared)
     }
 
     func retryApiKeyLoad() {
-        presenter.retryApiKeyLoad()
+        presenter.accept(intent: TvSubtitleSettingsIntentRetryApiKeyLoad.shared)
     }
 
     func setResultPreference(named name: String) {
@@ -37,15 +37,15 @@ final class SubtitleSettingsModel: ObservableObject {
             case "PreferForced": .preferforced
             default: .nopreference
             }
-        presenter.setResultPreference(preference: preference)
+        presenter.accept(intent: TvSubtitleSettingsIntentSetResultPreference(preference: preference))
     }
 
     func retryResultPreferenceLoad() {
-        presenter.retryResultPreferenceLoad()
+        presenter.accept(intent: TvSubtitleSettingsIntentRetryResultPreferenceLoad.shared)
     }
 
     func clearDownloadedSubtitles() {
-        presenter.clearDownloadedSubtitles()
+        presenter.accept(intent: TvSubtitleSettingsIntentClearDownloadedSubtitles.shared)
     }
 
     deinit {

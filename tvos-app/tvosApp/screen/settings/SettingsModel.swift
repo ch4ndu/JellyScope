@@ -19,66 +19,66 @@ final class SettingsModel: ObservableObject {
     }
 
     func setDefaultQualityChoice(_ choice: TvQualityChoice) {
-        presenter.setDefaultQualityChoice(
+        presenter.accept(intent: TvSettingsIntentSetDefaultQualityChoice(
             modeName: choice.mode.name,
             maxBitrateBps: choice.maxBitrateBps
-        )
+        ))
     }
 
     func setPreferredAudioLanguage(_ code: String?) {
-        presenter.setPreferredAudioLanguage(code: code)
+        presenter.accept(intent: TvSettingsIntentSetPreferredAudioLanguage(code: code))
     }
 
     func setPreferredSubtitleLanguage(_ code: String?) {
-        presenter.setPreferredSubtitleLanguage(code: code)
+        presenter.accept(intent: TvSettingsIntentSetPreferredSubtitleLanguage(code: code))
     }
 
     func setPlaybackWarningsEnabled(_ enabled: Bool) {
-        presenter.setPlaybackWarningsEnabled(enabled: enabled)
+        presenter.accept(intent: TvSettingsIntentSetPlaybackWarningsEnabled(enabled: enabled))
     }
 
     func setAutoPlayNext(_ enabled: Bool) {
-        presenter.setAutoPlayNext(enabled: enabled)
+        presenter.accept(intent: TvSettingsIntentSetAutoPlayNext(enabled: enabled))
     }
 
     func setStillWatchingPrompt(_ enabled: Bool) {
-        presenter.setStillWatchingPrompt(enabled: enabled)
+        presenter.accept(intent: TvSettingsIntentSetStillWatchingPrompt(enabled: enabled))
     }
 
     func setAutoPlayNextDelaySeconds(_ seconds: Int) {
-        presenter.setAutoPlayNextDelaySeconds(seconds: Int32(seconds))
+        presenter.accept(intent: TvSettingsIntentSetAutoPlayNextDelaySeconds(seconds: Int32(seconds)))
     }
 
     func setPlayerClockEnabled(_ enabled: Bool) {
-        presenter.setPlayerClockEnabled(enabled: enabled)
+        presenter.accept(intent: TvSettingsIntentSetPlayerClockEnabled(enabled: enabled))
     }
 
     func setRememberLastLibraryView(_ enabled: Bool) {
-        presenter.setRememberLastLibraryViewEnabled(enabled: enabled)
+        presenter.accept(intent: TvSettingsIntentSetRememberLastLibraryViewEnabled(enabled: enabled))
     }
 
     func setDiagnosticCollectionEnabled(_ enabled: Bool) {
-        presenter.setDiagnosticCollectionEnabled(enabled: enabled)
+        presenter.accept(intent: TvSettingsIntentSetDiagnosticCollectionEnabled(enabled: enabled))
     }
 
     func setPlaybackInfoAtStartEnabled(_ enabled: Bool) {
-        presenter.setPlaybackInfoAtStartEnabled(enabled: enabled)
+        presenter.accept(intent: TvSettingsIntentSetPlaybackInfoAtStartEnabled(enabled: enabled))
     }
 
     func retryPlaybackInfoAtStart() {
-        presenter.retryPlaybackInfoAtStart()
+        presenter.accept(intent: TvSettingsIntentRetryPlaybackInfoAtStart.shared)
     }
 
     func retryLoad() {
-        presenter.retryLoad()
+        presenter.accept(intent: TvSettingsIntentRetryLoad.shared)
     }
 
     func sendClientLogs() {
-        presenter.sendClientLogs()
+        presenter.accept(intent: TvSettingsIntentSendClientLogs.shared)
     }
 
     func sendPlaybackTimeline() {
-        presenter.sendPlaybackTimeline()
+        presenter.accept(intent: TvSettingsIntentSendPlaybackTimeline.shared)
     }
 
     func setSegmentPolicy(type: MediaSegmentType, policyName: String) {
@@ -88,7 +88,7 @@ final class SettingsModel: ObservableObject {
             case "Ignore": .ignore
             default: .ask
             }
-        presenter.setSegmentPolicy(type: type, policy: policy)
+        presenter.accept(intent: TvSettingsIntentSetSegmentPolicy(type: type, policy: policy))
     }
 
     deinit {

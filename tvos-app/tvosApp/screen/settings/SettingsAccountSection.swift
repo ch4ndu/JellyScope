@@ -4,19 +4,22 @@ import SharedTv
 import SwiftUI
 
 struct SettingsAccountSection: View {
-    let settingsState: TvSettingsState
+    let serverName: String
+    let serverUrl: String
+    let userName: String
+    let isLoading: Bool
     @ObservedObject var accountModel: AccountModel
     @State private var signOutAccountId: String?
 
     var body: some View {
         Section(String(localized: "Account")) {
-            LabeledContent(String(localized: "Server"), value: settingsState.serverName)
+            LabeledContent(String(localized: "Server"), value: serverName)
             LabeledContent(String(localized: "Server URL")) {
-                Text(settingsState.serverUrl)
+                Text(serverUrl)
                     .multilineTextAlignment(.trailing)
                     .lineLimit(3)
             }
-            LabeledContent(String(localized: "User"), value: settingsState.userName)
+            LabeledContent(String(localized: "User"), value: userName)
 
             NavigationLink(String(localized: "Manage Accounts")) {
                 AccountPickerView(model: accountModel)
@@ -27,7 +30,7 @@ struct SettingsAccountSection: View {
                 signOutAccountId = accountId
                 accountModel.signOutAccount(accountId)
             }
-            .disabled(settingsState.isLoading || accountModel.state.activeAccountId == nil || accountModel.state.operationInFlight)
+            .disabled(isLoading || accountModel.state.activeAccountId == nil || accountModel.state.operationInFlight)
 
             if accountModel.state.isLoadingRemovalPreview, signOutAccountId != nil {
                 ProgressView(String(localized: "Checking retained downloads…"))

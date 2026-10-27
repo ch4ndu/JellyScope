@@ -52,13 +52,13 @@ class TvSettingsPresenterTest {
             val presenter = presenter(FakePlaybackPreferencesStore(), playerClockStore = clockStore)
             runCurrent()
 
-            presenter.setPlayerClockEnabled(false)
+            presenter.accept(TvSettingsIntent.SetPlayerClockEnabled(false))
             assertFalse(presenter.state.value.playerClockEnabled)
             runCurrent()
             assertFalse(clockStore.enabled.value)
 
             clockStore.failNextWrite = true
-            presenter.setPlayerClockEnabled(true)
+            presenter.accept(TvSettingsIntent.SetPlayerClockEnabled(true))
             runCurrent()
 
             assertFalse(presenter.state.value.playerClockEnabled)
@@ -73,12 +73,12 @@ class TvSettingsPresenterTest {
             val presenter = presenter(FakePlaybackPreferencesStore(), preferenceStore = preferenceStore)
             runCurrent()
 
-            presenter.setDiagnosticCollectionEnabled(false)
+            presenter.accept(TvSettingsIntent.SetDiagnosticCollectionEnabled(false))
             runCurrent()
             assertTrue(!presenter.state.value.diagnosticCollectionEnabled)
             assertEquals(preferenceStore.expectedDispatcher, preferenceStore.observedSetEnabledDispatcher)
 
-            presenter.sendClientLogs()
+            presenter.accept(TvSettingsIntent.SendClientLogs)
             runCurrent()
             assertEquals(TvDiagnosticsSendResult.Failure, presenter.state.value.diagnosticSendResult)
             presenter.close()
@@ -92,7 +92,7 @@ class TvSettingsPresenterTest {
             val presenter = presenter(FakePlaybackPreferencesStore(), preferenceStore = preferenceStore)
             runCurrent()
 
-            presenter.setDiagnosticCollectionEnabled(false)
+            presenter.accept(TvSettingsIntent.SetDiagnosticCollectionEnabled(false))
             runCurrent()
 
             assertTrue(presenter.state.value.diagnosticPreferenceError)
@@ -114,7 +114,7 @@ class TvSettingsPresenterTest {
                 val presenter = presenter(FakePlaybackPreferencesStore(), repository = repository)
                 runCurrent()
 
-                presenter.sendClientLogs()
+                presenter.accept(TvSettingsIntent.SendClientLogs)
                 runCurrent()
 
                 assertEquals(expected, presenter.state.value.diagnosticSendResult)
@@ -130,9 +130,9 @@ class TvSettingsPresenterTest {
             val presenter = presenter(store)
             runCurrent()
 
-            presenter.setDefaultMaxBitrate(20_000_000L)
-            presenter.setPreferredSubtitleLanguage("eng")
-            presenter.setSegmentPolicy(MediaSegmentType.Intro, SegmentSkipPolicy.AutoSkip)
+            presenter.accept(TvSettingsIntent.SetDefaultMaxBitrate(20_000_000L))
+            presenter.accept(TvSettingsIntent.SetPreferredSubtitleLanguage("eng"))
+            presenter.accept(TvSettingsIntent.SetSegmentPolicy(MediaSegmentType.Intro, SegmentSkipPolicy.AutoSkip))
             runCurrent()
 
             val persisted = store.preferences
@@ -155,7 +155,7 @@ class TvSettingsPresenterTest {
             runCurrent()
 
             store.failNextSave = true
-            presenter.setDefaultMaxBitrate(20_000_000L)
+            presenter.accept(TvSettingsIntent.SetDefaultMaxBitrate(20_000_000L))
             runCurrent()
 
             val state = presenter.state.value
@@ -166,7 +166,7 @@ class TvSettingsPresenterTest {
             assertEquals(store.expectedDispatcher, store.observedSaveDispatcher)
 
             // A subsequent mutation clears the flag and persists normally.
-            presenter.setPreferredAudioLanguage("fre")
+            presenter.accept(TvSettingsIntent.SetPreferredAudioLanguage("fre"))
             runCurrent()
             assertTrue(!presenter.state.value.saveError)
             assertEquals("fre", store.preferences.preferredAudioLanguage)
@@ -194,7 +194,7 @@ class TvSettingsPresenterTest {
                 requireNotNull(
                     choices.first { choice -> choice.mode == PlaybackQualityMode.Fixed }.maxBitrateBps,
                 )
-            presenter.setDefaultMaxBitrate(firstRung)
+            presenter.accept(TvSettingsIntent.SetDefaultMaxBitrate(firstRung))
             runCurrent()
             assertEquals(
                 firstRung,
@@ -224,7 +224,7 @@ class TvSettingsPresenterTest {
             assertEquals(10_000_000L, selectedQuality.maxBitrateBps)
             assertTrue(selectedQuality.isCustom)
 
-            presenter.setPreferredSubtitleLanguage("eng")
+            presenter.accept(TvSettingsIntent.SetPreferredSubtitleLanguage("eng"))
             runCurrent()
             assertEquals(8_000_000L, store.preferences.vlcTranscodeMaxBitrateBps)
             presenter.close()
