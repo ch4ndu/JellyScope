@@ -497,7 +497,61 @@ class PlayerViewModel(
         timingCoordinator.observe()
     }
 
-    fun play() {
+    fun accept(intent: PlayerIntent) {
+        when (intent) {
+            PlayerIntent.Play -> play()
+            PlayerIntent.Pause -> pause()
+            PlayerIntent.TogglePlayPause -> togglePlayPause()
+            PlayerIntent.PlayPrevious -> playPrevious()
+            is PlayerIntent.SetVolume -> setVolume(intent.percent)
+            PlayerIntent.ToggleMute -> toggleMute()
+            is PlayerIntent.SeekTo -> seekTo(intent.positionMs)
+            PlayerIntent.Retry -> retry()
+            is PlayerIntent.PlayQueueItem -> playQueueItem(intent.index)
+            PlayerIntent.ConfirmStillWatching -> confirmStillWatching()
+            PlayerIntent.SkipCurrentSegment -> skipCurrentSegment()
+            is PlayerIntent.SetResizeMode -> setResizeMode(intent.mode)
+            is PlayerIntent.CycleResizeMode -> cycleResizeMode(intent.twoState)
+            PlayerIntent.ShuffleQueue -> shuffleQueue()
+            PlayerIntent.Stop -> stop()
+            is PlayerIntent.ShowPicker -> showPicker(intent.picker)
+            PlayerIntent.HidePicker -> hidePicker()
+            is PlayerIntent.SelectBackend -> selectBackend(intent.backend)
+            is PlayerIntent.SelectAudio -> selectAudio(intent.streamIndex)
+            PlayerIntent.SelectOfflineSidecar -> selectOfflineSidecar()
+            is PlayerIntent.SelectSubtitle -> selectSubtitle(intent.streamIndex)
+            is PlayerIntent.SelectLocalSubtitle -> selectLocalSubtitle(intent.assetId)
+            is PlayerIntent.SelectQualityBitrate -> selectQuality(intent.maxBitrateBps)
+            is PlayerIntent.SelectQuality -> selectQuality(intent.policy)
+            PlayerIntent.ClearQualityOverride -> clearQualityOverride()
+            is PlayerIntent.HandlePlaybackAction -> handlePlaybackAction(intent.action)
+            PlayerIntent.DismissPlaybackGuidance -> dismissPlaybackGuidance()
+            is PlayerIntent.PictureInPictureChanged -> setPictureInPictureMode(intent.inPictureInPicture)
+            is PlayerIntent.SetPlaybackSpeed -> setPlaybackSpeed(intent.speed)
+            is PlayerIntent.SetSubtitleStyle -> setSubtitleStyle(intent.style)
+            is PlayerIntent.AdjustAudioTiming -> adjustAudioTiming(intent.deltaMs)
+            is PlayerIntent.AdjustSubtitleTiming -> adjustSubtitleTiming(intent.deltaMs)
+            PlayerIntent.ResetAudioTiming -> resetAudioTiming()
+            PlayerIntent.ResetSubtitleTiming -> resetSubtitleTiming()
+            is PlayerIntent.ContinueSoftwareRecovery -> continueSoftwarePlaybackRecovery(intent.token)
+            is PlayerIntent.SwitchSoftwareRecovery -> switchSoftwarePlaybackRecovery(intent.token)
+            is PlayerIntent.Request -> {
+                accept(intent)
+            }
+        }
+    }
+
+    fun accept(intent: PlayerIntent.Request): Boolean =
+        when (intent) {
+            is PlayerIntent.PlayNext -> playNext(intent.auto, intent.expectedGeneration)
+            PlayerIntent.ReplayCurrent -> replayCurrentPlayback()
+        }
+
+    private fun reduce(change: PlayerChange) {
+        _state.update { current -> reducePlayer(current, change) }
+    }
+
+    private fun play() {
         if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
@@ -509,7 +563,7 @@ class PlayerViewModel(
         playerController.play()
     }
 
-    fun pause() {
+    private fun pause() {
         if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
@@ -521,7 +575,7 @@ class PlayerViewModel(
         playerController.pause()
     }
 
-    fun togglePlayPause() {
+    private fun togglePlayPause() {
         when (playbackState.value.status) {
             PlaybackStatus.Playing -> pause()
             PlaybackStatus.Loading,
@@ -537,7 +591,7 @@ class PlayerViewModel(
         }
     }
 
-    fun playPrevious() {
+    private fun playPrevious() {
         if (isKidsSingleAsset || controllerInstallInFlight) return
         val playback = playbackState.value
         if (playback.positionMs >= PREVIOUS_ITEM_RESTART_THRESHOLD_MS) {
@@ -556,18 +610,18 @@ class PlayerViewModel(
         )
     }
 
-    fun setVolume(percent: Int) {
+    private fun setVolume(percent: Int) {
         if (controllerInstallInFlight) return
         (playerController as? PlayerVolumeController)?.setVolume(percent)
     }
 
-    fun toggleMute() {
+    private fun toggleMute() {
         if (controllerInstallInFlight) return
         val volumeController = playerController as? PlayerVolumeController ?: return
         volumeController.setMuted(!volumeController.volumeState.value.muted)
     }
 
-    fun seekTo(positionMs: Long) {
+    private fun seekTo(positionMs: Long) {
         if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
@@ -601,7 +655,7 @@ class PlayerViewModel(
         return targetPositionMs in currentPlan.startPositionMs..bufferedAheadMs
     }
 
-    fun retry() {
+    private fun retry() {
         if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
         if (isKidsSingleAsset) {
@@ -610,7 +664,7 @@ class PlayerViewModel(
         }
         invalidateBackendSwitch()
         autoplayGeneration += 1
-        _state.update { PlayerUiState.Loading }
+        reduce(PlayerChange.Loading)
         playSessionId = deviceInfoProvider.newDeviceId()
         lastStatus = PlaybackStatus.Idle
         replanJob?.cancel()
@@ -865,7 +919,7 @@ class PlayerViewModel(
         playlist = null
         queueIds = listOf(normalizedItemId)
         currentQueueIndex = 0
-        _state.value = PlayerUiState.Loading
+        reduce(PlayerChange.Loading)
 
         queueSwitchJob =
             viewModelScope.launch {
@@ -899,7 +953,7 @@ class PlayerViewModel(
             allowCurrentTargetRetry = true,
         )
 
-    fun replayCurrentPlayback(): Boolean =
+    private fun replayCurrentPlayback(): Boolean =
         selectPlaybackAsset(
             itemId = currentItemId,
             offlineDownloadId = currentOfflineDownloadId,
@@ -946,7 +1000,7 @@ class PlayerViewModel(
         clearPendingRestartFromBeginning()
     }
 
-    fun playQueueItem(index: Int) {
+    private fun playQueueItem(index: Int) {
         if (isKidsSingleAsset || controllerInstallInFlight) return
         if (queueIds.size <= 1 || index !in queueIds.indices) {
             return
@@ -961,7 +1015,7 @@ class PlayerViewModel(
     }
 
     /** False keeps Up Next visible when the switch is refused. */
-    fun playNext(
+    private fun playNext(
         auto: Boolean = false,
         expectedGeneration: Long? = null,
     ): Boolean {
@@ -973,7 +1027,7 @@ class PlayerViewModel(
         )
     }
 
-    fun confirmStillWatching() {
+    private fun confirmStillWatching() {
         if (controllerInstallInFlight) return
         val pendingIndex = stillWatchingState.pendingQueueIndex
         stillWatchingState = stillWatchingState.confirm()
@@ -1000,13 +1054,13 @@ class PlayerViewModel(
         seekTo(segment.endMs)
     }
 
-    fun skipCurrentSegment() {
+    private fun skipCurrentSegment() {
         if (controllerInstallInFlight) return
         val segment = playbackState.value.currentSegment ?: return
         seekTo(segment.endMs)
     }
 
-    fun setResizeMode(mode: PlayerResizeMode) {
+    private fun setResizeMode(mode: PlayerResizeMode) {
         if (controllerInstallInFlight || !playerController.supportsVideoSizing) return
         invalidateBackendSwitch()
         resizeMode = mode
@@ -1015,7 +1069,7 @@ class PlayerViewModel(
         }
     }
 
-    fun cycleResizeMode(twoState: Boolean = false) {
+    private fun cycleResizeMode(twoState: Boolean = false) {
         val nextMode =
             if (twoState) {
                 when (resizeMode) {
@@ -1034,7 +1088,7 @@ class PlayerViewModel(
         setResizeMode(nextMode)
     }
 
-    fun shuffleQueue() {
+    private fun shuffleQueue() {
         if (isKidsSingleAsset) return
         if (queueIds.size <= 1) {
             return
@@ -1056,7 +1110,7 @@ class PlayerViewModel(
         }
     }
 
-    fun stop() {
+    private fun stop() {
         externalLaunchEpoch += 1L
         externalLaunchesClosed = true
         clearPlayingPositionProof()
@@ -1087,7 +1141,7 @@ class PlayerViewModel(
         if (stopController) playerController.stop()
     }
 
-    fun showPicker(picker: PlayerPicker) {
+    private fun showPicker(picker: PlayerPicker) {
         if (_softwarePlaybackRecovery.value != null) return
         if (picker == PlayerPicker.Backend && !canOpenBackendPicker()) {
             return
@@ -1095,12 +1149,12 @@ class PlayerViewModel(
         publishContent(pickerVisible = picker)
     }
 
-    fun hidePicker() {
+    private fun hidePicker() {
         publishContent(pickerVisible = PlayerPicker.None)
     }
 
     /** Starts a session-only remote backend replacement without touching preferences. */
-    fun selectBackend(targetBackend: PlayerBackend) {
+    private fun selectBackend(targetBackend: PlayerBackend) {
         if (_softwarePlaybackRecovery.value != null) return
         startBackendSwitch(targetBackend)
     }
@@ -1203,7 +1257,7 @@ class PlayerViewModel(
         return true
     }
 
-    fun selectAudio(streamIndex: Int) {
+    private fun selectAudio(streamIndex: Int) {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         val option =
@@ -1261,7 +1315,7 @@ class PlayerViewModel(
                 track.jellyfinStreamIndex == streamIndex
             }
         if (descriptor == null || !descriptor.directPlayAdmissible) {
-            _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
+            reduce(PlayerChange.Failed(PlayerUiState.Error(error = PlaybackError.UnsupportedMedia)))
             return
         }
         invalidateSubtitleFallback()
@@ -1340,7 +1394,7 @@ class PlayerViewModel(
         )
     }
 
-    fun selectOfflineSidecar() {
+    private fun selectOfflineSidecar() {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         val currentPlan = plan ?: return
@@ -1431,7 +1485,7 @@ class PlayerViewModel(
             }
     }
 
-    fun selectSubtitle(streamIndex: Int?) {
+    private fun selectSubtitle(streamIndex: Int?) {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         val option =
@@ -1532,7 +1586,7 @@ class PlayerViewModel(
         }
     }
 
-    fun selectLocalSubtitle(assetId: String) {
+    private fun selectLocalSubtitle(assetId: String) {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
@@ -1568,14 +1622,14 @@ class PlayerViewModel(
             }
     }
 
-    fun selectQuality(maxBitrateBps: Long?) {
+    private fun selectQuality(maxBitrateBps: Long?) {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         requestQualityChange(qualitySession.selectFixedOrOriginal(maxBitrateBps))
     }
 
-    fun selectQuality(policy: PlaybackQualityPolicy) {
+    private fun selectQuality(policy: PlaybackQualityPolicy) {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
@@ -1596,7 +1650,7 @@ class PlayerViewModel(
         requestQualityChange(qualitySession.selectAuto())
     }
 
-    fun clearQualityOverride() {
+    private fun clearQualityOverride() {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
@@ -1659,7 +1713,7 @@ class PlayerViewModel(
         armFirstVideoOutputState()
     }
 
-    fun handlePlaybackAction(action: PlaybackAction) {
+    private fun handlePlaybackAction(action: PlaybackAction) {
         if (controllerInstallInFlight) return
         when (action) {
             PlaybackAction.AcceptAuto -> acceptAutoPlayback()
@@ -1681,12 +1735,12 @@ class PlayerViewModel(
         publishContent(pickerVisible = PlayerPicker.Quality)
     }
 
-    fun dismissPlaybackGuidance() {
+    private fun dismissPlaybackGuidance() {
         playbackHealthCoordinator.dismissGuidance()
     }
 
     /** Defers actionable recovery until the full player UI can present it. */
-    fun setPictureInPictureMode(inPictureInPicture: Boolean) {
+    private fun setPictureInPictureMode(inPictureInPicture: Boolean) {
         excludeSoftwarePlaybackProgress()
         pictureInPictureMode = inPictureInPicture
         if (!inPictureInPicture) {
@@ -1696,7 +1750,7 @@ class PlayerViewModel(
         }
     }
 
-    fun setPlaybackSpeed(speed: Float) {
+    private fun setPlaybackSpeed(speed: Float) {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         if (!speed.isFinite()) {
@@ -1711,7 +1765,7 @@ class PlayerViewModel(
         publishContent(playbackState = playbackState.value.copy(playbackSpeed = playbackSpeed))
     }
 
-    fun setSubtitleStyle(style: SubtitleStyle) {
+    private fun setSubtitleStyle(style: SubtitleStyle) {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         subtitleStyle = style
@@ -1722,19 +1776,19 @@ class PlayerViewModel(
         publishContent(playbackState = playbackState.value.copy(subtitleStyle = subtitleStyle))
     }
 
-    fun adjustAudioTiming(deltaMs: Long) {
+    private fun adjustAudioTiming(deltaMs: Long) {
         adjustTiming(PlaybackTimingKind.Audio, deltaMs)
     }
 
-    fun adjustSubtitleTiming(deltaMs: Long) {
+    private fun adjustSubtitleTiming(deltaMs: Long) {
         adjustTiming(PlaybackTimingKind.Subtitle, deltaMs)
     }
 
-    fun resetAudioTiming() {
+    private fun resetAudioTiming() {
         setTiming(PlaybackTimingKind.Audio, 0L)
     }
 
-    fun resetSubtitleTiming() {
+    private fun resetSubtitleTiming() {
         setTiming(PlaybackTimingKind.Subtitle, 0L)
     }
 
@@ -1926,7 +1980,7 @@ class PlayerViewModel(
         if (selectedVersion == null) {
             clearPlaybackLaunch(launchGeneration)
             segmentsDeferred.cancel()
-            _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
+            reduce(PlayerChange.Failed(PlayerUiState.Error(error = PlaybackError.UnsupportedMedia)))
             return false
         }
         currentCoroutineContext().ensureActive()
@@ -1971,7 +2025,7 @@ class PlayerViewModel(
                 segmentsDeferred.cancel()
                 clearPlaybackLaunch(launchGeneration)
                 val startupError = startupPlanningError(exception)
-                _state.update { startupError }
+                reduce(PlayerChange.Failed(startupError))
                 playerDiagnosticsRecorder.recordTerminalOutcome(
                     context = playerDiagnosticContext(),
                     facts =
@@ -2112,7 +2166,7 @@ class PlayerViewModel(
                         ),
                 )
                 val startupError = startupPlanningError(exception)
-                _state.update { startupError }
+                reduce(PlayerChange.Failed(startupError))
                 playerDiagnosticsRecorder.recordTerminalOutcome(
                     context = playerDiagnosticContext(),
                     facts =
@@ -2660,7 +2714,7 @@ class PlayerViewModel(
         error: PlaybackError,
     ): Boolean {
         clearPlaybackLaunch(launchGeneration)
-        _state.update { PlayerUiState.Error(error = error) }
+        reduce(PlayerChange.Failed(PlayerUiState.Error(error = error)))
         playerDiagnosticsRecorder.recordTerminalOutcome(
             context = playerDiagnosticContext(),
             facts =
@@ -3319,7 +3373,7 @@ class PlayerViewModel(
             try {
                 excludeSoftwarePlaybackProgress()
                 markPlaybackHealthExclusion(PlaybackHealthExclusionReason.BackendReplacement)
-                _state.value = PlayerUiState.Loading
+                reduce(PlayerChange.Loading)
                 _playbackState.update { current -> current.copy(status = PlaybackStatus.Loading, error = null) }
                 releaseOwnedPlayerController()
                 val replacementController =
@@ -3762,7 +3816,7 @@ class PlayerViewModel(
                 volumeStateJob = null
                 excludeSoftwarePlaybackProgress()
                 markPlaybackHealthExclusion(PlaybackHealthExclusionReason.BackendReplacement)
-                _state.value = PlayerUiState.Loading
+                reduce(PlayerChange.Loading)
                 _playbackState.update { current -> current.copy(status = PlaybackStatus.Loading, error = null) }
                 releaseOwnedPlayerController()
                 releasedHealthyController = true
@@ -3992,7 +4046,7 @@ class PlayerViewModel(
                         } else {
                             finishBackendSwitch(switch)
                             drainStopRequestedDuringControllerInstall(stopController = true)
-                            _state.value = PlayerUiState.Error(error = PlaybackError.Unknown)
+                            reduce(PlayerChange.Failed(PlayerUiState.Error(error = PlaybackError.Unknown)))
                             playerDiagnosticsRecorder.recordTerminalOutcome(
                                 context = playerDiagnosticContext(),
                                 facts =
@@ -4139,7 +4193,7 @@ class PlayerViewModel(
         }
 
         if (enrichedPlaybackState.status == PlaybackStatus.Failed) {
-            _state.update { PlayerUiState.Error(error = enrichedPlaybackState.error) }
+            reduce(PlayerChange.Failed(PlayerUiState.Error(error = enrichedPlaybackState.error)))
         } else if (shouldPublishPlaybackState || installedAudioChanged) {
             publishContent(playbackState = enrichedPlaybackState)
         }
@@ -4280,7 +4334,7 @@ class PlayerViewModel(
         return true
     }
 
-    fun continueSoftwarePlaybackRecovery(token: Long) {
+    private fun continueSoftwarePlaybackRecovery(token: Long) {
         val prompt = _softwarePlaybackRecovery.value ?: return
         if (prompt.token != token || prompt.switching || !prompt.canContinue || disposed) return
         clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.ContinueRequested)
@@ -4288,7 +4342,7 @@ class PlayerViewModel(
         play()
     }
 
-    fun switchSoftwarePlaybackRecovery(token: Long) {
+    private fun switchSoftwarePlaybackRecovery(token: Long) {
         val prompt = _softwarePlaybackRecovery.value ?: return
         if (prompt.token != token || prompt.switching || !prompt.canSwitch || disposed) return
         _softwarePlaybackRecovery.value = prompt.copy(switching = true, switchFailed = false)
@@ -4841,7 +4895,7 @@ class PlayerViewModel(
             viewModelScope.launch {
                 if (controllerInstallInFlight) return@launch
                 if (forcePlay) {
-                    _state.value = PlayerUiState.Loading
+                    reduce(PlayerChange.Loading)
                 }
                 val correlatedRequestPolicy =
                     effectiveRequestPolicy.copy(
@@ -4914,10 +4968,10 @@ class PlayerViewModel(
                             }
                         } else if (!qualityFailurePreserved && audioRecovery != null) {
                             if (audioRecoveryTarget == audioRecovery) {
-                                _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
+                                reduce(PlayerChange.Failed(PlayerUiState.Error(error = PlaybackError.UnsupportedMedia)))
                             }
                         } else if (!qualityFailurePreserved) {
-                            _state.update { startupPlanningError(exception) }
+                            reduce(PlayerChange.Failed(startupPlanningError(exception)))
                         }
                         if (!qualityFailurePreserved) {
                             playerDiagnosticsRecorder.recordTerminalOutcome(
@@ -4976,7 +5030,7 @@ class PlayerViewModel(
                         return@launch
                     }
                     if (playbackPlan.streamMode == StreamMode.DirectPlay) {
-                        _state.update { PlayerUiState.Error(error = PlaybackError.UnsupportedMedia) }
+                        reduce(PlayerChange.Failed(PlayerUiState.Error(error = PlaybackError.UnsupportedMedia)))
                         return@launch
                     }
                 }
@@ -5093,9 +5147,7 @@ class PlayerViewModel(
                                 )
                             }
                             installPlan(playbackPlanWithMetadata, resetReporting = true, stabilizesQueueSwitch = false)
-                            _state.update { current ->
-                                if (current is PlayerUiState.Content) current.copy(isSeekable = false) else current
-                            }
+                            reduce(PlayerChange.SeekUnavailable)
                             if (nonFatalSubtitleFallback != null) {
                                 subtitleFallbackTarget = null
                             }
@@ -5299,7 +5351,7 @@ class PlayerViewModel(
         val upNext = if (isKidsSingleAsset) null else upNextFor(enrichedPlaybackState)
         _playbackState.value = enrichedPlaybackState
         recordTrackDiagnostics(enrichedPlaybackState, subtitleRenderInfo)
-        _state.update {
+        val content =
             PlayerUiState.Content(
                 playbackState = enrichedPlaybackState,
                 volumeControl = volumeControl,
@@ -5368,7 +5420,7 @@ class PlayerViewModel(
                 isSeekable = installedPlan?.contentTimeline is PlaybackContentTimeline.BoundedVod,
                 playbackItemId = currentItemId.takeUnless { queueSwitchInFlight },
             )
-        }
+        reduce(PlayerChange.ContentReady(content))
     }
 
     private fun autoplayPolicyFor(upNext: UpNextInfo?): AutoplayPolicySnapshot =
@@ -5764,13 +5816,7 @@ class PlayerViewModel(
         // Invalidate identity before async planning so held seeks cancel now.
         queueSwitchInFlight = true
         installedPlan = null
-        _state.update { current ->
-            if (current is PlayerUiState.Content) {
-                current.copy(isSeekable = false, playbackItemId = null)
-            } else {
-                current
-            }
-        }
+        reduce(PlayerChange.QueueSwitchStarted)
         derivedEpisodeQueueJob?.cancel()
         // Cancel any replan targeting the outgoing item.
         replanJob?.cancel()

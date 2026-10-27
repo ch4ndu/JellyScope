@@ -57,7 +57,7 @@ class PlayerViewModelHealthTest {
                     PlaybackHealthGuidanceReason.SlowStartup,
                     assertNotNull((fixture.viewModel.state.value as PlayerUiState.Content).playbackGuidance).reason,
                 )
-                fixture.viewModel.dismissPlaybackGuidance()
+                fixture.viewModel.accept(PlayerIntent.DismissPlaybackGuidance)
                 assertNull((fixture.viewModel.state.value as PlayerUiState.Content).playbackGuidance)
 
                 fixture.viewModel.dispose()
@@ -98,7 +98,7 @@ class PlayerViewModelHealthTest {
                 assertEquals(PlaybackHealthGuidanceReason.LongBuffering, postStartGuidance.reason)
                 assertTrue(postStartGuidance.canOpenPlaybackSettings)
 
-                fixture.viewModel.dismissPlaybackGuidance()
+                fixture.viewModel.accept(PlayerIntent.DismissPlaybackGuidance)
                 runCurrent()
                 repeat(2) {
                     fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing)
@@ -171,7 +171,7 @@ class PlayerViewModelHealthTest {
                 advanceTimeBy(5_000L)
                 runCurrent()
 
-                fixture.viewModel.stop()
+                fixture.viewModel.accept(PlayerIntent.Stop)
                 runCurrent()
                 advanceTimeBy(10_000L)
                 runCurrent()
@@ -219,7 +219,7 @@ class PlayerViewModelHealthTest {
                 assertTrue((batchNudge.nextLowerQualityRungBps ?: 0L) > 0L)
 
                 // Once per session: further batches do not raise a second nudge.
-                batchFixture.viewModel.dismissPlaybackGuidance()
+                batchFixture.viewModel.accept(PlayerIntent.DismissPlaybackGuidance)
                 runCurrent()
                 batchNowMs += 25_000L
                 batchFixture.controller.emitMeasurement(droppedFrames = 50L, intervalMs = 25_000L)
@@ -389,7 +389,7 @@ class PlayerViewModelHealthTest {
                 runCurrent()
 
                 // A seek re-arms the exclusion window.
-                fixture.viewModel.seekTo(300_000L)
+                fixture.viewModel.accept(PlayerIntent.SeekTo(300_000L))
                 runCurrent()
 
                 // Abundant evidence, but inside the exclusion: declined outright.
@@ -429,7 +429,7 @@ class PlayerViewModelHealthTest {
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
                 runCurrent()
 
-                fixture.viewModel.seekTo(300_000L)
+                fixture.viewModel.accept(PlayerIntent.SeekTo(300_000L))
                 runCurrent()
 
                 // Arrives 30 s after the seek — long past the 2 s exclusion — but its
@@ -589,7 +589,7 @@ class PlayerViewModelHealthTest {
                 val guidance = assertNotNull(content.qualityReductionGuidance)
                 assertTrue((guidance.nextLowerQualityRungBps ?: 0L) > 0L)
 
-                fixture.viewModel.dismissPlaybackGuidance()
+                fixture.viewModel.accept(PlayerIntent.DismissPlaybackGuidance)
                 runCurrent()
                 assertNull((fixture.viewModel.state.value as PlayerUiState.Content).qualityReductionGuidance)
 
@@ -635,7 +635,7 @@ class PlayerViewModelHealthTest {
                     PlaybackHealthGuidanceReason.DroppedFrames,
                     assertNotNull(content.passiveGuidance).reason,
                 )
-                fixture.viewModel.dismissPlaybackGuidance()
+                fixture.viewModel.accept(PlayerIntent.DismissPlaybackGuidance)
                 runCurrent()
                 assertNull((fixture.viewModel.state.value as PlayerUiState.Content).passiveGuidance)
 
@@ -774,7 +774,7 @@ class PlayerViewModelHealthTest {
 
                 // An explicit in-player Auto choice is the only authorization for an
                 // automatic lower-quality replan.
-                fixture.viewModel.selectQuality(PlaybackQualityPolicy.Auto)
+                fixture.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.Auto))
                 runCurrent()
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
                 runCurrent()
@@ -820,7 +820,7 @@ class PlayerViewModelHealthTest {
                         monotonicTimeMs = { nowMs },
                     ).also { fixtureRef = it }
                 runCurrent()
-                fixture.viewModel.selectQuality(PlaybackQualityPolicy.Auto)
+                fixture.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.Auto))
                 runCurrent()
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
                 runCurrent()
@@ -882,7 +882,7 @@ class PlayerViewModelHealthTest {
                         monotonicTimeMs = { nowMs },
                     ).also { fixtureRef = it }
                 runCurrent()
-                fixture.viewModel.selectQuality(PlaybackQualityPolicy.Auto)
+                fixture.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.Auto))
                 runCurrent()
                 fixture.controller.playbackStateFlow.value =
                     playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
@@ -922,7 +922,7 @@ class PlayerViewModelHealthTest {
                     assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).playbackActionNotice?.reason,
                 )
 
-                fixture.viewModel.handlePlaybackAction(PlaybackAction.TryHigherQuality)
+                fixture.viewModel.accept(PlayerIntent.HandlePlaybackAction(PlaybackAction.TryHigherQuality))
                 runCurrent()
                 fixture.controller.playbackStateFlow.value =
                     playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
@@ -993,7 +993,7 @@ class PlayerViewModelHealthTest {
                         monotonicTimeMs = { nowMs },
                     )
                 runCurrent()
-                fixture.viewModel.selectQuality(PlaybackQualityPolicy.Auto)
+                fixture.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.Auto))
                 runCurrent()
 
                 repeat(3) { stall ->
@@ -1057,7 +1057,7 @@ class PlayerViewModelHealthTest {
                 }
                 assertNotNull((fixture.viewModel.state.value as PlayerUiState.Content).passiveGuidance)
 
-                fixture.viewModel.stop()
+                fixture.viewModel.accept(PlayerIntent.Stop)
                 runCurrent()
                 assertNull((fixture.viewModel.state.value as PlayerUiState.Content).passiveGuidance)
 
@@ -1094,7 +1094,7 @@ class PlayerViewModelHealthTest {
                 }
                 assertNotNull((fixture.viewModel.state.value as PlayerUiState.Content).qualityReductionGuidance)
 
-                fixture.viewModel.retry()
+                fixture.viewModel.accept(PlayerIntent.Retry)
                 runCurrent()
 
                 nowMs += 10_000L
@@ -1129,7 +1129,7 @@ class PlayerViewModelHealthTest {
                         playbackState(PlaybackStatus.Playing, positionMs = 1_000L * (stall + 1))
                     runCurrent()
                     // Buffering right after a seek is contractual, not a stall.
-                    fixture.viewModel.seekTo(2_000L * (stall + 1))
+                    fixture.viewModel.accept(PlayerIntent.SeekTo(2_000L * (stall + 1)))
                     fixture.controller.playbackStateFlow.value =
                         playbackState(PlaybackStatus.Buffering, positionMs = 2_000L * (stall + 1))
                     runCurrent()

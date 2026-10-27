@@ -131,8 +131,8 @@ class PlayerViewModelBackendLifecycleTest {
             runCurrent()
             val healthyPlan = assertNotNull(fixture.controller.preparedPlan)
 
-            fixture.viewModel.showPicker(PlayerPicker.Backend)
-            fixture.viewModel.selectBackend(PlayerBackend.VlcKit)
+            fixture.viewModel.accept(PlayerIntent.ShowPicker(PlayerPicker.Backend))
+            fixture.viewModel.accept(PlayerIntent.SelectBackend(PlayerBackend.VlcKit))
             runCurrent()
 
             val content = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
@@ -211,7 +211,7 @@ class PlayerViewModelBackendLifecycleTest {
             assertEquals(0, fixture.controller.prepareCount)
             assertEquals(0, fixture.controller.playCount)
 
-            fixture.viewModel.retry()
+            fixture.viewModel.accept(PlayerIntent.Retry)
             runCurrent()
 
             assertEquals(3, factoryAttempts)
@@ -333,8 +333,8 @@ class PlayerViewModelBackendLifecycleTest {
 
                 assertEquals(PlayerVolumeState(), (fixture.viewModel.state.value as PlayerUiState.Content).volumeControl)
 
-                fixture.viewModel.setVolume(35)
-                fixture.viewModel.toggleMute()
+                fixture.viewModel.accept(PlayerIntent.SetVolume(35))
+                fixture.viewModel.accept(PlayerIntent.ToggleMute)
                 runCurrent()
 
                 assertEquals(PlayerVolumeState(volumePercent = 35, muted = true), volumeController.volumeStateFlow.value)
@@ -356,8 +356,8 @@ class PlayerViewModelBackendLifecycleTest {
                 runCurrent()
 
                 assertNull((fixture.viewModel.state.value as PlayerUiState.Content).volumeControl)
-                fixture.viewModel.setVolume(35)
-                fixture.viewModel.toggleMute()
+                fixture.viewModel.accept(PlayerIntent.SetVolume(35))
+                fixture.viewModel.accept(PlayerIntent.ToggleMute)
                 assertNull((fixture.viewModel.state.value as PlayerUiState.Content).volumeControl)
 
                 fixture.viewModel.dispose()
@@ -423,7 +423,7 @@ class PlayerViewModelBackendLifecycleTest {
                             if (backend == PlayerBackend.ExoPlayer) {
                                 check(workDispatcher.running)
                                 val previousPlayCount = initialController.playCount
-                                viewModel.play()
+                                viewModel.accept(PlayerIntent.Play)
                                 assertEquals(previousPlayCount, initialController.playCount)
                                 replacementController
                             } else {
@@ -487,7 +487,7 @@ class PlayerViewModelBackendLifecycleTest {
                         playerControllerFactory = { backend ->
                             if (backend == PlayerBackend.ExoPlayer) {
                                 check(workDispatcher.running)
-                                viewModel.stop()
+                                viewModel.accept(PlayerIntent.Stop)
                                 assertEquals(0, initialController.stopCount)
                                 replacementController
                             } else {
@@ -607,7 +607,7 @@ class PlayerViewModelBackendLifecycleTest {
                     val fixture = playerFixture().also { fixtureRef = it }
                     runCurrent()
                     expectedModes.drop(1).forEach { expectedMode ->
-                        fixture.viewModel.cycleResizeMode(twoState = twoState)
+                        fixture.viewModel.accept(PlayerIntent.CycleResizeMode(twoState = twoState))
                         assertEquals(
                             expectedMode,
                             (fixture.viewModel.state.value as PlayerUiState.Content).resizeMode,
@@ -681,7 +681,7 @@ class PlayerViewModelBackendLifecycleTest {
             val subtitleSelectionCount = fixture.controller.embeddedTextOrdinals.size
             fixture.controller.preparePublishedState = playbackState(PlaybackStatus.Failed)
 
-            fixture.viewModel.selectQuality(maxBitrateBps = 8_000_000L)
+            fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 8_000_000L))
             runCurrent()
 
             assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
@@ -722,7 +722,7 @@ class PlayerViewModelBackendLifecycleTest {
                     assertTrue(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
                     fixture.controller.prepareFailure = expectedFailure
 
-                    fixture.viewModel.selectQuality(maxBitrateBps = 8_000_000L)
+                    fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 8_000_000L))
                     runCurrent()
 
                     assertFalse(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)

@@ -50,7 +50,7 @@ class PlayerViewModelRecoveryTest {
                 assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
                 assertEquals(Report.Stopped(positionMs = 0L), fixture.reporter.reports.last())
 
-                fixture.viewModel.retry()
+                fixture.viewModel.accept(PlayerIntent.Retry)
                 runCurrent()
 
                 assertEquals(1, fixture.controller.retryCount)
@@ -236,7 +236,7 @@ class PlayerViewModelRecoveryTest {
                 val fixture = playerFixture()
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
                 runCurrent()
-                fixture.viewModel.setPictureInPictureMode(true)
+                fixture.viewModel.accept(PlayerIntent.PictureInPictureChanged(true))
 
                 fixture.controller.playbackStateFlow.value =
                     playbackState(
@@ -248,7 +248,7 @@ class PlayerViewModelRecoveryTest {
                 assertEquals(1, fixture.repository.requests.size)
                 assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
 
-                fixture.viewModel.setPictureInPictureMode(false)
+                fixture.viewModel.accept(PlayerIntent.PictureInPictureChanged(false))
                 runCurrent()
 
                 assertEquals(2, fixture.repository.requests.size)
@@ -469,7 +469,7 @@ class PlayerViewModelRecoveryTest {
                 assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
                 assertEquals(0, fixture.controller.prepareCount)
 
-                fixture.viewModel.retry()
+                fixture.viewModel.accept(PlayerIntent.Retry)
                 runCurrent()
 
                 assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
@@ -492,7 +492,7 @@ class PlayerViewModelRecoveryTest {
                     playbackState(PlaybackStatus.Playing, positionMs = 5_000L).copy(bufferedPositionMs = 6_000L)
                 runCurrent()
 
-                fixture.viewModel.seekTo(30_000L)
+                fixture.viewModel.accept(PlayerIntent.SeekTo(30_000L))
                 runCurrent()
 
                 // No in-stream seek; the transcode is restarted at the target instead.
@@ -520,7 +520,7 @@ class PlayerViewModelRecoveryTest {
                 runCurrent()
 
                 // 4s is inside [start=1s, buffered=6s]; already produced, so seek in-stream.
-                fixture.viewModel.seekTo(4_000L)
+                fixture.viewModel.accept(PlayerIntent.SeekTo(4_000L))
                 runCurrent()
 
                 assertEquals(listOf(4_000L), fixture.controller.seekPositions)
@@ -545,7 +545,7 @@ class PlayerViewModelRecoveryTest {
                     playbackState(PlaybackStatus.Playing, positionMs = 5_000L).copy(bufferedPositionMs = 6_000L)
                 runCurrent()
 
-                fixture.viewModel.seekTo(30_000L)
+                fixture.viewModel.accept(PlayerIntent.SeekTo(30_000L))
                 runCurrent()
 
                 assertEquals(listOf(30_000L), fixture.controller.seekPositions)
@@ -594,7 +594,7 @@ class PlayerViewModelRecoveryTest {
                 runCurrent()
                 assertEquals(StreamMode.Transcode, fixture.controller.preparedPlan?.streamMode)
 
-                fixture.viewModel.seekTo(30_000L)
+                fixture.viewModel.accept(PlayerIntent.SeekTo(30_000L))
                 runCurrent()
 
                 val seekRequest = fixture.repository.requests.last()
@@ -621,7 +621,7 @@ class PlayerViewModelRecoveryTest {
                 runCurrent()
                 val playCountBefore = fixture.controller.playCount
 
-                fixture.viewModel.selectQuality(maxBitrateBps = 8_000_000L)
+                fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 8_000_000L))
                 runCurrent()
 
                 assertEquals(
@@ -722,7 +722,7 @@ class PlayerViewModelRecoveryTest {
                 runCurrent()
                 assertEquals(2, fixture.repository.requests.size)
 
-                fixture.viewModel.selectSubtitle(null)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(null))
                 runCurrent()
                 fallbackGate.complete(Unit)
                 runCurrent()
@@ -961,7 +961,7 @@ class PlayerViewModelRecoveryTest {
                 runCurrent()
                 assertEquals(2, fixture.repository.requests.size)
 
-                fixture.viewModel.stop()
+                fixture.viewModel.accept(PlayerIntent.Stop)
                 fallbackGate.complete(Unit)
                 runCurrent()
 
@@ -986,7 +986,7 @@ class PlayerViewModelRecoveryTest {
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 25_000L)
                 runCurrent()
 
-                fixture.viewModel.selectSubtitle(streamIndex = 4)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = 4))
                 runCurrent()
 
                 val externalRequest = fixture.repository.requests.last()
@@ -1011,7 +1011,7 @@ class PlayerViewModelRecoveryTest {
 
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 27_000L)
                 runCurrent()
-                fixture.viewModel.selectSubtitle(streamIndex = null)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = null))
                 runCurrent()
 
                 assertEquals(
@@ -1058,9 +1058,9 @@ class PlayerViewModelRecoveryTest {
                 drainPlayerViewModelSchedulers(workDispatcher)
                 val prepareCountBeforeRetry = fixture.controller.prepareCount
 
-                fixture.viewModel.selectQuality(maxBitrateBps = 8_000_000L)
+                fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 8_000_000L))
                 runCurrent()
-                fixture.viewModel.retry()
+                fixture.viewModel.accept(PlayerIntent.Retry)
                 runCurrent()
                 drainPlayerViewModelSchedulers(workDispatcher)
 

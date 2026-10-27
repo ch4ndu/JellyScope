@@ -43,7 +43,7 @@ class PlayerViewModelQueueTimelineTest {
                         .autoplayPolicy.playbackGeneration
 
                 // A stale countdown carrying an older generation must not advance.
-                fixture.viewModel.playNext(auto = true, expectedGeneration = generation + 1L)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true, expectedGeneration = generation + 1L))
                 runCurrent()
 
                 assertEquals(1, fixture.controller.prepareCount)
@@ -53,7 +53,7 @@ class PlayerViewModelQueueTimelineTest {
                 )
 
                 // The matching generation advances normally.
-                fixture.viewModel.playNext(auto = true, expectedGeneration = generation)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true, expectedGeneration = generation))
                 runCurrent()
 
                 assertEquals(2, fixture.controller.prepareCount)
@@ -79,11 +79,11 @@ class PlayerViewModelQueueTimelineTest {
                 runCurrent()
 
                 // Accepted: a next item exists. The UI dismisses Up Next on this.
-                assertTrue(fixture.viewModel.playNext())
+                assertTrue(fixture.viewModel.accept(PlayerIntent.PlayNext()))
                 runCurrent()
 
                 // Refused: the queue is exhausted, so the card must stay on screen.
-                assertFalse(fixture.viewModel.playNext())
+                assertFalse(fixture.viewModel.accept(PlayerIntent.PlayNext()))
             } finally {
             }
         }
@@ -95,7 +95,7 @@ class PlayerViewModelQueueTimelineTest {
                 val fixture = playerFixture(queue = listOf("item-1"))
                 runCurrent()
 
-                assertFalse(fixture.viewModel.playNext())
+                assertFalse(fixture.viewModel.accept(PlayerIntent.PlayNext()))
                 assertEquals(1, fixture.controller.prepareCount)
             } finally {
             }
@@ -106,13 +106,13 @@ class PlayerViewModelQueueTimelineTest {
         runPlayerViewModelTest {
             val fixture = playerFixture(queue = listOf("item-1", "item-2"))
             runCurrent()
-            assertTrue(fixture.viewModel.playNext())
+            assertTrue(fixture.viewModel.accept(PlayerIntent.PlayNext()))
             runCurrent()
             fixture.controller.playbackStateFlow.value =
                 playbackState(PlaybackStatus.Idle, positionMs = 5_000L)
             runCurrent()
 
-            fixture.viewModel.playPrevious()
+            fixture.viewModel.accept(PlayerIntent.PlayPrevious)
             runCurrent()
 
             assertEquals(listOf(0L), fixture.controller.seekPositions)
@@ -128,13 +128,13 @@ class PlayerViewModelQueueTimelineTest {
         runPlayerViewModelTest {
             val fixture = playerFixture(queue = listOf("item-1", "item-2"))
             runCurrent()
-            assertTrue(fixture.viewModel.playNext())
+            assertTrue(fixture.viewModel.accept(PlayerIntent.PlayNext()))
             runCurrent()
             fixture.controller.playbackStateFlow.value =
                 playbackState(PlaybackStatus.Idle, positionMs = 4_999L)
             runCurrent()
 
-            fixture.viewModel.playPrevious()
+            fixture.viewModel.accept(PlayerIntent.PlayPrevious)
             assertNull(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).playbackItemId)
             runCurrent()
 
@@ -157,7 +157,7 @@ class PlayerViewModelQueueTimelineTest {
                 playbackState(PlaybackStatus.Idle, positionMs = 4_999L)
             runCurrent()
 
-            fixture.viewModel.playPrevious()
+            fixture.viewModel.accept(PlayerIntent.PlayPrevious)
             runCurrent()
 
             assertEquals(1, fixture.controller.prepareCount)
@@ -180,12 +180,12 @@ class PlayerViewModelQueueTimelineTest {
                         .autoplayPolicy.playbackGeneration
 
                 assertFalse(
-                    fixture.viewModel.playNext(auto = true, expectedGeneration = generation + 1L),
+                    fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true, expectedGeneration = generation + 1L)),
                 )
                 runCurrent()
 
                 assertTrue(
-                    fixture.viewModel.playNext(auto = true, expectedGeneration = generation),
+                    fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true, expectedGeneration = generation)),
                 )
                 runCurrent()
             } finally {
@@ -204,7 +204,7 @@ class PlayerViewModelQueueTimelineTest {
                 // prompt is a refusal, because the prompt owns the continuation.
                 var refusedAt = -1
                 repeat(STILL_WATCHING_THRESHOLD) { attempt ->
-                    val accepted = fixture.viewModel.playNext(auto = true)
+                    val accepted = fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                     runCurrent()
                     if (!accepted && refusedAt < 0) {
                         refusedAt = attempt
@@ -232,7 +232,7 @@ class PlayerViewModelQueueTimelineTest {
                 }
                 runCurrent()
 
-                fixture.viewModel.playQueueItem(1)
+                fixture.viewModel.accept(PlayerIntent.PlayQueueItem(1))
                 runCurrent()
 
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
@@ -279,7 +279,7 @@ class PlayerViewModelQueueTimelineTest {
                     (fixture.viewModel.state.value as PlayerUiState.Content).upNext?.itemId,
                 )
 
-                fixture.viewModel.playNext(auto = true)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                 runCurrent()
 
                 assertEquals(
@@ -315,7 +315,7 @@ class PlayerViewModelQueueTimelineTest {
                     (fixture.viewModel.state.value as PlayerUiState.Content).playbackItemId,
                 )
 
-                fixture.viewModel.playQueueItem(2)
+                fixture.viewModel.accept(PlayerIntent.PlayQueueItem(2))
                 // BEFORE the switch coroutine runs: identity is already
                 // unstable, so a pending hold-to-seek session cancels instead
                 // of racing the next item's plan install.
@@ -338,7 +338,7 @@ class PlayerViewModelQueueTimelineTest {
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 2_000L)
                 runCurrent()
 
-                fixture.viewModel.playNext()
+                fixture.viewModel.accept(PlayerIntent.PlayNext())
                 assertNull((fixture.viewModel.state.value as PlayerUiState.Content).playbackItemId)
 
                 runCurrent()
@@ -453,9 +453,9 @@ class PlayerViewModelQueueTimelineTest {
                     )
                 runCurrent()
 
-                fixture.viewModel.playQueueItem(2)
+                fixture.viewModel.accept(PlayerIntent.PlayQueueItem(2))
                 runCurrent()
-                fixture.viewModel.shuffleQueue()
+                fixture.viewModel.accept(PlayerIntent.ShuffleQueue)
 
                 val playlist = (fixture.viewModel.state.value as PlayerUiState.Content).playlist
                 assertEquals("item-3", playlist?.items?.firstOrNull()?.id)
@@ -656,7 +656,7 @@ class PlayerViewModelQueueTimelineTest {
                         .itemId,
                 )
 
-                fixture.viewModel.playNext(auto = true)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                 advanceUntilIdle()
 
                 assertEquals(
@@ -798,7 +798,7 @@ class PlayerViewModelQueueTimelineTest {
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_500L)
                 runCurrent()
 
-                fixture.viewModel.skipCurrentSegment()
+                fixture.viewModel.accept(PlayerIntent.SkipCurrentSegment)
                 runCurrent()
 
                 assertEquals(3_000L, fixture.controller.seekPositions.single())
@@ -938,7 +938,7 @@ class PlayerViewModelQueueTimelineTest {
                 runCurrent()
                 assertEquals(listOf(3_000L), fixture.controller.seekPositions)
 
-                fixture.viewModel.playQueueItem(1)
+                fixture.viewModel.accept(PlayerIntent.PlayQueueItem(1))
                 runCurrent()
 
                 // The same-shaped segment on the next item auto-skips again:
@@ -981,7 +981,7 @@ class PlayerViewModelQueueTimelineTest {
                     (fixture.viewModel.state.value as PlayerUiState.Content).playbackItemId,
                 )
 
-                fixture.viewModel.playQueueItem(2)
+                fixture.viewModel.accept(PlayerIntent.PlayQueueItem(2))
                 runCurrent()
                 // The stop() analog: an interim Idle emission arrives while
                 // planning is suspended. Identity must stay null.
@@ -1021,12 +1021,12 @@ class PlayerViewModelQueueTimelineTest {
                 val prepareCountBefore = fixture.controller.prepareCount
 
                 // The quality replan suspends on the work scheduler...
-                fixture.viewModel.selectQuality(maxBitrateBps = 8_000_000L)
+                fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 8_000_000L))
                 runCurrent()
                 // ...and the queue switch begins before it completes. The
                 // stale replan targets the OUTGOING item and must be
                 // cancelled, not left to install its plan mid-switch.
-                fixture.viewModel.playQueueItem(1)
+                fixture.viewModel.accept(PlayerIntent.PlayQueueItem(1))
                 drainPlayerViewModelSchedulers(workDispatcher)
 
                 assertEquals(prepareCountBefore + 1, fixture.controller.prepareCount)
@@ -1073,7 +1073,7 @@ class PlayerViewModelQueueTimelineTest {
                 drainPlayerViewModelSchedulers(workDispatcher)
                 assertTrue(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
 
-                fixture.viewModel.playQueueItem(1)
+                fixture.viewModel.accept(PlayerIntent.PlayQueueItem(1))
 
                 val switching = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
                 assertFalse(switching.isSeekable)
@@ -1216,11 +1216,11 @@ class PlayerViewModelQueueTimelineTest {
                     ).also { fixtureRef = it }
                 runCurrent()
 
-                fixture.viewModel.playNext(auto = true)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                 runCurrent()
-                fixture.viewModel.playNext(auto = true)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                 runCurrent()
-                fixture.viewModel.playNext(auto = true)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                 runCurrent()
 
                 val promptContent = fixture.viewModel.state.value as PlayerUiState.Content
@@ -1232,7 +1232,7 @@ class PlayerViewModelQueueTimelineTest {
                         .itemId,
                 )
 
-                fixture.viewModel.confirmStillWatching()
+                fixture.viewModel.accept(PlayerIntent.ConfirmStillWatching)
                 runCurrent()
 
                 val confirmedContent = fixture.viewModel.state.value as PlayerUiState.Content
@@ -1273,11 +1273,11 @@ class PlayerViewModelQueueTimelineTest {
 
                 // Three consecutive automatic advances: the same count that trips the
                 // gate when the preference is on must sail straight through here.
-                fixture.viewModel.playNext(auto = true)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                 runCurrent()
-                fixture.viewModel.playNext(auto = true)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                 runCurrent()
-                fixture.viewModel.playNext(auto = true)
+                fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                 runCurrent()
 
                 val content = fixture.viewModel.state.value as PlayerUiState.Content
@@ -1325,7 +1325,7 @@ class PlayerViewModelQueueTimelineTest {
                     fixture.controller.playbackStateFlow.value =
                         playbackState(PlaybackStatus.Completed, positionMs = (index + 1) * 1_000L)
                     runCurrent()
-                    fixture.viewModel.playNext(auto = true)
+                    fixture.viewModel.accept(PlayerIntent.PlayNext(auto = true))
                     runCurrent()
                 }
 
@@ -1340,7 +1340,7 @@ class PlayerViewModelQueueTimelineTest {
                         .itemId,
                 )
 
-                fixture.viewModel.confirmStillWatching()
+                fixture.viewModel.accept(PlayerIntent.ConfirmStillWatching)
                 runCurrent()
                 assertEquals(
                     "item-4",

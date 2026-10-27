@@ -71,6 +71,7 @@ import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlayerBackend
+import com.jellyscope.core.domain.playback.SubtitleRenderStatus
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.ui.adaptive.WindowWidthTier
 import com.jellyscope.ui.platform.LocalFullscreenToggle
@@ -946,7 +947,30 @@ fun PlayerContent(
                     }
                     if (!isInPictureInPicture && playerContent.pickerVisible != PlayerPicker.None) {
                         PlayerPickerSheet(
-                            content = playerContent,
+                            pickerVisible = playerContent.pickerVisible,
+                            backendChoices = playerContent.backendChoices,
+                            activeBackend = playerContent.activeBackend,
+                            backendSwitchInProgress = playerContent.backendSwitchInProgress,
+                            chapters = playerContent.chapters,
+                            audioOptions = playerContent.audioOptions,
+                            selectedAudioStreamIndex = playerContent.selectedAudioStreamIndex,
+                            timingState = playerContent.timingState,
+                            subtitleOptions = playerContent.subtitleOptions,
+                            localSubtitleOptions = playerContent.localSubtitleOptions,
+                            offlineSidecarOption = playerContent.offlineSidecarOption,
+                            selectedSubtitleStreamIndex = playerContent.selectedSubtitleStreamIndex,
+                            selectedSubtitleAssetId = playerContent.selectedSubtitleAssetId,
+                            offlineSidecarSelected = playerContent.offlineSidecarSelected,
+                            subtitlesOff = playerContent.subtitleRenderInfo.status == SubtitleRenderStatus.Off,
+                            qualityOptions = playerContent.qualityOptions,
+                            selectedQualityPolicy = playerContent.selectedQualityPolicy,
+                            qualityOverrideExplicit = playerContent.qualityOverrideExplicit,
+                            inheritedQualityPolicy = playerContent.inheritedQualityPolicy,
+                            inheritedQualityUsesVlcSetting = playerContent.inheritedQualityUsesVlcSetting,
+                            playbackSpeed = playerContent.playbackSpeed,
+                            subtitleStyle = playerContent.subtitleStyle,
+                            resizeMode = playerContent.resizeMode,
+                            playlist = playerContent.playlist,
                             playbackStateFlow = playbackStateFlow,
                             onHidePicker = {
                                 onHidePicker()

@@ -54,7 +54,7 @@ class KidsPlaybackLaunchTest {
             runCurrent()
             assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
             val failedLaunchRequests = fixture.repository.requests.count { request -> request.itemId == "item-2" }
-            fixture.viewModel.retry()
+            fixture.viewModel.accept(PlayerIntent.Retry)
             runCurrent()
 
             val launchRequests = fixture.repository.requests.filter { request -> request.itemId == "item-2" }

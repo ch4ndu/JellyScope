@@ -181,7 +181,7 @@ class PlayerViewModelDiagnosticsTest {
 
                 // Fast retry re-plays the installed controller under a freshly allocated diagnostic
                 // session without re-preparing, so the new session is read from the emitted lines.
-                fixture.viewModel.retry()
+                fixture.viewModel.accept(PlayerIntent.Retry)
                 runCurrent()
                 fixture.controller.playbackStateFlow.value =
                     fixture.controller.playbackStateFlow.value
@@ -262,7 +262,7 @@ class PlayerViewModelDiagnosticsTest {
                         libVlcCachePercent = 37.5f,
                     )
                 runCurrent()
-                fixture.viewModel.retry()
+                fixture.viewModel.accept(PlayerIntent.Retry)
                 runCurrent()
 
                 fixture.controller.playbackStateFlow.value =
@@ -312,7 +312,7 @@ class PlayerViewModelDiagnosticsTest {
                     capturedDiagnostics.count { (_, line) -> "event=terminal-error" in line },
                 )
 
-                fixture.viewModel.stop()
+                fixture.viewModel.accept(PlayerIntent.Stop)
                 runCurrent()
                 val healthSummary =
                     capturedDiagnostics
@@ -442,7 +442,7 @@ class PlayerViewModelDiagnosticsTest {
 
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Failed)
                 runCurrent()
-                fixture.viewModel.retry()
+                fixture.viewModel.accept(PlayerIntent.Retry)
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing)
                 runCurrent()
                 monotonicMs = 1_000L
@@ -558,7 +558,7 @@ class PlayerViewModelDiagnosticsTest {
                 val fixture = playerFixture()
                 runCurrent()
 
-                fixture.viewModel.selectQuality(PlaybackQualityPolicy.Original)
+                fixture.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.Original))
                 runCurrent()
 
                 val debugInfo = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).debugInfo

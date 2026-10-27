@@ -86,7 +86,7 @@ class PlayerViewModelReportingTest {
                 runCurrent()
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 2_500L)
                 runCurrent()
-                fixture.viewModel.seekTo(5_000L)
+                fixture.viewModel.accept(PlayerIntent.SeekTo(5_000L))
                 runCurrent()
                 fixture.controller.playbackStateFlow.value =
                     playbackState(PlaybackStatus.Completed, positionMs = 6_000L)
@@ -176,7 +176,7 @@ class PlayerViewModelReportingTest {
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 4_000L)
                 runCurrent()
 
-                fixture.viewModel.playQueueItem(2)
+                fixture.viewModel.accept(PlayerIntent.PlayQueueItem(2))
                 runCurrent()
 
                 assertEquals(Report.Stopped(positionMs = 4_000L), fixture.reporter.reports.last())

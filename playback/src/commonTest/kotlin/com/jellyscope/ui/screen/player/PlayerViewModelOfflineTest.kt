@@ -44,7 +44,7 @@ class PlayerViewModelOfflineTest {
 
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Failed)
                 runCurrent()
-                fixture.viewModel.retry()
+                fixture.viewModel.accept(PlayerIntent.Retry)
                 runCurrent()
 
                 assertEquals(2, fixture.controller.offlinePrepareCount)

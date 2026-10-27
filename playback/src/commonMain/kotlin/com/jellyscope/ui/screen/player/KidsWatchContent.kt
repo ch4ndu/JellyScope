@@ -105,6 +105,7 @@ import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerController
+import com.jellyscope.core.domain.playback.SubtitleRenderStatus
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.MediaCard
@@ -591,7 +592,30 @@ internal fun KidsWatchContent(
                     }
                     if (content != null && expandedChrome && content.pickerVisible != PlayerPicker.None) {
                         PlayerPickerSheet(
-                            content = content,
+                            pickerVisible = content.pickerVisible,
+                            backendChoices = content.backendChoices,
+                            activeBackend = content.activeBackend,
+                            backendSwitchInProgress = content.backendSwitchInProgress,
+                            chapters = content.chapters,
+                            audioOptions = content.audioOptions,
+                            selectedAudioStreamIndex = content.selectedAudioStreamIndex,
+                            timingState = content.timingState,
+                            subtitleOptions = content.subtitleOptions,
+                            localSubtitleOptions = content.localSubtitleOptions,
+                            offlineSidecarOption = content.offlineSidecarOption,
+                            selectedSubtitleStreamIndex = content.selectedSubtitleStreamIndex,
+                            selectedSubtitleAssetId = content.selectedSubtitleAssetId,
+                            offlineSidecarSelected = content.offlineSidecarSelected,
+                            subtitlesOff = content.subtitleRenderInfo.status == SubtitleRenderStatus.Off,
+                            qualityOptions = content.qualityOptions,
+                            selectedQualityPolicy = content.selectedQualityPolicy,
+                            qualityOverrideExplicit = content.qualityOverrideExplicit,
+                            inheritedQualityPolicy = content.inheritedQualityPolicy,
+                            inheritedQualityUsesVlcSetting = content.inheritedQualityUsesVlcSetting,
+                            playbackSpeed = content.playbackSpeed,
+                            subtitleStyle = content.subtitleStyle,
+                            resizeMode = content.resizeMode,
+                            playlist = content.playlist,
                             playbackStateFlow = playbackStateFlow,
                             onHidePicker = onHidePicker,
                             onSelectBackend = onSelectBackend,

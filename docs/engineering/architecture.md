@@ -221,6 +221,28 @@ captures the list rather than the whole outer state. Existing per-library
 saveable state and ViewModel keys remain unchanged. Android TV and native tvOS
 use separate library selection owners and are outside this slice.
 
+### Player controls and presentation MVI slice
+
+Shared, Kids, and Android TV player controls send `PlayerIntent` through
+`PlayerViewModel.accept`. The `Request` overload returns acceptance for Next and
+Replay, preserving Up Next dismissal and completed-item behavior. Account-scoped
+Kids launch admission remains suspending and cancellable; asset selection retains
+its acceptance result. Disposal stays a lifecycle operation. Navigation stays in
+the screen, after the existing stop command.
+
+`PlayerReducer.kt` owns loading, error, content publication, seek invalidation,
+and queue-switch presentation transitions. The ViewModel constructs content
+snapshots outside the atomic update, then reduces them through one writer.
+Playback planning, controller installation, generation checks, recovery,
+diagnostics, persistence, and reporting remain with their existing owners.
+
+The screen-state publication gate still excludes position-only updates. Live
+position and diagnostics retain separate flows; controls consume them at their
+existing narrow scopes. Shared and Kids picker sheets take only picker values,
+not the complete content state, preserving option-list references and chapter
+position observation. This is a source-level boundary, not measured frame-time
+improvement. Native tvOS keeps its separate presenter.
+
 ## Source Layout Target
 
 ```text
@@ -786,6 +808,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Player commands use a synchronous intent boundary so existing acceptance and
+  command ordering survive migration. Pure presentation transitions do not take
+  ownership of native controller effects or high-frequency playback observations.
 
 - Library selection keeps restore and persistence effects in its ViewModel while
   explicit intents and pure transitions expose the outer tab contract. Narrow

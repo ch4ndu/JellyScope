@@ -37,7 +37,7 @@ class PlayerViewModelQualityTest {
                         monotonicTimeMs = { nowMs },
                     )
                 runCurrent()
-                fixture.viewModel.selectQuality(PlaybackQualityPolicy.Auto)
+                fixture.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.Auto))
                 runCurrent()
                 val initialRequestCount = fixture.repository.requests.size
 
@@ -57,7 +57,7 @@ class PlayerViewModelQualityTest {
                             .last()
                             .requestPolicy.bitrateConstraint,
                     )
-                fixture.viewModel.handlePlaybackAction(PlaybackAction.KeepCurrentQuality)
+                fixture.viewModel.accept(PlayerIntent.HandlePlaybackAction(PlaybackAction.KeepCurrentQuality))
                 runCurrent()
 
                 assertEquals(initialRequestCount + 2, fixture.repository.requests.size)
@@ -91,7 +91,7 @@ class PlayerViewModelQualityTest {
                     ).also { fixtureRef = it }
                 runCurrent()
 
-                fixture.viewModel.selectQuality(PlaybackQualityPolicy.Auto)
+                fixture.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.Auto))
                 runCurrent()
 
                 repeat(3) { stall ->
@@ -110,7 +110,7 @@ class PlayerViewModelQualityTest {
                     recoveryRequest.requestPolicy.bitrateConstraint,
                 )
 
-                fixture.viewModel.selectAudio(streamIndex = 3)
+                fixture.viewModel.accept(PlayerIntent.SelectAudio(streamIndex = 3))
                 runCurrent()
                 advanceTimeBy(150L)
                 runCurrent()
@@ -147,7 +147,7 @@ class PlayerViewModelQualityTest {
                 }
                 assertNotNull((fixture.viewModel.state.value as PlayerUiState.Content).passiveGuidance)
 
-                fixture.viewModel.selectQuality(null)
+                fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(null))
                 runCurrent()
                 assertNull((fixture.viewModel.state.value as PlayerUiState.Content).passiveGuidance)
 
@@ -175,7 +175,7 @@ class PlayerViewModelQualityTest {
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 55_000L)
                 runCurrent()
 
-                fixture.viewModel.selectQuality(maxBitrateBps = 8_000_000L)
+                fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 8_000_000L))
                 runCurrent()
 
                 assertEquals(2, fixture.controller.prepareCount)
@@ -203,7 +203,7 @@ class PlayerViewModelQualityTest {
                 val fixture = playerFixture()
                 runCurrent()
 
-                fixture.viewModel.selectQuality(maxBitrateBps = null)
+                fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = null))
                 runCurrent()
 
                 assertEquals(
@@ -300,7 +300,7 @@ class PlayerViewModelQualityTest {
                     )
                 runCurrent()
 
-                first.viewModel.selectQuality(PlaybackQualityPolicy.Original)
+                first.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.Original))
                 runCurrent()
 
                 assertNull(
@@ -347,7 +347,7 @@ class PlayerViewModelQualityTest {
                 val fixture = playerFixture()
                 runCurrent()
 
-                fixture.viewModel.handlePlaybackAction(PlaybackAction.ChooseLowerQuality)
+                fixture.viewModel.accept(PlayerIntent.HandlePlaybackAction(PlaybackAction.ChooseLowerQuality))
 
                 val content = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
                 assertEquals(PlayerPicker.Quality, content.pickerVisible)
@@ -362,9 +362,9 @@ class PlayerViewModelQualityTest {
                 val memory = PlaybackSelectionMemory()
                 val first = playerFixture(memory = memory)
                 runCurrent()
-                first.viewModel.selectAudio(streamIndex = 3)
-                first.viewModel.selectSubtitle(streamIndex = null)
-                first.viewModel.selectQuality(maxBitrateBps = 12_000_000L)
+                first.viewModel.accept(PlayerIntent.SelectAudio(streamIndex = 3))
+                first.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = null))
+                first.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 12_000_000L))
                 runCurrent()
 
                 val sameItem = playerFixture(memory = memory)
@@ -419,7 +419,7 @@ class PlayerViewModelQualityTest {
                 // Audio is auto-resolved (never explicitly picked); the user changes
                 // ONLY quality. Auto-resolved audio must not freeze into a
                 // durable title override.
-                fixture.viewModel.selectQuality(maxBitrateBps = 4_000_000L)
+                fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 4_000_000L))
                 advanceUntilIdle()
 
                 assertNull(
@@ -444,7 +444,7 @@ class PlayerViewModelQualityTest {
                     )
                 runCurrent()
 
-                fixture.viewModel.selectQuality(PlaybackQualityPolicy.Auto)
+                fixture.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.Auto))
                 advanceUntilIdle()
 
                 assertNull(
@@ -474,10 +474,10 @@ class PlayerViewModelQualityTest {
                             ),
                     )
                 runCurrent()
-                fixture.viewModel.selectQuality(PlaybackQualityPolicy.fixed(4_000_000L))
+                fixture.viewModel.accept(PlayerIntent.SelectQuality(PlaybackQualityPolicy.fixed(4_000_000L)))
                 advanceUntilIdle()
 
-                fixture.viewModel.clearQualityOverride()
+                fixture.viewModel.accept(PlayerIntent.ClearQualityOverride)
                 advanceUntilIdle()
 
                 assertNull(

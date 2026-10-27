@@ -174,7 +174,7 @@ class PlayerViewModelTrackSelectionTest {
                 val fixture = playerFixture()
                 runCurrent()
 
-                fixture.viewModel.selectAudio(streamIndex = 3)
+                fixture.viewModel.accept(PlayerIntent.SelectAudio(streamIndex = 3))
                 runCurrent()
 
                 // Ordinal 0 is the deliberate prepare-time application of the
@@ -215,7 +215,7 @@ class PlayerViewModelTrackSelectionTest {
                 assertEquals(SubtitleRenderStatus.Active, englishContent.subtitleRenderInfo.status)
                 assertEquals("English SRT", englishContent.subtitleRenderInfo.label)
 
-                fixture.viewModel.selectSubtitle(streamIndex = 5)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = 5))
 
                 val replanningContent = fixture.viewModel.state.value as PlayerUiState.Content
                 assertEquals(4, replanningContent.selectedSubtitleStreamIndex)
@@ -260,7 +260,7 @@ class PlayerViewModelTrackSelectionTest {
                 assertEquals(SubtitleRenderStatus.Active, englishContent.subtitleRenderInfo.status)
                 assertEquals(SubtitleRenderMode.ServerBurnedIn, englishContent.subtitleRenderInfo.mode)
 
-                fixture.viewModel.selectSubtitle(streamIndex = 5)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = 5))
 
                 val replanningContent = fixture.viewModel.state.value as PlayerUiState.Content
                 assertEquals(4, replanningContent.selectedSubtitleStreamIndex)
@@ -301,8 +301,8 @@ class PlayerViewModelTrackSelectionTest {
                     )
                 runCurrent()
 
-                fixture.viewModel.selectSubtitle(streamIndex = 5)
-                fixture.viewModel.selectSubtitle(streamIndex = null)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = 5))
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = null))
                 runCurrent()
 
                 val content = fixture.viewModel.state.value as PlayerUiState.Content
@@ -339,7 +339,7 @@ class PlayerViewModelTrackSelectionTest {
                     )
                 runCurrent()
 
-                fixture.viewModel.selectSubtitle(streamIndex = 4)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = 4))
                 runCurrent()
 
                 assertEquals(1, fixture.controller.prepareCount)
@@ -386,7 +386,7 @@ class PlayerViewModelTrackSelectionTest {
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 42_000L)
                 runCurrent()
 
-                fixture.viewModel.selectSubtitle(streamIndex = 4)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = 4))
                 runCurrent()
 
                 assertEquals(2, fixture.controller.prepareCount)
@@ -439,12 +439,12 @@ class PlayerViewModelTrackSelectionTest {
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 42_000L)
                 runCurrent()
 
-                fixture.viewModel.selectSubtitle(streamIndex = 4)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = 4))
                 runCurrent()
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 44_000L)
                 runCurrent()
 
-                fixture.viewModel.selectSubtitle(streamIndex = null)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = null))
                 runCurrent()
 
                 assertEquals(3, fixture.controller.prepareCount)
@@ -487,7 +487,7 @@ class PlayerViewModelTrackSelectionTest {
 
                 // Quality is auto-resolved; the user changes ONLY audio. The auto
                 // quality must not freeze durably.
-                fixture.viewModel.selectAudio(streamIndex = 3)
+                fixture.viewModel.accept(PlayerIntent.SelectAudio(streamIndex = 3))
                 advanceUntilIdle()
 
                 val saved =
@@ -557,7 +557,7 @@ class PlayerViewModelTrackSelectionTest {
                     )
                 runCurrent()
 
-                reopened.viewModel.selectQuality(maxBitrateBps = 4_000_000L)
+                reopened.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 4_000_000L))
                 advanceUntilIdle()
 
                 assertNull(
@@ -750,8 +750,8 @@ class PlayerViewModelTrackSelectionTest {
                 runCurrent()
                 val style = SubtitleStyle(fontScale = 1.25f, edgeStyle = SubtitleEdgeStyle.Outline)
 
-                fixture.viewModel.setPlaybackSpeed(9f)
-                fixture.viewModel.setSubtitleStyle(style)
+                fixture.viewModel.accept(PlayerIntent.SetPlaybackSpeed(9f))
+                fixture.viewModel.accept(PlayerIntent.SetSubtitleStyle(style))
                 runCurrent()
 
                 val content = fixture.viewModel.state.value as PlayerUiState.Content
@@ -795,7 +795,7 @@ class PlayerViewModelTrackSelectionTest {
                 val fixture = playerFixture(localSubtitleAsset = asset).also { fixtureRef = it }
                 runCurrent()
 
-                fixture.viewModel.selectLocalSubtitle(asset.id)
+                fixture.viewModel.accept(PlayerIntent.SelectLocalSubtitle(asset.id))
                 runCurrent()
 
                 assertEquals(2, fixture.repository.requests.size)
@@ -807,7 +807,7 @@ class PlayerViewModelTrackSelectionTest {
                 )
                 assertIs<SubtitleAsset.LocalFile>(fixture.controller.preparedSubtitleAsset)
 
-                fixture.viewModel.selectSubtitle(null)
+                fixture.viewModel.accept(PlayerIntent.SelectSubtitle(null))
                 runCurrent()
 
                 assertEquals(3, fixture.repository.requests.size)

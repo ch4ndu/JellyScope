@@ -44,8 +44,8 @@ import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
 import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlayerBackend
+import com.jellyscope.core.domain.playback.PlayerTimingState
 import com.jellyscope.core.domain.playback.QualityOption
-import com.jellyscope.core.domain.playback.SubtitleRenderStatus
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.core.domain.playback.SubtitleTrackOption
 import com.jellyscope.core.domain.playback.currentChapterIndex
@@ -68,7 +68,30 @@ import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal fun PlayerPickerSheet(
-    content: PlayerUiState.Content,
+    pickerVisible: PlayerPicker,
+    backendChoices: List<PlayerBackendSwitchChoice>,
+    activeBackend: PlayerBackend,
+    backendSwitchInProgress: Boolean,
+    chapters: List<Chapter>,
+    audioOptions: List<AudioTrackOption>,
+    selectedAudioStreamIndex: Int?,
+    timingState: PlayerTimingState,
+    subtitleOptions: List<SubtitleTrackOption>,
+    localSubtitleOptions: List<LocalSubtitleAsset>,
+    offlineSidecarOption: OfflineSidecarOption?,
+    selectedSubtitleStreamIndex: Int?,
+    selectedSubtitleAssetId: String?,
+    offlineSidecarSelected: Boolean,
+    subtitlesOff: Boolean,
+    qualityOptions: List<QualityOption>,
+    selectedQualityPolicy: PlaybackQualityPolicy,
+    qualityOverrideExplicit: Boolean,
+    inheritedQualityPolicy: PlaybackQualityPolicy,
+    inheritedQualityUsesVlcSetting: Boolean,
+    playbackSpeed: Float,
+    subtitleStyle: SubtitleStyle,
+    resizeMode: PlayerResizeMode,
+    playlist: PlaylistUi?,
     playbackStateFlow: StateFlow<PlaybackState>,
     onHidePicker: () -> Unit,
     onSelectBackend: (PlayerBackend) -> Unit = {},
@@ -127,12 +150,12 @@ internal fun PlayerPickerSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = pickerTitle(content.pickerVisible),
+                        text = pickerTitle(pickerVisible),
                         modifier = Modifier.weight(1f),
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleMedium,
                     )
-                    val parentPicker = content.pickerVisible.parentPicker()
+                    val parentPicker = pickerVisible.parentPicker()
                     IconButton(
                         onClick = {
                             onKeepControlsAlive()
@@ -162,13 +185,13 @@ internal fun PlayerPickerSheet(
                     }
                 }
                 PlayerPickerDivider()
-                when (content.pickerVisible) {
+                when (pickerVisible) {
                     PlayerPicker.None -> Unit
                     PlayerPicker.Backend ->
                         BackendPicker(
-                            choices = content.backendChoices,
-                            activeBackend = content.activeBackend,
-                            switchInProgress = content.backendSwitchInProgress,
+                            choices = backendChoices,
+                            activeBackend = activeBackend,
+                            switchInProgress = backendSwitchInProgress,
                             onSelectBackend = { backend ->
                                 onKeepControlsAlive()
                                 onSelectBackend(backend)
@@ -176,7 +199,7 @@ internal fun PlayerPickerSheet(
                         )
                     PlayerPicker.Chapters ->
                         ChapterPicker(
-                            chapters = content.chapters,
+                            chapters = chapters,
                             playbackStateFlow = playbackStateFlow,
                             onSeekTo = { positionMs ->
                                 onKeepControlsAlive()
@@ -186,13 +209,13 @@ internal fun PlayerPickerSheet(
                         )
                     PlayerPicker.Audio ->
                         AudioPicker(
-                            options = content.audioOptions,
-                            selectedAudioStreamIndex = content.selectedAudioStreamIndex,
+                            options = audioOptions,
+                            selectedAudioStreamIndex = selectedAudioStreamIndex,
                             onSelectAudio = { streamIndex ->
                                 onKeepControlsAlive()
                                 onSelectAudio(streamIndex)
                             },
-                            timing = content.timingState.audio,
+                            timing = timingState.audio,
                             onOpenOffset = {
                                 onKeepControlsAlive()
                                 onShowPicker(PlayerPicker.AudioOffset)
@@ -200,7 +223,7 @@ internal fun PlayerPickerSheet(
                         )
                     PlayerPicker.AudioOffset ->
                         PlayerTimingOffsetPanel(
-                            timing = content.timingState.audio,
+                            timing = timingState.audio,
                             onAdjust = { deltaMs ->
                                 onKeepControlsAlive()
                                 onAdjustAudioTiming(deltaMs)
@@ -212,13 +235,13 @@ internal fun PlayerPickerSheet(
                         )
                     PlayerPicker.Subtitles ->
                         SubtitlePicker(
-                            options = content.subtitleOptions,
-                            localOptions = content.localSubtitleOptions,
-                            offlineSidecarOption = content.offlineSidecarOption,
-                            selectedSubtitleStreamIndex = content.selectedSubtitleStreamIndex,
-                            selectedSubtitleAssetId = content.selectedSubtitleAssetId,
-                            offlineSidecarSelected = content.offlineSidecarSelected,
-                            subtitlesOff = content.subtitleRenderInfo.status == SubtitleRenderStatus.Off,
+                            options = subtitleOptions,
+                            localOptions = localSubtitleOptions,
+                            offlineSidecarOption = offlineSidecarOption,
+                            selectedSubtitleStreamIndex = selectedSubtitleStreamIndex,
+                            selectedSubtitleAssetId = selectedSubtitleAssetId,
+                            offlineSidecarSelected = offlineSidecarSelected,
+                            subtitlesOff = subtitlesOff,
                             onSelectSubtitle = { streamIndex ->
                                 onKeepControlsAlive()
                                 onSelectSubtitle(streamIndex)
@@ -231,7 +254,7 @@ internal fun PlayerPickerSheet(
                                 onKeepControlsAlive()
                                 onSelectOfflineSidecar()
                             },
-                            timing = content.timingState.subtitle,
+                            timing = timingState.subtitle,
                             onOpenOffset = {
                                 onKeepControlsAlive()
                                 onShowPicker(PlayerPicker.SubtitleOffset)
@@ -239,7 +262,7 @@ internal fun PlayerPickerSheet(
                         )
                     PlayerPicker.SubtitleOffset ->
                         PlayerTimingOffsetPanel(
-                            timing = content.timingState.subtitle,
+                            timing = timingState.subtitle,
                             onAdjust = { deltaMs ->
                                 onKeepControlsAlive()
                                 onAdjustSubtitleTiming(deltaMs)
@@ -251,11 +274,11 @@ internal fun PlayerPickerSheet(
                         )
                     PlayerPicker.Quality ->
                         QualityPicker(
-                            options = content.qualityOptions,
-                            selectedQualityPolicy = content.selectedQualityPolicy,
-                            qualityOverrideExplicit = content.qualityOverrideExplicit,
-                            inheritedQualityPolicy = content.inheritedQualityPolicy,
-                            inheritedQualityUsesVlcSetting = content.inheritedQualityUsesVlcSetting,
+                            options = qualityOptions,
+                            selectedQualityPolicy = selectedQualityPolicy,
+                            qualityOverrideExplicit = qualityOverrideExplicit,
+                            inheritedQualityPolicy = inheritedQualityPolicy,
+                            inheritedQualityUsesVlcSetting = inheritedQualityUsesVlcSetting,
                             onClearQualityOverride = {
                                 onKeepControlsAlive()
                                 onClearQualityOverride()
@@ -270,7 +293,7 @@ internal fun PlayerPickerSheet(
                         )
                     PlayerPicker.Speed ->
                         SpeedControls(
-                            selectedSpeed = content.playbackSpeed,
+                            selectedSpeed = playbackSpeed,
                             onSetPlaybackSpeed = { speed ->
                                 onKeepControlsAlive()
                                 onSetPlaybackSpeed(speed)
@@ -278,7 +301,7 @@ internal fun PlayerPickerSheet(
                         )
                     PlayerPicker.SubtitleStyle ->
                         SubtitleStyleControls(
-                            style = content.subtitleStyle,
+                            style = subtitleStyle,
                             onSetSubtitleStyle = { style ->
                                 onKeepControlsAlive()
                                 onSetSubtitleStyle(style)
@@ -286,7 +309,7 @@ internal fun PlayerPickerSheet(
                         )
                     PlayerPicker.Resize ->
                         ResizePicker(
-                            selectedResizeMode = content.resizeMode,
+                            selectedResizeMode = resizeMode,
                             desktopResizeModes = LocalPlatformCapabilities.current.desktopResizeModes,
                             onSetResizeMode = { mode ->
                                 onKeepControlsAlive()
@@ -295,7 +318,7 @@ internal fun PlayerPickerSheet(
                             },
                         )
                     PlayerPicker.Queue -> {
-                        content.playlist?.let { playlist ->
+                        playlist?.let { playlist ->
                             QueueSection(
                                 playlist = playlist,
                                 onPlayQueueItem = { index ->

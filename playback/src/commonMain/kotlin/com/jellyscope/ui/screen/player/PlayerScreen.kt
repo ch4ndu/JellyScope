@@ -108,7 +108,7 @@ fun PlayerScreen(
             return
         }
         backDispatched = true
-        viewModel.stop()
+        viewModel.accept(PlayerIntent.Stop)
         currentOnBack()
     }
 
@@ -117,7 +117,7 @@ fun PlayerScreen(
             return
         }
         backDispatched = true
-        viewModel.stop()
+        viewModel.accept(PlayerIntent.Stop)
         currentOnOpenPlaybackSettings()
     }
 
@@ -126,7 +126,7 @@ fun PlayerScreen(
             return
         }
         backDispatched = true
-        viewModel.stop()
+        viewModel.accept(PlayerIntent.Stop)
         onOpenDownloads()
     }
 
@@ -152,20 +152,20 @@ fun PlayerScreen(
                 when (action) {
                     PlaybackAction.OpenPlaybackSettings -> stopAndOpenPlaybackSettings()
                     PlaybackAction.Close -> stopAndBack()
-                    else -> viewModel.handlePlaybackAction(action)
+                    else -> viewModel.accept(PlayerIntent.HandlePlaybackAction(action))
                 }
             }
         }
     val onCycleResizeModeCallback =
         remember(viewModel, platformCapabilities.desktopResizeModes) {
-            { viewModel.cycleResizeMode(twoState = platformCapabilities.desktopResizeModes) }
+            { viewModel.accept(PlayerIntent.CycleResizeMode(twoState = platformCapabilities.desktopResizeModes)) }
         }
     val onPlayerSourceBoundsChangedCallback = remember { { bounds: Rect? -> playerSourceBounds = bounds } }
     val onPictureInPictureModeChangedCallback =
         remember(viewModel) {
             { inPictureInPicture: Boolean ->
                 isInPictureInPicture = inPictureInPicture
-                viewModel.setPictureInPictureMode(inPictureInPicture)
+                viewModel.accept(PlayerIntent.PictureInPictureChanged(inPictureInPicture))
             }
         }
 
@@ -177,10 +177,10 @@ fun PlayerScreen(
         remember(viewModel) {
             {
                 if (viewModel.playbackState.value.status == PlaybackStatus.Completed) {
-                    viewModel.replayCurrentPlayback()
+                    viewModel.accept(PlayerIntent.ReplayCurrent)
                     Unit
                 } else {
-                    viewModel.play()
+                    viewModel.accept(PlayerIntent.Play)
                 }
             }
         }
@@ -197,7 +197,7 @@ fun PlayerScreen(
             {
                 if (viewModel.state.value !is PlayerUiState.Error && viewModel.softwarePlaybackRecovery.value == null) {
                     val picker = (viewModel.state.value as? PlayerUiState.Content)?.pickerVisible
-                    if (picker != null && picker != PlayerPicker.None) viewModel.hidePicker()
+                    if (picker != null && picker != PlayerPicker.None) viewModel.accept(PlayerIntent.HidePicker)
                     kidsFullscreen = false
                     kidsMinimized = true
                 }
@@ -251,30 +251,30 @@ fun PlayerScreen(
                 isInPictureInPicture = isInPictureInPicture,
                 onBack = onBackAction,
                 onPlay = onKidsPlay,
-                onPause = viewModel::pause,
-                onTogglePlayPause = viewModel::togglePlayPause,
-                onSeekTo = viewModel::seekTo,
-                onReplay = { viewModel.replayCurrentPlayback() },
-                onRetry = viewModel::retry,
-                onShowPicker = viewModel::showPicker,
-                onHidePicker = viewModel::hidePicker,
-                onSelectBackend = viewModel::selectBackend,
-                onSelectAudio = viewModel::selectAudio,
-                onAdjustAudioTiming = viewModel::adjustAudioTiming,
-                onResetAudioTiming = viewModel::resetAudioTiming,
-                onSelectSubtitle = viewModel::selectSubtitle,
-                onSelectLocalSubtitle = viewModel::selectLocalSubtitle,
-                onSelectOfflineSidecar = viewModel::selectOfflineSidecar,
-                onAdjustSubtitleTiming = viewModel::adjustSubtitleTiming,
-                onResetSubtitleTiming = viewModel::resetSubtitleTiming,
-                onSelectQuality = viewModel::selectQuality,
-                onSelectQualityPolicy = viewModel::selectQuality,
-                onClearQualityOverride = viewModel::clearQualityOverride,
-                onSetPlaybackSpeed = viewModel::setPlaybackSpeed,
-                onSetSubtitleStyle = viewModel::setSubtitleStyle,
-                onSetResizeMode = viewModel::setResizeMode,
+                onPause = { viewModel.accept(PlayerIntent.Pause) },
+                onTogglePlayPause = { viewModel.accept(PlayerIntent.TogglePlayPause) },
+                onSeekTo = { value -> viewModel.accept(PlayerIntent.SeekTo(value)) },
+                onReplay = { viewModel.accept(PlayerIntent.ReplayCurrent) },
+                onRetry = { viewModel.accept(PlayerIntent.Retry) },
+                onShowPicker = { value -> viewModel.accept(PlayerIntent.ShowPicker(value)) },
+                onHidePicker = { viewModel.accept(PlayerIntent.HidePicker) },
+                onSelectBackend = { value -> viewModel.accept(PlayerIntent.SelectBackend(value)) },
+                onSelectAudio = { value -> viewModel.accept(PlayerIntent.SelectAudio(value)) },
+                onAdjustAudioTiming = { value -> viewModel.accept(PlayerIntent.AdjustAudioTiming(value)) },
+                onResetAudioTiming = { viewModel.accept(PlayerIntent.ResetAudioTiming) },
+                onSelectSubtitle = { value -> viewModel.accept(PlayerIntent.SelectSubtitle(value)) },
+                onSelectLocalSubtitle = { value -> viewModel.accept(PlayerIntent.SelectLocalSubtitle(value)) },
+                onSelectOfflineSidecar = { viewModel.accept(PlayerIntent.SelectOfflineSidecar) },
+                onAdjustSubtitleTiming = { value -> viewModel.accept(PlayerIntent.AdjustSubtitleTiming(value)) },
+                onResetSubtitleTiming = { viewModel.accept(PlayerIntent.ResetSubtitleTiming) },
+                onSelectQuality = { value -> viewModel.accept(PlayerIntent.SelectQualityBitrate(value)) },
+                onSelectQualityPolicy = { value -> viewModel.accept(PlayerIntent.SelectQuality(value)) },
+                onClearQualityOverride = { viewModel.accept(PlayerIntent.ClearQualityOverride) },
+                onSetPlaybackSpeed = { value -> viewModel.accept(PlayerIntent.SetPlaybackSpeed(value)) },
+                onSetSubtitleStyle = { value -> viewModel.accept(PlayerIntent.SetSubtitleStyle(value)) },
+                onSetResizeMode = { value -> viewModel.accept(PlayerIntent.SetResizeMode(value)) },
                 onPlaybackAction = onPlaybackActionCallback,
-                onDismissPlaybackGuidance = viewModel::dismissPlaybackGuidance,
+                onDismissPlaybackGuidance = { viewModel.accept(PlayerIntent.DismissPlaybackGuidance) },
                 onOpenPlaybackSettings = ::stopAndOpenPlaybackSettings,
                 onSelectAsset = { item ->
                     if (
@@ -313,39 +313,39 @@ fun PlayerScreen(
             startWithPlaybackInfoOverlay = viewModel.startWithPlaybackInfoOverlay,
             playerClockEnabled = playerClockEnabled,
             onBack = onBackAction,
-            onPlay = viewModel::play,
-            onPause = viewModel::pause,
-            onTogglePlayPause = viewModel::togglePlayPause,
-            onSetVolume = viewModel::setVolume,
-            onToggleMute = viewModel::toggleMute,
-            onSeekTo = viewModel::seekTo,
-            onRetry = viewModel::retry,
-            onShowPicker = viewModel::showPicker,
-            onHidePicker = viewModel::hidePicker,
-            onSelectBackend = viewModel::selectBackend,
-            onSelectAudio = viewModel::selectAudio,
-            onAdjustAudioTiming = viewModel::adjustAudioTiming,
-            onResetAudioTiming = viewModel::resetAudioTiming,
-            onSelectSubtitle = viewModel::selectSubtitle,
-            onSelectLocalSubtitle = viewModel::selectLocalSubtitle,
-            onSelectOfflineSidecar = viewModel::selectOfflineSidecar,
-            onAdjustSubtitleTiming = viewModel::adjustSubtitleTiming,
-            onResetSubtitleTiming = viewModel::resetSubtitleTiming,
-            onSelectQuality = viewModel::selectQuality,
-            onSelectQualityPolicy = viewModel::selectQuality,
-            onClearQualityOverride = viewModel::clearQualityOverride,
-            onDismissPlaybackGuidance = viewModel::dismissPlaybackGuidance,
+            onPlay = { viewModel.accept(PlayerIntent.Play) },
+            onPause = { viewModel.accept(PlayerIntent.Pause) },
+            onTogglePlayPause = { viewModel.accept(PlayerIntent.TogglePlayPause) },
+            onSetVolume = { value -> viewModel.accept(PlayerIntent.SetVolume(value)) },
+            onToggleMute = { viewModel.accept(PlayerIntent.ToggleMute) },
+            onSeekTo = { value -> viewModel.accept(PlayerIntent.SeekTo(value)) },
+            onRetry = { viewModel.accept(PlayerIntent.Retry) },
+            onShowPicker = { value -> viewModel.accept(PlayerIntent.ShowPicker(value)) },
+            onHidePicker = { viewModel.accept(PlayerIntent.HidePicker) },
+            onSelectBackend = { value -> viewModel.accept(PlayerIntent.SelectBackend(value)) },
+            onSelectAudio = { value -> viewModel.accept(PlayerIntent.SelectAudio(value)) },
+            onAdjustAudioTiming = { value -> viewModel.accept(PlayerIntent.AdjustAudioTiming(value)) },
+            onResetAudioTiming = { viewModel.accept(PlayerIntent.ResetAudioTiming) },
+            onSelectSubtitle = { value -> viewModel.accept(PlayerIntent.SelectSubtitle(value)) },
+            onSelectLocalSubtitle = { value -> viewModel.accept(PlayerIntent.SelectLocalSubtitle(value)) },
+            onSelectOfflineSidecar = { viewModel.accept(PlayerIntent.SelectOfflineSidecar) },
+            onAdjustSubtitleTiming = { value -> viewModel.accept(PlayerIntent.AdjustSubtitleTiming(value)) },
+            onResetSubtitleTiming = { viewModel.accept(PlayerIntent.ResetSubtitleTiming) },
+            onSelectQuality = { value -> viewModel.accept(PlayerIntent.SelectQualityBitrate(value)) },
+            onSelectQualityPolicy = { value -> viewModel.accept(PlayerIntent.SelectQuality(value)) },
+            onClearQualityOverride = { viewModel.accept(PlayerIntent.ClearQualityOverride) },
+            onDismissPlaybackGuidance = { viewModel.accept(PlayerIntent.DismissPlaybackGuidance) },
             onOpenPlaybackSettings = ::stopAndOpenPlaybackSettings,
             onPlaybackAction = onPlaybackActionCallback,
-            onSetPlaybackSpeed = viewModel::setPlaybackSpeed,
-            onSetSubtitleStyle = viewModel::setSubtitleStyle,
-            onSetResizeMode = viewModel::setResizeMode,
-            onPlayQueueItem = viewModel::playQueueItem,
-            onPrevious = viewModel::playPrevious,
-            onShuffleQueue = viewModel::shuffleQueue,
-            onSkipCurrentSegment = viewModel::skipCurrentSegment,
-            onPlayNext = viewModel::playNext,
-            onConfirmStillWatching = viewModel::confirmStillWatching,
+            onSetPlaybackSpeed = { value -> viewModel.accept(PlayerIntent.SetPlaybackSpeed(value)) },
+            onSetSubtitleStyle = { value -> viewModel.accept(PlayerIntent.SetSubtitleStyle(value)) },
+            onSetResizeMode = { value -> viewModel.accept(PlayerIntent.SetResizeMode(value)) },
+            onPlayQueueItem = { value -> viewModel.accept(PlayerIntent.PlayQueueItem(value)) },
+            onPrevious = { viewModel.accept(PlayerIntent.PlayPrevious) },
+            onShuffleQueue = { viewModel.accept(PlayerIntent.ShuffleQueue) },
+            onSkipCurrentSegment = { viewModel.accept(PlayerIntent.SkipCurrentSegment) },
+            onPlayNext = { auto, generation -> viewModel.accept(PlayerIntent.PlayNext(auto, generation)) },
+            onConfirmStillWatching = { viewModel.accept(PlayerIntent.ConfirmStillWatching) },
             onCycleResizeMode = onCycleResizeModeCallback,
             isInPictureInPicture = isInPictureInPicture,
             playerSourceBounds = playerSourceBounds,
@@ -357,8 +357,8 @@ fun PlayerScreen(
     softwareRecovery?.takeUnless { it.switching || isInPictureInPicture }?.let { prompt ->
         SoftwarePlaybackRecoveryDialog(
             prompt = prompt,
-            onSwitch = { viewModel.switchSoftwarePlaybackRecovery(prompt.token) },
-            onContinue = { viewModel.continueSoftwarePlaybackRecovery(prompt.token) },
+            onSwitch = { viewModel.accept(PlayerIntent.SwitchSoftwareRecovery(prompt.token)) },
+            onContinue = { viewModel.accept(PlayerIntent.ContinueSoftwareRecovery(prompt.token)) },
             onStop = {
                 if (viewModel.softwarePlaybackRecovery.value?.token == prompt.token) stopAndBack()
             },
