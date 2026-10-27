@@ -82,6 +82,8 @@ import com.jellyscope.ui.generated.resources.login_show_password
 import com.jellyscope.ui.generated.resources.login_sign_in
 import com.jellyscope.ui.generated.resources.login_submit_cd
 import com.jellyscope.ui.generated.resources.login_username_label
+import com.jellyscope.ui.screen.login.LoginIntent
+import com.jellyscope.ui.screen.login.QuickConnectIntent
 import com.jellyscope.ui.theme.AmbientLaunchDimens
 import com.jellyscope.ui.theme.AmbientLaunchTokens
 import com.jellyscope.ui.theme.Dimensions
@@ -116,7 +118,7 @@ fun LoginScreen(
     BackHandler(enabled = !state.isSubmitting) { onBackToServer() }
 
     // Quick Connect is always enabled: request a code as soon as the screen opens.
-    LaunchedEffect(Unit) { quickConnectViewModel.start() }
+    LaunchedEffect(Unit) { quickConnectViewModel.accept(QuickConnectIntent.Start) }
 
     LaunchedEffect(viewModel) {
         viewModel.eventFlow.collect { event ->
@@ -134,10 +136,10 @@ fun LoginScreen(
     LoginContent(
         state = state,
         quickConnectState = quickConnectState,
-        onUsernameChange = viewModel::updateUsername,
-        onPasswordChange = viewModel::updatePassword,
-        onSubmit = viewModel::submit,
-        onQuickConnectStart = quickConnectViewModel::start,
+        onUsernameChange = { value -> viewModel.accept(LoginIntent.UpdateUsername(value)) },
+        onPasswordChange = { value -> viewModel.accept(LoginIntent.UpdatePassword(value)) },
+        onSubmit = { viewModel.accept(LoginIntent.Submit) },
+        onQuickConnectStart = { quickConnectViewModel.accept(QuickConnectIntent.Start) },
         onBackToServer = onBackToServer,
         modifier = modifier,
     )

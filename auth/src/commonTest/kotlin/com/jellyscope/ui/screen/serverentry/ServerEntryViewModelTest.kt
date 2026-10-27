@@ -98,8 +98,10 @@ class ServerEntryViewModelTest {
                 val event = async { viewModel.eventFlow.first() }
                 advanceUntilIdle()
 
-                viewModel.selectDiscoveredServer(
-                    DiscoveredServerUi("server-1", "Home Jellyfin", "http://192.168.1.10:8096"),
+                viewModel.accept(
+                    ServerEntryIntent.SelectDiscoveredServer(
+                        DiscoveredServerUi("server-1", "Home Jellyfin", "http://192.168.1.10:8096"),
+                    ),
                 )
                 runCurrent()
 
@@ -135,14 +137,14 @@ class ServerEntryViewModelTest {
                             },
                     )
 
-                viewModel.updateInput("not-a-url")
+                viewModel.accept(ServerEntryIntent.UpdateInput("not-a-url"))
                 advanceUntilIdle()
 
                 assertEquals("not-a-url", viewModel.state.value.input)
                 assertFalse(viewModel.state.value.isScanning)
                 assertEquals(emptyList(), viewModel.state.value.discoveredServers)
 
-                viewModel.submit()
+                viewModel.accept(ServerEntryIntent.Submit)
                 advanceUntilIdle()
 
                 assertEquals(ServerEntryError.InvalidUrl, viewModel.state.value.error)

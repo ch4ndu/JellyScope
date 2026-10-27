@@ -83,7 +83,7 @@ fun ServerEntryScreen(
 
     LaunchedEffect(initialServerUrl) {
         if (!initialServerUrl.isNullOrBlank() && state.input.isBlank()) {
-            viewModel.updateInput(initialServerUrl)
+            viewModel.accept(ServerEntryIntent.UpdateInput(initialServerUrl))
         }
     }
 
@@ -97,10 +97,10 @@ fun ServerEntryScreen(
 
     ServerEntryContent(
         state = state,
-        onServerUrlChange = viewModel::updateInput,
-        onSubmit = viewModel::submit,
-        onScanAgain = viewModel::scanAgain,
-        onDiscoveredServerClick = viewModel::selectDiscoveredServer,
+        onServerUrlChange = { value -> viewModel.accept(ServerEntryIntent.UpdateInput(value)) },
+        onSubmit = { viewModel.accept(ServerEntryIntent.Submit) },
+        onScanAgain = { viewModel.accept(ServerEntryIntent.ScanAgain) },
+        onDiscoveredServerClick = { value -> viewModel.accept(ServerEntryIntent.SelectDiscoveredServer(value)) },
         modifier = modifier,
     )
 }
@@ -188,7 +188,9 @@ private fun CompactServerEntryContent(
                     )
                 }
                 ServerUrlField(
-                    state = state,
+                    input = state.input,
+                    isValidating = state.isValidating,
+                    hasError = state.error != null,
                     onValueChange = onServerUrlChange,
                     onSubmit = onSubmit,
                 )
@@ -281,7 +283,9 @@ private fun ExpandedServerEntryContent(
                 itemVerticalAlignment = Alignment.Bottom,
             ) {
                 ServerUrlField(
-                    state = state,
+                    input = state.input,
+                    isValidating = state.isValidating,
+                    hasError = state.error != null,
                     onValueChange = onServerUrlChange,
                     onSubmit = onSubmit,
                     modifier = Modifier.widthIn(max = Dimensions.formControlMaxWidth),
@@ -308,20 +312,22 @@ private fun ExpandedServerEntryContent(
 
 @Composable
 private fun ServerUrlField(
-    state: ServerEntryUiState,
+    input: String,
+    isValidating: Boolean,
+    hasError: Boolean,
     onValueChange: (String) -> Unit,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dismissKeyboard = rememberSoftKeyboardDismissal()
     AmbientTextField(
-        value = state.input,
+        value = input,
         onValueChange = onValueChange,
         label = stringResource(Res.string.server_entry_url_label),
         modifier = modifier,
         leadingIcon = Icons.Outlined.Link,
-        enabled = !state.isValidating,
-        isError = state.error != null,
+        enabled = !isValidating,
+        isError = hasError,
         contentDescription = stringResource(Res.string.server_entry_url_label),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
         keyboardActions =

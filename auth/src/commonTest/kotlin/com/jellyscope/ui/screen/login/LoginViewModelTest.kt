@@ -42,9 +42,9 @@ class LoginViewModelTest {
                     )
                 val event = async { viewModel.eventFlow.first() }
 
-                viewModel.updateUsername("demo-user")
-                viewModel.updatePassword("pw")
-                viewModel.submit()
+                viewModel.accept(LoginIntent.UpdateUsername("demo-user"))
+                viewModel.accept(LoginIntent.UpdatePassword("pw"))
+                viewModel.accept(LoginIntent.Submit)
                 runCurrent()
 
                 assertTrue(viewModel.state.value.isSubmitting)
@@ -79,7 +79,7 @@ class LoginViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.submit()
+                viewModel.accept(LoginIntent.Submit)
                 advanceUntilIdle()
 
                 assertFalse(viewModel.state.value.isSubmitting)

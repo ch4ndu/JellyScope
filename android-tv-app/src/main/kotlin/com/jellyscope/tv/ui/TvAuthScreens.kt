@@ -37,6 +37,7 @@ import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.serverentry.DiscoveredServerUi
 import com.jellyscope.ui.screen.serverentry.ServerEntryError
 import com.jellyscope.ui.screen.serverentry.ServerEntryEvent
+import com.jellyscope.ui.screen.serverentry.ServerEntryIntent
 import com.jellyscope.ui.screen.serverentry.ServerEntryUiState
 import com.jellyscope.ui.screen.serverentry.ServerEntryViewModel
 import com.jellyscope.ui.theme.AmbientLaunchTokens
@@ -54,7 +55,7 @@ fun TvServerEntryScreen(
 
     LaunchedEffect(initialServerUrl) {
         if (!initialServerUrl.isNullOrBlank() && state.input.isBlank()) {
-            viewModel.updateInput(initialServerUrl)
+            viewModel.accept(ServerEntryIntent.UpdateInput(initialServerUrl))
         }
     }
 
@@ -68,10 +69,10 @@ fun TvServerEntryScreen(
 
     TvServerEntryContent(
         state = state,
-        onServerUrlChange = viewModel::updateInput,
-        onSubmit = viewModel::submit,
-        onScanAgain = viewModel::scanAgain,
-        onDiscoveredServerClick = viewModel::selectDiscoveredServer,
+        onServerUrlChange = { value -> viewModel.accept(ServerEntryIntent.UpdateInput(value)) },
+        onSubmit = { viewModel.accept(ServerEntryIntent.Submit) },
+        onScanAgain = { viewModel.accept(ServerEntryIntent.ScanAgain) },
+        onDiscoveredServerClick = { value -> viewModel.accept(ServerEntryIntent.SelectDiscoveredServer(value)) },
         modifier = modifier,
     )
 }

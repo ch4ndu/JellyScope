@@ -19,36 +19,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-sealed interface QuickConnectUiState {
-    data object Idle : QuickConnectUiState
-
-    data class CodeShown(
-        val secret: String,
-        val code: String,
-        val displayCode: String,
-    ) : QuickConnectUiState
-
-    data class Polling(
-        val secret: String,
-        val code: String,
-        val displayCode: String,
-    ) : QuickConnectUiState
-
-    data object Success : QuickConnectUiState
-
-    data class Error(
-        val error: QuickConnectUiError,
-    ) : QuickConnectUiState
-}
-
-sealed interface QuickConnectUiError {
-    data object Expired : QuickConnectUiError
-
-    data object Unavailable : QuickConnectUiError
-
-    data object ServerError : QuickConnectUiError
-}
-
 class QuickConnectViewModel(
     private val serverInfo: ServerInfo,
     private val quickConnectLoginAction: QuickConnectLoginAction,
@@ -59,7 +29,18 @@ class QuickConnectViewModel(
 
     private var job: Job? = null
 
-    fun start() {
+    fun accept(intent: QuickConnectIntent) {
+        when (intent) {
+            QuickConnectIntent.Start -> start()
+            QuickConnectIntent.Cancel -> cancel()
+        }
+    }
+
+    private fun reduce(change: QuickConnectChange) {
+        _state.update { current -> reduceQuickConnect(current, change) }
+    }
+
+    private fun start() {
         if (job?.isActive == true) {
             return
         }
@@ -69,25 +50,20 @@ class QuickConnectViewModel(
                 quickConnectLoginAction(serverInfo).flowOn(workDispatcher).collect { result ->
                     result.fold(
                         onSuccess = { update ->
-                            _state.value = update.toUiState()
+                            reduce(QuickConnectChange.Updated(update.toUiState()))
                         },
                         onFailure = { throwable ->
-                            _state.value = QuickConnectUiState.Error(throwable.toUiError())
+                            reduce(QuickConnectChange.Updated(QuickConnectUiState.Error(throwable.toUiError())))
                         },
                     )
                 }
             }
     }
 
-    fun cancel() {
+    private fun cancel() {
         job?.cancel()
         job = null
-        _state.update { state ->
-            when (state) {
-                QuickConnectUiState.Success -> state
-                else -> QuickConnectUiState.Idle
-            }
-        }
+        reduce(QuickConnectChange.Cancelled)
     }
 }
 

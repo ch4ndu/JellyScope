@@ -42,8 +42,10 @@ import com.jellyscope.ui.component.launch.JellyScopeBrandMark
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.screen.login.LoginError
 import com.jellyscope.ui.screen.login.LoginEvent
+import com.jellyscope.ui.screen.login.LoginIntent
 import com.jellyscope.ui.screen.login.LoginUiState
 import com.jellyscope.ui.screen.login.LoginViewModel
+import com.jellyscope.ui.screen.login.QuickConnectIntent
 import com.jellyscope.ui.screen.login.QuickConnectUiError
 import com.jellyscope.ui.screen.login.QuickConnectUiState
 import com.jellyscope.ui.screen.login.QuickConnectViewModel
@@ -79,7 +81,7 @@ fun TvLoginScreen(
 
     // Quick Connect is always enabled on this screen: request a code as soon as
     // the screen opens so it is available beside the password form.
-    LaunchedEffect(Unit) { quickConnectViewModel.start() }
+    LaunchedEffect(Unit) { quickConnectViewModel.accept(QuickConnectIntent.Start) }
 
     LaunchedEffect(viewModel) {
         viewModel.eventFlow.collect { event ->
@@ -98,10 +100,10 @@ fun TvLoginScreen(
     TvLoginContent(
         state = state,
         quickConnectState = quickConnectState,
-        onUsernameChange = viewModel::updateUsername,
-        onPasswordChange = viewModel::updatePassword,
-        onSubmit = viewModel::submit,
-        onQuickConnectRestart = quickConnectViewModel::start,
+        onUsernameChange = { value -> viewModel.accept(LoginIntent.UpdateUsername(value)) },
+        onPasswordChange = { value -> viewModel.accept(LoginIntent.UpdatePassword(value)) },
+        onSubmit = { viewModel.accept(LoginIntent.Submit) },
+        onQuickConnectRestart = { quickConnectViewModel.accept(QuickConnectIntent.Start) },
         modifier = modifier,
     )
 }

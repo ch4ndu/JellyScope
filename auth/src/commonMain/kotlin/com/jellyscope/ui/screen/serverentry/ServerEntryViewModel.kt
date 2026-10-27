@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.domain.action.AuthError
 import com.jellyscope.core.domain.action.ValidateServerAction
 import com.jellyscope.core.domain.discovery.DiscoveredServer
-import com.jellyscope.core.domain.model.ServerInfo
 import com.jellyscope.core.domain.usecase.DiscoverServersUseCase
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
@@ -21,33 +20,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-data class ServerEntryUiState(
-    val input: String = "",
-    val isValidating: Boolean = false,
-    val error: ServerEntryError? = null,
-    val discoveredServers: List<DiscoveredServerUi> = emptyList(),
-    val isDiscoveryAvailable: Boolean = true,
-    val isScanning: Boolean = false,
-)
-
-data class DiscoveredServerUi(
-    val id: String,
-    val name: String,
-    val address: String,
-)
-
-enum class ServerEntryError {
-    InvalidUrl,
-    NotReachable,
-    ServerError,
-}
-
-sealed interface ServerEntryEvent {
-    data class Validated(
-        val serverInfo: ServerInfo,
-    ) : ServerEntryEvent
-}
 
 class ServerEntryViewModel(
     private val validateServerAction: ValidateServerAction,
@@ -77,15 +49,20 @@ class ServerEntryViewModel(
         scanAgain()
     }
 
-    fun updateInput(input: String) {
-        _state.update { current -> current.copy(input = input, error = null) }
+    fun accept(intent: ServerEntryIntent) {
+        when (intent) {
+            is ServerEntryIntent.UpdateInput -> reduce(ServerEntryChange.InputChanged(intent.input))
+            ServerEntryIntent.Submit -> submit(_state.value.input)
+            ServerEntryIntent.ScanAgain -> scanAgain()
+            is ServerEntryIntent.SelectDiscoveredServer -> selectDiscoveredServer(intent.server)
+        }
     }
 
-    fun submit() {
-        submit(_state.value.input)
+    private fun reduce(change: ServerEntryChange) {
+        _state.update { current -> reduceServerEntry(current, change) }
     }
 
-    fun scanAgain() {
+    private fun scanAgain() {
         if (!isDiscoveryAvailable) {
             return
         }
@@ -95,22 +72,11 @@ class ServerEntryViewModel(
         scanJob?.cancel()
         scanJob =
             viewModelScope.launch {
-                _state.update { current ->
-                    current.copy(
-                        discoveredServers = emptyList(),
-                        isScanning = true,
-                    )
-                }
+                reduce(ServerEntryChange.ScanStarted)
                 try {
                     discoverServersUseCase().collect { server ->
                         val serverUi = server.toUi()
-                        _state.update { current ->
-                            if (current.discoveredServers.any { it.id == serverUi.id }) {
-                                current
-                            } else {
-                                current.copy(discoveredServers = current.discoveredServers + serverUi)
-                            }
-                        }
+                        reduce(ServerEntryChange.ServerFound(serverUi))
                     }
                 } catch (throwable: Throwable) {
                     if (throwable is CancellationException) {
@@ -125,14 +91,14 @@ class ServerEntryViewModel(
                     }
                 } finally {
                     if (scanGeneration == generation) {
-                        _state.update { current -> current.copy(isScanning = false) }
+                        reduce(ServerEntryChange.ScanFinished)
                     }
                 }
             }
     }
 
-    fun selectDiscoveredServer(server: DiscoveredServerUi) {
-        _state.update { current -> current.copy(input = server.address, error = null) }
+    private fun selectDiscoveredServer(server: DiscoveredServerUi) {
+        reduce(ServerEntryChange.InputChanged(server.address))
         submit(server.address)
     }
 
@@ -142,20 +108,15 @@ class ServerEntryViewModel(
         }
 
         viewModelScope.launch {
-            _state.update { current -> current.copy(isValidating = true, error = null) }
+            reduce(ServerEntryChange.SubmitStarted)
             val result = validateServerAction(input)
             result.fold(
                 onSuccess = { serverInfo ->
-                    _state.update { current -> current.copy(isValidating = false) }
+                    reduce(ServerEntryChange.SubmitSucceeded)
                     events.send(ServerEntryEvent.Validated(serverInfo))
                 },
                 onFailure = { throwable ->
-                    _state.update { current ->
-                        current.copy(
-                            isValidating = false,
-                            error = throwable.toServerEntryError(),
-                        )
-                    }
+                    reduce(ServerEntryChange.SubmitFailed(throwable.toServerEntryError()))
                 },
             )
         }

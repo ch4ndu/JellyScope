@@ -49,7 +49,7 @@ class QuickConnectViewModelTest {
                         workDispatcher = dispatcher,
                     )
 
-                viewModel.start()
+                viewModel.accept(QuickConnectIntent.Start)
                 advanceUntilIdle()
 
                 val state = assertIs<QuickConnectUiState.CodeShown>(viewModel.state.value)

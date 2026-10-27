@@ -18,24 +18,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class LoginUiState(
-    val serverInfo: ServerInfo,
-    val username: String = "",
-    val password: String = "",
-    val isSubmitting: Boolean = false,
-    val error: LoginError? = null,
-)
-
-enum class LoginError {
-    InvalidCredentials,
-    NotReachable,
-    ServerError,
-}
-
-sealed interface LoginEvent {
-    data object Success : LoginEvent
-}
-
 class LoginViewModel(
     serverInfo: ServerInfo,
     initialUsername: String,
@@ -56,22 +38,26 @@ class LoginViewModel(
     private val events = Channel<LoginEvent>(Channel.BUFFERED)
     val eventFlow = events.receiveAsFlow()
 
-    fun updateUsername(username: String) {
-        _state.update { current -> current.copy(username = username, error = null) }
+    fun accept(intent: LoginIntent) {
+        when (intent) {
+            is LoginIntent.UpdateUsername -> reduce(LoginChange.UsernameChanged(intent.username))
+            is LoginIntent.UpdatePassword -> reduce(LoginChange.PasswordChanged(intent.password))
+            LoginIntent.Submit -> submit()
+        }
     }
 
-    fun updatePassword(password: String) {
-        _state.update { current -> current.copy(password = password, error = null) }
+    private fun reduce(change: LoginChange) {
+        _state.update { current -> reduceLogin(current, change) }
     }
 
-    fun submit() {
+    private fun submit() {
         if (_state.value.isSubmitting) {
             return
         }
 
         viewModelScope.launch {
             val current = _state.value
-            _state.update { state -> state.copy(isSubmitting = true, error = null) }
+            reduce(LoginChange.SubmitStarted)
             val result =
                 withContext(workDispatcher) {
                     loginAction(
@@ -82,16 +68,11 @@ class LoginViewModel(
                 }
             result.fold(
                 onSuccess = {
-                    _state.update { state -> state.copy(isSubmitting = false) }
+                    reduce(LoginChange.SubmitSucceeded)
                     events.send(LoginEvent.Success)
                 },
                 onFailure = { throwable ->
-                    _state.update { state ->
-                        state.copy(
-                            isSubmitting = false,
-                            error = throwable.toLoginError(),
-                        )
-                    }
+                    reduce(LoginChange.SubmitFailed(throwable.toLoginError()))
                 },
             )
         }

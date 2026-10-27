@@ -319,6 +319,20 @@ the TV subtitle-clear dialog consumes only clearing, completion, and error value
 Unrelated preference updates preserve those inputs. Existing preference flows and
 unchanged state references are retained; runtime recomposition gains are unmeasured.
 
+### Authentication MVI slice
+
+Login, Quick Connect, and Server Entry accept typed intents from shared and TV
+screens. Their contracts define UI state and pure transitions; ViewModels retain
+login/validation effects, buffered navigation events, polling-job cancellation,
+and discovery scan ownership. Credential input intents use plain classes to avoid
+generated string representations. Discovery still deduplicates server IDs and
+only the current scan clears its scanning flag.
+
+The server URL field consumes input, validation status, and error presence;
+discovery-list updates preserve those inputs. Quick Connect remains a separately
+observed state owner. Focus, keyboard submission, password visibility, and
+navigation callbacks remain in the UI; no runtime performance gain is claimed.
+
 ## Source Layout Target
 
 ```text
@@ -884,6 +898,10 @@ gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
 ## Why
+
+- Authentication intents expose user inputs without transferring credentials,
+  polling jobs, or navigation delivery to a shared store. Narrow URL-field inputs
+  avoid coupling discovery results to form recomposition.
 
 - Settings and account intents make user actions explicit without moving persistence
   or removal authorization into reducers. Narrow child inputs keep unrelated
