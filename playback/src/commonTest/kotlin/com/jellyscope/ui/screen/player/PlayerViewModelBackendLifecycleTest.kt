@@ -6,8 +6,11 @@ import com.jellyscope.core.domain.model.MediaItem
 import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.MediaVersion
 import com.jellyscope.core.domain.model.PlaybackPreferences
+import com.jellyscope.core.domain.model.PlaybackSelectionKey
+import com.jellyscope.core.domain.playback.BackendSourceDescriptor
 import com.jellyscope.core.domain.playback.Chapter
 import com.jellyscope.core.domain.playback.DeviceDecodingCapabilities
+import com.jellyscope.core.domain.playback.DeviceDirectPlayProfile
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.MediaSegment
 import com.jellyscope.core.domain.playback.MediaSegmentType
@@ -18,10 +21,13 @@ import com.jellyscope.core.domain.playback.PlayerDeviceSettings
 import com.jellyscope.core.domain.playback.PlayerVolumeState
 import com.jellyscope.core.domain.playback.TrickplayInfo
 import com.jellyscope.core.domain.playback.androidPlayerBackendPolicy
+import com.jellyscope.core.domain.playback.applePlayerBackendPolicy
+import com.jellyscope.core.domain.playback.resolvePlayerBackend
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -106,6 +112,81 @@ class PlayerViewModelBackendLifecycleTest {
             assertEquals(listOf(PlayerBackend.VlcKit), factoryRequests)
             assertEquals(overriddenController, fixture.viewModel.currentPlayerController)
             assertEquals(1, overriddenController.prepareCount)
+            fixture.viewModel.dispose()
+        }
+
+    @Test
+    fun appleAutoRoutesOnPreferredLaunchAudioRatherThanFirstAudioStream() =
+        runPlayerViewModelTest {
+            // English AAC (index 1) is the default and first; Spanish DTS (index 3) is preferred.
+            val streams = playbackStreams.map { stream -> if (stream.index == 3) stream.copy(codec = "dts") else stream }
+            val version =
+                MediaVersion(id = "source-1", name = "Source", mediaStreams = streams, container = "mp4", runtime = 90.seconds)
+            val profileProvider =
+                object : DeviceProfileProvider {
+                    override val backendPolicy = applePlayerBackendPolicy()
+                    override val availableBackends: Set<PlayerBackend> = setOf(PlayerBackend.AVPlayer, PlayerBackend.VlcKit)
+
+                    override fun capabilities(backend: PlayerBackend): DeviceDecodingCapabilities =
+                        DeviceDecodingCapabilities(
+                            videoCodecs = listOf("h264"),
+                            audioCodecs = listOf("aac"),
+                            supportsDolbyVision = false,
+                            directPlayProfiles = listOf(DeviceDirectPlayProfile(listOf("mp4"), listOf("h264"), listOf("aac"))),
+                        )
+                }
+            // Guard: describing the first Audio stream would admit AVPlayer, so only launch audio can route to VLCKit.
+            assertEquals(
+                PlayerBackend.AVPlayer,
+                resolvePlayerBackend(
+                    defaultBackend = PlayerBackend.Auto,
+                    itemOverride = null,
+                    source =
+                        BackendSourceDescriptor(
+                            container = version.container,
+                            videoCodec = streams.first { stream -> stream.type == "Video" }.codec,
+                            audioCodec = streams.first { stream -> stream.type == "Audio" }.codec,
+                            isHdrOrDolbyVision = false,
+                        ),
+                    avPlayerCapabilities = profileProvider.capabilities(PlayerBackend.AVPlayer),
+                    backendPolicy = profileProvider.backendPolicy,
+                ),
+            )
+            val vlcController = FakePlayerController(confirmInitialAudio = true)
+            vlcController.activeBackend = PlayerBackend.VlcKit
+            val factoryRequests = mutableListOf<PlayerBackend>()
+            val store = FakePlaybackSelectionStore()
+            val fixture =
+                playerFixture(
+                    detailItems =
+                        mapOf(
+                            "item-1" to MediaItem(id = "item-1", name = "Item", kind = MediaKind.Movie, versions = listOf(version)),
+                        ),
+                    selectionStore = store,
+                    deviceProfileProvider = profileProvider,
+                    playbackPreferencesStore =
+                        FakePlaybackPreferencesStore(
+                            PlaybackPreferences(
+                                defaultPlayerBackend = PlayerBackend.Auto,
+                                preferredAudioLanguage = "spa",
+                                vlcTranscodeMaxBitrateBps = 8_000_000L,
+                            ),
+                        ),
+                    playerControllerFactory = { backend ->
+                        factoryRequests += backend
+                        vlcController
+                    },
+                )
+
+            runCurrent()
+
+            assertEquals(listOf(PlayerBackend.VlcKit), factoryRequests)
+            val request = fixture.repository.requests.first()
+            assertEquals(3, request.audioStreamIndex)
+            assertEquals(8_000_000L, request.maxStreamingBitrate)
+            advanceUntilIdle()
+            // The preferred-language pick is not an explicit choice, so nothing is saved durably.
+            assertNull(store.values[PlaybackSelectionKey(session.serverId, session.userId, "item-1", "source-1")])
             fixture.viewModel.dispose()
         }
 

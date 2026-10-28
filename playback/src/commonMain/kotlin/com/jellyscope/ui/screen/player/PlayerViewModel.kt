@@ -2017,10 +2017,30 @@ class PlayerViewModel(
         selectedSourceContainer = selectedVersion.container
         observeLocalSubtitleAssets(itemId, selectedVersion.id)
         mediaStreams = selectedVersion.mediaStreams
+        // Resolve launch audio before the backend so Apple Auto routes on the track that will play.
+        val durableSelection = launchContext.playbackSelection
+        val rememberedSelection =
+            resolvePlaybackSelection(
+                durableSelection = durableSelection,
+                sourceSelection = playbackSelectionMemory.sourceSelectionFor(accountIdentity, itemId, selectedVersion.id),
+                legacyItemSelection = playbackSelectionMemory.selectionFor(accountIdentity, itemId),
+                durableStoreAvailable = launchContext.playbackSelectionOutcome != PlaybackLaunchReadOutcome.Unavailable,
+            )
+        val audioTrackOptions = audioOptions(mediaStreams)
+        val launchAudioSelection =
+            resolveLaunchAudioSelection(
+                explicitLaunchAudioStreamIndex = requestedAudioStreamIndex,
+                durableSelection = durableSelection,
+                rememberedSelection = rememberedSelection,
+                audioTrackOptions = audioTrackOptions,
+                preferredAudioStreamIndex =
+                    audioTrackOptions.preferredAudioStreamIndex(playbackPreferences.preferredAudioLanguage),
+            )
         val backendResolved =
             try {
                 resolveBackendForSession(
                     selectedVersion = selectedVersion,
+                    launchAudioStreamIndex = launchAudioSelection.requestedAudioStreamIndex,
                     expectedGeneration = launchGeneration,
                     expectedItemId = itemId,
                 )
@@ -2046,6 +2066,13 @@ class PlayerViewModel(
                 return false
             }
         if (!backendResolved) {
+            segmentsDeferred.cancel()
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
+        // Controller reuse can return after suspended reads; recheck authority before selection writes.
+        currentCoroutineContext().ensureActive()
+        if (disposed || !isCurrentPlaybackLaunch(launchGeneration, itemId)) {
             segmentsDeferred.cancel()
             clearPlaybackLaunch(launchGeneration)
             return false
@@ -2079,26 +2106,8 @@ class PlayerViewModel(
                     result = launchContext.playbackSelectionOutcome.toPersistenceResult(),
                 ),
         )
-        val durableSelection = launchContext.playbackSelection
-        val rememberedSelection =
-            resolvePlaybackSelection(
-                durableSelection = durableSelection,
-                sourceSelection = playbackSelectionMemory.sourceSelectionFor(accountIdentity, itemId, selectedVersion.id),
-                legacyItemSelection = playbackSelectionMemory.selectionFor(accountIdentity, itemId),
-                durableStoreAvailable = launchContext.playbackSelectionOutcome != PlaybackLaunchReadOutcome.Unavailable,
-            )
-        val audioTrackOptions = audioOptions(mediaStreams)
         val subtitleTrackOptions = subtitleOptions(mediaStreams)
         requestedLocalSubtitleAsset = null
-        val launchAudioSelection =
-            resolveLaunchAudioSelection(
-                explicitLaunchAudioStreamIndex = requestedAudioStreamIndex,
-                durableSelection = durableSelection,
-                rememberedSelection = rememberedSelection,
-                audioTrackOptions = audioTrackOptions,
-                preferredAudioStreamIndex =
-                    audioTrackOptions.preferredAudioStreamIndex(playbackPreferences.preferredAudioLanguage),
-            )
         explicitAudioStreamIndex = launchAudioSelection.explicitAudioStreamIndex
         val subtitleSelectionKey = subtitleSelectionKey(itemId = itemId, mediaSourceId = selectedVersion.id)
         val effectiveSubtitleSelection =
@@ -3179,6 +3188,7 @@ class PlayerViewModel(
 
     private suspend fun resolveBackendForSession(
         selectedVersion: MediaVersion,
+        launchAudioStreamIndex: Int?,
         expectedGeneration: Long,
         expectedItemId: String,
     ): Boolean {
@@ -3257,7 +3267,7 @@ class PlayerViewModel(
                 resolvePlayerBackend(
                     defaultBackend = activePlaybackPreferences.defaultPlayerBackend,
                     itemOverride = itemOverride,
-                    source = selectedVersion.backendSourceDescriptor(),
+                    source = selectedVersion.backendSourceDescriptor(launchAudioStreamIndex),
                     avPlayerCapabilities = profileProvider.capabilities(PlayerBackend.AVPlayer),
                     backendPolicy = profileProvider.backendPolicy,
                 )
@@ -4086,9 +4096,20 @@ class PlayerViewModel(
             }
         }
 
-    private fun MediaVersion.backendSourceDescriptor(): BackendSourceDescriptor {
+    /**
+     * Describes the launch audio stream, falling back to the source default then the first stream
+     * with a real index. The selected stream's codec is kept even when unknown. Writes nothing.
+     */
+    private fun MediaVersion.backendSourceDescriptor(launchAudioStreamIndex: Int?): BackendSourceDescriptor {
         val videoStream = mediaStreams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
-        val audioStream = mediaStreams.firstOrNull { stream -> stream.type.equals("Audio", ignoreCase = true) }
+        val audioStreams =
+            mediaStreams.filter { stream ->
+                stream.type.equals("Audio", ignoreCase = true) && (stream.index ?: -1) >= 0
+            }
+        val audioStream =
+            launchAudioStreamIndex?.let { index -> audioStreams.firstOrNull { stream -> stream.index == index } }
+                ?: audioStreams.firstOrNull { stream -> stream.isDefault == true }
+                ?: audioStreams.firstOrNull()
         return BackendSourceDescriptor(
             container = container,
             videoCodec = videoStream?.codec,

@@ -33,7 +33,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   falls back to the policy default backend.
 - `resolvePlayerBackend` picks one concrete backend once per initial playback session
   from the server setting, any compatible item override, source descriptor, and
-  runtime availability. That durable initial backend remains authoritative for
+  runtime availability. For shared online Apple Auto launches, the descriptor
+  uses the container, first video's codec/range, and effective launch audio
+  selection. Audio lookup uses actual nonnegative stream indexes, falling back
+  to the first default then first valid Audio stream when needed; no valid
+  Audio identity leaves its codec unknown. That durable initial backend remains authoritative for
   queue switches unless the user makes an explicit session-only switch, and
   flows into `PlaybackInfoRequestPolicy.backend` so PlaybackInfo uses that
   backend's device profile. An explicit remote in-player switch is a separate
@@ -636,6 +640,13 @@ server/user IDs, titles, paths, or raw native errors.
     server.
 
 ## Why
+
+- **Initial routing describes the selected audio.** The first listed track can
+  have different decoder requirements from the effective launch choice. Resolve
+  that choice before choosing the backend, then commit selection fields only
+  after backend success and a fresh launch-authority check. The descriptor's
+  fallback lookup itself writes no selection preferences. Backend-specific
+  quality ordering remains governed by [playback policy](playback-policy.md).
 
 - **A failed request provides no compatibility approval.** Local source-copy
   bounds cannot establish the container, codec-tag, audio, and progressive-video
