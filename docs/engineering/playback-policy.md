@@ -244,6 +244,14 @@ not seeded because their VLC paths have not shown the crash class.
 
 ## Device profiles and server stream-copy policy
 
+The planner captures effective settings and backend capabilities once per plan.
+Production injects both providers; bounded retries reuse that snapshot for the
+wire profile and local audio admission. Each new plan discards an incoming
+snapshot and captures current values. When either planner dependency is absent,
+the repository retains its own policy resolution. An installed plan's audio
+admission stamps remain fixed until the next plan; a route or capability refresh
+does not re-evaluate them.
+
 - PlaybackInfo requests include the effective player-device policy. Stereo PCM
   limits requested audio channels to 2, narrows profile audio codecs to AAC/MP3,
   and disables audio stream copy. Passthrough may advertise route-supported

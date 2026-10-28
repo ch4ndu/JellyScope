@@ -133,43 +133,22 @@ fun audioOptions(streams: List<PlaybackMediaStream>): List<AudioTrackOption> =
         }
 
 fun embeddedAudioTracks(streams: List<PlaybackMediaStream>): List<PlannedEmbeddedTrack> =
-    buildEmbeddedAudioTracks(
+    embeddedAudioTracks(
         streams = streams,
-        capabilities = null,
-        responseAuthoritative = true,
+        effectivePolicy = null,
+        container = null,
     )
 
 /**
- * Same descriptors, with each one stamped with whether [capabilities] can decode
- * it as a DirectPlay audio switch. The list length and ordinals are identical to
- * the single-argument overload — consumers rely on both.
+ * Same descriptors, with each one stamped with whether [effectivePolicy] admits it
+ * as a DirectPlay audio switch from [container]. Stamping reads the stream's codec
+ * and channel metadata here, while it is still available. The list length and
+ * ordinals are identical to the single-argument overload — consumers rely on both.
  */
 fun embeddedAudioTracks(
     streams: List<PlaybackMediaStream>,
-    capabilities: DeviceDecodingCapabilities?,
-): List<PlannedEmbeddedTrack> =
-    buildEmbeddedAudioTracks(
-        streams = streams,
-        capabilities = capabilities,
-        responseAuthoritative = true,
-    )
-
-@OptIn(ExperimentalObjCRefinement::class)
-@HiddenFromObjC
-fun detailEmbeddedAudioTracks(
-    streams: List<PlaybackMediaStream>,
-    capabilities: DeviceDecodingCapabilities?,
-): List<PlannedEmbeddedTrack> =
-    buildEmbeddedAudioTracks(
-        streams = streams,
-        capabilities = capabilities,
-        responseAuthoritative = false,
-    )
-
-private fun buildEmbeddedAudioTracks(
-    streams: List<PlaybackMediaStream>,
-    capabilities: DeviceDecodingCapabilities?,
-    responseAuthoritative: Boolean,
+    effectivePolicy: EffectivePlayerDevicePolicy?,
+    container: String?,
 ): List<PlannedEmbeddedTrack> =
     streams
         .filter { stream ->
@@ -177,19 +156,22 @@ private fun buildEmbeddedAudioTracks(
         }.let { embeddedStreams ->
             embeddedStreams.mapIndexedNotNull { ordinal, stream ->
                 stream.index?.let { streamIndex ->
-                    stream.toPlannedEmbeddedTrack(
-                        streamIndex = streamIndex,
-                        filteredContainerOrdinal = ordinal,
-                        responseAuthoritativeCohortSize =
-                            embeddedStreams.size.takeIf { responseAuthoritative },
-                        trackKind = EmbeddedTrackKind.Audio,
-                    )
+                    stream
+                        .toPlannedEmbeddedTrack(
+                            streamIndex = streamIndex,
+                            filteredContainerOrdinal = ordinal,
+                            responseAuthoritativeCohortSize = embeddedStreams.size,
+                            trackKind = EmbeddedTrackKind.Audio,
+                        ).copy(
+                            directPlayAdmissible =
+                                effectivePolicy?.admitsDirectPlayAudioSwitch(
+                                    codec = stream.codec,
+                                    channels = stream.channels,
+                                    container = container,
+                                ) ?: true,
+                        )
                 }
             }
-        }.map { track ->
-            track.copy(
-                directPlayAdmissible = capabilities?.admitsDirectPlayAudioCodec(track.codec) ?: true,
-            )
         }
 
 fun responseEmbeddedSubtitleTracks(streams: List<PlaybackMediaStream>): List<PlannedEmbeddedTrack> {

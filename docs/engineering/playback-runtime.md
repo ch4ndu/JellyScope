@@ -349,18 +349,25 @@ suppresses interactive recovery until it is safe to show the consequence.
   other cases use the shared resolver. A successful setter call is not activation;
   desktop embedded-subtitle state becomes Active only after exact native selector
   readback.
-- A DirectPlay audio track whose codec is not admitted by the active backend's
-  DirectPlayProfile is treated as `Unavailable` **at selection time, with no
-  native attempt**, taking the same [single DirectPlay-disabled recovery](#error-and-audio-recovery).
-  Without this, an in-player switch to an undecodable codec selects successfully
-  and then plays silence with video still running — the server validates the
-  default track against the supplied profile, but never validates a mid-session
-  switch. The predicate (`admitsDirectPlayAudioCodec`) is stamped per descriptor
-  by the planner from backend-keyed capabilities, so it covers every backend at
-  once; it fails open on absent capabilities/profiles and missing codec metadata,
-  and an unlisted codec is inadmissible because a needless transcode still plays
-  audio while a wrong admission plays none. The installed/default track is
-  exempt — the server already validated it.
+- DirectPlay audio switches use the negotiated effective policy, stamped by
+  `admitsDirectPlayAudioSwitch` on response-derived descriptors. A known codec
+  must occur in a matching container profile after effective codec filtering;
+  comma-separated container names match by token. Known positive channel counts
+  must fit the effective ceiling, using the exact codec spelling first and the
+  strictest family-alias ceiling otherwise. A rejected descriptor becomes
+  `Unavailable` without a native attempt and takes the existing
+  [single DirectPlay-disabled recovery](#error-and-audio-recovery).
+  Unknown codec metadata and missing or non-positive channel counts retain
+  compatibility in every audio mode; absent policy/profiles also remain
+  admissible, and unknown containers do not narrow profiles. This deliberate
+  unknown-metadata behavior does not prove native downmix or mirror required
+  server channel conditions. `allowAudioStreamCopy=false` alone adds no local
+  rejection: compatible AAC/MP3 stereo tracks can still switch natively in
+  Stereo PCM mode. The server-approved initial track remains exempt.
+  Recovery may end in terminal `UnsupportedMedia` if transcoding is denied or
+  the response remains DirectPlay. For example, AVPlayer's six-channel ceiling
+  now sends known 7.1 switches through recovery; it cannot guarantee playback
+  on a server that disallows the required conversion.
 - Initial and in-player-switched DirectPlay audio publishes `Pending`. Its single non-extending
   three-second deadline begins only after Ready or a non-empty native track
   list, not during network preparation. Android LibVLC is the startup exception:

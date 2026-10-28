@@ -361,6 +361,8 @@ data class MediaStreamDto(
     val isForced: Boolean? = null,
     @SerialName("IsHearingImpaired")
     val isHearingImpaired: Boolean? = null,
+    @SerialName("Channels")
+    val channels: Int? = null,
 )
 
 @Serializable

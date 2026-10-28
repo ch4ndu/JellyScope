@@ -26,6 +26,11 @@ data class PlaybackInfoRequestPolicy(
     val recoveryIntent: PlaybackRecoveryIntent = PlaybackRecoveryIntent.Initial,
     /** Process-local diagnostic correlation only; never sent to Jellyfin. */
     val diagnosticSessionSequence: Long? = null,
+    /**
+     * Process-local settings/capability snapshot the planner captured for this logical request;
+     * never sent to Jellyfin. Bounded retries copy it unchanged, while every new plan replaces it.
+     */
+    val effectivePlayerDevicePolicy: EffectivePlayerDevicePolicy? = null,
 )
 
 data class ForceEncodeSubtitle(

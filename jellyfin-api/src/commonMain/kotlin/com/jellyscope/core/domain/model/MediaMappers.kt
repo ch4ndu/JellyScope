@@ -241,6 +241,7 @@ private fun MediaSourceDto.toDomainMediaVersion(): MediaVersion {
                     realFrameRate = (stream.realFrameRate ?: stream.averageFrameRate)?.toDouble(),
                     videoRangeType = stream.videoRangeType,
                     bitDepth = stream.bitDepth,
+                    channels = stream.channels,
                 )
             },
         container = container,

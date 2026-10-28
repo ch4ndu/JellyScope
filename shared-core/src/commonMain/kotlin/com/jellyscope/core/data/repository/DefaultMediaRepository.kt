@@ -822,8 +822,14 @@ class DefaultMediaRepository(
                 requestPolicy.bitrateConstraint.takeUnless { constraint ->
                     constraint == PlaybackBitrateConstraint.NoClientLimit
                 } ?: maxStreamingBitrate.toExactBitrateConstraint()
-            val capabilities = deviceProfileProvider.capabilities(requestPolicy.backend)
-            val storedPlayerDeviceSettings = playerDeviceSettingsStore.settings.value
+            // A planner snapshot is reused as-is so the wire profile and local audio
+            // admission describe one logical request; only its absence re-reads.
+            val playerDevicePolicy =
+                requestPolicy.effectivePlayerDevicePolicy
+                    ?: resolvePlayerDevicePolicy(
+                        capabilities = deviceProfileProvider.capabilities(requestPolicy.backend),
+                        settings = playerDeviceSettingsStore.settings.value,
+                    )
             val effectiveRequestPolicy =
                 requestPolicy.copy(
                     bitrateConstraint = effectiveBitrateConstraint,
@@ -831,14 +837,10 @@ class DefaultMediaRepository(
                         if (requestPolicy.userVideoResolutionCapIsResolved) {
                             requestPolicy.userVideoResolutionCap
                         } else {
-                            requestPolicy.userVideoResolutionCap ?: storedPlayerDeviceSettings.maxVideoResolution.resolutionCap
+                            requestPolicy.userVideoResolutionCap ?: playerDevicePolicy.settings.maxVideoResolution.resolutionCap
                         },
                     userVideoResolutionCapIsResolved = true,
-                )
-            val playerDevicePolicy =
-                resolvePlayerDevicePolicy(
-                    capabilities = capabilities,
-                    settings = storedPlayerDeviceSettings,
+                    effectivePlayerDevicePolicy = playerDevicePolicy,
                 )
             jellyfinApi
                 .getPlaybackInfo(
@@ -897,6 +899,7 @@ class DefaultMediaRepository(
                                                 realFrameRate = (stream.realFrameRate ?: stream.averageFrameRate)?.toDouble(),
                                                 videoRangeType = stream.videoRangeType,
                                                 bitDepth = stream.bitDepth,
+                                                channels = stream.channels,
                                             )
                                         },
                                 )

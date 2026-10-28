@@ -59,21 +59,27 @@ class PlaybackInfoPlanner(
                 PlaybackBitrateConstraint.NoClientLimit,
                 -> effectiveQualityPolicy.maxBitrateBps
             }
+        // Without a settings store the default-settings policy stays local: it
+        // must not become the authoritative snapshot the wire profile reuses.
+        val playerDevicePolicy =
+            deviceProfileProvider
+                ?.capabilities(requestPolicy.backend)
+                ?.let { capabilities ->
+                    resolvePlayerDevicePolicy(
+                        capabilities = capabilities,
+                        settings = storedPlayerDeviceSettings ?: PlayerDeviceSettings(),
+                    )
+                }
         val planningRequestPolicy =
             requestPolicy.copy(
                 bitrateConstraint = policyBitrateConstraint,
                 userVideoResolutionCap = snapshottedUserResolutionCap,
                 userVideoResolutionCapIsResolved = storedPlayerDeviceSettings != null || requestPolicy.userVideoResolutionCap != null,
+                // Always replaced, never inherited: a caller's earlier snapshot
+                // describes a previous plan's settings and route.
+                effectivePlayerDevicePolicy = playerDevicePolicy.takeIf { storedPlayerDeviceSettings != null },
             )
-        val deviceCapabilities =
-            deviceProfileProvider
-                ?.capabilities(planningRequestPolicy.backend)
-                ?.let { capabilities ->
-                    resolvePlayerDevicePolicy(
-                        capabilities = capabilities,
-                        settings = storedPlayerDeviceSettings ?: PlayerDeviceSettings(),
-                    ).capabilities
-                }
+        val deviceCapabilities = playerDevicePolicy?.capabilities
         // Capability facts are still sent in the device profile, but an initial
         // Auto/Original request must not turn a predictive VLC guess into a
         // hidden quality cap or forced stream change.
@@ -98,11 +104,6 @@ class PlaybackInfoPlanner(
                     detailMediaStreams = detailMediaStreams,
                 ).copy(
                     selectedAudioStreamIndex = audioStreamIndex,
-                    embeddedAudioTracks =
-                        detailEmbeddedAudioTracks(
-                            streams = detailMediaStreams,
-                            capabilities = deviceCapabilities,
-                        ),
                     embeddedSubtitleTracks =
                         fallbackEmbeddedSubtitleTracks(
                             streams = detailMediaStreams,
@@ -512,7 +513,21 @@ fun decidePlan(
             mediaSourceId = selectedMediaSourceId,
             playSessionId = playbackInfo.playSessionId,
             selectedAudioStreamIndex = selectedAudioIndex,
-            embeddedAudioTracks = embeddedAudioTracks(mediaSource.mediaStreams, deviceCapabilities),
+            embeddedAudioTracks =
+                embeddedAudioTracks(
+                    streams = mediaSource.mediaStreams,
+                    // A standalone caller without a planner snapshot gets the
+                    // default-settings policy for the capabilities it supplied.
+                    effectivePolicy =
+                        requestPolicy.effectivePlayerDevicePolicy
+                            ?: deviceCapabilities?.let { capabilities ->
+                                resolvePlayerDevicePolicy(
+                                    capabilities = capabilities,
+                                    settings = PlayerDeviceSettings(),
+                                )
+                            },
+                    container = mediaSource.container,
+                ),
             embeddedSubtitleTracks = retainedEmbeddedSubtitleTracks,
             audioSelectionAuthoritative = true,
             selectedSubtitleStreamIndex = requestedSubtitleIndex,

@@ -22,6 +22,7 @@ data class PlaybackMediaStream(
     val realFrameRate: Double? = null,
     val videoRangeType: String? = null,
     val bitDepth: Int? = null,
+    val channels: Int? = null,
 )
 
 data class AudioTrackOption(

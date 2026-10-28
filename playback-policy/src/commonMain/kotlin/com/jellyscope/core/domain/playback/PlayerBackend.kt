@@ -3,6 +3,8 @@
 package com.jellyscope.core.domain.playback
 
 import com.jellyscope.core.domain.model.DownloadArtifactKind
+import kotlin.experimental.ExperimentalObjCRefinement
+import kotlin.native.HiddenFromObjC
 
 /**
  * Resolves a user preference and source description to one concrete backend.
@@ -144,27 +146,93 @@ private fun DeviceDecodingCapabilities.canDirectPlay(source: BackendSourceDescri
 }
 
 /**
- * Whether this backend can decode [codec] as an in-player DirectPlay audio switch.
- *
- * Mirrors the audio half of the DirectPlayProfile sent to the server, which is the
- * check the server performs for the *default* track but never performs for a
- * mid-session switch: selecting a native elementary stream succeeds whenever the
- * stream exists in the container, so index readback is not proof of decoding and a
- * switch to an undecodable codec plays silently.
- *
- * Fails open only where the answer is genuinely unknown: absent capabilities,
- * absent profiles, and missing/blank codec metadata all stay admissible, so a
- * backend that declares nothing is never second-guessed. A codec the profile does
- * not list IS treated as inadmissible — the resulting transcode still plays audio,
- * whereas admitting it plays silence, so that is the safe direction.
+ * The real Video DirectPlay declarations the device profile sends for this policy: each
+ * declared profile intersected exactly with the effective video and audio codec lists,
+ * dropping profiles whose container or video list ends up blank. The synthetic fallback
+ * profile and the Audio-type profile are wire-only and deliberately not produced here.
  */
-fun DeviceDecodingCapabilities.admitsDirectPlayAudioCodec(codec: String?): Boolean {
-    if (directPlayProfiles.isEmpty()) return true
-    val family = normalizeAudioCodecFamily(codec) ?: return true
-    return directPlayProfiles.any { profile ->
-        profile.audioCodecs.any { value -> normalizeAudioCodecFamily(value) == family }
-    }
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun EffectivePlayerDevicePolicy.effectiveVideoDirectPlayProfiles(): List<DeviceDirectPlayProfile> {
+    val videoCodecs = capabilities.videoCodecs.ifEmpty { directPlayBaselineVideoCodecs }
+    val effectiveAudioCodecs = audioCodecs.ifEmpty { directPlayBaselineAudioCodecs }
+    return capabilities.directPlayProfiles
+        .map { profile ->
+            DeviceDirectPlayProfile(
+                containers = profile.containers,
+                videoCodecs = profile.videoCodecs.filter { codec -> codec in videoCodecs },
+                audioCodecs = profile.audioCodecs.filter { codec -> codec in effectiveAudioCodecs },
+            )
+        }.filter { profile ->
+            profile.containers.joinToString(",").isNotBlank() &&
+                profile.videoCodecs.joinToString(",").isNotBlank()
+        }
 }
+
+/**
+ * Whether this effective policy admits an in-player DirectPlay switch to an audio stream.
+ *
+ * Mirrors the audio half of the DirectPlay profile and audio codec conditions sent to the
+ * server, which is the check the server performs for the *default* track but never for a
+ * mid-session switch: selecting a native elementary stream succeeds whenever the stream
+ * exists in the container, so index readback is not proof of decoding and a switch the
+ * negotiated policy excludes plays silently or bypasses the user's audio setting.
+ *
+ * Fails open only where the answer is genuinely unknown: absent declared profiles,
+ * missing/blank codec metadata and missing or non-positive channel counts stay admissible
+ * in every audio mode, and an absent container does not narrow the profiles. A known codec
+ * no applicable filtered profile lists, a known container no profile declares, or known
+ * channels above the effective ceiling are inadmissible — the resulting transcode still
+ * honours the policy, whereas admitting the switch does not.
+ */
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun EffectivePlayerDevicePolicy.admitsDirectPlayAudioSwitch(
+    codec: String?,
+    channels: Int? = null,
+    container: String? = null,
+): Boolean {
+    if (capabilities.directPlayProfiles.isEmpty()) return true
+    val family = normalizeAudioCodecFamily(codec) ?: return true
+    val sourceContainers = container.containerTokens()
+    val codecAdmitted =
+        effectiveVideoDirectPlayProfiles()
+            .filter { profile ->
+                sourceContainers.isEmpty() ||
+                    profile.containers.any { declared -> declared.containerTokens().any { token -> token in sourceContainers } }
+            }.any { profile ->
+                profile.audioCodecs.any { declared -> normalizeAudioCodecFamily(declared) == family }
+            }
+    if (!codecAdmitted) return false
+    val knownChannels = channels?.takeIf { value -> value > 0 } ?: return true
+    val ceiling = audioChannelCeiling(codec.normalizedTrackMetadata(), family) ?: return true
+    return knownChannels <= ceiling
+}
+
+/** Exact codec spelling's ceiling first; otherwise the strictest ceiling across its family. */
+private fun EffectivePlayerDevicePolicy.audioChannelCeiling(
+    codec: String?,
+    family: String,
+): Int? {
+    val positiveCeilings =
+        maxAudioChannelsByCodec.entries.filter { (_, channels) -> channels > 0 }
+    return positiveCeilings
+        .firstOrNull { (declared, _) -> declared.normalizedTrackMetadata() == codec }
+        ?.value
+        ?: positiveCeilings
+            .filter { (declared, _) -> normalizeAudioCodecFamily(declared) == family }
+            .minOfOrNull { (_, channels) -> channels }
+}
+
+private fun String?.containerTokens(): Set<String> =
+    this
+        ?.split(',')
+        ?.mapNotNull { token -> token.canonicalBackendValue() }
+        ?.toSet()
+        .orEmpty()
+
+private val directPlayBaselineVideoCodecs = listOf("h264")
+private val directPlayBaselineAudioCodecs = listOf("aac", "mp3")
 
 private fun String?.canonicalBackendValue(): String? =
     this

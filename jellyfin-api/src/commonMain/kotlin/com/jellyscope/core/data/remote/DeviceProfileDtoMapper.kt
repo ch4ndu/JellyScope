@@ -11,6 +11,7 @@ import com.jellyscope.core.domain.playback.PlayerHdrMode
 import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
 import com.jellyscope.core.domain.playback.VideoRangeCapabilities
 import com.jellyscope.core.domain.playback.VideoRangeTypePolicy
+import com.jellyscope.core.domain.playback.effectiveVideoDirectPlayProfiles
 import com.jellyscope.core.domain.playback.reconcileVideoResolutionBounds
 import com.jellyscope.core.domain.playback.resolvePlayerDevicePolicy
 import com.jellyscope.core.domain.playback.subtitleFormatsEquivalent
@@ -45,11 +46,14 @@ fun buildDeviceProfile(
             userVideoResolutionCap = userVideoResolutionCap,
             userVideoResolutionCapIsResolved = true,
         )
+    // The planner's snapshot is the policy that also stamps local audio admission;
+    // resolving again here could disagree with it after a settings or route change.
     val policy =
-        resolvePlayerDevicePolicy(
-            capabilities = capabilities,
-            settings = playerSettings,
-        )
+        requestPolicy.effectivePlayerDevicePolicy
+            ?: resolvePlayerDevicePolicy(
+                capabilities = capabilities,
+                settings = playerSettings,
+            )
     val effectiveCapabilities = policy.capabilities
     val videoCodecs = effectiveCapabilities.videoCodecs.ifEmpty { baselineVideoCodecs }
     val audioCodecs = policy.audioCodecs.ifEmpty { baselineAudioCodecs }
@@ -59,16 +63,16 @@ fun buildDeviceProfile(
     return PlaybackDeviceProfileDto(
         directPlayProfiles =
             (
-                effectiveCapabilities.directPlayProfiles
+                policy
+                    .effectiveVideoDirectPlayProfiles()
                     .map { profile ->
                         DirectPlayProfileDto(
                             type = "Video",
                             container = profile.containers.joinToString(","),
-                            videoCodec = profile.videoCodecs.filter { it in videoCodecs }.joinToString(","),
-                            audioCodec = profile.audioCodecs.filter { it in audioCodecs }.joinToString(","),
+                            videoCodec = profile.videoCodecs.joinToString(","),
+                            audioCodec = profile.audioCodecs.joinToString(","),
                         )
-                    }.filter { profile -> profile.container.isNotBlank() && !profile.videoCodec.isNullOrBlank() }
-                    .takeIf { effectiveCapabilities.directPlayProfiles.isNotEmpty() }
+                    }.takeIf { effectiveCapabilities.directPlayProfiles.isNotEmpty() }
                     ?: listOf(
                         DirectPlayProfileDto(
                             type = "Video",
