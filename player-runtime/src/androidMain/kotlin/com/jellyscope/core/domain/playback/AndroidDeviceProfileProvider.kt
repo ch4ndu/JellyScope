@@ -145,38 +145,23 @@ class AndroidDeviceProfileProvider internal constructor(
             )
         }
 
-        val (capabilities, unusableCodecs) =
-            DeviceDecodingCapabilities(
-                videoCodecs = decoderCapabilities.videoCodecs,
-                audioCodecs = audioCodecs,
-                supportsDolbyVision = supportsDolbyVision,
-                videoResolutionsByCodec = decoderCapabilities.videoResolutionsByCodec,
-                videoConstraintsByCodec = decoderCapabilities.videoConstraintsByCodec,
-                audioPassthroughCodecs = audioRoute.passthroughCodecs,
-                maxAudioChannels = audioRoute.maxAudioChannels,
-                audioDecodeChannelsByCodec = audioDecodeChannelsByCodec,
-                audioPassthroughMaxChannels = audioRoute.passthroughMaxAudioChannels,
-                supportsHdr = displayHdrTypes.isNotEmpty(),
-                videoRangeCapabilitiesByCodec = videoRangeCapabilitiesByCodec,
-                directPlayProfiles = androidDirectPlayProfiles,
-                subtitleProfiles = androidSubtitleProfiles(),
-                videoCodecEvidence = decoderCapabilities.videoCodecEvidence.withExplicitUnknowns(decoderCapabilities.videoCodecs),
-                audioCodecEvidence = audioCodecEvidence,
-            ).withoutUnusableVideoCodecs()
-        unusableCodecs.forEach { entry ->
-            deviceProfileLogger.i {
-                formatPlaybackDiagnostic(
-                    PlaybackDiagnostic(
-                        stage = PlaybackDiagnosticStage.Profile,
-                        event = PlaybackDiagnosticEvent.CodecDropped,
-                        platform = PlaybackDiagnosticPlatform.Android,
-                        codec = entry.codec,
-                        reason = entry.reason,
-                    ),
-                )
-            }
-        }
-        return capabilities
+        return DeviceDecodingCapabilities(
+            videoCodecs = decoderCapabilities.videoCodecs,
+            audioCodecs = audioCodecs,
+            supportsDolbyVision = supportsDolbyVision,
+            videoResolutionsByCodec = decoderCapabilities.videoResolutionsByCodec,
+            videoConstraintsByCodec = decoderCapabilities.videoConstraintsByCodec,
+            audioPassthroughCodecs = audioRoute.passthroughCodecs,
+            maxAudioChannels = audioRoute.maxAudioChannels,
+            audioDecodeChannelsByCodec = audioDecodeChannelsByCodec,
+            audioPassthroughMaxChannels = audioRoute.passthroughMaxAudioChannels,
+            supportsHdr = displayHdrTypes.isNotEmpty(),
+            videoRangeCapabilitiesByCodec = videoRangeCapabilitiesByCodec,
+            directPlayProfiles = androidDirectPlayProfiles,
+            subtitleProfiles = androidSubtitleProfiles(),
+            videoCodecEvidence = decoderCapabilities.videoCodecEvidence.withExplicitUnknowns(decoderCapabilities.videoCodecs),
+            audioCodecEvidence = audioCodecEvidence,
+        )
     }
 
     private fun mpvCapabilities(refreshDecoders: Boolean): DeviceDecodingCapabilities {

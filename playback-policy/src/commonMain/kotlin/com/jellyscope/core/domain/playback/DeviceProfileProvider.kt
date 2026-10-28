@@ -153,23 +153,16 @@ private fun VideoCodecResolution?.hasFiniteResolutionLimit(): Boolean =
         (maxWidth != null || maxHeight != null || maxFrameArea != null || maxFrameAreaPerSecond != null)
 
 /**
- * Smallest frame a decoder must handle before the codec is worth advertising.
- *
- * A decoder that cannot reach 720p is a token software fallback, not a codec the
- * device can play: the Chromecast with Google TV has no hardware AV1 decoder and
- * reports a 720x720 AV1 ceiling, so advertising AV1 promises a capability that
- * only ever resolves to a transcode.
+ * Fixed reason vocabulary for [DeviceDecodingCapabilities.droppedVideoCodecs] and
+ * `CodecDropped` profile diagnostics. Entries keep their original meaning so
+ * earlier diagnostic captures stay readable; they are not current admission
+ * criteria (see `docs/engineering/playback-policy.md`).
  */
 enum class UnusableVideoCodecReason : DiagnosticReason {
-    /** The probed decoder cannot reach 720p, so it is a token software fallback. */
+    /** The probed decoder was below the former 720p floor. */
     BelowMinimumSize,
 
-    /**
-     * No probed limits at all, so nothing downstream can bound the codec:
-     * `transcodeResolutionCap` returns null when a target codec has no resolution
-     * entry, and the planner then uses the uncapped transcode URL. Advertising an
-     * unbounded codec is exactly how an oversized stream reaches the decoder.
-     */
+    /** The probe produced no finite bound for the codec. */
     NoProbedLimits,
 }
 
@@ -177,14 +170,6 @@ data class UnusableVideoCodec(
     val codec: String,
     val reason: UnusableVideoCodecReason,
 )
-
-/** Preserves codec claims when a probe has no usable bound for that codec. */
-fun DeviceDecodingCapabilities.withoutUnusableVideoCodecs(): Pair<DeviceDecodingCapabilities, List<UnusableVideoCodec>> {
-    // Unknown bounds are not evidence of an unsupported codec. Keep the codec
-    // advertised and let source-relative planning compare only concrete files
-    // against real bounds.
-    return this to emptyList()
-}
 
 interface DeviceProfileProvider {
     val backendPolicy: PlayerBackendPolicy
@@ -283,7 +268,7 @@ fun appleAvPlayerDeviceCapabilities(
                 )
             },
         hasUserOverridableVideoInputEnvelope = hasUserOverridableVideoInputEnvelope,
-    ).withoutUnusableVideoCodecs().first
+    )
 }
 
 @OptIn(ExperimentalObjCRefinement::class)
@@ -341,7 +326,7 @@ fun vlcKitDeviceCapabilities(
                 )
             },
         hasUserOverridableVideoInputEnvelope = hasUserOverridableVideoInputEnvelope,
-    ).withoutUnusableVideoCodecs().first
+    )
 }
 
 private fun VideoCodecResolution?.hasAnyFiniteLimit(): Boolean =

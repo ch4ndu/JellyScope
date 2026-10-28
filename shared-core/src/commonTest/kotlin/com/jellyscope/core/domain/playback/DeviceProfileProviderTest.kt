@@ -5,7 +5,6 @@ package com.jellyscope.core.domain.playback
 import com.jellyscope.core.data.remote.buildDeviceProfile
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class DeviceProfileProviderTest {
     @Test
@@ -57,88 +56,6 @@ class DeviceProfileProviderTest {
 
         assertEquals(directPlay.videoCodecs.toSet(), capabilities.videoCodecEvidence.keys)
         assertEquals(directPlay.audioCodecs.toSet(), capabilities.audioCodecEvidence.keys)
-    }
-
-    @Test
-    fun smallAndUnknownBoundsRemainEvidenceWithSourceRelativeRejection() {
-        // Device-verified against a Chromecast with Google TV (2026-07-25): it has
-        // no hardware AV1 decoder and probes a 720x720 AV1 ceiling, so advertising
-        // AV1 promises direct play that can only ever resolve to a transcode.
-        val capabilities =
-            DeviceDecodingCapabilities(
-                videoCodecs = listOf("h264", "hevc", "av1"),
-                audioCodecs = listOf("aac"),
-                supportsDolbyVision = false,
-                videoResolutionsByCodec =
-                    mapOf(
-                        "h264" to VideoCodecResolution(maxWidth = 4_096, maxHeight = 2_160),
-                        "hevc" to VideoCodecResolution(maxWidth = 4_096, maxHeight = 2_160),
-                        "av1" to VideoCodecResolution(maxWidth = 720, maxHeight = 720),
-                    ),
-                videoConstraintsByCodec = mapOf("av1" to VideoCodecConstraints(maxBitDepth = 10)),
-                videoRangeCapabilitiesByCodec = mapOf("av1" to VideoRangeCapabilities()),
-                directPlayProfiles =
-                    listOf(
-                        DeviceDirectPlayProfile(
-                            containers = listOf("mp4", "webm"),
-                            videoCodecs = listOf("h264", "hevc", "av1"),
-                            audioCodecs = listOf("aac"),
-                        ),
-                    ),
-            )
-
-        val (filtered, dropped) = capabilities.withoutUnusableVideoCodecs()
-
-        assertTrue(dropped.isEmpty())
-        assertEquals(capabilities, filtered)
-    }
-
-    @Test
-    fun codecsAtExactlyHdAreKept() {
-        val capabilities =
-            DeviceDecodingCapabilities(
-                videoCodecs = listOf("h264", "vp9"),
-                audioCodecs = listOf("aac"),
-                supportsDolbyVision = false,
-                videoResolutionsByCodec =
-                    mapOf(
-                        // Exactly 720p is usable, not unusable.
-                        "h264" to VideoCodecResolution(maxWidth = 1_280, maxHeight = 720),
-                        "vp9" to VideoCodecResolution(maxWidth = 3_840, maxHeight = 2_160),
-                    ),
-            )
-
-        val (filtered, dropped) = capabilities.withoutUnusableVideoCodecs()
-
-        assertTrue(dropped.isEmpty())
-        assertEquals(capabilities, filtered)
-    }
-
-    @Test
-    fun codecsWithNoProbedLimitsRemainUnknownRatherThanUnsupported() {
-        // An advertised codec with no probed limits cannot be bounded downstream:
-        // transcodeResolutionCap returns null when a target codec has no
-        // resolution entry, and the planner then uses the uncapped transcode URL,
-        // which is how an oversized stream reaches the decoder in the first place.
-        val capabilities =
-            DeviceDecodingCapabilities(
-                videoCodecs = listOf("h264", "mpeg2video", "vc1"),
-                audioCodecs = listOf("aac"),
-                supportsDolbyVision = false,
-                videoResolutionsByCodec =
-                    mapOf(
-                        "h264" to VideoCodecResolution(maxWidth = 3_840, maxHeight = 2_160),
-                        // mpeg2video: probe produced no entry at all.
-                        // vc1: an entry that carries neither dimension bounds nothing.
-                        "vc1" to VideoCodecResolution(),
-                    ),
-            )
-
-        val (filtered, dropped) = capabilities.withoutUnusableVideoCodecs()
-
-        assertTrue(dropped.isEmpty())
-        assertEquals(capabilities, filtered)
-        assertEquals(dropped, filtered.droppedVideoCodecs)
     }
 
     @Test
