@@ -26,6 +26,17 @@ Published `.1` and `.2` assets stay immutable. The manifest records the native
 commit and source snapshot digest. Physical playback validation remains open
 for the rebuilt `.3` bytes; earlier device acceptance does not qualify them.
 
+Static audio qualification for this pin checked the configured and linked
+`codec_list` registrations for 35 PCM decoders, ALAC, MLP and existing TrueHD
+on all three ABIs. The inspected unstripped `libavcodec.so` files matched the
+Gradle native inputs byte for byte. Exact metadata names came from the pinned
+FFmpeg codec descriptors, with source version/revision owned by the
+[source manifest](../../scripts/android-mpv-bundle/manifest-1.0.0.txt).
+This establishes registered input decoders, not audible playback, sample-format
+coverage, channel mapping or encoded passthrough. APK inventory checks and
+runtime acceptance remain separate gates; release stripping removes the symbol
+tables used to identify registrations, not the registration data.
+
 The project still compiles its own bridge from the provider-based committed JNI
 sources. Provider `libplayer.so` and x86 are excluded; the extracted mpv,
 FFmpeg and NDK-29 C++ runtime provide link inputs. The manifest and wrapper
@@ -132,7 +143,10 @@ legal-compliance determination. Apply the separate notice review above.
 The same verifier is invoked by [`scripts/verify.sh`](../../scripts/verify.sh)
 after the release assemblies. When the AAR, POM, native payload, source tag,
 ABI set, or C++ runtime changes, update the manifest, attribution/source
-records, and license audit together. Never hide
+records, and license audit together. Requalify the Android mpv audio declaration
+against the new FFmpeg descriptors and linked decoder registrations on each
+shipped ABI; retained declarations must not rely on an older payload's evidence.
+Never hide
 a coexistence failure by changing `pickFirst` order; stop for an audited
 rebuilt/forked dependency or an explicit ABI/backend scope decision.
 

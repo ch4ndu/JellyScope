@@ -862,7 +862,7 @@ private fun androidMedia3Capabilities(): DeviceDecodingCapabilities =
 
 private fun androidMpvCapabilities(): DeviceDecodingCapabilities {
     val videoCodecs = listOf("av1", "h264", "hevc", "mpeg2video", "mpeg4", "vp8", "vp9")
-    val audioCodecs = listOf("aac", "ac3", "dca", "dts", "eac3", "flac", "mp3", "opus", "pcm", "truehd", "vorbis")
+    val audioCodecs = androidMpvDeviceProfileDeclaration.audioCodecs.sorted()
     return DeviceDecodingCapabilities(
         videoCodecs = videoCodecs,
         audioCodecs = audioCodecs,

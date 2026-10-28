@@ -17,6 +17,13 @@ class AndroidMpvCapabilityMatrixTest {
         assertTrue("mkv" in matrix.supportedContainers)
         assertTrue("hevc" in matrix.supportedVideoCodecs)
         assertTrue("truehd" in matrix.supportedAudioCodecs)
+        val directPlayAudioCodecs = capabilities.directPlayProfiles.single().audioCodecs
+        assertTrue("pcm_s16le" in directPlayAudioCodecs)
+        assertTrue("pcm_bluray" in directPlayAudioCodecs)
+        assertTrue("alac" in directPlayAudioCodecs)
+        assertTrue("mlp" in directPlayAudioCodecs)
+        assertFalse("pcm" in directPlayAudioCodecs)
+        assertFalse("pcm" in capabilities.audioCodecs)
         assertFalse(capabilities.supportsHdr)
         assertFalse(capabilities.supportsDolbyVision)
         assertEquals(emptyList<String>(), capabilities.audioPassthroughCodecs)

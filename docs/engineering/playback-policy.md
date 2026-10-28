@@ -464,12 +464,12 @@ cause conversion or an unsupported result.
 
 | Player | Containers | Video | Audio |
 | --- | --- | --- | --- |
-| ExoPlayer (Android) | MP4, M4V, MOV, MKV, WebM, TS | H.264, HEVC, VP9, AV1 | AAC, MP3, AC-3, E-AC-3, DTS, FLAC, Opus, Vorbis, PCM |
-| mpv (Android) | AVI, MKV, M2TS, MOV, MP4, TS, WebM | H.264, HEVC, VP8, VP9, AV1, MPEG-2, MPEG-4 | AAC, AC-3, E-AC-3, DTS, FLAC, MP3, Opus, PCM, TrueHD, Vorbis |
+| ExoPlayer (Android) | MP4, M4V, MOV, MKV, WebM, TS | H.264, HEVC, VP9, AV1 | AAC, MP3, AC-3, E-AC-3, DTS, FLAC, Opus, Vorbis, generic `pcm` token |
+| mpv (Android) | AVI, MKV, M2TS, MOV, MP4, TS, WebM | H.264, HEVC, VP8, VP9, AV1, MPEG-2, MPEG-4 | AAC, AC-3, E-AC-3, DTS, FLAC, ALAC, MLP, MP3, Opus, exact `pcm_*` formats, TrueHD, Vorbis |
 | LibVLC (Android) | MP4, MOV, MKV, WebM, TS, AVI | H.264, HEVC, MPEG-1, MPEG-2, VP8, VP9, AV1 | AAC, AC-3, E-AC-3, MP3, FLAC, Opus, Vorbis |
 | AVPlayer (iOS, Apple TV) | MP4, M4V, MOV, TS | H.264, HEVC, AV1 | AAC, MP3, AC-3, E-AC-3, FLAC, ALAC |
 | VLCKit (iOS) | MP4, M4V, MOV, MKV, WebM, TS, M2TS, AVI, FLV, 3GP, OGV, ASF, WMV | H.264, HEVC, VP8, VP9, MPEG-1/2/4, VC-1, WMV, ProRes, Theora, MJPEG, AV1, and more | AAC, AC-3, E-AC-3, DTS, MP1–MP3, FLAC, ALAC, Opus, Vorbis, PCM, WMA, and more |
-| macOS (both players) | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis, PCM |
+| macOS (both players) | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis, generic `pcm` token |
 
 On Android, support depends on the selected player and device decoders. On
 Apple devices, the hardware AV1 check applies to AVPlayer. VLCKit declares AV1
@@ -478,6 +478,16 @@ without that hardware gate and does not claim HDR support.
 ## Why
 
 ### Server contract and capability modeling
+
+- **Android mpv input codecs use exact metadata names.** The pinned FFmpeg
+  registers decoders for 35 PCM codec IDs, ALAC and MLP. Their descriptor names
+  match the `codec_name` vocabulary used by ffprobe; a literal `pcm` is not a
+  wildcard for `pcm_*`. Other backends retaining that generic token still need
+  qualification. Decoder symbols are not generally wire names (DTS uses dca).
+  The [native runbook](../operations/android-native-dependencies.md#pinned-inputs)
+  owns the registration evidence and its limits. This expands input decoding
+  declarations and the finite diagnostic vocabulary, without changing channel
+  limits, encoded output or HLS output codecs.
 
 - **Trickplay is source- and delivery-qualified.** Resolution alone can pair a
   tile sheet with the wrong media version, and advertised metadata does not
