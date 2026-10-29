@@ -126,6 +126,16 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 - AVPlayer advertises AV1 direct play only with hardware decode support;
   VLCKit uses its separate VLC-family codec declarations. Unsupported extreme
   sources should fail cleanly rather than stall.
+- The [VLCKit 4.0.0a25 pin](../../scripts/vlckit-bundle/manifest-4.0.0a25.txt)
+  has a compiled avcodec route to registered libavcodec decoders for ALAC and
+  the declared `pcm_*` names except `pcm_dvd`, across the four required iOS/tvOS
+  frameworks (six architectures). This establishes an available route, not the
+  module VLC selects. It does not qualify container/demuxer routing, sample
+  format, channel count or audible playback; the server profile still imposes
+  no channel-count ceiling for these VLCKit inputs. Other codec entries and the
+  native `pcm_dvd` route remain unqualified for this pin. On pin changes,
+  requalify the module list, audio fourcc table, codec list and descriptors on
+  every required slice; watchOS and visionOS were not checked.
 - On iOS, AVPlayer is the recommended fresh-install default. Auto remains an
   explicit user choice and may route a source to VLCKit when AVPlayer cannot
   direct play it. VLCKit is labeled beta in Settings; its Picture in Picture

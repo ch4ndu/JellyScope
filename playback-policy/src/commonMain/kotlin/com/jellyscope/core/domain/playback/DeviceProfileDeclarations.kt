@@ -63,8 +63,12 @@ val vlcKitDeviceProfileDeclaration =
             ),
         // Historical rationale from the validated MobileVLCKit 3.7.3 binary: it
         // exposed DTS under both Jellyfin spellings and shipped no TrueHD/MLP
-        // support. Decode support for the current VLCKit 4.0.0a25 pin has not
-        // been requalified.
+        // support. For the current VLCKit 4.0.0a25 pin, alac and every listed
+        // pcm_* name except pcm_dvd have a compiled avcodec route to a
+        // registered libavcodec decoder in every required iOS/tvOS slice. That
+        // static check does not establish which module VLC selects at runtime
+        // or that decoded audio is audible. The remaining entries, including
+        // pcm_dvd, have not been requalified for 4.0.0a25.
         audioCodecs =
             listOf(
                 "aac",
@@ -84,11 +88,26 @@ val vlcKitDeviceProfileDeclaration =
                 "pcm_alaw",
                 "pcm_bluray",
                 "pcm_dvd",
+                "pcm_f32be",
+                "pcm_f32le",
+                "pcm_f64be",
+                "pcm_f64le",
                 "pcm_mulaw",
                 "pcm_s16be",
                 "pcm_s16le",
+                "pcm_s16le_planar",
                 "pcm_s24be",
+                "pcm_s24daud",
                 "pcm_s24le",
+                "pcm_s32be",
+                "pcm_s32le",
+                "pcm_s8",
+                "pcm_u16be",
+                "pcm_u16le",
+                "pcm_u24be",
+                "pcm_u24le",
+                "pcm_u32be",
+                "pcm_u32le",
                 "pcm_u8",
                 "speex",
                 "vorbis",
