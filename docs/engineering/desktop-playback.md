@@ -179,9 +179,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   Standard/IOSurface remains a temporary comparison option pending acceptance.
 - Settings → Playback → Default player exposes independent macOS `mpv` and
   `LibVLC` choices for the next playback session. LibVLC is selectable
-  only when the cached file-based runtime check finds a usable VLC layout; the
-  check does not create a native engine, and a VLC install appearing after the
-  cache is evaluated needs an app restart before the Settings listing changes.
+  only when file-based discovery finds a usable VLC layout. The first discovery
+  freezes the selected runtime, or its absence, for Settings, profiles and engine
+  creation without loading native code. A later VLC installation needs an app
+  restart; removing the selected runtime causes initialization failure rather
+  than switching to another installation.
   VLC 3 version validation remains at engine creation; an incompatible runtime
   follows the existing backend-fallback notice. Its native AppKit child surface
   does not share mpv surface contracts or the mpv OpenGL limitation, so it may
@@ -251,8 +253,14 @@ Standard bundle remains a load-time error rather than preventing startup.
 The bundled FFmpeg 9.0.2 qualification establishes static decoder registration,
 not container demuxing, audible output, channel mapping or runtime acceptance.
 Requalify the PCM names when the FFmpeg version or shared configure line changes.
-LibVLC retains its generic `pcm` token and static base declarations with unknown
-finite limits. On macOS only, Standard compatibility
+LibVLC keeps static evidence and unknown finite limits. The bundled
+[VLC 3.0.24 runtime](../../scripts/vlc-bundle/manifest-3.0.24-arm64.txt), with
+FFmpeg 8.1.2, adds 23 exact PCM names through a compiled avcodec route to
+registered libavcodec decoders. This does not establish which plugin VLC selects,
+container demuxing, channel mapping or audible playback. Requalify those routes
+when VLC, FFmpeg or their build configuration changes. The installed-VLC fallback
+retains the 11 non-PCM audio names; it receives no bundled PCM claims.
+On macOS only, Standard compatibility
 intersects every locally advertised LibVLC video codec with one app-owned,
 user-overridable input envelope: 3840x2160, 8,294,400 pixels per frame, and
 497,664,000 pixels per second. Width and height shape the server profile;

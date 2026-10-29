@@ -108,23 +108,37 @@ internal data class DesktopVlcRuntime(
     val libraryFile: File,
     val coreLibraryFile: File,
     val pluginsDirectory: File,
+    // True only for the app-resources runtime staged from the pinned VLC bundle.
+    val pinnedBundle: Boolean = false,
 )
 
+/**
+ * Chooses the desktop LibVLC runtime once per process using file checks only;
+ * no native library is loaded until an engine is created. Settings, the device
+ * profile and engine creation all bind to this choice. A VLC install that
+ * appears later requires an app restart, and a chosen runtime removed later
+ * fails engine initialization rather than falling back to another runtime.
+ */
 internal object DesktopVlcRuntimeDiscovery {
-    fun discover(): DesktopVlcRuntime {
-        val bundledRoot =
-            System
-                .getProperty("compose.application.resources.dir")
-                ?.takeIf { path -> path.isNotBlank() }
-                ?.let(::File)
-        val candidates =
-            listOfNotNull(
-                bundledRoot?.let(::runtimeUnder),
-                runtimeUnder(File("/Applications/VLC.app/Contents/MacOS")),
-            )
-        return candidates.firstOrNull(::isUsableRuntime)
-            ?: throw DesktopVlcInitializationException()
+    private val selected: DesktopVlcRuntime? by lazy {
+        runCatching {
+            val bundledRoot =
+                System
+                    .getProperty("compose.application.resources.dir")
+                    ?.takeIf { path -> path.isNotBlank() }
+                    ?.let(::File)
+            val candidates =
+                listOfNotNull(
+                    bundledRoot?.let { root -> runtimeUnder(root).copy(pinnedBundle = true) },
+                    runtimeUnder(File("/Applications/VLC.app/Contents/MacOS")),
+                )
+            candidates.firstOrNull(::isUsableRuntime)
+        }.getOrNull()
     }
+
+    fun discover(): DesktopVlcRuntime = selected ?: throw DesktopVlcInitializationException()
+
+    fun selectedOrNull(): DesktopVlcRuntime? = selected
 
     internal fun runtimeUnder(root: File): DesktopVlcRuntime =
         DesktopVlcRuntime(
@@ -139,15 +153,9 @@ internal object DesktopVlcRuntimeDiscovery {
             runtime.pluginsDirectory.isDirectory
 }
 
-private val cachedDesktopLibVlcRuntimeAvailable: Boolean by lazy {
-    // Settings/profile discovery is intentionally a cheap, cached file check.
-    // A VLC install that appears after this is evaluated requires an app restart
-    // to change the advertised backend; playback performs fresh discovery when
-    // it creates the engine.
-    runCatching { DesktopVlcRuntimeDiscovery.discover() }.isSuccess
-}
+fun desktopLibVlcRuntimeAvailable(): Boolean = DesktopVlcRuntimeDiscovery.selectedOrNull() != null
 
-fun desktopLibVlcRuntimeAvailable(): Boolean = cachedDesktopLibVlcRuntimeAvailable
+internal fun desktopLibVlcPinnedBundle(): Boolean = DesktopVlcRuntimeDiscovery.selectedOrNull()?.pinnedBundle == true
 
 internal class DesktopVlcInitializationException : IllegalStateException("Desktop LibVLC is unavailable.")
 
