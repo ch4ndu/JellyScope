@@ -70,7 +70,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   and audio-only transitions settle without video evidence. The strict hold is
   bounded: a timeout remains an explicit diagnostic outcome but releases
   `Buffering`, follows later native clock samples, and no longer excludes those
-  samples from terminal progress evidence. This prevents an unavailable VLCKit
+  samples from terminal progress evidence. The remaining picture wait follows
+  the [shared health status contract](playback-runtime.md#playback-health-and-guidance).
+  Releasing the bounded hold prevents an unavailable VLCKit
   picture counter from pinning the timeline or turning a genuine natural end
   into `Paused` for the rest of the session. Each transition has a generation-
   local sequence and one timeout observation, so stale callbacks cannot clear a
@@ -105,8 +107,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   `Unknown` (fallback-ladder eligible). Never guess Decoder/UnsupportedMedia.
 - Apple controllers supply buffering/startup state and only the first-output
   evidence their measurement capabilities support. Neither supplies shared
-  dropped-frame health measurements; VLCKit's best-effort debug lost-picture
-  counter is separate, and its first-output measurement is not reliable.
+  dropped-frame health measurements. VLCKit's native cumulative lost-picture
+  total is a best-effort observation sampled every fourth state update at a
+  variable cadence. Its getter ignores statistics availability; zero or repeated
+  totals establish neither freshness nor a drop rate. Its first-output
+  measurement remains unreliable.
   VLCKit opts into the shared actionable guidance presentation; the banner may
   offer a safe next lower rung and Open
   Playback Settings, but no controller changes quality automatically. Android

@@ -126,7 +126,10 @@ class PlaybackHealthSessionCoordinator(
     fun observePlaybackState(playbackState: PlaybackState) {
         if (!active) return
         latestPlaybackPositionMs = playbackState.positionMs.coerceAtLeast(0L)
-        val signals = evaluator.onStatusChanged(playbackState.status, monotonicTimeMs())
+        val healthStatus =
+            playbackState.healthStatusOverride?.takeIf { playbackState.status == PlaybackStatus.Buffering }
+                ?: playbackState.status
+        val signals = evaluator.onStatusChanged(healthStatus, monotonicTimeMs())
         handleSignals(signals)
         syncTimers()
     }

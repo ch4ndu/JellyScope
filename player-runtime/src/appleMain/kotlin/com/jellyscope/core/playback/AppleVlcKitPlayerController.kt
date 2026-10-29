@@ -347,6 +347,7 @@ internal class AppleVlcKitPlayerController(
                 subtitleStyle = requestedSubtitleStyle,
                 error = null,
                 audioUnavailable = false,
+                healthStatusOverride = null,
             )
         }
 
@@ -806,6 +807,7 @@ internal class AppleVlcKitPlayerController(
                 audioActivation = AudioActivationState.None,
                 subtitleActivation = SubtitleActivationState.None,
                 audioUnavailable = false,
+                healthStatusOverride = null,
             )
         }
         offlinePath = null
@@ -1340,6 +1342,25 @@ internal class AppleVlcKitPlayerController(
                         nativeState = nativeState,
                     )
             }
+        // Health-only: once the clock has advanced at the target, a still-held public
+        // Buffering no longer hides native transport from playback health. Before that
+        // advance (seek, PiP dispatch, cold start) health keeps the held Buffering.
+        val healthStatusOverride =
+            if (
+                terminalDecision == null &&
+                status == PlaybackStatus.Buffering &&
+                activeTransitionDecision?.forceBuffering == true &&
+                playbackTransition.snapshot(currentGeneration)?.clockAdvanced == true
+            ) {
+                nativePlayer.resolvePlaybackStatus(
+                    previous = previousStatus,
+                    buffering = buffering,
+                    playIntent = playWhenReady,
+                    nativeState = nativeState,
+                )
+            } else {
+                null
+            }
         pictureInPictureSeekable.store(if (nativePlayer.seekable) 1L else 0L)
         val resolvedPosition =
             when {
@@ -1367,6 +1388,7 @@ internal class AppleVlcKitPlayerController(
                         else -> null
                     },
                 audioUnavailable = false,
+                healthStatusOverride = healthStatusOverride,
             )
         }
         surfaceOwner.invalidatePlaybackState()
@@ -1479,6 +1501,7 @@ internal class AppleVlcKitPlayerController(
                 status = PlaybackStatus.Failed,
                 error = error,
                 audioUnavailable = false,
+                healthStatusOverride = null,
             )
         }
     }
@@ -2152,8 +2175,9 @@ private fun String?.toVlcRgb(): String? {
 
 private const val DEFAULT_VLC_SUBTITLE_SIZE = 25f
 
-// Native time callbacks arrive ~4x/s; sample the runtime diagnostics (videoSize
-// plus the media statistics C struct) roughly once per second.
+// Sample the runtime diagnostics (videoSize plus the media statistics C struct) on
+// every fourth state update; cadence follows native callbacks and commands, so it
+// maps to no fixed number of seconds.
 private const val RUNTIME_DIAGNOSTICS_SAMPLE_TICKS = 4
 
 private const val REQUIRED_VLCKIT_PICTURE_ADVANCES = 2

@@ -142,7 +142,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   completed, position, duration, buffered position, audio and subtitle
   activation, an optional `PlaybackError` cause only when failed, and a
   non-fatal `audioUnavailable` flag only while playback continues video-only
-  after audio output fails.
+  after audio output fails. Its optional `healthStatusOverride` supplies health
+  status only while the public status is `Buffering`; null uses the public
+  status. UI, reporting, failure and terminal handling retain the public status.
 - The AVPlayer controller derives buffered position from
   `AVPlayerItem.loadedTimeRanges` by reporting the end of the loaded range
   covering the current playhead. It derives `Buffering` from AVFoundation's
@@ -152,7 +154,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   position, so its buffer-ahead is unavailable, not a measured empty buffer.
   Its `Buffering` combines native buffering progress under play intent with the
   prepare/resume/seek transition hold owned by
-  [iOS recovery](apple-playback.md#ios-recovery).
+  [iOS recovery](apple-playback.md#ios-recovery). Once the transition clock has
+  reached the target and advanced, health uses the ordinary native status
+  mapping during the remaining picture-readiness hold. The spinner and pinned
+  target remain unchanged. Before that clock advance, health uses public
+  `Buffering`; genuine native buffering after the advance remains measurable.
 - `PlaybackProgressReporter` owns Jellyfin progress reporting actions for start,
   pause, seek, stop, completion, and failure.
 - Direct-play planning uses `/Videos/{itemId}/stream?static=true` with
@@ -251,8 +257,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 The pure shared `PlaybackHealthEvaluator` receives native controller facts but
 owns the meaning of those facts. Slow startup is eligible after 10 seconds
 before the first `Playing` and clears at the first `Playing`; it has a separate
-message-only startup budget. Post-start guidance uses one shared budget and
-the first admissible signal wins: one buffering interval of at least 5 seconds,
+message-only startup budget. VLCKit's health status can end that accounting
+before picture readiness: it represents native transport plus an earlier clock
+advance at the target, not first-video-output proof. Post-start guidance uses one
+shared budget and the first admissible signal wins: one buffering interval of at
+least 5 seconds,
 10 seconds of buffering in a rolling 60-second window, three post-start
 `Playing`→`Buffering` stalls in 60 seconds, or sustained dropped-frame evidence
 of at least 2 frames/second for 20 seconds within 60 seconds. Existing dropped-

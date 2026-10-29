@@ -187,6 +187,16 @@ data class PlaybackState(
     val subtitleActivation: SubtitleActivationState = SubtitleActivationState.None,
     val error: PlaybackError? = null,
     val audioUnavailable: Boolean = false,
+    /**
+     * Health-only evaluation status; UI and server reporting use [status].
+     *
+     * Non-null only while [status] is [PlaybackStatus.Buffering], carrying the native
+     * ordinary mapping (Playing, Buffering, Loading, Paused or Failed) the public hold
+     * hides. Null means health uses [status] as usual; it never means skip the sample.
+     * UI, server reporting, failure and terminal handling keep reading [status];
+     * health-driven recovery consumes the resulting health signals under existing policy.
+     */
+    val healthStatusOverride: PlaybackStatus? = null,
 )
 
 sealed interface PlaybackError {
