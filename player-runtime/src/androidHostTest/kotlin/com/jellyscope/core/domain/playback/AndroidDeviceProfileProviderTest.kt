@@ -889,7 +889,42 @@ private fun androidMpvCapabilities(): DeviceDecodingCapabilities {
 
 private fun androidLibVlcCapabilities(): DeviceDecodingCapabilities {
     val videoCodecs = listOf("av1", "h264", "hevc", "mpeg1video", "mpeg2video", "vp8", "vp9")
-    val audioCodecs = listOf("aac", "ac3", "eac3", "flac", "mp3", "opus", "vorbis")
+    val audioCodecs =
+        listOf(
+            "aac",
+            "ac3",
+            "alac",
+            "eac3",
+            "flac",
+            "mlp",
+            "mp3",
+            "opus",
+            "pcm_alaw",
+            "pcm_bluray",
+            "pcm_f32be",
+            "pcm_f32le",
+            "pcm_f64be",
+            "pcm_f64le",
+            "pcm_mulaw",
+            "pcm_s16be",
+            "pcm_s16le",
+            "pcm_s16le_planar",
+            "pcm_s24be",
+            "pcm_s24daud",
+            "pcm_s24le",
+            "pcm_s32be",
+            "pcm_s32le",
+            "pcm_s8",
+            "pcm_u16be",
+            "pcm_u16le",
+            "pcm_u24be",
+            "pcm_u24le",
+            "pcm_u32be",
+            "pcm_u32le",
+            "pcm_u8",
+            "truehd",
+            "vorbis",
+        )
     return DeviceDecodingCapabilities(
         videoCodecs = videoCodecs,
         audioCodecs = audioCodecs,

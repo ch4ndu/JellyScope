@@ -199,7 +199,48 @@ val androidLibVlcDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers = listOf("avi", "mkv", "mov", "mp4", "mpegts", "ts", "webm"),
         videoCodecs = listOf("h264", "hevc", "mpeg1video", "mpeg2video", "vp8", "vp9", "av1"),
-        audioCodecs = listOf("aac", "ac3", "eac3", "flac", "mp3", "opus", "vorbis"),
+        // For the pinned libvlc-all 3.7.7 AAR, alac, mlp, truehd and every
+        // listed pcm_* name have a compiled avcodec route to a registered
+        // libavcodec decoder in all three shipped Android ABIs. MLP stays
+        // distinct from TrueHD. That static check does not establish which
+        // module VLC selects at runtime or that decoded audio is audible. The
+        // other seven entries were not part of this qualification.
+        audioCodecs =
+            listOf(
+                "aac",
+                "ac3",
+                "alac",
+                "eac3",
+                "flac",
+                "mlp",
+                "mp3",
+                "opus",
+                "pcm_alaw",
+                "pcm_bluray",
+                "pcm_f32be",
+                "pcm_f32le",
+                "pcm_f64be",
+                "pcm_f64le",
+                "pcm_mulaw",
+                "pcm_s16be",
+                "pcm_s16le",
+                "pcm_s16le_planar",
+                "pcm_s24be",
+                "pcm_s24daud",
+                "pcm_s24le",
+                "pcm_s32be",
+                "pcm_s32le",
+                "pcm_s8",
+                "pcm_u16be",
+                "pcm_u16le",
+                "pcm_u24be",
+                "pcm_u24le",
+                "pcm_u32be",
+                "pcm_u32le",
+                "pcm_u8",
+                "truehd",
+                "vorbis",
+            ),
     )
 
 @OptIn(ExperimentalObjCRefinement::class)

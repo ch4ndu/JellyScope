@@ -439,6 +439,16 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   cancellation does not imply that an in-flight JNI call was interrupted. Native
   events from old media delivered to a newly installed listener remain a
   device-validation residual.
+- Android LibVLC declares ALAC, MLP, TrueHD and exact `pcm_*` input names
+  qualified against members of the pinned `libvlc-all` 3.7.7 AAR on arm64-v8a,
+  armeabi-v7a and x86_64. Static module registration, VLC audio fourcc mappings
+  and libavcodec decoder registration establish compiled avcodec routes for
+  this subset; the other seven audio declarations were not requalified.
+  This does not establish fourcc alias handling, container/demuxer support,
+  sample-format or channel handling, successful decoder opening, or audible
+  playback. Runtime module identity has the diagnostic limit described below.
+  Recheck these routes when the [native dependency pin](../operations/android-native-dependencies.md)
+  changes. The existing eight-channel policy and empty passthrough set remain.
 - Android LibVLC publishes native runtime diagnostics at a low rate: codec
   label, dimensions, frame rate, and lost-picture count. Before media assignment
   it also emits one Info-priority `backend-readiness` record with the closed
