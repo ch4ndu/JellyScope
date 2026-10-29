@@ -469,7 +469,9 @@ cause conversion or an unsupported result.
 | LibVLC (Android) | MP4, MOV, MKV, WebM, TS, AVI | H.264, HEVC, MPEG-1, MPEG-2, VP8, VP9, AV1 | AAC, AC-3, E-AC-3, MP3, FLAC, Opus, Vorbis, ALAC, MLP, TrueHD, exact PCM formats |
 | AVPlayer (iOS, Apple TV) | MP4, M4V, MOV, TS | H.264, HEVC, AV1 | AAC, MP3, AC-3, E-AC-3, FLAC, ALAC |
 | VLCKit (iOS) | MP4, M4V, MOV, MKV, WebM, TS, M2TS, AVI, FLV, 3GP, OGV, ASF, WMV | H.264, HEVC, VP8, VP9, MPEG-1/2/4, VC-1, WMV, ProRes, Theora, MJPEG, AV1, and more | AAC, AC-3, E-AC-3, DTS, MP1–MP3, FLAC, ALAC, Opus, Vorbis, PCM, WMA, and more |
-| macOS (both players) | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis, generic `pcm` token |
+| Bundled macOS mpv | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis, 35 exact PCM formats |
+| Other desktop mpv runtimes | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis |
+| Desktop LibVLC | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis, generic `pcm` token |
 
 On Android, support depends on the selected player and device decoders. On
 Apple devices, the hardware AV1 check applies to AVPlayer. VLCKit declares AV1
@@ -497,8 +499,8 @@ without that hardware gate and does not claim HDR support.
 - **Android mpv input codecs use exact metadata names.** The pinned FFmpeg
   registers decoders for 35 PCM codec IDs, ALAC and MLP. Their descriptor names
   match the `codec_name` vocabulary used by ffprobe; a literal `pcm` is not a
-  wildcard for `pcm_*`. Desktop backends retaining that generic token still need
-  qualification. Decoder symbols are not generally wire names (DTS uses dca).
+  wildcard for `pcm_*`. Desktop LibVLC retains that generic token and still needs
+  qualification; [desktop runtime provenance](desktop-playback.md#desktop) governs mpv declarations. Decoder symbols are not generally wire names (DTS uses dca).
   The [native runbook](../operations/android-native-dependencies.md#pinned-inputs)
   owns the registration evidence and its limits. This expands input decoding
   declarations and the finite diagnostic vocabulary, without changing channel

@@ -2,12 +2,15 @@
 
 package com.jellyscope.core.domain.playback
 
+import com.jellyscope.core.playback.DesktopMpvRuntime
 import com.jellyscope.core.playback.desktopLibVlcRuntimeAvailable
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
 
 class DesktopDeviceProfileProvider(
     private val hostOsName: String = System.getProperty("os.name").orEmpty(),
+    // Read only on the first mpv profile build, after startup froze the runtime.
+    private val mpvPinnedBundle: () -> Boolean = { DesktopMpvRuntime.active().pinnedBundle },
 ) : DeviceProfileProvider {
     override val backendPolicy: PlayerBackendPolicy = desktopPlayerBackendPolicy()
     override val availableBackends: Set<PlayerBackend> by lazy {
@@ -17,9 +20,18 @@ class DesktopDeviceProfileProvider(
         }
     }
     private val cachedMpvCapabilities: DeviceDecodingCapabilities by lazy {
+        // Only the bundled macOS runtime's pinned FFmpeg build qualifies PCM;
+        // other runtimes keep the base declaration as static evidence.
+        val pinnedBundle = mpvPinnedBundle()
         buildDesktopCapabilities(
-            declaration = desktopMpvDeviceProfileDeclaration,
-            decodeSource = CapabilityEvidenceSource.PinnedEngineDeclaration,
+            declaration =
+                if (pinnedBundle) macOsBundledMpvDeviceProfileDeclaration else desktopMpvDeviceProfileDeclaration,
+            decodeSource =
+                if (pinnedBundle) {
+                    CapabilityEvidenceSource.PinnedEngineDeclaration
+                } else {
+                    CapabilityEvidenceSource.StaticDeclaration
+                },
             audioLimitSource = CapabilityEvidenceSource.DocumentedLimit,
             videoInputEnvelope = null,
             supportsHdr = true,

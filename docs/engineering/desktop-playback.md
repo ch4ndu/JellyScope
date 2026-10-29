@@ -243,8 +243,16 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 
 Desktop defaults to mpv and offers LibVLC when its runtime is available. mpv and
 LibVLC use separately owned immutable declarations and capability snapshots.
-mpv marks its claims as pinned-engine evidence; LibVLC's base declarations stay
-static with unknown finite limits. On macOS only, Standard compatibility
+The mpv loader and profile share one launch-frozen library choice. Bundled macOS
+Standard and packaged Metal, including Gradle development runs, use pinned-engine
+evidence and add 35 exact PCM names. Explicit development Metal overrides and
+non-macOS/system libraries use static evidence with no PCM declaration. A missing
+Standard bundle remains a load-time error rather than preventing startup.
+The bundled FFmpeg 9.0.2 qualification establishes static decoder registration,
+not container demuxing, audible output, channel mapping or runtime acceptance.
+Requalify the PCM names when the FFmpeg version or shared configure line changes.
+LibVLC retains its generic `pcm` token and static base declarations with unknown
+finite limits. On macOS only, Standard compatibility
 intersects every locally advertised LibVLC video codec with one app-owned,
 user-overridable input envelope: 3840x2160, 8,294,400 pixels per frame, and
 497,664,000 pixels per second. Width and height shape the server profile;

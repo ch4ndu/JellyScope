@@ -98,35 +98,11 @@ internal interface LibMpv : Library {
         val INSTANCE: LibMpv by lazy { loadLibMpv() }
 
         private fun loadLibMpv(): LibMpv {
-            val bundledDir = System.getProperty("compose.application.resources.dir")
-            // Fails before any load when startup never froze the runtime.
-            val metalLibrary = DesktopMpvRuntime.active().metalLibrary
+            // Fails before any load when startup never froze the runtime. The
+            // device profile reads the same frozen library choice.
             val library =
-                if (metalLibrary != null) {
-                    metalLibrary.absolutePath
-                } else if (
-                    com.sun.jna.Platform
-                        .isMac()
-                ) {
-                    val bundled = bundledDir?.let { dir -> java.io.File(dir, "libmpv.2.dylib") }
-                    bundled
-                        ?.takeIf(java.io.File::isFile)
-                        ?.absolutePath
-                        ?: throw UnsatisfiedLinkError("Bundled macOS libmpv runtime is missing")
-                } else {
-                    val bundled =
-                        bundledDir
-                            ?.let { dir -> listOf("$dir/libmpv.so", "$dir/mpv-2.dll") }
-                            .orEmpty()
-                    val candidates =
-                        bundled +
-                            listOf(
-                                "/usr/lib/x86_64-linux-gnu/libmpv.so",
-                                "/usr/lib/libmpv.so",
-                                "/usr/lib64/libmpv.so",
-                            )
-                    candidates.firstOrNull { path -> java.io.File(path).exists() } ?: "mpv"
-                }
+                DesktopMpvRuntime.active().library
+                    ?: throw UnsatisfiedLinkError("Bundled macOS libmpv runtime is missing")
             val lib =
                 com.sun.jna.Native
                     .load(library, LibMpv::class.java)

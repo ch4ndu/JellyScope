@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 class DesktopDeviceProfileProviderTest {
     @Test
     fun desktopMpvAndLibVlcAdvertiseIndependentHdrCapabilitiesAndWireProfiles() {
-        val provider = DesktopDeviceProfileProvider(hostOsName = "Linux")
+        val provider = DesktopDeviceProfileProvider(hostOsName = "Linux", mpvPinnedBundle = { false })
         val mpv = provider.capabilities(PlayerBackend.Mpv)
         val libVlc = provider.capabilities(PlayerBackend.LibVlc)
 
@@ -30,9 +30,57 @@ class DesktopDeviceProfileProviderTest {
 
     @Test
     fun advertisesMpvAudioDecodeAndDownmixCapabilities() {
-        val provider = DesktopDeviceProfileProvider(hostOsName = "Mac OS X")
+        val provider = DesktopDeviceProfileProvider(hostOsName = "Mac OS X", mpvPinnedBundle = { true })
         val capabilities = provider.capabilities(PlayerBackend.Mpv)
-        val expectedAudioCodecs = listOf("aac", "mp3", "flac", "ac3", "eac3", "opus", "vorbis", "pcm", "dts", "dca", "truehd", "mp2")
+        val expectedAudioCodecs =
+            listOf(
+                "aac",
+                "mp3",
+                "flac",
+                "ac3",
+                "eac3",
+                "opus",
+                "vorbis",
+                "dts",
+                "dca",
+                "truehd",
+                "mp2",
+                "pcm_alaw",
+                "pcm_bluray",
+                "pcm_dvd",
+                "pcm_f16le",
+                "pcm_f24le",
+                "pcm_f32be",
+                "pcm_f32le",
+                "pcm_f64be",
+                "pcm_f64le",
+                "pcm_lxf",
+                "pcm_mulaw",
+                "pcm_s16be",
+                "pcm_s16be_planar",
+                "pcm_s16le",
+                "pcm_s16le_planar",
+                "pcm_s24be",
+                "pcm_s24daud",
+                "pcm_s24le",
+                "pcm_s24le_planar",
+                "pcm_s32be",
+                "pcm_s32le",
+                "pcm_s32le_planar",
+                "pcm_s64be",
+                "pcm_s64le",
+                "pcm_s8",
+                "pcm_s8_planar",
+                "pcm_sga",
+                "pcm_u16be",
+                "pcm_u16le",
+                "pcm_u24be",
+                "pcm_u24le",
+                "pcm_u32be",
+                "pcm_u32le",
+                "pcm_u8",
+                "pcm_vidc",
+            )
 
         assertEquals(8, capabilities.maxAudioChannels)
         assertEquals(expectedAudioCodecs, capabilities.audioCodecs)
@@ -47,13 +95,13 @@ class DesktopDeviceProfileProviderTest {
 
     @Test
     fun preservesTheSameUnboundedUnknownResolutionPolicyForBothDesktopBackends() {
-        val provider = DesktopDeviceProfileProvider(hostOsName = "Windows 11")
+        val provider = DesktopDeviceProfileProvider(hostOsName = "Windows 11", mpvPinnedBundle = { false })
         val mpv = provider.capabilities(PlayerBackend.Mpv)
         val libVlc = provider.capabilities(PlayerBackend.LibVlc)
 
         assertNotSame(mpv, libVlc)
         assertEquals(
-            setOf(CapabilityEvidenceSource.PinnedEngineDeclaration),
+            setOf(CapabilityEvidenceSource.StaticDeclaration),
             mpv.videoCodecEvidence.getValue("h264").decodeSources,
         )
         assertEquals(
@@ -75,7 +123,7 @@ class DesktopDeviceProfileProviderTest {
 
     @Test
     fun macOsBoundsOnlyLibVlcToTheStandard4k60EquivalentInputEnvelope() {
-        val provider = DesktopDeviceProfileProvider(hostOsName = "Mac OS X")
+        val provider = DesktopDeviceProfileProvider(hostOsName = "Mac OS X", mpvPinnedBundle = { true })
         val mpv = provider.capabilities(PlayerBackend.Mpv)
         val libVlc = provider.capabilities(PlayerBackend.LibVlc)
         val expectedEnvelope =

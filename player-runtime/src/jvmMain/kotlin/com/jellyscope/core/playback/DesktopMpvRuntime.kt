@@ -12,8 +12,14 @@ import java.nio.file.LinkOption
 class DesktopMpvActiveRuntime(
     val mode: DesktopMpvPresentation,
     val availability: DesktopMpvPresentationAvailability,
-    /** Absolute isolated Metal library; null keeps the existing Standard loader. */
-    val metalLibrary: File?,
+    /** Exact input passed to `Native.load`; null only when the bundled macOS Standard library is missing. */
+    val library: String?,
+    /**
+     * True only for a library from the app's own macOS resources (packaged Metal or
+     * bundled Standard), whose pinned FFmpeg build qualifies its decoder declaration.
+     * Never derived from [mode] or [availability].
+     */
+    val pinnedBundle: Boolean,
 ) {
     fun presentationPreference(requested: MpvPresentationPreference): MpvPresentationPreference {
         if (mode == DesktopMpvPresentation.Metal) return MpvPresentationPreference.MacOsNativeMetal
@@ -23,9 +29,10 @@ class DesktopMpvActiveRuntime(
 }
 
 /**
- * Launch-frozen owner shared by the production constructor and native loader.
- * The startup store initializes it before any player or native probe; the JNA
- * singleton never reloads, so a later saved choice applies only after restart.
+ * Launch-frozen owner shared by the production constructor, the native loader
+ * and the device profile. The startup store initializes it before any player or
+ * native probe; the JNA singleton never reloads, so a later saved choice applies
+ * only after restart.
  */
 object DesktopMpvRuntime {
     @Volatile
@@ -48,7 +55,8 @@ object DesktopMpvRuntime {
             return DesktopMpvActiveRuntime(
                 mode = DesktopMpvPresentation.Metal,
                 availability = DesktopMpvPresentationAvailability.LaunchOverride,
-                metalLibrary = explicitMetalLibrary(flag, directory, forcedOpenGl),
+                library = explicitMetalLibrary(flag, directory, forcedOpenGl).absolutePath,
+                pinnedBundle = false,
             )
         }
         if (!isMacOsArm64() || macOsMajorVersion() < 15) return standard(DesktopMpvPresentationAvailability.Unsupported)
@@ -58,19 +66,51 @@ object DesktopMpvRuntime {
             DesktopMpvActiveRuntime(
                 mode = DesktopMpvPresentation.Metal,
                 availability = DesktopMpvPresentationAvailability.Selectable,
-                metalLibrary = packaged,
+                library = packaged.absolutePath,
+                pinnedBundle = true,
             )
         } else {
             standard(DesktopMpvPresentationAvailability.Selectable)
         }
     }
 
-    private fun standard(availability: DesktopMpvPresentationAvailability) =
-        DesktopMpvActiveRuntime(
+    // A missing bundled macOS library resolves to null so startup still succeeds;
+    // the loader then fails at first load.
+    private fun standard(availability: DesktopMpvPresentationAvailability): DesktopMpvActiveRuntime {
+        val bundledDir = System.getProperty(RESOURCES_DIR_PROPERTY)
+        if (com.sun.jna.Platform
+                .isMac()
+        ) {
+            val bundled =
+                bundledDir
+                    ?.let { dir -> File(dir, LIBMPV) }
+                    ?.takeIf(File::isFile)
+                    ?.absolutePath
+            return DesktopMpvActiveRuntime(
+                mode = DesktopMpvPresentation.Standard,
+                availability = availability,
+                library = bundled,
+                pinnedBundle = bundled != null,
+            )
+        }
+        val bundled =
+            bundledDir
+                ?.let { dir -> listOf("$dir/libmpv.so", "$dir/mpv-2.dll") }
+                .orEmpty()
+        val candidates =
+            bundled +
+                listOf(
+                    "/usr/lib/x86_64-linux-gnu/libmpv.so",
+                    "/usr/lib/libmpv.so",
+                    "/usr/lib64/libmpv.so",
+                )
+        return DesktopMpvActiveRuntime(
             mode = DesktopMpvPresentation.Standard,
             availability = availability,
-            metalLibrary = null,
+            library = candidates.firstOrNull { path -> File(path).exists() } ?: "mpv",
+            pinnedBundle = false,
         )
+    }
 
     private fun explicitMetalLibrary(
         flag: String?,

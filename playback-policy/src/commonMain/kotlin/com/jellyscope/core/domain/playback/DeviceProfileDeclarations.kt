@@ -251,13 +251,70 @@ val androidLibVlcDeviceProfileDeclaration =
             ),
     )
 
+/**
+ * Desktop mpv declaration for runtimes outside the pinned macOS bundle. It
+ * advertises no PCM: there is no generic "pcm" codec name, and these runtimes
+ * have no qualified decoder set.
+ */
 @OptIn(ExperimentalObjCRefinement::class)
 @HiddenFromObjC
 val desktopMpvDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers = listOf("mp4", "m4v", "mov", "mkv", "webm", "mpegts", "ts", "avi"),
         videoCodecs = listOf("h264", "hevc", "vp9", "av1"),
-        audioCodecs = listOf("aac", "mp3", "flac", "ac3", "eac3", "opus", "vorbis", "pcm", "dts", "dca", "truehd", "mp2"),
+        audioCodecs = listOf("aac", "mp3", "flac", "ac3", "eac3", "opus", "vorbis", "dts", "dca", "truehd", "mp2"),
+    )
+
+// For FFmpeg 9.0.2, shared by bundled Standard and Metal, every name below is
+// an exact FFmpeg codec_name with a registered libavcodec decoder. That static
+// decoder registration check does not establish demuxing, audible output,
+// channel mapping or runtime acceptance. Requalify when the FFmpeg version or
+// configure line changes.
+private val macOsBundledMpvPcmAudioCodecs =
+    listOf(
+        "pcm_alaw",
+        "pcm_bluray",
+        "pcm_dvd",
+        "pcm_f16le",
+        "pcm_f24le",
+        "pcm_f32be",
+        "pcm_f32le",
+        "pcm_f64be",
+        "pcm_f64le",
+        "pcm_lxf",
+        "pcm_mulaw",
+        "pcm_s16be",
+        "pcm_s16be_planar",
+        "pcm_s16le",
+        "pcm_s16le_planar",
+        "pcm_s24be",
+        "pcm_s24daud",
+        "pcm_s24le",
+        "pcm_s24le_planar",
+        "pcm_s32be",
+        "pcm_s32le",
+        "pcm_s32le_planar",
+        "pcm_s64be",
+        "pcm_s64le",
+        "pcm_s8",
+        "pcm_s8_planar",
+        "pcm_sga",
+        "pcm_u16be",
+        "pcm_u16le",
+        "pcm_u24be",
+        "pcm_u24le",
+        "pcm_u32be",
+        "pcm_u32le",
+        "pcm_u8",
+        "pcm_vidc",
+    )
+
+/** Desktop mpv declaration for the bundled macOS Standard and Metal runtimes. */
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val macOsBundledMpvDeviceProfileDeclaration =
+    desktopMpvDeviceProfileDeclaration.copy(
+        audioCodecs = desktopMpvDeviceProfileDeclaration.audioCodecs + macOsBundledMpvPcmAudioCodecs,
     )
 
 @OptIn(ExperimentalObjCRefinement::class)
@@ -285,6 +342,7 @@ internal val diagnosticsDeviceProfileDeclarations =
         androidMpvDeviceProfileDeclaration,
         androidLibVlcDeviceProfileDeclaration,
         desktopMpvDeviceProfileDeclaration,
+        macOsBundledMpvDeviceProfileDeclaration,
         desktopLibVlcDeviceProfileDeclaration,
         appleDeviceProfileDeclaration,
     )
