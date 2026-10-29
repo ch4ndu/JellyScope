@@ -62,6 +62,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   its MediaCodec probe and a process-cached, fail-closed check that this shipped
   extension is available and supports E-AC-3. Only that E-AC-3 result is added;
   the extension's broader decoder list is not enumerated.
+  The `audio/raw` probe gates presence and supplies the channel ceiling; it does
+  not prove PCM decoding. Its eight exact input names are qualified against the
+  Media3 1.9.0 Matroska extractor and PCM output path and admitted only in MKV
+  profiles. Requalify these paths when changing the Media3 pin.
 - Android's LibVLC path is the in-process libvlc 3.7.7 controller/surface bridge
   and is used only when selected and available. An eligible startup/prepare
   failure in mpv or LibVLC
@@ -345,7 +349,9 @@ suppresses interactive recovery until it is safe to show the consequence.
   `audio/` MIME prefix, then maps `eac3-joc`/`ec-3`/`ec+3` to `eac3`, `ac-3` to
   `ac3`, `dca`/`vnd.dts` to `dts`, `vnd.dts.hd` to `dtshd`,
   `mp4a.40.*`/`mp4a-latm` to `aac`, and `mpeg` to `mp3`; `dts`, `dtshd`, and
-  `truehd` remain distinct. Unsupported Media3 text groups retain ordinal slots
+  `truehd` remain distinct. Before this comparison, Media3 maps raw audio's
+  PCM encoding to its exact qualified `pcm_*` name, preserving `codecs` or the
+  MIME fallback for other formats and unknown encodings. Unsupported Media3 text groups retain ordinal slots
   and are rejected only after exact resolution; **Media3** audio preserves
   supported-only ordering. Mapping outcomes carry a fixed, allowlisted reason for
   release-safe diagnostics. Native elementary-stream selection is **not proof of

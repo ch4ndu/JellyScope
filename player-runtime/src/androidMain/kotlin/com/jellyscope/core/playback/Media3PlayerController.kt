@@ -8,6 +8,7 @@ import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
@@ -1322,7 +1323,7 @@ class Media3PlayerController(
                             if (trackKind == EmbeddedTrackKind.Subtitle) {
                                 format?.subtitleCodecIdentity()
                             } else {
-                                format?.codecs ?: format?.sampleMimeType
+                                format?.media3AudioCodecIdentity()
                             },
                         language = format?.language,
                         label = format?.label,
@@ -1641,6 +1642,25 @@ internal data class Media3TrackResolutionCandidate<T>(
     val label: String?,
     val supported: Boolean,
 )
+
+// Matroska PCM has no codecs string, so map the raw encoding to the exact
+// FFmpeg codec_name Jellyfin reports for the same track.
+@androidx.annotation.OptIn(UnstableApi::class)
+internal fun Format.media3AudioCodecIdentity(): String? {
+    if (sampleMimeType == MimeTypes.AUDIO_RAW) {
+        when (pcmEncoding) {
+            C.ENCODING_PCM_8BIT -> return "pcm_u8"
+            C.ENCODING_PCM_16BIT -> return "pcm_s16le"
+            C.ENCODING_PCM_16BIT_BIG_ENDIAN -> return "pcm_s16be"
+            C.ENCODING_PCM_24BIT -> return "pcm_s24le"
+            C.ENCODING_PCM_24BIT_BIG_ENDIAN -> return "pcm_s24be"
+            C.ENCODING_PCM_32BIT -> return "pcm_s32le"
+            C.ENCODING_PCM_32BIT_BIG_ENDIAN -> return "pcm_s32be"
+            C.ENCODING_PCM_FLOAT -> return "pcm_f32le"
+        }
+    }
+    return codecs ?: sampleMimeType
+}
 
 internal data class Media3AudioDecoderClassification(
     val reason: Media3AudioDecoderReason,

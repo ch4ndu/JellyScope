@@ -464,7 +464,7 @@ cause conversion or an unsupported result.
 
 | Player | Containers | Video | Audio |
 | --- | --- | --- | --- |
-| ExoPlayer (Android) | MP4, M4V, MOV, MKV, WebM, TS | H.264, HEVC, VP9, AV1 | AAC, MP3, AC-3, E-AC-3, DTS, FLAC, Opus, Vorbis, generic `pcm` token |
+| ExoPlayer (Android) | MP4, M4V, MOV, MKV, WebM, TS | H.264, HEVC, VP9, AV1 | AAC, MP3, AC-3, E-AC-3, DTS, FLAC, Opus, Vorbis, exact PCM (8 names) in MKV only |
 | mpv (Android) | AVI, MKV, M2TS, MOV, MP4, TS, WebM | H.264, HEVC, VP8, VP9, AV1, MPEG-2, MPEG-4 | AAC, AC-3, E-AC-3, DTS, FLAC, ALAC, MLP, MP3, Opus, exact `pcm_*` formats, TrueHD, Vorbis |
 | LibVLC (Android) | MP4, MOV, MKV, WebM, TS, AVI | H.264, HEVC, MPEG-1, MPEG-2, VP8, VP9, AV1 | AAC, AC-3, E-AC-3, MP3, FLAC, Opus, Vorbis, ALAC, MLP, TrueHD, exact PCM formats |
 | AVPlayer (iOS, Apple TV) | MP4, M4V, MOV, TS | H.264, HEVC, AV1 | AAC, MP3, AC-3, E-AC-3, FLAC, ALAC |
@@ -479,10 +479,25 @@ without that hardware gate and does not claim HDR support.
 
 ### Server contract and capability modeling
 
+- **Media3 PCM admission is container-specific.** Media3 1.9.0's Matroska
+  extractor and PCM output pipeline qualify unsigned 8-bit, signed 16/24/32-bit
+  little- and big-endian, and little-endian float32 input names. Only the MKV
+  profile advertises these eight names. MOV/MP4 codec names cannot distinguish
+  supported sample entries from unsupported ones; TS has no LPCM reader and
+  WebM excludes PCM. Signed 8-bit, wider unsigned integers, float64, planar and
+  special PCM families remain unadvertised. Requalify extraction and output
+  paths when the Media3 pin changes; source support does not establish audible
+  playback or channel mapping on a device.
+  Qualification covers supported explicit-width `A_PCM/INT/LIT`,
+  `A_PCM/INT/BIG` and `A_PCM/FLOAT/IEEE` routes. A_MS/ACM IEEE-float tracks
+  and absent or unsupported Matroska BitDepth can share these codec names
+  while Media3 rejects extraction; MKV plus codec name cannot distinguish
+  these variants.
+
 - **Android mpv input codecs use exact metadata names.** The pinned FFmpeg
   registers decoders for 35 PCM codec IDs, ALAC and MLP. Their descriptor names
   match the `codec_name` vocabulary used by ffprobe; a literal `pcm` is not a
-  wildcard for `pcm_*`. Other backends retaining that generic token still need
+  wildcard for `pcm_*`. Desktop backends retaining that generic token still need
   qualification. Decoder symbols are not generally wire names (DTS uses dca).
   The [native runbook](../operations/android-native-dependencies.md#pinned-inputs)
   owns the registration evidence and its limits. This expands input decoding

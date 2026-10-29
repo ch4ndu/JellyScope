@@ -3,6 +3,10 @@
 package com.jellyscope.core.playback
 
 import android.content.Context
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
 import androidx.test.core.app.ApplicationProvider
 import com.jellyscope.core.data.remote.ClientInfo
 import com.jellyscope.core.domain.model.Session
@@ -27,6 +31,7 @@ import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
 import com.jellyscope.core.domain.playback.SubtitleAsset
 import com.jellyscope.core.domain.playback.VideoOutputMeasurementCapabilities
+import com.jellyscope.core.domain.playback.detectedAudioCodecs
 import com.jellyscope.core.domain.playback.formatPlaybackDiagnostic
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.runner.RunWith
@@ -278,6 +283,51 @@ class Media3PlayerControllerTest {
         assertEquals(NativeTrackMappingResult.Active, familyAlias.result)
         assertEquals(NativeTrackMappingResult.NotFound, codecConflict.result)
         assertEquals(NativeTrackMappingReason.CodecConflict, codecConflict.reason)
+    }
+
+    @Test
+    @androidx.annotation.OptIn(UnstableApi::class)
+    fun rawPcmProbeNamesMatchMedia3TrackIdentityAndResolveExactDescriptor() {
+        val exactPcmCodecs =
+            listOf("pcm_u8", "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le", "pcm_s32be", "pcm_f32le")
+        val rawPcmEncodings =
+            listOf(
+                C.ENCODING_PCM_8BIT,
+                C.ENCODING_PCM_16BIT,
+                C.ENCODING_PCM_16BIT_BIG_ENDIAN,
+                C.ENCODING_PCM_24BIT,
+                C.ENCODING_PCM_24BIT_BIG_ENDIAN,
+                C.ENCODING_PCM_32BIT,
+                C.ENCODING_PCM_32BIT_BIG_ENDIAN,
+                C.ENCODING_PCM_FLOAT,
+            )
+        val rawPcmFormat = { encoding: Int ->
+            Format
+                .Builder()
+                .setSampleMimeType(MimeTypes.AUDIO_RAW)
+                .setPcmEncoding(encoding)
+                .build()
+        }
+
+        // The probe advertises the same exact names the Media3 track identity reports.
+        assertEquals(exactPcmCodecs, detectedAudioCodecs(listOf(MimeTypes.AUDIO_RAW)))
+        assertEquals(exactPcmCodecs, rawPcmEncodings.map { encoding -> rawPcmFormat(encoding).media3AudioCodecIdentity() })
+
+        val resolution =
+            resolveMedia3TrackCandidates(
+                PlannedEmbeddedTrack(7, 0, "pcm_s24le", null, null),
+                EmbeddedTrackKind.Audio,
+                listOf(
+                    media3Candidate(
+                        "pcm",
+                        codec = rawPcmFormat(C.ENCODING_PCM_24BIT).media3AudioCodecIdentity(),
+                        supported = true,
+                    ),
+                ),
+            )
+
+        assertEquals("pcm", resolution.candidate)
+        assertEquals(NativeTrackMappingResult.Active, resolution.result)
     }
 
     @Test

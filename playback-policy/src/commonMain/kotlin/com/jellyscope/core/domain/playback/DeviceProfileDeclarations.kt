@@ -119,11 +119,19 @@ val vlcKitDeviceProfileDeclaration =
             ),
     )
 
+// Exact FFmpeg codec_name values for Matroska PCM that the Media3 1.9.0
+// MatroskaExtractor maps to an audio/raw encoding. Requalify when the Media3 pin changes.
+private val androidMedia3MatroskaPcmAudioCodecs =
+    listOf("pcm_u8", "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le", "pcm_s32be", "pcm_f32le")
+
 internal val androidDirectPlayDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers = listOf("mp4", "m4v", "mov", "mkv", "webm", "mpegts", "ts"),
         videoCodecs = listOf("h264", "hevc", "vp9", "av1"),
-        audioCodecs = listOf("aac", "mp3", "ac3", "eac3", "opus", "flac", "vorbis", "pcm", "dts", "dca"),
+        audioCodecs =
+            listOf("aac", "mp3", "ac3", "eac3", "opus", "flac", "vorbis") +
+                androidMedia3MatroskaPcmAudioCodecs +
+                listOf("dts", "dca"),
     )
 
 /**
@@ -285,8 +293,15 @@ internal val diagnosticsDeviceProfileDeclarations =
 @HiddenFromObjC
 val androidDirectPlayProfiles =
     listOf(
+        // PCM is advertised for MKV only: Media3 has no TS LPCM reader, MOV/MP4
+        // PCM names cannot distinguish supported sample entries, and WebM has no PCM.
         DeviceDirectPlayProfile(
-            containers = androidDirectPlayDeviceProfileDeclaration.containers,
+            containers = androidDirectPlayDeviceProfileDeclaration.containers - "mkv",
+            videoCodecs = androidDirectPlayDeviceProfileDeclaration.videoCodecs,
+            audioCodecs = androidDirectPlayDeviceProfileDeclaration.audioCodecs - androidMedia3MatroskaPcmAudioCodecs.toSet(),
+        ),
+        DeviceDirectPlayProfile(
+            containers = listOf("mkv"),
             videoCodecs = androidDirectPlayDeviceProfileDeclaration.videoCodecs,
             audioCodecs = androidDirectPlayDeviceProfileDeclaration.audioCodecs,
         ),

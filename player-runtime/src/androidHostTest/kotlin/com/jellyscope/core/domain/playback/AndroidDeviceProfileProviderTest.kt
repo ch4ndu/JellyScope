@@ -650,9 +650,14 @@ class AndroidDeviceProfileProviderTest {
                 AndroidDeviceProfileProvider(environment).capabilities(PlayerBackend.AVPlayer),
                 maxStreamingBitrate = null,
             )
-        val emittedAudioCodecs = profile.directPlayProfiles.single { directProfile -> directProfile.type == "Video" }.audioCodec
+        val videoProfiles = profile.directPlayProfiles.filter { directProfile -> directProfile.type == "Video" }
 
-        assertTrue(emittedAudioCodecs?.split(',')?.containsAll(listOf("dts", "dca")) == true)
+        assertEquals(2, videoProfiles.size)
+        assertTrue(
+            videoProfiles.all { videoProfile ->
+                videoProfile.audioCodec?.split(',')?.containsAll(listOf("dts", "dca")) == true
+            },
+        )
     }
 
     @Test
@@ -681,12 +686,12 @@ class AndroidDeviceProfileProviderTest {
         assertEquals(emptyList(), supportedCapabilities.audioPassthroughCodecs)
         assertNull(supportedCapabilities.audioPassthroughMaxChannels)
         assertEquals(2, supportedCapabilities.maxAudioChannels)
+        val supportedVideoProfiles = supportedProfile.directPlayProfiles.filter { profile -> profile.type == "Video" }
+        assertEquals(2, supportedVideoProfiles.size)
         assertTrue(
-            supportedProfile.directPlayProfiles
-                .single { profile -> profile.type == "Video" }
-                .audioCodec
-                ?.split(',')
-                ?.contains("eac3") == true,
+            supportedVideoProfiles.all { profile ->
+                profile.audioCodec?.split(',')?.contains("eac3") == true
+            },
         )
         val eac3VideoAudioProfile =
             supportedProfile.codecProfiles.single { profile ->
@@ -852,9 +857,33 @@ private fun androidMedia3Capabilities(): DeviceDecodingCapabilities =
         directPlayProfiles =
             listOf(
                 DeviceDirectPlayProfile(
-                    containers = listOf("mp4", "m4v", "mov", "mkv", "webm", "mpegts", "ts"),
+                    containers = listOf("mp4", "m4v", "mov", "webm", "mpegts", "ts"),
                     videoCodecs = listOf("h264", "hevc", "vp9", "av1"),
-                    audioCodecs = listOf("aac", "mp3", "ac3", "eac3", "opus", "flac", "vorbis", "pcm", "dts", "dca"),
+                    audioCodecs = listOf("aac", "mp3", "ac3", "eac3", "opus", "flac", "vorbis", "dts", "dca"),
+                ),
+                DeviceDirectPlayProfile(
+                    containers = listOf("mkv"),
+                    videoCodecs = listOf("h264", "hevc", "vp9", "av1"),
+                    audioCodecs =
+                        listOf(
+                            "aac",
+                            "mp3",
+                            "ac3",
+                            "eac3",
+                            "opus",
+                            "flac",
+                            "vorbis",
+                            "pcm_u8",
+                            "pcm_s16le",
+                            "pcm_s16be",
+                            "pcm_s24le",
+                            "pcm_s24be",
+                            "pcm_s32le",
+                            "pcm_s32be",
+                            "pcm_f32le",
+                            "dts",
+                            "dca",
+                        ),
                 ),
             ),
         subtitleProfiles = androidMedia3SubtitleProfiles(),
