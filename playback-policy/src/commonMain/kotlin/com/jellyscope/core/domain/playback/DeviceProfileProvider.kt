@@ -42,7 +42,51 @@ enum class CapabilityEvidenceSource {
 data class CodecCapabilityEvidence(
     val decodeSources: Set<CapabilityEvidenceSource> = emptySet(),
     val finiteLimitSources: Set<CapabilityEvidenceSource> = emptySet(),
+    /**
+     * Diagnostic record of the Android platform-probe projection onto an
+     * engine declaration. Null when no projection ran. It describes the
+     * provider projection only; later policy copies do not update it, and no
+     * admission or recovery decision reads it.
+     */
+    val probeProjection: VideoProbeProjectionEvidence? = null,
 )
+
+/**
+ * How the provider projected the platform decoder probe onto one declared
+ * video codec. [classificationSources] keeps the probe's decoder
+ * classification even when its limits were not projected; it is
+ * [CapabilityEvidenceSource.Unknown] when the probe did not enumerate the
+ * codec. It classifies the probed platform decoder, not the component an
+ * engine later initializes.
+ */
+data class VideoProbeProjectionEvidence(
+    val classificationSources: Set<CapabilityEvidenceSource>,
+    val reason: VideoProbeProjectionReason,
+)
+
+/**
+ * Closed diagnostic vocabulary for [VideoProbeProjectionEvidence]. Deliberately
+ * not a structured-log [DiagnosticReason].
+ */
+enum class VideoProbeProjectionReason {
+    /** The engine declaration already carried a finite limit. */
+    DeclaredLimitsRetained,
+
+    /** The probe did not enumerate the codec. */
+    NoProbeCodec,
+
+    /** The probe enumerated the codec without any finite limit. */
+    NoFiniteProbeLimits,
+
+    /** The probe limits were partial and this backend projects complete tuples only. */
+    IncompleteProbeLimitsNotProjected,
+
+    /** The complete probe tuple replaced the unknown declared limits. */
+    CompleteProbeLimitsProjected,
+
+    /** The partial probe tuple replaced the unknown declared limits. */
+    PartialProbeLimitsProjected,
+}
 
 /**
  * The range types a specific decoder can render without server conversion.

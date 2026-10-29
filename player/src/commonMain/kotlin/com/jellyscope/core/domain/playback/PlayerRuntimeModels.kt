@@ -23,6 +23,12 @@ import kotlin.native.HiddenFromObjC
  * Bandwidth is always bits per second.
  */
 data class PlaybackRuntimeDiagnostics(
+    /**
+     * Backend-dependent decoder label. Media3 reports the decoder it actually
+     * initialized; Android LibVLC reports a `libvlc:<codec>` label; Android and
+     * desktop mpv report the codec description. AVPlayer, VLCKit, and desktop
+     * LibVLC leave it null. Only the Media3 value names a decoder component.
+     */
     val videoDecoderName: String?,
     val videoWidth: Int?,
     val videoHeight: Int?,
@@ -53,7 +59,13 @@ data class PlaybackRuntimeDiagnostics(
     val libVlcCachePercent: Float? = null,
     /** Bounded readiness facts for the active native resume/seek transition. */
     val playbackTransition: PlaybackTransitionRuntimeDiagnostics? = null,
-    /** Active native decoding, never inferred from a configured preference or renderer. */
+    /**
+     * Decode path the engine reports for the active item (Android and desktop
+     * mpv only), never inferred from a configured preference or renderer. It
+     * is the engine-observed path, not the actual decoder component, and
+     * [PlaybackVideoDecodingMode.Hardware] does not prove which hardware
+     * decoder ran.
+     */
     val videoDecodingMode: PlaybackVideoDecodingMode? = null,
     /**
      * Unlike the nullable fields, never null: a backend without native target evidence reports

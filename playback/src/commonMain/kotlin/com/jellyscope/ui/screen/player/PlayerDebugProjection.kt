@@ -88,13 +88,9 @@ fun playerDebugSections(
                                 PlaybackVideoDecodingMode.HardwareCopyBack -> mpvLabels.hardwareCopyBack
                                 null -> mpvLabels.unknown
                             }
-                        val implementation =
-                            "MediaCodec".takeIf {
-                                runtimeDiagnostics.videoDecodingMode in
-                                    setOf(PlaybackVideoDecodingMode.Hardware, PlaybackVideoDecodingMode.HardwareCopyBack) &&
-                                    runtimeDiagnostics.presentationPath in setOf("mediacodec", "mediacodec-copy")
-                            }
-                        add(PlayerDebugRowModel(mpvLabels.decoding, listOfNotNull(mode, implementation).joinToString(" · ")))
+                        add(PlayerDebugRowModel(mpvLabels.decoding, mode))
+                        // mpv exposes no authoritative active decoder component; say so rather than imply one.
+                        add(PlayerDebugRowModel(mpvLabels.decoderComponent, mpvLabels.unknown))
                         val size =
                             if (runtimeDiagnostics.videoWidth != null && runtimeDiagnostics.videoHeight != null) {
                                 "${runtimeDiagnostics.videoWidth}×${runtimeDiagnostics.videoHeight}"

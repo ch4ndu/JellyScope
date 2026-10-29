@@ -95,8 +95,14 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   subtitle, HDR, audio, passthrough, or software-decoder declaration. This is a
   conservative platform-decoder safety input: hardware, software, unclassified,
   and legacy-classified probe bounds all remain enforced. Their provenance
-  describes Android's selected decoder, not measured limits of LibVLC's own
-  software decoder. Unprobed AV1 retains the pinned engine's unknown bounds.
+  describes the selected Android probe candidate, not the component opened by
+  LibVLC or measured limits of its software decoder. Unprobed AV1 retains the
+  pinned engine's unknown bounds. The shared mpv/LibVLC projection also records
+  closed diagnostic reasons for retained declarations, missing probe facts,
+  incomplete tuples not projected, and complete or permitted partial tuples
+  projected. Probe classification is retained separately from engine decode
+  evidence; neither diagnostic field changes admission or recovery. mpv still
+  requires a complete tuple, while LibVLC keeps its existing partial-limit rule.
 - When a projected bound rejects a source, the shared planner owns the normal
   compatibility path before native prepare: it records the capability-driven
   retry and `SourceCopyRejected`/`VerifiedDeviceCap` rather than handing the

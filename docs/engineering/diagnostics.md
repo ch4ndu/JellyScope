@@ -319,7 +319,13 @@ never JSON, destinations, filenames or native error text.
   remains low-volume, sanitized fixed-label numeric data and must never include
   URLs, headers, tokens, or other identity-bearing values.
 - The diagnostics snapshot renders each normalized codec's closed decode and
-  finite-limit evidence. A source-copy rejection also records the source codec,
+  finite-limit evidence. Android engine projections additionally emit
+  `probeClassificationEvidence` and `probeProjection` for video codecs, using
+  closed classification sources and reason names. These retain the selected
+  probe's classification even when incomplete limits are not projected; absent
+  or non-platform evidence is Unknown. They describe provider projection, not
+  later policy copies or the component actually opened. A source-copy rejection
+  also records the source codec,
   dimensions/rate, effective bounds, finite-limit provenance, and first binding
   reason at the planner boundary, before a generic failure can discard them.
   Original rejection and compatibility recovery preserve that detail. Missing
@@ -388,15 +394,20 @@ mapper tests do not prove native property availability or physical HDR output.
 
 ## Native and execution observations
 
-- Android and desktop mpv runtime diagnostics derive active video decoding from
-  `hwdec-current`: `no` means Software, a `-copy` driver means HardwareCopyBack,
-  another active driver means Hardware, and unavailable means Unknown. This is
-  separate from the configured `hwdec` preference and presentation renderer.
-  Android property-unavailable callbacks clear decoding and size observations;
-  a new prepare resets them. The shared/TV mpv overlay labels `video-codec` as
-  Codec description and native width/height as Decoded size. It does not claim
-  that decoded size is the TV output resolution. Other backends retain their
-  existing rows until they supply equivalent active-mode evidence.
+- Android and desktop mpv report an engine decode path from `hwdec-current`:
+  `no` maps to Software, a `-copy` driver to HardwareCopyBack, another active
+  driver to Hardware, and unavailable to Unknown. Those enum names do not prove
+  physical hardware acceleration or identify the active decoder component. The
+  configured `hwdec` preference and presentation renderer are separate facts.
+  `video-codec` supplies a codec description, not a MediaCodec component name;
+  Android mpv's `nativeDecoderAvailable` means that description is available.
+  Property-unavailable callbacks clear mode and size observations, and prepare
+  resets them. The shared/TV panel labels and row order are owned by
+  [the UI guide](ui.md); actual mpv component identity remains Unknown.
+  Verbose initialization logs cannot establish current identity across fallback,
+  reinitialization or delayed callbacks. No component parser or additional
+  capture is enabled. Existing retained decoder categories remain closed values;
+  raw native component names stay outside retained reports.
 
 - Native controller diagnostics identify the backend and prepare attempt; Apple
   and desktop records also carry the shared diagnostic session sequence when
