@@ -133,10 +133,16 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   activation, an optional `PlaybackError` cause only when failed, and a
   non-fatal `audioUnavailable` flag only while playback continues video-only
   after audio output fails.
-- Apple player bridges derive buffered position from
+- The AVPlayer controller derives buffered position from
   `AVPlayerItem.loadedTimeRanges` by reporting the end of the loaded range
-  covering the current playhead, and report buffering whenever AVFoundation
-  stalls or the current item is not likely to keep up.
+  covering the current playhead. It derives `Buffering` from AVFoundation's
+  stall notification, buffer-empty and likely-to-keep-up flags, and
+  waiting-to-play time-control status.
+- The VLCKit controller publishes `bufferedPositionMs` equal to its published
+  position, so its buffer-ahead is unavailable, not a measured empty buffer.
+  Its `Buffering` combines native buffering progress under play intent with the
+  prepare/resume/seek transition hold owned by
+  [iOS recovery](apple-playback.md#ios-recovery).
 - `PlaybackProgressReporter` owns Jellyfin progress reporting actions for start,
   pause, seek, stop, completion, and failure.
 - Direct-play planning uses `/Videos/{itemId}/stream?static=true` with
