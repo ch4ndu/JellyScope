@@ -52,7 +52,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   keeps that playback. The factory's actual backend requires a matching clean
   plan; only an explicit target switch
   may construct the concrete platform default once after target construction
-  fails, never the Android automatic-health fallback.
+  fails, never the Android automatic-health fallback. Installed audio fallback
+  runs after installation releases ownership and any software-decoding switch
+  result is recorded; a follow-up replan cannot turn that completed switch into
+  a failed switch report.
 - Android's ExoPlayer path is Media3 1.9.0 with decoder fallback and
   the Jellyfin FFmpeg extension (`org.jellyfin.media3:media3-ffmpeg-decoder`
   from Maven Central); FFmpeg is an ExoPlayer decoder extension, not a third
@@ -522,6 +525,22 @@ suppresses interactive recovery until it is safe to show the consequence.
   and targets while keeping network, audio-target and subtitle-request budgets
   armed across replans. Activation checks precede decoder/unsupported failure;
   the separate network retry preserves the quality policy.
+- **[Compose]** The installed-activation handoff uses one current controller
+  snapshot, overlaying eligible missing audio mapping and unavailable subtitle
+  facts together. One policy decision preserves audio-first priority and leaves
+  the other allowance available for a later current plan or state. Startup and
+  post-replan paths can supply both facts; current explicit-switch intent
+  validation excludes a planned-unavailable subtitle replacement, so that
+  switch handoff supplies installed audio fallback. The handoff requires the
+  same prepared controller/plan, current caller authority, and released
+  installation ownership, including an unlocked mutex. Desired speed/style
+  settings may be copies without changing that prepared identity.
+  At initial startup, the request token is captured after the prepared plan
+  becomes authoritative: a newer replan admitted afterward takes priority.
+  A request admitted inside `prepare()` captured no installed plan and must not
+  suppress this handoff. Such an early subtitle request can still spend its
+  allowance and publish a notice before failing installation authority; this
+  handoff does not repair that separate startup boundary.
 - **[all]** Policy-gated decoder, unsupported-media, health, and recovery
   behavior is owned by [quality policy](playback-policy.md#quality-semantics).
   A backend-qualified replacement re-plans from its own capability facts and
@@ -761,7 +780,11 @@ server/user IDs, titles, paths, or raw native errors.
   switch, importing outgoing health facts, or retaining two live controllers
   would blur session and ownership boundaries.
   Installation admission must precede switch invalidation: a rejected recovery
-  must not abandon paused or partly replaced playback.
+  must not abandon paused or partly replaced playback. Installed activation
+  recovery follows release of that ownership and software-switch reporting,
+  because its replan invalidates switch authority. Combining installed audio
+  and subtitle facts prevents two helper calls from spending both allowances
+  and letting the second replan cancel the first.
 
 - **Recovery and reporting decisions are shared without moving lifecycle
   ownership.** Common immutable coordinators keep precedence, PiP arbitration,

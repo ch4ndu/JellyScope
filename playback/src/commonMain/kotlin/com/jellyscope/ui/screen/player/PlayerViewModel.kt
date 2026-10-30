@@ -1273,6 +1273,11 @@ class PlayerViewModel(
                         }
                     }
                 }
+                // Fallback can replan, so it waits until the switch outcome is reported.
+                val switchedPlan = installedPlan
+                if (prepared && isCurrentBackendSwitch(switch) && switchedPlan != null) {
+                    maybeStartInstalledActivationFallback(playerController, switchedPlan)
+                }
             }
         return true
     }
@@ -2319,6 +2324,8 @@ class PlayerViewModel(
         controller.prepare(playbackPlanWithMetadata)
         if (rejectSynchronouslyFailedPrepare()) return false
         installedPlan = playbackPlanWithMetadata
+        // A recovery admitted from here on owns this installed plan and takes priority.
+        val replanGenerationAtInstall = replanRequestGeneration
         playerController.runtimeDiagnostics.value.prepareEpoch
             ?.let(playbackHealthCoordinator::expectVideoOutput)
         armSoftwarePlaybackRecovery()
@@ -2329,8 +2336,12 @@ class PlayerViewModel(
         desiredPlayWhenReady = true
         playerController.play()
         publishContent()
-        maybeStartInstalledAudioUnavailableFallback(playbackPlanWithMetadata)
-        maybeStartInstalledUnavailableFallback(playbackPlanWithMetadata)
+        if (
+            replanRequestGeneration == replanGenerationAtInstall &&
+            isCurrentPlaybackLaunch(launchGeneration, itemId)
+        ) {
+            maybeStartInstalledActivationFallback(controller, playbackPlanWithMetadata)
+        }
         if (!isKidsSingleAsset) {
             deriveEpisodeQueueIfNeeded(detail.item)
         }
@@ -4130,8 +4141,6 @@ class PlayerViewModel(
                 }
                 finishBackendSwitch(switch)
                 publishContent(pickerVisible = PlayerPicker.None)
-                maybeStartInstalledAudioUnavailableFallback(replacementPlan)
-                maybeStartInstalledUnavailableFallback(replacementPlan)
                 previousReportingJob?.cancel()
                 drainStopRequestedDuringControllerInstall(stopController = true)
                 transactionSettled = true
@@ -5334,8 +5343,9 @@ class PlayerViewModel(
                         }
                     }
                 if (replacementInstalled) {
-                    maybeStartInstalledAudioUnavailableFallback(playbackPlanWithMetadata)
-                    maybeStartInstalledUnavailableFallback(playbackPlanWithMetadata)
+                    if (isCurrentReplan(requestGeneration, replanGeneration, replanItemId)) {
+                        maybeStartInstalledActivationFallback(controllerAtRequest, playbackPlanWithMetadata)
+                    }
                 } else if (prepareFailedSynchronously) {
                     // The install guard intentionally suppresses controller
                     // publications until the replacement boundary is released.
@@ -5344,39 +5354,58 @@ class PlayerViewModel(
             }
     }
 
-    private fun maybeStartInstalledUnavailableFallback(playbackPlan: PlaybackPlan) {
-        val unavailable = playbackPlan.plannedSubtitle as? PlannedSubtitle.Unavailable ?: return
-        val target = unavailable.activationTarget ?: return
-        playerDiagnosticsRecorder.recordDiagnostic(
-            context = playerDiagnosticContext(),
-            facts =
-                PlayerDiagnosticFacts(
-                    stage = PlaybackDiagnosticStage.Mapping,
-                    event = PlaybackDiagnosticEvent.Failed,
-                    trackKind = PlaybackDiagnosticTrackKind.Subtitle,
-                ),
-        )
-        if (!unavailable.allowEncodeFallback) return
-        maybeHandleImmediatePlaybackSessionRecovery(
-            playerController.playbackState.value.copy(
-                subtitleActivation =
-                    com.jellyscope.core.domain.playback.SubtitleActivationState
-                        .Unavailable(target),
-            ),
-        )
-    }
-
-    private fun maybeStartInstalledAudioUnavailableFallback(playbackPlan: PlaybackPlan) {
-        if (playbackPlan.streamMode != StreamMode.DirectPlay) return
-        val target = playbackPlan.audioActivationTarget ?: return
-        val descriptor =
-            playbackPlan.embeddedAudioTracks.firstOrNull { track ->
-                track.jellyfinStreamIndex == target.streamIndex
+    /**
+     * Reports planned activation gaps after installation ownership is released. Both facts share one
+     * policy decision, so audio takes precedence and the subtitle allowance stays for a later state.
+     */
+    private fun maybeStartInstalledActivationFallback(
+        expectedController: PlayerController,
+        expectedPlan: PlaybackPlan,
+    ) {
+        if (
+            disposed ||
+            stopRequestedDuringControllerInstall ||
+            controllerInstallInFlight ||
+            controllerInstallMutex.isLocked ||
+            offlineReprepareGeneration != null ||
+            !concreteControllerInstalled ||
+            !playerControllerFieldOwned ||
+            playerController !== expectedController ||
+            installedPlan !== expectedPlan
+        ) {
+            return
+        }
+        val audioTarget =
+            expectedPlan.audioActivationTarget?.takeIf { target ->
+                expectedPlan.streamMode == StreamMode.DirectPlay &&
+                    expectedPlan.embeddedAudioTracks.none { track -> track.jellyfinStreamIndex == target.streamIndex }
             }
-        if (descriptor != null) return
+        val unavailableSubtitle = expectedPlan.plannedSubtitle as? PlannedSubtitle.Unavailable
+        val subtitleTarget = unavailableSubtitle?.activationTarget
+        if (subtitleTarget != null) {
+            playerDiagnosticsRecorder.recordDiagnostic(
+                context = playerDiagnosticContext(),
+                facts =
+                    PlayerDiagnosticFacts(
+                        stage = PlaybackDiagnosticStage.Mapping,
+                        event = PlaybackDiagnosticEvent.Failed,
+                        trackKind = PlaybackDiagnosticTrackKind.Subtitle,
+                    ),
+            )
+        }
+        val encodeSubtitleTarget = unavailableSubtitle?.takeIf { subtitle -> subtitle.allowEncodeFallback }?.activationTarget
+        if (audioTarget == null && encodeSubtitleTarget == null) return
+        val nativeState = playerController.playbackState.value
         maybeHandleImmediatePlaybackSessionRecovery(
-            playerController.playbackState.value.copy(
-                audioActivation = AudioActivationState.Unavailable(target),
+            nativeState.copy(
+                audioActivation =
+                    audioTarget?.let { target -> AudioActivationState.Unavailable(target) }
+                        ?: nativeState.audioActivation,
+                subtitleActivation =
+                    encodeSubtitleTarget?.let { target ->
+                        com.jellyscope.core.domain.playback.SubtitleActivationState
+                            .Unavailable(target)
+                    } ?: nativeState.subtitleActivation,
             ),
         )
     }
