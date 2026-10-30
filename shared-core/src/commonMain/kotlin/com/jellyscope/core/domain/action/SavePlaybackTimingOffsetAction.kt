@@ -49,7 +49,12 @@ class SavePlaybackTimingOffsetAction(
         return writer.save(normalized.key, pending)
     }
 
-    suspend fun current(key: PlaybackTimingKey): PlaybackTimingOffset? = store.get(key)
+    /**
+     * Prefers this session's outstanding write for [key] over storage, so a restore sees a value
+     * still debouncing or in flight. This is a transient pending preference, not an atomic
+     * read-your-writes guarantee: a save submitted after the lookup is not reflected.
+     */
+    suspend fun current(key: PlaybackTimingKey): PlaybackTimingOffset? = outstanding(key) ?: store.get(key)
 
     fun latestWrite(): Deferred<Unit>? = writer.latestWrite()
 
@@ -61,6 +66,19 @@ class SavePlaybackTimingOffsetAction(
         val key = offset.key
         if (key.serverId != accountIdentity.serverId || key.userId != accountIdentity.userId) return null
         return PendingTimingOffset(offset, accountIdentity, loggedIn.boundaryEpoch)
+    }
+
+    // A value captured for another account or an earlier boundary epoch is never reused.
+    private fun outstanding(key: PlaybackTimingKey): PlaybackTimingOffset? {
+        val pending = writer.outstanding(key) ?: return null
+        val loggedIn = sessionRepository.sessionState.value as? SessionState.LoggedIn ?: return null
+        val session = loggedIn.session
+        val matches =
+            pending.boundaryEpoch == loggedIn.boundaryEpoch &&
+                pending.accountIdentity.serverId == session.serverId &&
+                pending.accountIdentity.userId == session.userId &&
+                pending.offset.key == key
+        return if (matches) pending.offset else null
     }
 
     private data class PendingTimingOffset(

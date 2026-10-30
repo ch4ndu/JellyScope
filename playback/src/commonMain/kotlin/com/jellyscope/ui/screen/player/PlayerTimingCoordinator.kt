@@ -129,7 +129,9 @@ internal class PlayerTimingCoordinator(
             val stored =
                 try {
                     withContext(workDispatcher) {
-                        getUseCase?.invoke(key)?.normalized()?.offsetMs
+                        // The save action also sees writes still awaiting persistence; a null result is final.
+                        val offset = if (saveAction != null) saveAction.current(key) else getUseCase?.invoke(key)
+                        offset?.normalized()?.offsetMs
                     }
                 } catch (exception: CancellationException) {
                     throw exception

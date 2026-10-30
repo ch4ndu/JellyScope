@@ -328,6 +328,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   adjustment supersedes only its own kind's pending restore. New restores, Stop,
   release and disposal invalidate older loads; persistence still records the
   applied value.
+- Before reading storage, a restore prefers the timing save owner's outstanding
+  value for the same key when its account identity and boundary epoch match the
+  current session. Visibility starts at submission and ends when the write
+  finishes or can no longer start. This does not guarantee persistence or retain
+  failed values; commands issued during the restore still take precedence.
 - Normal startup owns the existing installation admission while restoring
   offsets, drains deferred Stop on exit, and rechecks request and controller
   ownership after unlocking before prepare. Offline preparation keeps its
@@ -412,6 +417,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   adjusts only audio or subtitles. Reading both values first prevents an early
   audio application from scheduling native reconfiguration while subtitle
   storage is still pending; it does not cancel work scheduled before those reads.
+  Reusing outstanding applied values prevents an immediate restore or rapid
+  track return from reverting a timing adjustment during the save debounce.
 
 - OpenSubtitles HTTP handling and its response types stay together in transport;
   account and selection orchestration stay with the upper repository. Existing
