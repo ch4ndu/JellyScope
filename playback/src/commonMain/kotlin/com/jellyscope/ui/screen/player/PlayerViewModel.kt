@@ -4524,6 +4524,8 @@ class PlayerViewModel(
     }
 
     private fun handleAutomaticRecoveryTrigger(trigger: AutoPlaybackRecoveryTrigger): AutomaticRecoveryDiagnostic? {
+        // An owned install keeps switch authority; reject before spending recovery state or the PiP slot.
+        if (controllerInstallInFlight) return null
         if (_softwarePlaybackRecovery.value != null) return null
         if (plan?.streamMode == StreamMode.Offline) return null
         if (pictureInPictureMode) {
@@ -4941,8 +4943,8 @@ class PlayerViewModel(
         proposedQualitySessionState: PlayerQualitySessionState? = null,
         preserveRecoveryBudgetOnQualityCommit: Boolean = false,
     ) {
-        invalidateBackendSwitch()
         if (controllerInstallInFlight) return
+        invalidateBackendSwitch()
         // Offline plans never enter the remote replan path.
         if (plan?.streamMode == StreamMode.Offline) return
         val mediaSource = selectedMediaSourceId ?: return

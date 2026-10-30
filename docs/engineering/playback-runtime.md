@@ -615,13 +615,19 @@ explicit-session-Auto authorization; inherited Auto receives the typed manual
 choice prompt without spending the quality budget. The ViewModel and
 `TvPlaybackSessionPresenter` own execution, position preservation, policy
 persistence, notice state, and stale-work cancellation. While the Compose
-ViewModel is in PiP, its one pending-recovery slot retains the strongest trigger
+ViewModel owns a controller installation, automatic triggers are ignored before
+recovery decisions, budget, quality, notice or PiP-slot changes, including manual
+prompts. A replan rejected during installation leaves backend-switch authority
+intact. Initial switch preflight retains its existing recovery arbitration.
+Outside installation, while the ViewModel is in PiP, its one pending-recovery
+slot retains the strongest trigger
 in this locked order: DecoderFailure, UnsupportedMedia, NoVideoOutput,
 CumulativeBuffering, RepeatedStalls, then DroppedFrames. Equal severity keeps
-the first trigger. Leaving PiP clears and handles one retained trigger, while a
-new item or queue launch and retry clear stale pending work. Measurement remains
-lifecycle-safe while recovery presentation is deferred. The one retained trigger
-still enters `AutoPlaybackRecoveryCoordinator`; arbitration grants no new
+the first trigger. Leaving PiP consumes one retained trigger; if installation is
+busy, it is discarded without execution or a later retry. A new item or queue
+launch and retry clear stale pending work. Health measurement continues while
+recovery presentation is deferred. An admitted retained trigger enters
+`AutoPlaybackRecoveryCoordinator`; arbitration grants no new
 stream-change authority, so Original and inherited Auto keep their existing
 manual prompt contracts.
 
@@ -727,6 +733,8 @@ server/user IDs, titles, paths, or raw native errors.
   authoritative, then one release-first installation commits. Persisting the
   switch, importing outgoing health facts, or retaining two live controllers
   would blur session and ownership boundaries.
+  Installation admission must precede switch invalidation: a rejected recovery
+  must not abandon paused or partly replaced playback.
 
 - **Recovery and reporting decisions are shared without moving lifecycle
   ownership.** Common immutable coordinators keep precedence, PiP arbitration,
