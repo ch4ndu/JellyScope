@@ -1410,7 +1410,9 @@ internal class AppleVlcKitPlayerController(
                 videoWidth = videoSize.first.takeIf { value -> value > 0 },
                 videoHeight = videoSize.second.takeIf { value -> value > 0 },
                 droppedVideoFrames = droppedFrames,
-                outputDroppedVideoFrames = droppedFrames,
+                // lostPictures combines output losses with some pre-queue picture
+                // failures, so no output-only count is available.
+                outputDroppedVideoFrames = null,
                 videoDecoderName = null,
                 videoFrameRate = null,
                 bandwidthEstimateBps = null,

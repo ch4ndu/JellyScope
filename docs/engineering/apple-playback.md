@@ -108,10 +108,13 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 - Apple controllers supply buffering/startup state and only the first-output
   evidence their measurement capabilities support. Neither supplies shared
   dropped-frame health measurements. VLCKit's native cumulative lost-picture
-  total is a best-effort observation sampled every fourth state update at a
-  variable cadence. Its getter ignores statistics availability; zero or repeated
-  totals establish neither freshness nor a drop rate. Its first-output
-  measurement remains unreliable.
+  total combines output losses with some pre-queue picture failures. It remains
+  a generic best-effort count; the output-only count is unknown. Sampling occurs
+  every fourth state update at a variable cadence. Assigning media to each fresh
+  native player creates the zeroed statistics snapshot before app reads. The
+  wrapper exposes no availability result, and native allocation-failure handling
+  is not qualified. Initial zeros and repeated totals establish neither output,
+  freshness nor a drop rate. First-output measurement remains unreliable.
   VLCKit opts into the shared actionable guidance presentation; the banner may
   offer a safe next lower rung and Open
   Playback Settings, but no controller changes quality automatically. Android
@@ -347,4 +350,5 @@ resolves artifact paths. Queue/countdown and native panel behavior are owned by
   arrival alone cannot prove fresh video, so bounded transition evidence also
   requires later clock and displayed-picture progress and rejects stale
   generations. VLCKit's public PiP protocols retain engine ownership; private
-  traversal or a parallel controller would duplicate it.
+  traversal or a parallel controller would duplicate it. The cumulative native
+  loss total cannot establish an output-only loss count.
