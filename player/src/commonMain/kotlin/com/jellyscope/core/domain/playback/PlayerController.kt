@@ -47,6 +47,17 @@ interface PlayerController {
     val playbackHealthMeasurementCapabilities: PlaybackHealthMeasurementCapabilities
         get() = PlaybackHealthMeasurementCapabilities.None
 
+    /**
+     * Latest seek the native host initiated outside app-owned seek dispatch and the native
+     * player accepted. An immutable snapshot read on the controller owner lane: the sequence
+     * increases monotonically within the controller lifetime, the prepare epoch separates
+     * native sessions, and native teardown clears it. It is not presentation readiness,
+     * output proof or an event timestamp. Null means no fact, the default for every backend
+     * without a native-host seek path.
+     */
+    val lastAcceptedHostSeek: HostSeekObservation?
+        get() = null
+
     fun prepare(
         plan: PlaybackPlan,
         subtitleAsset: SubtitleAsset? = plan.subtitleAsset,
@@ -148,6 +159,11 @@ data class PlaybackTransitionObservation(
     val transitionSequence: Long,
     val outcome: PlaybackTransitionOutcome,
     val observedAtMs: Long,
+)
+
+data class HostSeekObservation(
+    val prepareEpoch: Long,
+    val sequence: Long,
 )
 
 enum class PlaybackTransitionOutcome {

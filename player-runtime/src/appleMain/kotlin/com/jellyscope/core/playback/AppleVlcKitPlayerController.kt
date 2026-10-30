@@ -12,6 +12,7 @@ import com.jellyscope.core.domain.playback.DEFAULT_PLAYBACK_SPEED
 import com.jellyscope.core.domain.playback.EmbeddedAudioSelection
 import com.jellyscope.core.domain.playback.EmbeddedSubtitleSelection
 import com.jellyscope.core.domain.playback.EmbeddedTrackKind
+import com.jellyscope.core.domain.playback.HostSeekObservation
 import com.jellyscope.core.domain.playback.LocalSubtitleKind
 import com.jellyscope.core.domain.playback.NativeTrackCandidate
 import com.jellyscope.core.domain.playback.NativeTrackMappingReason
@@ -226,6 +227,12 @@ internal class AppleVlcKitPlayerController(
 
     private val pictureInPictureSeekGate = VlcSingleFlightCompletionGate()
     private var pictureInPictureSeekCompletionJob: Job? = null
+
+    // Lifetime-monotonic: never reset, so a cleared snapshot can never be
+    // followed by a sequence the health coordinator already consumed.
+    private var hostSeekSequence = 0L
+    override var lastAcceptedHostSeek: HostSeekObservation? = null
+        private set
     private var pendingEmbeddedAudioSelection: EmbeddedAudioSelection? = null
     private var pendingEmbeddedSubtitleSelection: EmbeddedSubtitleSelection? = null
     private var expectedSubtitleTarget: SubtitleActivationTarget? = null
@@ -728,6 +735,9 @@ internal class AppleVlcKitPlayerController(
             return
         }
 
+        // Published before the resulting state so shared health reconciles the
+        // accepted seek ahead of any sample or deadline it causes.
+        lastAcceptedHostSeek = HostSeekObservation(prepareEpoch = generation, sequence = ++hostSeekSequence)
         armPictureInPictureSeekCompletionDeadline(token, generation)
         updateStateFromPlayer(statusOverride = if (playWhenReady) PlaybackStatus.Buffering else PlaybackStatus.Paused)
         if (completionArrivedSynchronously) {
@@ -1539,6 +1549,7 @@ internal class AppleVlcKitPlayerController(
         surfaceOwner.detachNativeSession(expectReplacement)
         logSlowTeardownStep("surface-detach", surfaceDetachStarted.elapsedNow().inWholeMilliseconds)
         generation.addAndFetch(1L)
+        lastAcceptedHostSeek = null
         clearPlaybackTransition()
         resetVideoOutputBaseline()
         val oldMedia = currentMedia

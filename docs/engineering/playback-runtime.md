@@ -294,16 +294,26 @@ diagnostic threshold class records the bound that actually applied. These
 qualifications prevent a slow or frozen startup from triggering a false
 `NoVideoOutput` compatibility replan.
 
-A seek or a play/pause **restarts the evidence window**: accumulated buffering
-intervals, stall events, and dropped-frame spans are cleared so evidence gathered
-under previous conditions cannot reach a threshold. Restarting during an active
-buffering episode reopens the interval at the boundary — the retained status is
+App-owned seek and play/pause commands **restart the evidence window**:
+accumulated buffering intervals, stall events, and dropped-frame spans are cleared
+so evidence gathered under previous conditions cannot reach a threshold.
+Restarting during an active buffering episode reopens the interval at the boundary — the retained status is
 unchanged, so the ongoing wait remains measurable. Once-per-session emission
 latches survive a restart, so a signal kind reports at most once in an item
 session. Auto's compatibility and quality budgets also survive and remain
-one-per-item-session. The bounded
-health summary additionally records which gate suppressed a would-be warning
-(`postStartGuidanceShown`, `noVideoOutputGuidanceShown`, the resolved guidance
+one-per-item-session.
+
+Accepted VLCKit PiP seeks supply a native-host snapshot. Before evaluating a
+status sample or deadline, the coordinator consumes a matching prepare epoch
+and increasing sequence, then restarts evidence with the existing two-second
+exclusion measured from consumption. Repeated snapshots do not extend the
+exclusion; an app-owned restart also acknowledges a pending snapshot. Only an
+actual new prepare or controller admission resets that watermark. Native PiP
+play/pause remain outside this restart path. Snapshot admission and rejection
+are not separately logged.
+
+The bounded health summary additionally records which gate suppressed a would-be
+warning (`postStartGuidanceShown`, `noVideoOutputGuidanceShown`, the resolved guidance
 policy, `guidancePublishable`, and whether a buffering interval opened since the
 last restart), because gates that emit no signal are invisible to signal-scoped
 logging.
@@ -562,6 +572,9 @@ suppresses interactive recovery until it is safe to show the consequence.
 - iOS VLCKit prepare/resume/seek observations additionally carry a transition
   sequence within that generation, so Started, Presented, and TimedOut settle
   only the exact target transition;
+- the latest accepted native-host seek is an owner-lane snapshot with prepare
+  epoch and sequence, independent of presentation readiness; other controllers
+  default to no snapshot;
 - measurement capabilities state whether a fact is reliable and name its
   evidence class (`NativeFirstOutput`, `DisplayedPictureCounter`,
   `ReadyForDisplayBridge`, or unsupported).
@@ -742,7 +755,10 @@ server/user IDs, titles, paths, or raw native errors.
   into a common base class.
 
 - **Health evidence is qualified rather than globally tuned.** Backend-specific
-  first-output thresholds, advancing-clock checks, generation exclusions, and
-  evidence-window restarts prevent slow start, seek, resume, or surface work
-  from becoming false no-output or stall recovery. Restarting the window retains
-  one-per-session signal and recovery budgets.
+  first-output thresholds, advancing-clock checks and generation exclusions keep
+  slow start and surface work from becoming false no-output recovery.
+  Evidence-window restarts keep app-owned seeks/resumes and accepted VLCKit PiP
+  seeks from contaminating later stall evidence. Reading the accepted seek
+  snapshot before status and deadline evaluation avoids independent event-flow
+  ordering. Native PiP play/pause remain a separate gap. Restarting the window
+  retains one-per-session signal and recovery budgets.

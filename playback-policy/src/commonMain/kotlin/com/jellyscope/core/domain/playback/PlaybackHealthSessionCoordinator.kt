@@ -66,6 +66,7 @@ class PlaybackHealthSessionCoordinator(
     private val onGuidanceChanged: (PlaybackHealthGuidance?) -> Unit = {},
     private val onSessionEnded: (PlaybackHealthSummary) -> Unit = {},
     private val evaluator: PlaybackHealthEvaluator = PlaybackHealthEvaluator(),
+    private val latestHostSeek: () -> HostSeekObservation? = { null },
 ) {
     private var context: PlaybackHealthSessionContext? = null
     private var activeGeneration = 0L
@@ -86,6 +87,7 @@ class PlaybackHealthSessionCoordinator(
     private var activeTransitionIdentity: PlaybackTransitionIdentity? = null
     private var lastTransitionSequence = -1L
     private var transitionSettled = false
+    private var lastHostSeekSequence = -1L
 
     val guidance: PlaybackHealthGuidance?
         get() = currentGuidance
@@ -114,6 +116,7 @@ class PlaybackHealthSessionCoordinator(
         activeTransitionIdentity = null
         lastTransitionSequence = -1L
         transitionSettled = false
+        lastHostSeekSequence = -1L
         setGuidance(null)
         evaluator.reset(generation = generation, launchAtMs = startedAtMs)
     }
@@ -126,6 +129,7 @@ class PlaybackHealthSessionCoordinator(
     fun observePlaybackState(playbackState: PlaybackState) {
         if (!active) return
         latestPlaybackPositionMs = playbackState.positionMs.coerceAtLeast(0L)
+        reconcileHostSeek()
         val healthStatus =
             playbackState.healthStatusOverride?.takeIf { playbackState.status == PlaybackStatus.Buffering }
                 ?: playbackState.status
@@ -199,6 +203,10 @@ class PlaybackHealthSessionCoordinator(
      * epoch. The prepare epoch is deliberately separate from the item-session
      * generation: a position-preserving replan keeps Auto recovery budgets but
      * must reject a late frame from the superseded native prepare.
+     *
+     * Admission means an actual new native prepare or a replacement controller,
+     * never a rearm of the same session: the host-seek snapshot persists, so
+     * resetting its watermark for the same epoch would readmit an old seek.
      */
     fun expectVideoOutput(generation: Long) {
         if (!active || generation < 0L) return
@@ -206,8 +214,9 @@ class PlaybackHealthSessionCoordinator(
         // Prepare epochs are controller-local. A replacement controller may
         // legitimately restart its epoch and transition counters at values the
         // outgoing controller already used, so every explicit prepare admission
-        // resets the local transition watermark.
+        // resets the local transition and host-seek watermarks.
         lastTransitionSequence = -1L
+        lastHostSeekSequence = -1L
         activeTransitionIdentity = null
         transitionSettled = false
         videoOutputWaitStartedAtMs = null
@@ -238,9 +247,12 @@ class PlaybackHealthSessionCoordinator(
      * Restarts only the current evidence window. The exclusion and timer
      * suppression remain the same as [markExclusion], while the evaluator
      * preserves session timing, status, startup state, and emitted latches.
+     * It also acknowledges any pending accepted host seek, which this restart
+     * already covers, so that seek cannot restart the window again later.
      */
     fun restartEvidenceWindow(reason: PlaybackHealthExclusionReason = PlaybackHealthExclusionReason.Resume) {
         if (!active) return
+        acknowledgeHostSeek()
         val now = monotonicTimeMs()
         evaluator.markExclusion(now, reason)
         evaluator.restartEvidenceWindow()
@@ -332,6 +344,7 @@ class PlaybackHealthSessionCoordinator(
                 scope.launch {
                     delay(remaining)
                     if (!isCurrentGeneration(generation)) return@launch
+                    if (reconcileHostSeek()) return@launch
                     handleSignals(evaluator.evaluateAt(monotonicTimeMs()))
                     syncTimers()
                 }
@@ -342,6 +355,7 @@ class PlaybackHealthSessionCoordinator(
                     scope.launch {
                         delay(delayMs.coerceAtLeast(1L))
                         if (!isCurrentGeneration(generation)) return@launch
+                        if (reconcileHostSeek()) return@launch
                         handleSignals(evaluator.evaluateAt(monotonicTimeMs()))
                         syncTimers()
                     }
@@ -380,6 +394,9 @@ class PlaybackHealthSessionCoordinator(
                         ) {
                             return@launch
                         }
+                        // The restart rearms from the new boundary; never
+                        // evaluate this job's pre-seek wait anchors.
+                        if (reconcileHostSeek()) return@launch
                         val firedAtMs = monotonicTimeMs()
                         if (
                             firedAtMs - waitStartedAtMs < thresholdMs ||
@@ -408,6 +425,32 @@ class PlaybackHealthSessionCoordinator(
 
     private fun isCurrentGeneration(generation: Long): Boolean =
         active && generation == activeGeneration && generation == evaluator.generation
+
+    /**
+     * Consumes the latest accepted native-host seek at most once: only for the
+     * admitted prepare epoch and a strictly newer sequence. The watermark
+     * advances before any restart so the fact cannot extend the grace twice.
+     */
+    private fun acknowledgeHostSeek(): Boolean {
+        val seek = latestHostSeek() ?: return false
+        if (
+            !active ||
+            seek.prepareEpoch != activeVideoOutputGeneration ||
+            seek.sequence < 0L ||
+            seek.sequence <= lastHostSeekSequence
+        ) {
+            return false
+        }
+        lastHostSeekSequence = seek.sequence
+        return true
+    }
+
+    /** Restarts evidence for a newly consumed host seek before anything evaluates prior evidence. */
+    private fun reconcileHostSeek(): Boolean {
+        if (!acknowledgeHostSeek()) return false
+        restartEvidenceWindow(PlaybackHealthExclusionReason.Seek)
+        return true
+    }
 
     private fun cancelTimers() {
         startupJob?.cancel()

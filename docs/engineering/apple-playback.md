@@ -93,9 +93,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   separately cached native VLC clock so the advertised time range describes the
   sample-buffer stream that AVKit is actually presenting. VLCKit PiP skips bound
   the relative request against that native clock and the canonical content
-  duration, then use VLCKit's completion-capable `jumpWithOffset`. A generation-
-  tagged single-flight gate consumes the system completion exactly once from the
-  native seek-finished callback; after matching the request token and native
+  duration, then use VLCKit's completion-capable `jumpWithOffset`. An accepted
+  jump publishes a prepare-scoped host-seek snapshot before the resulting state
+  update for [shared health exclusion](playback-runtime.md#playback-health-and-guidance).
+  A generation-tagged single-flight gate consumes the system completion exactly
+  once from the native seek-finished callback; after matching the request token and native
   session, it refreshes the cached native clock before invoking AVKit's
   completion. The shared transition independently owns the target-pinned
   timeline, buffering state, and picture-readiness evidence, and never blocks a
