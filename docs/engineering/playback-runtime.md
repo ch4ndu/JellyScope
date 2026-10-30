@@ -535,12 +535,24 @@ suppresses interactive recovery until it is safe to show the consequence.
   same prepared controller/plan, current caller authority, and released
   installation ownership, including an unlocked mutex. Desired speed/style
   settings may be copies without changing that prepared identity.
-  At initial startup, the request token is captured after the prepared plan
+  At initial startup, a launch-owned marker blocks recovery decisions during
+  the synchronous `prepare()` call. Failed snapshots wait until it returns;
+  non-Failed status, health and reporting observations continue. The marker
+  clears in `finally`, then startup rechecks cancellation and captured ownership
+  before accepting the result. A reentrant Stop cannot install or play that
+  abandoned result. A still-current synchronous failure restarts the existing
+  state collector, or starts one when absent, so ordinary failure handling and
+  recovery remain available even when the installed plan stays null. Same-item
+  fast retry and later runtime selection retain that admission.
+  After successful preparation, the request token is captured after the plan
   becomes authoritative: a newer replan admitted afterward takes priority.
-  A request admitted inside `prepare()` captured no installed plan and must not
-  suppress this handoff. Such an early subtitle request can still spend its
-  allowance and publish a notice before failing installation authority; this
-  handoff does not repair that separate startup boundary.
+  Startup also reconsiders current non-Failed native unavailable-activation
+  facts through the same combined immediate decision. It does not replay the
+  full state handler or retain overwritten native events. One decision per
+  handoff does not serialize later collector recovery. Like the other immediate
+  handoffs, this path omits the full collector's terminal RetryScheduled
+  diagnostic; a later collector delivery may report the already-consumed fact
+  normally.
 - **[all]** Policy-gated decoder, unsupported-media, health, and recovery
   behavior is owned by [quality policy](playback-policy.md#quality-semantics).
   A backend-qualified replacement re-plans from its own capability facts and
@@ -791,6 +803,10 @@ server/user IDs, titles, paths, or raw native errors.
   budgets, reporting order, and settlement consistent. Jobs, notices, native
   commands, navigation, and stale cancellation stay with each presentation
   owner; a universal stateful player would couple unrelated lifecycles.
+  Startup guards its unfinished prepare interval rather than rejecting every
+  null installed plan, because recovery after a synchronous failure can still
+  own that null identity. Refreshing the failure collector and reconsidering
+  only activation facts avoid duplicating full failure handling.
 
 - **Controller installation is serialized.** A current launch waits for an
   earlier installer and rechecks generation and item authority. Dropping a

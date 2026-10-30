@@ -391,6 +391,9 @@ class PlayerViewModel(
     private var controllerInstallInFlight = false
     private val controllerInstallMutex = Mutex()
     private var stopRequestedDuringControllerInstall = false
+
+    // Launch generation of a normal-start prepare still establishing its install; callbacks wait for it.
+    private var startupPrepareGeneration: Long? = null
     private var volumeControl: PlayerVolumeState? = (playerController as? PlayerVolumeController)?.volumeState?.value
 
     private var playbackGuidance: PlaybackHealthGuidance? = null
@@ -2321,8 +2324,24 @@ class PlayerViewModel(
         excludeSoftwarePlaybackProgress()
         markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
         playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
-        controller.prepare(playbackPlanWithMetadata)
-        if (rejectSynchronouslyFailedPrepare()) return false
+        startupPrepareGeneration = launchGeneration
+        try {
+            controller.prepare(playbackPlanWithMetadata)
+        } finally {
+            if (startupPrepareGeneration == launchGeneration) startupPrepareGeneration = null
+        }
+        // An inline Stop, disposal or replacement during prepare owns the controller now.
+        currentCoroutineContext().ensureActive()
+        if (
+            !admitsPlaybackSessionRecovery() ||
+            !isCurrentPlaybackLaunch(launchGeneration, itemId) ||
+            playerController !== controller ||
+            selectedPlaybackGeneration != selectionGeneration ||
+            installedPlan != null
+        ) {
+            return false
+        }
+        if (rejectSynchronouslyFailedPrepare(refreshObservation = true)) return false
         installedPlan = playbackPlanWithMetadata
         // A recovery admitted from here on owns this installed plan and takes priority.
         val replanGenerationAtInstall = replanRequestGeneration
@@ -2340,7 +2359,7 @@ class PlayerViewModel(
             replanRequestGeneration == replanGenerationAtInstall &&
             isCurrentPlaybackLaunch(launchGeneration, itemId)
         ) {
-            maybeStartInstalledActivationFallback(controller, playbackPlanWithMetadata)
+            maybeStartInstalledActivationFallback(controller, playbackPlanWithMetadata, reconcileNativeState = true)
         }
         if (!isKidsSingleAsset) {
             deriveEpisodeQueueIfNeeded(detail.item)
@@ -4241,6 +4260,8 @@ class PlayerViewModel(
     private suspend fun handlePlaybackState(playbackState: PlaybackState) {
         if (controllerInstallInFlight) return
         if (offlineReprepareGeneration != null) return
+        // Startup observes the current failure again once its prepare settles.
+        if (startupPrepareGeneration != null && playbackState.status == PlaybackStatus.Failed) return
         // Failure capture suspends; capture the install authority it must still own afterwards.
         val controllerAtState = playerController
         val launchGenerationAtState = playbackLaunchGeneration
@@ -4753,7 +4774,23 @@ class PlayerViewModel(
         return executePlaybackSessionRecovery(nextPlaybackSessionRecoveryDecision(playbackState), playbackState)
     }
 
+    /**
+     * Session recovery acts only for a settled controller owner. A null installed plan stays
+     * admissible: synchronous failures and fast retries recover without one.
+     */
+    private fun admitsPlaybackSessionRecovery(): Boolean =
+        !disposed &&
+            !stopRequestedDuringControllerInstall &&
+            !controllerInstallInFlight &&
+            !controllerInstallMutex.isLocked &&
+            offlineReprepareGeneration == null &&
+            concreteControllerInstalled &&
+            playerControllerFieldOwned &&
+            startupPrepareGeneration == null
+
     private fun nextPlaybackSessionRecoveryDecision(playbackState: PlaybackState): PlaybackSessionRecoveryDecision {
+        // Rejected admission must not spend recovery allowances.
+        if (!admitsPlaybackSessionRecovery()) return PlaybackSessionRecoveryDecision.NoAction
         val result =
             playbackSessionRecoveryPolicy.decide(
                 PlaybackSessionRecoveryInput(
@@ -5357,19 +5394,15 @@ class PlayerViewModel(
     /**
      * Reports planned activation gaps after installation ownership is released. Both facts share one
      * policy decision, so audio takes precedence and the subtitle allowance stays for a later state.
+     * Startup also reconsiders native unavailability that prepare callbacks could not act on.
      */
     private fun maybeStartInstalledActivationFallback(
         expectedController: PlayerController,
         expectedPlan: PlaybackPlan,
+        reconcileNativeState: Boolean = false,
     ) {
         if (
-            disposed ||
-            stopRequestedDuringControllerInstall ||
-            controllerInstallInFlight ||
-            controllerInstallMutex.isLocked ||
-            offlineReprepareGeneration != null ||
-            !concreteControllerInstalled ||
-            !playerControllerFieldOwned ||
+            !admitsPlaybackSessionRecovery() ||
             playerController !== expectedController ||
             installedPlan !== expectedPlan
         ) {
@@ -5394,8 +5427,14 @@ class PlayerViewModel(
             )
         }
         val encodeSubtitleTarget = unavailableSubtitle?.takeIf { subtitle -> subtitle.allowEncodeFallback }?.activationTarget
-        if (audioTarget == null && encodeSubtitleTarget == null) return
         val nativeState = playerController.playbackState.value
+        val nativeActivationUnavailable =
+            nativeState.audioActivation is AudioActivationState.Unavailable ||
+                nativeState.subtitleActivation is com.jellyscope.core.domain.playback.SubtitleActivationState.Unavailable
+        // A current Failed snapshot without a planned gap stays with the collector.
+        val reconcilesNativeActivation =
+            reconcileNativeState && nativeState.status != PlaybackStatus.Failed && nativeActivationUnavailable
+        if (audioTarget == null && encodeSubtitleTarget == null && !reconcilesNativeActivation) return
         maybeHandleImmediatePlaybackSessionRecovery(
             nativeState.copy(
                 audioActivation =
@@ -5495,11 +5534,16 @@ class PlayerViewModel(
         planReportingAuthority += 1L
     }
 
-    private fun rejectSynchronouslyFailedPrepare(): Boolean {
+    private fun rejectSynchronouslyFailedPrepare(refreshObservation: Boolean = false): Boolean {
         if (playerController.playbackState.value.status != PlaybackStatus.Failed) return false
         installedPlan = null
-        // Initial direct injection has no collector yet; use the ordinary failure path.
-        observePlaybackState()
+        if (refreshObservation && reportingJob != null) {
+            // The existing collector may have deferred this failure during startup prepare.
+            restartPlaybackStateObservation()
+        } else {
+            // Initial direct injection has no collector yet; use the ordinary failure path.
+            observePlaybackState()
+        }
         return true
     }
 
