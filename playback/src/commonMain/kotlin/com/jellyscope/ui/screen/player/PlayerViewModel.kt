@@ -1309,7 +1309,7 @@ class PlayerViewModel(
     }
 
     private fun selectAudio(streamIndex: Int) {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         val option =
             audioOptions(mediaStreams)
@@ -1537,7 +1537,7 @@ class PlayerViewModel(
     }
 
     private fun selectSubtitle(streamIndex: Int?) {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         val option =
             streamIndex?.let { selectedIndex ->
@@ -1638,7 +1638,7 @@ class PlayerViewModel(
     }
 
     private fun selectLocalSubtitle(assetId: String) {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return
@@ -1648,7 +1648,7 @@ class PlayerViewModel(
         replanJob =
             viewModelScope.launch {
                 val asset = withContext(workDispatcher) { getLocalSubtitleAssetUseCase?.invoke(assetId, context) }
-                if (controllerInstallInFlight) return@launch
+                if (controllerInstallInFlight || queueSwitchInFlight) return@launch
                 if (asset == null) {
                     playerDiagnosticsRecorder.recordDiagnostic(
                         context = playerDiagnosticContext(),
@@ -1849,7 +1849,7 @@ class PlayerViewModel(
         kind: PlaybackTimingKind,
         deltaMs: Long,
     ) {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         timingCoordinator.adjust(kind, deltaMs)
     }
 
@@ -1857,7 +1857,7 @@ class PlayerViewModel(
         kind: PlaybackTimingKind,
         offsetMs: Long,
     ) {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         timingCoordinator.set(kind, offsetMs)
     }
 
