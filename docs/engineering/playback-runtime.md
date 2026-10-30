@@ -687,6 +687,28 @@ ViewModel owns a controller installation, automatic triggers are ignored before
 recovery decisions, budget, quality, notice or PiP-slot changes, including manual
 prompts. A replan rejected during installation leaves backend-switch authority
 intact. Initial switch preflight retains its existing recovery arbitration.
+
+The Compose owner closes automatic and session recovery at the first Stop
+request, even when native Stop must wait for installation, and at disposal.
+Stop also clears retained PiP recovery. A `Failed` snapshot first handled while
+closed is discarded before publication or suspended diagnostic capture; it is
+not automatically redelivered when recovery reopens. Existing generation and
+controller checks still reject captures invalidated by Stop. This is an
+admission-time boundary, not proof of when a delayed native event was emitted.
+
+Only an accepted explicit Play, Retry, Kids selection/replay, manual queue
+selection, or Still Watching confirmation reopens recovery. Starts refuse
+disposed, installing, locked-installation, or pending-Stop ownership before
+mutating their caller state; valid software Continue delegates to Play and keeps
+its prompt when admission refuses. Invalid selection, automatic Next, Pause,
+and seek-only Previous never reopen it. Previous retains its existing seek
+behavior and applies the fuller start guard only to actual queue selection.
+Pending Stop must drain first. The internal obsolete-replan abort can call Stop
+without leaving the route: its existing projection remains, with recovery and
+`Failed` publication closed until an accepted explicit action. Direct settings,
+track, backend, and transcode-seek replans can still prepare without reopening
+recovery; this contract does not add a retained-screen restart or state replay.
+
 Outside installation, while the ViewModel is in PiP, its one pending-recovery
 slot retains the strongest trigger
 in this locked order: DecoderFailure, UnsupportedMedia, NoVideoOutput,
@@ -824,6 +846,11 @@ server/user IDs, titles, paths, or raw native errors.
   Clearing retained PiP evidence at controller release and session end prevents
   retained outgoing failures from spending a replacement's recovery budget. Clearing at
   switch request would discard evidence even when planning keeps the old owner.
+  Stop needs persistent recovery closure because a later failure can capture
+  the post-Stop generation. Rejecting it before suspended diagnostics prevents
+  an explicit Play from admitting that old capture when recovery reopens.
+  Explicit starts share ownership checks so they cannot reopen around a pending
+  native Stop; ordinary Pause remains eligible for recovery.
 
 - **Controller installation is serialized.** A current launch waits for an
   earlier installer and rechecks generation and item authority. Dropping a

@@ -392,6 +392,9 @@ class PlayerViewModel(
     private val controllerInstallMutex = Mutex()
     private var stopRequestedDuringControllerInstall = false
 
+    // Stop closes recovery admission until an accepted explicit playback action reopens it.
+    private var recoveryClosedByStop = false
+
     // Launch generation of a normal-start prepare still establishing its install; callbacks wait for it.
     private var startupPrepareGeneration: Long? = null
     private var volumeControl: PlayerVolumeState? = (playerController as? PlayerVolumeController)?.volumeState?.value
@@ -574,7 +577,8 @@ class PlayerViewModel(
 
     private fun play() {
         if (_softwarePlaybackRecovery.value != null) return
-        if (controllerInstallInFlight) return
+        if (!canAcceptPlaybackStart()) return
+        recoveryClosedByStop = false
         invalidateBackendSwitch()
         desiredPlayWhenReady = true
         playbackIntentRevision += 1L
@@ -623,11 +627,14 @@ class PlayerViewModel(
             (currentQueueIndex - 1)
                 .takeIf { index -> queueIds.size > 1 && index in queueIds.indices }
                 ?: return
+        // The seek above keeps its original guard; only an actual queue start needs full start admission.
+        if (!canAcceptPlaybackStart()) return
         stillWatchingState = stillWatchingState.resetForManualNavigation()
         invalidateSubtitleFallback()
         startQueueSwitch(
             index = previousIndex,
             stopPositionMs = playback.positionMs,
+            explicitPlaybackAction = true,
         )
     }
 
@@ -685,6 +692,7 @@ class PlayerViewModel(
             return
         }
         if (stopRequestedDuringControllerInstall || controllerInstallMutex.isLocked) return
+        recoveryClosedByStop = false
         invalidateBackendSwitch()
         autoplayGeneration += 1
         reduce(PlayerChange.Loading)
@@ -841,7 +849,7 @@ class PlayerViewModel(
         allowCurrentTargetRetry: Boolean,
         launchOptions: PlayerLaunchOptions?,
     ): Boolean {
-        if (!isKidsSingleAsset || disposed || controllerInstallInFlight || controllerInstallMutex.isLocked) {
+        if (!isKidsSingleAsset || !canAcceptPlaybackStart()) {
             return false
         }
         val normalizedItemId = itemId.trim()
@@ -889,6 +897,7 @@ class PlayerViewModel(
                 else -> currentStartPositionTicks
             }
         val outgoingPositionMs = playerController.playbackState.value.positionMs
+        recoveryClosedByStop = false
         val selectionGeneration = ++selectedPlaybackGeneration
         externalLaunchEpoch += 1L
 
@@ -1030,7 +1039,7 @@ class PlayerViewModel(
     }
 
     private fun playQueueItem(index: Int) {
-        if (isKidsSingleAsset || controllerInstallInFlight) return
+        if (isKidsSingleAsset || !canAcceptPlaybackStart()) return
         if (queueIds.size <= 1 || index !in queueIds.indices) {
             return
         }
@@ -1040,6 +1049,7 @@ class PlayerViewModel(
         startQueueSwitch(
             index = index,
             stopPositionMs = playerController.playbackState.value.positionMs,
+            explicitPlaybackAction = true,
         )
     }
 
@@ -1057,7 +1067,7 @@ class PlayerViewModel(
     }
 
     private fun confirmStillWatching() {
-        if (controllerInstallInFlight) return
+        if (!canAcceptPlaybackStart()) return
         val pendingIndex = stillWatchingState.pendingQueueIndex
         stillWatchingState = stillWatchingState.confirm()
         if (state.value is PlayerUiState.Content) {
@@ -1069,6 +1079,7 @@ class PlayerViewModel(
             startQueueSwitch(
                 index = pendingIndex,
                 stopPositionMs = playerController.playbackState.value.positionMs,
+                explicitPlaybackAction = true,
             )
         }
     }
@@ -1140,6 +1151,9 @@ class PlayerViewModel(
     }
 
     private fun stop() {
+        // Close before invalidation so deferred Stop already refuses recovery and drops PiP evidence.
+        recoveryClosedByStop = true
+        pendingPictureInPictureRecoveryTrigger = null
         externalLaunchEpoch += 1L
         externalLaunchesClosed = true
         clearPlayingPositionProof()
@@ -1153,6 +1167,7 @@ class PlayerViewModel(
     }
 
     private fun performStop(stopController: Boolean) {
+        recoveryClosedByStop = true
         clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Stopped)
         selectedPlaybackGeneration += 1L
         clearPendingRestartFromBeginning()
@@ -1738,7 +1753,8 @@ class PlayerViewModel(
     }
 
     private fun retryPlaybackFromNotice() {
-        if (controllerInstallInFlight) return
+        if (!canAcceptPlaybackStart()) return
+        recoveryClosedByStop = false
         invalidateBackendSwitch()
         playbackActionNotice = null
         playbackSessionRecoveryState =
@@ -1872,6 +1888,7 @@ class PlayerViewModel(
     }
 
     fun dispose() {
+        recoveryClosedByStop = true
         externalLaunchEpoch += 1L
         externalLaunchesClosed = true
         clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Superseded)
@@ -3064,6 +3081,7 @@ class PlayerViewModel(
         installedPlan: PlaybackPlan?,
     ): Boolean =
         !disposed &&
+            !recoveryClosedByStop &&
             !controllerInstallInFlight &&
             !controllerInstallMutex.isLocked &&
             offlineReprepareGeneration == null &&
@@ -4299,6 +4317,8 @@ class PlayerViewModel(
     private suspend fun handlePlaybackState(playbackState: PlaybackState) {
         if (controllerInstallInFlight) return
         if (offlineReprepareGeneration != null) return
+        // Stop closed recovery: drop this failure before publication or a suspending capture.
+        if (recoveryClosedByStop && playbackState.status == PlaybackStatus.Failed) return
         // Startup observes the current failure again once its prepare settles.
         if (startupPrepareGeneration != null && playbackState.status == PlaybackStatus.Failed) return
         // Failure capture suspends; capture the install authority it must still own afterwards.
@@ -4535,7 +4555,7 @@ class PlayerViewModel(
 
     private fun continueSoftwarePlaybackRecovery(token: Long) {
         val prompt = _softwarePlaybackRecovery.value ?: return
-        if (prompt.token != token || prompt.switching || !prompt.canContinue || disposed) return
+        if (prompt.token != token || prompt.switching || !prompt.canContinue || !canAcceptPlaybackStart()) return
         clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.ContinueRequested)
         // Keep the once-per-prepare latch: choosing to continue must not reopen the dialog.
         play()
@@ -4623,6 +4643,7 @@ class PlayerViewModel(
     private fun handleAutomaticRecoveryTrigger(trigger: AutoPlaybackRecoveryTrigger): AutomaticRecoveryDiagnostic? {
         // An owned install keeps switch authority; reject before spending recovery state or the PiP slot.
         if (controllerInstallInFlight) return null
+        if (recoveryClosedByStop) return null
         if (_softwarePlaybackRecovery.value != null) return null
         if (plan?.streamMode == StreamMode.Offline) return null
         if (pictureInPictureMode) {
@@ -4815,14 +4836,22 @@ class PlayerViewModel(
     }
 
     /**
-     * Session recovery acts only for a settled controller owner. A null installed plan stays
-     * admissible: synchronous failures and fast retries recover without one.
+     * An explicit start needs a live, settled install slot with no pending Stop. Callers reopen
+     * recovery closed by Stop only after this and their own checks accept.
      */
-    private fun admitsPlaybackSessionRecovery(): Boolean =
+    private fun canAcceptPlaybackStart(): Boolean =
         !disposed &&
-            !stopRequestedDuringControllerInstall &&
             !controllerInstallInFlight &&
             !controllerInstallMutex.isLocked &&
+            !stopRequestedDuringControllerInstall
+
+    /**
+     * Session recovery acts only for a settled controller owner that Stop has not closed. A null
+     * installed plan stays admissible: synchronous failures and fast retries recover without one.
+     */
+    private fun admitsPlaybackSessionRecovery(): Boolean =
+        canAcceptPlaybackStart() &&
+            !recoveryClosedByStop &&
             offlineReprepareGeneration == null &&
             concreteControllerInstalled &&
             playerControllerFieldOwned &&
@@ -6015,6 +6044,8 @@ class PlayerViewModel(
         stopPositionMs: Long,
         expectedGeneration: Long? = null,
     ): Boolean {
+        // Automatic progression never reopens recovery closed by Stop.
+        if (!canAcceptPlaybackStart() || (auto && recoveryClosedByStop)) return false
         // Ignore countdowns from an older queue generation.
         if (expectedGeneration != null && expectedGeneration != autoplayGeneration) {
             return false
@@ -6042,6 +6073,7 @@ class PlayerViewModel(
         startQueueSwitch(
             index = nextIndex,
             stopPositionMs = stopPositionMs,
+            explicitPlaybackAction = !auto,
         )
         return true
     }
@@ -6050,13 +6082,16 @@ class PlayerViewModel(
         (currentQueueIndex + 1)
             .takeIf { index -> queueIds.size > 1 && index in queueIds.indices }
 
+    // Callers check start admission before their own mutations; only an explicit start reopens recovery.
     private fun startQueueSwitch(
         index: Int,
         stopPositionMs: Long,
+        explicitPlaybackAction: Boolean,
     ) {
         if (queueIds.size <= 1 || index !in queueIds.indices) {
             return
         }
+        if (explicitPlaybackAction) recoveryClosedByStop = false
         invalidateBackendSwitch()
         autoplayGeneration += 1
         // Invalidate identity before async planning so held seeks cancel now.
