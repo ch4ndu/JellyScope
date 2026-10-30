@@ -322,10 +322,12 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   Stop/release retain the last displayed values until a new observation.
   Replacement observation rejects emissions from the outgoing controller.
 - Stored reads are qualified by the load generation, controller and timing
-  controller identity, and both track keys after suspension. A manual adjustment
-  supersedes only its own kind's pending restore. New restores, Stop, release
-  and disposal invalidate older loads; persistence still records the applied
-  value.
+  controller identity, and both track keys after suspension. Finish all eligible
+  reads before applying either restored offset, then recheck ownership, support
+  and each kind's command revision without another storage suspension. A manual
+  adjustment supersedes only its own kind's pending restore. New restores, Stop,
+  release and disposal invalidate older loads; persistence still records the
+  applied value.
 - Normal startup owns the existing installation admission while restoring
   offsets, drains deferred Stop on exit, and rechecks request and controller
   ownership after unlocking before prepare. Offline preparation keeps its
@@ -407,7 +409,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   and a mutex handoff can admit another owner before startup resumes. Both the
   offset command and its prepare continuation therefore need current authority.
   Per-kind command revisions preserve an unrelated offset restore when the user
-  adjusts only audio or subtitles.
+  adjusts only audio or subtitles. Reading both values first prevents an early
+  audio application from scheduling native reconfiguration while subtitle
+  storage is still pending; it does not cancel work scheduled before those reads.
 
 - OpenSubtitles HTTP handling and its response types stay together in transport;
   account and selection orchestration stay with the upper repository. Existing

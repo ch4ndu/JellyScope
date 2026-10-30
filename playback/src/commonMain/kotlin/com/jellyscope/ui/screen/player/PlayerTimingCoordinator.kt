@@ -117,6 +117,7 @@ internal class PlayerTimingCoordinator(
         if (!isCurrent()) return false
         if (timingController == null) return true
         // Load before prepare so the initial native configuration is correct.
+        val restored = mutableMapOf<PlaybackTimingKind, Long>()
         PlaybackTimingKind.entries.forEach { kind ->
             val key = keys[kind] ?: return@forEach
             if (!timingController.timingState.value
@@ -136,6 +137,12 @@ internal class PlayerTimingCoordinator(
                     null
                 }
             if (!isCurrent()) return false
+            restored[kind] = stored ?: 0L
+        }
+        // Finish every read first: applying Audio may schedule a native reconfiguration.
+        PlaybackTimingKind.entries.forEach { kind ->
+            val offset = restored[kind] ?: return@forEach
+            if (!isCurrent()) return false
             if (
                 revisions[kind.ordinal] != commandRevisions[kind.ordinal] ||
                 !timingController.timingState.value
@@ -144,7 +151,7 @@ internal class PlayerTimingCoordinator(
             ) {
                 return@forEach
             }
-            timingController.setOffset(kind, stored ?: 0L)
+            timingController.setOffset(kind, offset)
         }
         return isCurrent()
     }
