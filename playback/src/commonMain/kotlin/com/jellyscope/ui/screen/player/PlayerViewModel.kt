@@ -3635,6 +3635,7 @@ class PlayerViewModel(
     }
 
     private fun releaseOwnedPlayerController() {
+        pendingPictureInPictureRecoveryTrigger = null
         installedPlan = null
         if (!playerControllerFieldOwned) {
             return
@@ -4533,6 +4534,7 @@ class PlayerViewModel(
     }
 
     private fun endPlaybackHealthSession() {
+        pendingPictureInPictureRecoveryTrigger = null
         playbackLaunchGeneration += 1L
         playbackDiagnosticSession = PlaybackDiagnosticSessions.allocate()
         playbackHealthCoordinator.end()

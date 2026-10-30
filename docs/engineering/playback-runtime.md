@@ -681,9 +681,12 @@ slot retains the strongest trigger
 in this locked order: DecoderFailure, UnsupportedMedia, NoVideoOutput,
 CumulativeBuffering, RepeatedStalls, then DroppedFrames. Equal severity keeps
 the first trigger. Leaving PiP consumes one retained trigger; if installation is
-busy, it is discarded without execution or a later retry. A new item or queue
-launch and retry clear stale pending work. PiP presentation deferral alone keeps
-health measurement active; controller installation suspends evaluation as
+busy, it is discarded without execution or a later retry. New item or queue
+launch, retry, actual controller release and session end clear retained work.
+Rejected or cancelled switch planning that keeps the outgoing controller also
+keeps its pending evidence, unless PiP exit has already consumed it. Installation
+settlement preserves evidence retained for the replacement. PiP presentation
+deferral alone keeps health measurement active; controller installation suspends evaluation as
 [described above](#playback-health-and-guidance). An admitted retained trigger enters
 `AutoPlaybackRecoveryCoordinator`; arbitration grants no new
 stream-change authority, so Original and inherited Auto keep their existing
@@ -807,6 +810,9 @@ server/user IDs, titles, paths, or raw native errors.
   null installed plan, because recovery after a synchronous failure can still
   own that null identity. Refreshing the failure collector and reconsidering
   only activation facts avoid duplicating full failure handling.
+  Clearing retained PiP evidence at controller release and session end prevents
+  retained outgoing failures from spending a replacement's recovery budget. Clearing at
+  switch request would discard evidence even when planning keeps the old owner.
 
 - **Controller installation is serialized.** A current launch waits for an
   earlier installer and rechecks generation and item authority. Dropping a
