@@ -64,6 +64,7 @@ import com.jellyscope.core.domain.playback.PlaybackFirstVideoOutputState
 import com.jellyscope.core.domain.playback.PlaybackHealthExclusionReason
 import com.jellyscope.core.domain.playback.PlaybackHealthGuidance
 import com.jellyscope.core.domain.playback.PlaybackHealthGuidancePolicy
+import com.jellyscope.core.domain.playback.PlaybackHealthMeasurementCapabilities
 import com.jellyscope.core.domain.playback.PlaybackHealthSessionContext
 import com.jellyscope.core.domain.playback.PlaybackHealthSessionCoordinator
 import com.jellyscope.core.domain.playback.PlaybackHealthSignal
@@ -414,13 +415,18 @@ class PlayerViewModel(
             scope = viewModelScope,
             monotonicTimeMs = monotonicTimeMs,
             measurementCapabilities = {
-                val capabilities = playerController.playbackHealthMeasurementCapabilities
-                capabilities.copy(
-                    hasReliableFirstVideoOutput =
-                        capabilities.hasReliableFirstVideoOutput &&
-                            playerController.videoOutputMeasurementCapabilities.isSupported &&
-                            firstVideoOutputState.debug.state != PlaybackFirstVideoOutputState.Unsupported,
-                )
+                if (!concreteControllerInstalled) {
+                    PlaybackHealthMeasurementCapabilities.None
+                } else {
+                    val currentController = this@PlayerViewModel.playerController
+                    val capabilities = currentController.playbackHealthMeasurementCapabilities
+                    capabilities.copy(
+                        hasReliableFirstVideoOutput =
+                            capabilities.hasReliableFirstVideoOutput &&
+                                currentController.videoOutputMeasurementCapabilities.isSupported &&
+                                firstVideoOutputState.debug.state != PlaybackFirstVideoOutputState.Unsupported,
+                    )
+                }
             },
             onSignal = { signal ->
                 lastHealthSignal = signal.kind

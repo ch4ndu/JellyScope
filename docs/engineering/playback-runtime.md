@@ -279,9 +279,11 @@ exclusions. A positive Media3 first-frame fact, mpv software-frame publication,
 VLC displayed-picture counter, or AVPlayer ready-for-display bridge is
 sufficient; mpv OpenGL, Vout, and surface
 attachment is not. The deadline begins at active playback, not request launch.
-Capability is checked when the deadline is armed. The coordinator rechecks that reliable first-output measurement is still
-supported when the deadline fires; capability loss or an unsupported backend
-cancels the signal rather than manufacturing a no-video recovery.
+The ViewModel reads both capability sets from the same installed concrete
+controller on each evaluation. It reports no measurement capabilities while
+pending or between release and replacement. Capability is checked when the
+deadline is armed and again when it fires; capability loss or an unsupported
+backend cancels the signal rather than manufacturing a no-video recovery.
 
 The no-video-output deadline additionally requires an **advancing playback
 clock**: a clock progressing with no displayed picture is the black-video
@@ -754,9 +756,11 @@ server/user IDs, titles, paths, or raw native errors.
   controller copies from drifting without forcing unrelated lifecycle state
   into a common base class.
 
-- **Health evidence is qualified rather than globally tuned.** Backend-specific
-  first-output thresholds, advancing-clock checks and generation exclusions keep
-  slow start and surface work from becoming false no-output recovery.
+- **Health evidence is qualified rather than globally tuned.** Capabilities follow
+  the installed controller: a retained placeholder suppresses valid signals,
+  while a released controller can admit obsolete evidence during replacement.
+  Backend-specific first-output thresholds, advancing-clock checks and generation
+  exclusions keep slow start and surface work from becoming false no-output recovery.
   Evidence-window restarts keep app-owned seeks/resumes and accepted VLCKit PiP
   seeks from contaminating later stall evidence. Reading the accepted seek
   snapshot before status and deadline evaluation avoids independent event-flow
