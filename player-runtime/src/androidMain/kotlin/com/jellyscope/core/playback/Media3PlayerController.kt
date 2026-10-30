@@ -511,9 +511,14 @@ class Media3PlayerController(
             hasReliableFirstVideoOutput = true,
         )
 
-    /** Coalesces rapid audio-offset nudges and drops work superseded by prepare(). */
+    /**
+     * Coalesces rapid audio-offset nudges while native state is non-IDLE
+     * (including paused READY and ENDED). Values set while native IDLE are kept
+     * by the processor and apply at the next native prepare; stop() and a new
+     * prepare() supersede pending work.
+     */
     private fun scheduleTimingReconfigure() {
-        if (released) return
+        if (released || exoPlayer.playbackState == Player.STATE_IDLE) return
         reconfigureJob?.cancel()
         val scheduledAtGeneration = prepareGeneration
         reconfigureJob =
@@ -527,7 +532,7 @@ class Media3PlayerController(
 
     /** Rebuild the current item so the audio sink picks up the new PCM offset. */
     private fun applyTimingReconfigure() {
-        if (released) return
+        if (released || exoPlayer.playbackState == Player.STATE_IDLE) return
         val plan = lastPlan ?: return
         val positionMs = exoPlayer.safePosition()
         val shouldPlay = playIntent
@@ -889,6 +894,8 @@ class Media3PlayerController(
 
     override fun stop() {
         if (released) return warnReleased(PlayerOperation.Stop)
+        reconfigureJob?.cancel()
+        reconfigureJob = null
         finishPerformanceEpoch()
         invalidateDelayedRecovery()
         audioFocusCoordinator?.abandon()
