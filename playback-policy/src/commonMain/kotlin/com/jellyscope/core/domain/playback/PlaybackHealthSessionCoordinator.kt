@@ -89,6 +89,9 @@ class PlaybackHealthSessionCoordinator(
     private var transitionSettled = false
     private var lastHostSeekSequence = -1L
 
+    // Owned by the controller installer, not the session: start/end never clear it.
+    private var installationSuspended = false
+
     val guidance: PlaybackHealthGuidance?
         get() = currentGuidance
 
@@ -127,7 +130,7 @@ class PlaybackHealthSessionCoordinator(
     }
 
     fun observePlaybackState(playbackState: PlaybackState) {
-        if (!active) return
+        if (!active || installationSuspended) return
         latestPlaybackPositionMs = playbackState.positionMs.coerceAtLeast(0L)
         reconcileHostSeek()
         val healthStatus =
@@ -173,7 +176,10 @@ class PlaybackHealthSessionCoordinator(
                 transitionSettled = true
             }
             PlaybackTransitionOutcome.TimedOut -> {
+                // Positive transitions above stay admitted while an installer
+                // owns the controller; only a timeout delivered then is dropped.
                 if (
+                    installationSuspended ||
                     identity != activeTransitionIdentity ||
                     transitionSettled ||
                     context?.videoExpected != true ||
@@ -228,8 +234,31 @@ class PlaybackHealthSessionCoordinator(
     }
 
     fun recordDroppedFrameMeasurement(measurement: DroppedFrameMeasurement) {
-        if (!active || !measurementCapabilities().hasDroppedFrameMeasurements) return
+        if (!active || installationSuspended || !measurementCapabilities().hasDroppedFrameMeasurements) return
         handleSignals(evaluator.recordDroppedFrameMeasurement(measurement, monotonicTimeMs()))
+    }
+
+    /**
+     * Pauses signal and guidance evaluation while the caller owns a controller
+     * installation, even before a session starts. Canceling the deadline jobs
+     * is sufficient: none is rearmed until [resumeAfterInstallation].
+     */
+    fun suspendForInstallation() {
+        installationSuspended = true
+        cancelTimers()
+    }
+
+    /**
+     * Ends the installation pause. Rolling evidence restarts while evaluation
+     * is still blocked, so the busy interval never counts; session timing,
+     * emitted latches, and current guidance are preserved. Only a
+     * qualified [currentPlaybackState] rearms timers here; when it is null,
+     * the next prepare or observed state does.
+     */
+    fun resumeAfterInstallation(currentPlaybackState: PlaybackState?) {
+        restartEvidenceWindow(PlaybackHealthExclusionReason.BackendReplacement)
+        installationSuspended = false
+        currentPlaybackState?.let(::observePlaybackState)
     }
 
     fun markExclusion(reason: PlaybackHealthExclusionReason) {
@@ -327,7 +356,7 @@ class PlaybackHealthSessionCoordinator(
 
     private fun syncTimers() {
         cancelTimers()
-        if (!active) return
+        if (!active || installationSuspended) return
         if (evaluator.currentStatus != PlaybackStatus.Playing) {
             videoOutputWaitStartedAtMs = null
             videoOutputWaitPositionMs = null

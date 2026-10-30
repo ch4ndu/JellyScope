@@ -269,10 +269,36 @@ frame measurements remain duration spans, not report counts; stale batch spans
 and spans crossing the 2-second exclusion after seek, prepare, re-plan, resume,
 or backend replacement are rejected or clipped before they qualify.
 
-`PlaybackHealthSessionCoordinator` owns generation-scoped timer evaluation. Startup/buffering/output jobs are
-canceled on failure, completion, stop, item switch, controller replacement, and
-dispose; a stale callback cannot mutate a new item session. First-video-output
-is evaluated only when video is expected, playback is actively Playing or
+`PlaybackHealthSessionCoordinator` owns generation-scoped timer evaluation.
+Failure, completion, stop, item switch and disposal cancel its jobs; a stale
+callback cannot mutate a new item session. During the Compose ViewModel's
+controller installations, health evaluation is suspended and all three timers
+are canceled. This covers timing restoration, controller construction,
+serialized backend switching and same-controller replans, including final
+planning while the outgoing controller still exists. Initial switch preflight
+remains outside that suspension. Matching prepare identity, positive output and
+Started/Presented transition facts remain admitted; they do not spend warning
+or signal slots and may have no replay.
+
+Settlement restarts rolling buffering, stall, dropped-frame and no-output
+waiting evidence before lifting suspension. It preserves previously spent
+signal/guidance slots, Auto recovery budgets and current-prepare positive facts.
+Health receives the current owned, prepared controller's state only when the
+installing launch still owns it. An ended session stays ended. Without a
+qualified snapshot, the next prepare admission or observed state can rearm
+timers. Slow-startup timing still counts from launch: an unstarted session may
+show that message immediately after settlement, without automatic recovery.
+
+A typed TimedOut delivered during suspension is discarded before its transition
+or no-output slot is spent. A fact delivered afterward still follows existing
+prepare/transition identity checks, including a retained transition whose
+fact was produced while busy. Native observation timestamps do not share the
+coordinator's clock and are not compared to an installation cutoff. The current
+VLCKit producer lacks reliable first-output capability, so it cannot enter this
+health signal path; a future reliable producer needs an explicit clock or
+identity contract before promising stronger stale-fact rejection.
+
+First-video-output is evaluated only when video is expected, playback is actively Playing or
 progressing, a reliable current-prepare observation has been armed, and the
 session is outside seek/replan/resume/surface/backend/background/PiP-transition
 exclusions. A positive Media3 first-frame fact, mpv software-frame publication,
@@ -625,8 +651,9 @@ in this locked order: DecoderFailure, UnsupportedMedia, NoVideoOutput,
 CumulativeBuffering, RepeatedStalls, then DroppedFrames. Equal severity keeps
 the first trigger. Leaving PiP consumes one retained trigger; if installation is
 busy, it is discarded without execution or a later retry. A new item or queue
-launch and retry clear stale pending work. Health measurement continues while
-recovery presentation is deferred. An admitted retained trigger enters
+launch and retry clear stale pending work. PiP presentation deferral alone keeps
+health measurement active; controller installation suspends evaluation as
+[described above](#playback-health-and-guidance). An admitted retained trigger enters
 `AutoPlaybackRecoveryCoordinator`; arbitration grants no new
 stream-change authority, so Original and inherited Auto keep their existing
 manual prompt contracts.
@@ -769,8 +796,13 @@ server/user IDs, titles, paths, or raw native errors.
   while a released controller can admit obsolete evidence during replacement.
   Backend-specific first-output thresholds, advancing-clock checks and generation
   exclusions keep slow start and surface work from becoming false no-output recovery.
-  Evidence-window restarts keep app-owned seeks/resumes and accepted VLCKit PiP
-  seeks from contaminating later stall evidence. Reading the accepted seek
+  Installation suspension prevents long planning or replacement gaps from
+  spending health slots before recovery admission. Settlement restarts rolling
+  evidence and reads the qualified controller snapshot because a state update
+  skipped during installation need not be emitted again. Positive facts stay
+  admitted so a non-replaying frame event is not lost. Startup timing remains
+  launch-based. Evidence-window restarts also keep app-owned seeks/resumes and
+  accepted VLCKit PiP seeks from contaminating later stall evidence. Reading the accepted seek
   snapshot before status and deadline evaluation avoids independent event-flow
   ordering. Native PiP play/pause remain a separate gap. Restarting the window
   retains one-per-session signal and recovery budgets.

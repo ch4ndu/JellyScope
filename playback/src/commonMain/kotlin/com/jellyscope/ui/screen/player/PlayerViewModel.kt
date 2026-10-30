@@ -2284,6 +2284,7 @@ class PlayerViewModel(
                 if (!ownsRestore()) return@withLock false
 
                 controllerInstallInFlight = true
+                playbackHealthCoordinator.suspendForInstallation()
                 try {
                     val loaded = loadTimingOffsets()
                     currentCoroutineContext().ensureActive()
@@ -2306,7 +2307,7 @@ class PlayerViewModel(
                     }
                     throw exception
                 } finally {
-                    controllerInstallInFlight = false
+                    finishControllerInstallation(launchGeneration)
                 }
             }
         // Unlocking can run a queued owner; nothing may suspend between this check and prepare.
@@ -3444,6 +3445,7 @@ class PlayerViewModel(
             }
 
             controllerInstallInFlight = true
+            playbackHealthCoordinator.suspendForInstallation()
             val previousReportingJob = reportingJob
             val currentJob = currentCoroutineContext()[Job]
             reportingJob = null
@@ -3568,7 +3570,7 @@ class PlayerViewModel(
             } finally {
                 candidateOwner.releaseUntransferred()
                 previousReportingJob?.cancel()
-                controllerInstallInFlight = false
+                finishControllerInstallation(expectedGeneration)
             }
         }
 
@@ -3576,6 +3578,30 @@ class PlayerViewModel(
         if (!stopRequestedDuringControllerInstall) return
         stopRequestedDuringControllerInstall = false
         performStop(stopController)
+    }
+
+    /**
+     * Releases installation admission and resumes health evaluation. Only the installer's own
+     * launch, still holding a concrete prepared controller, supplies that controller's current state;
+     * a superseded, stopped, or released owner passes null so the next prepare or observed state
+     * rearms health instead. Never reenters [handlePlaybackState] and its failure handling.
+     */
+    private fun finishControllerInstallation(ownerLaunchGeneration: Long) {
+        controllerInstallInFlight = false
+        val currentPlaybackState =
+            if (
+                !disposed &&
+                !stopRequestedDuringControllerInstall &&
+                ownerLaunchGeneration == playbackLaunchGeneration &&
+                concreteControllerInstalled &&
+                playerControllerFieldOwned &&
+                installedPlan != null
+            ) {
+                playerController.playbackState.value
+            } else {
+                null
+            }
+        playbackHealthCoordinator.resumeAfterInstallation(currentPlaybackState)
     }
 
     private fun releaseOwnedPlayerController() {
@@ -3852,6 +3878,7 @@ class PlayerViewModel(
             }
 
             controllerInstallInFlight = true
+            playbackHealthCoordinator.suspendForInstallation()
             var previousReportingJob: Job? = null
             val currentJob = currentCoroutineContext()[Job]
             val candidateOwner = ControllerCandidateOwner()
@@ -4164,7 +4191,7 @@ class PlayerViewModel(
                     )
                 }
                 previousReportingJob?.cancel()
-                controllerInstallInFlight = false
+                finishControllerInstallation(switch.launchGeneration)
                 if (keptCurrentPlayback) {
                     publishContent(pickerVisible = PlayerPicker.None)
                 }
@@ -5230,6 +5257,7 @@ class PlayerViewModel(
                         }
 
                         controllerInstallInFlight = true
+                        playbackHealthCoordinator.suspendForInstallation()
                         try {
                             playbackReportingCoordinator.stopNow(positionMs = target)
                             currentCoroutineContext().ensureActive()
@@ -5302,7 +5330,7 @@ class PlayerViewModel(
                                 true
                             }
                         } finally {
-                            controllerInstallInFlight = false
+                            finishControllerInstallation(replanGeneration)
                         }
                     }
                 if (replacementInstalled) {
