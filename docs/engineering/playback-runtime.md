@@ -569,6 +569,17 @@ suppresses interactive recovery until it is safe to show the consequence.
   subtitle target, so its in-player subtitle changes survive retry. Each
   controller retains its released checks, play intent, native preparation/order,
   and backend-specific position, timing, asset, and engine behavior.
+- **[Compose]** Full Retry replaces the existing launch job, so Stop, disposal
+  and newer launch selection can cancel it. Fast Retry preserves its current
+  controller path and any pending queue job. Disposed owners refuse Retry;
+  ordinary Retry also respects pending Stop and installation ownership, while
+  Kids admission stays with its selector. Normal detail and planning failures,
+  and offline record, context, backend and install results, recheck cancellation
+  and launch authority before their error or state publications. An obsolete
+  install failure after deferred Stop leaves the existing UI projection intact;
+  current failures retain their errors and diagnostics. These boundaries do not
+  establish persistent post-Stop recovery admission or isolate every resolver
+  and subtitle write during generation-only supersession.
 - **[all]** A manual Auto-recovery notice offers **Choose lower quality**, which
   opens the in-player picker, plus the remaining stream actions and dismissal.
   A successful automatic quality recovery offers **Keep current quality**, **Try
@@ -819,10 +830,14 @@ server/user IDs, titles, paths, or raw native errors.
   launch while installation is busy can leave the current item without a
   controller.
 
-- **Same-plan Retry shares validation, not mutable replay state.** The common
+- **Retry follows existing launch and controller ownership.** The common
   policy validates exact audio/subtitle targets and explicit Off only from the
   vocabulary each controller already owns. Assets, timing, play intent,
   reinitialization, and native command order remain controller-specific.
+  Full Retry uses the existing launch job, while fast Retry leaves a pending
+  queue transition to finish. Cancellation alone cannot prevent a synchronous
+  failure publication after an installer drains Stop, so result boundaries also
+  check launch authority.
 
 - **Health policy is selected by the application surface.** Android TV uses the
   shared Actionable policy, while desktop and tvOS remain Advisory; placing that

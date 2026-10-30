@@ -677,12 +677,14 @@ class PlayerViewModel(
     }
 
     private fun retry() {
+        if (disposed) return
         if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
         if (isKidsSingleAsset) {
             retryCurrentPlayback()
             return
         }
+        if (stopRequestedDuringControllerInstall || controllerInstallMutex.isLocked) return
         invalidateBackendSwitch()
         autoplayGeneration += 1
         reduce(PlayerChange.Loading)
@@ -718,20 +720,23 @@ class PlayerViewModel(
                 failOfflineLaunch(retryGeneration, PlaybackError.OfflineArtifactUnavailable)
                 return
             }
-            viewModelScope.launch {
-                if (
-                    startPlaybackForItem(
-                        itemId = currentItemId,
-                        requestedMediaSourceId = selectedMediaSourceId,
-                        requestedAudioStreamIndex = requestedAudioStreamIndex,
-                        requestedSubtitleSelection = requestedSubtitleSelection,
-                        startPositionTicks = currentStartPositionTicks,
-                        resetReporting = false,
-                    )
-                ) {
-                    observePlaybackState()
+            // A full Retry owns the launch slot, so Stop, disposal and newer launches cancel it.
+            queueSwitchJob?.cancel()
+            queueSwitchJob =
+                viewModelScope.launch {
+                    if (
+                        startPlaybackForItem(
+                            itemId = currentItemId,
+                            requestedMediaSourceId = selectedMediaSourceId,
+                            requestedAudioStreamIndex = requestedAudioStreamIndex,
+                            requestedSubtitleSelection = requestedSubtitleSelection,
+                            startPositionTicks = currentStartPositionTicks,
+                            resetReporting = false,
+                        )
+                    ) {
+                        observePlaybackState()
+                    }
                 }
-            }
             return
         }
         if (sameItemFastRetry) {
@@ -751,27 +756,30 @@ class PlayerViewModel(
             return
         }
 
-        viewModelScope.launch {
-            if (
-                startPlaybackForItem(
-                    itemId = currentItemId,
-                    requestedMediaSourceId =
-                        selectedMediaSourceId
-                            ?: mediaSourceId.takeIf {
-                                !hasManuallySelectedAsset && currentItemId == this@PlayerViewModel.itemId
-                            },
-                    requestedAudioStreamIndex = requestedAudioStreamIndex,
-                    requestedSubtitleSelection = requestedSubtitleSelection,
-                    startPositionTicks = currentStartPositionTicks,
-                    resetReporting = false,
-                )
-            ) {
-                observePlaybackState()
-                if (!isKidsSingleAsset) {
-                    fetchPlaylistMetadata()
+        // Fast Retry above leaves a pending queue switch in place; only a full relaunch takes over the slot.
+        queueSwitchJob?.cancel()
+        queueSwitchJob =
+            viewModelScope.launch {
+                if (
+                    startPlaybackForItem(
+                        itemId = currentItemId,
+                        requestedMediaSourceId =
+                            selectedMediaSourceId
+                                ?: mediaSourceId.takeIf {
+                                    !hasManuallySelectedAsset && currentItemId == this@PlayerViewModel.itemId
+                                },
+                        requestedAudioStreamIndex = requestedAudioStreamIndex,
+                        requestedSubtitleSelection = requestedSubtitleSelection,
+                        startPositionTicks = currentStartPositionTicks,
+                        resetReporting = false,
+                    )
+                ) {
+                    observePlaybackState()
+                    if (!isKidsSingleAsset) {
+                        fetchPlaylistMetadata()
+                    }
                 }
             }
-        }
     }
 
     /**
@@ -2002,18 +2010,19 @@ class PlayerViewModel(
             withContext(workDispatcher) {
                 getItemDetailUseCase(itemId, includePlaybackFields = true).getOrNull()
             }
+        // A superseded detail read must not publish an Error over the newer launch.
+        currentCoroutineContext().ensureActive()
+        if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+            segmentsDeferred.cancel()
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
         val selectedVersion = detail?.selectedVersion(requestedMediaSourceId)
 
         if (selectedVersion == null) {
             clearPlaybackLaunch(launchGeneration)
             segmentsDeferred.cancel()
             reduce(PlayerChange.Failed(PlayerUiState.Error(error = PlaybackError.UnsupportedMedia)))
-            return false
-        }
-        currentCoroutineContext().ensureActive()
-        if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) {
-            segmentsDeferred.cancel()
-            clearPlaybackLaunch(launchGeneration)
             return false
         }
         activePlaybackTimelineFacts = detail.toActivePlaybackTimelineFacts(launchGeneration)
@@ -2071,6 +2080,9 @@ class PlayerViewModel(
             } catch (exception: Throwable) {
                 segmentsDeferred.cancel()
                 clearPlaybackLaunch(launchGeneration)
+                // Installer failure can drain a deferred Stop before rethrowing, so recheck ownership.
+                currentCoroutineContext().ensureActive()
+                if (disposed || !isCurrentPlaybackLaunch(launchGeneration, itemId)) return false
                 val startupError = startupPlanningError(exception)
                 reduce(PlayerChange.Failed(startupError))
                 playerDiagnosticsRecorder.recordTerminalOutcome(
@@ -2190,6 +2202,8 @@ class PlayerViewModel(
             } catch (exception: Throwable) {
                 segmentsDeferred.cancel()
                 clearPlaybackLaunch(launchGeneration)
+                currentCoroutineContext().ensureActive()
+                if (disposed || !isCurrentPlaybackLaunch(launchGeneration, itemId)) return false
                 playerDiagnosticsRecorder.recordPlannerAttemptFailure(
                     context = playerDiagnosticContext(),
                     facts =
@@ -2390,6 +2404,11 @@ class PlayerViewModel(
             } catch (_: Throwable) {
                 null
             }
+        currentCoroutineContext().ensureActive()
+        if (disposed || !isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
         if (
             record == null ||
             record.businessKey.accountIdentity != accountIdentity ||
@@ -2470,11 +2489,16 @@ class PlayerViewModel(
                 is PlannedSubtitle.Track -> SubtitleSelectionIntent.Track(plannedSubtitle.streamIndex)
                 else -> SubtitleSelectionIntent.Off
             }
-        metadata = offlineProjection.metadata
         val launchContext =
             withContext(workDispatcher) {
                 getPlaybackLaunchContextUseCase(session = session, itemId = itemId, mediaSourceId = sourceId)
             }
+        currentCoroutineContext().ensureActive()
+        if (disposed || !isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
+        metadata = offlineProjection.metadata
         activePlaybackPreferences = launchContext.playbackPreferences
         currentItemId = itemId
         currentStartPositionTicks = startPositionTicks
@@ -2508,6 +2532,11 @@ class PlayerViewModel(
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Throwable) {
+                currentCoroutineContext().ensureActive()
+                if (disposed || !isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+                    clearPlaybackLaunch(launchGeneration)
+                    return false
+                }
                 return failOfflineLaunch(
                     launchGeneration,
                     PlaybackError.OfflinePlayerUnavailable(
@@ -2516,6 +2545,11 @@ class PlayerViewModel(
                     ),
                 )
             }
+        currentCoroutineContext().ensureActive()
+        if (disposed || !isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+            clearPlaybackLaunch(launchGeneration)
+            return false
+        }
         backend = resolvedBackend
         val offlinePlan =
             offlinePlanWithRetainedTracks
@@ -2530,7 +2564,6 @@ class PlayerViewModel(
                     subtitleStyle = subtitleStyle,
                     diagnosticSessionSequence = launchDiagnosticSession,
                 )
-        if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) return false
         val exactOfflineBackendRequired =
             !offlineControllerFallbackAllowed(
                 artifactKind = record.request.artifactKind,
@@ -2547,6 +2580,9 @@ class PlayerViewModel(
                     expectedItemId = itemId,
                 ) ?: return false
             } catch (exception: OfflineControllerUnavailableException) {
+                // A failed install can drain a deferred Stop first; only a current attempt reports failure.
+                currentCoroutineContext().ensureActive()
+                if (disposed || !isCurrentPlaybackLaunch(launchGeneration, itemId)) return false
                 return failOfflineLaunch(
                     launchGeneration,
                     PlaybackError.OfflinePlayerUnavailable(exception.requiredBackend),
@@ -2554,6 +2590,8 @@ class PlayerViewModel(
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Throwable) {
+                currentCoroutineContext().ensureActive()
+                if (disposed || !isCurrentPlaybackLaunch(launchGeneration, itemId)) return false
                 return failOfflineLaunch(
                     launchGeneration,
                     PlaybackError.OfflinePlayerUnavailable(resolvedBackend),
