@@ -692,6 +692,7 @@ class PlayerViewModel(
             return
         }
         if (stopRequestedDuringControllerInstall || controllerInstallMutex.isLocked) return
+        if (queueSwitchInFlight && queueSwitchJob?.isActive == true) return
         recoveryClosedByStop = false
         invalidateBackendSwitch()
         autoplayGeneration += 1
@@ -700,7 +701,7 @@ class PlayerViewModel(
         lastStatus = PlaybackStatus.Idle
         replanJob?.cancel()
         replanJob = null
-        val sameItemFastRetry = plan?.itemId == currentItemId
+        val sameItemFastRetry = !queueSwitchInFlight && plan?.itemId == currentItemId
         emitPlaybackHealthSummary()
         val retryGeneration = ++playbackLaunchGeneration
         playbackDiagnosticSession = PlaybackDiagnosticSessions.allocate()
@@ -764,7 +765,7 @@ class PlayerViewModel(
             return
         }
 
-        // Fast Retry above leaves a pending queue switch in place; only a full relaunch takes over the slot.
+        // The early admission check preserves an active unsettled launch; only an admitted full relaunch takes the slot.
         queueSwitchJob?.cancel()
         queueSwitchJob =
             viewModelScope.launch {

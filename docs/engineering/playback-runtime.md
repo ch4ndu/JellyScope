@@ -569,17 +569,30 @@ suppresses interactive recovery until it is safe to show the consequence.
   subtitle target, so its in-player subtitle changes survive retry. Each
   controller retains its released checks, play intent, native preparation/order,
   and backend-specific position, timing, asset, and engine behavior.
-- **[Compose]** Full Retry replaces the existing launch job, so Stop, disposal
-  and newer launch selection can cancel it. Fast Retry preserves its current
-  controller path and any pending queue job. Disposed owners refuse Retry;
-  ordinary Retry also respects pending Stop and installation ownership, while
-  Kids admission stays with its selector. Normal detail and planning failures,
-  and offline record, context, backend and install results, recheck cancellation
-  and launch authority before their error or state publications. An obsolete
-  install failure after deferred Stop leaves the existing UI projection intact;
-  current failures retain their errors and diagnostics. These boundaries do not
-  establish persistent post-Stop recovery admission or isolate every resolver
-  and subtitle write during generation-only supersession.
+- **[Compose]** Ordinary Retry refuses an active launch while queue identity is
+  unsettled, before changing recovery admission, loading, generations, budgets
+  or native playback. This includes repeated Retry during a full rebuild. A
+  cancelled child request can briefly keep the launch active after Error is
+  published; Retry during that interval is ignored until the job ends. Kids
+  delegates to its own selector before this check. Disposed owners, pending Stop
+  and installation ownership retain their existing refusals.
+  Once the launch ends, unsettled identity forces full startup even when the
+  retained plan names the current item. A failure before the stabilizing plan
+  install keeps its typed Error and unsettled identity. Native preparation can
+  fail after queue identity settles; the existing null-installed-plan recovery
+  path remains unchanged. Settled matching-item Retry keeps the native fast path.
+  Full Retry replaces the existing launch job, so Stop, disposal and newer
+  launches can cancel it. It uses current requested source, track and position
+  fields, checked against fresh detail. Those fields can come from a cancelled
+  other-item launch or from this item's resolved preferences/defaults. Existing
+  track indexes and subtitle Off can be accepted and saved as explicit choices;
+  Off requires no index match. Coherent installed identity does not guarantee
+  preservation of the earlier source, intended tracks or position.
+  Normal detail and planning failures, and offline record, context, backend and
+  install results, recheck cancellation and launch authority before publication.
+  An obsolete install failure after deferred Stop leaves the UI projection
+  intact; current failures retain their errors and diagnostics. These checks
+  qualify named boundaries, not every mutable launch-state write.
 - **[Compose]** Audio, subtitle (including Off), local-subtitle and audio/subtitle
   offset adjust/reset commands refuse while queue identity is unsettled, before
   switch invalidation, selection changes, native commands or persistence. The
@@ -590,14 +603,10 @@ suppresses interactive recovery until it is safe to show the consequence.
   installation check; entry refusal and existing job cancellation prevent a
   new outgoing-context read from surviving the queue handoff. Pickers can remain
   visible while commands are refused.
-  A failed or superseded same-item queue launch can already leave identity
-  unsettled after fast Retry, losing seeking, backend switching, quality commits
-  and mpv slow-software detection. Track and offset commands are now also
-  refused in that state, even if native playback resumes. Queue settlement is
-  separate work: a successful Next, Previous or queue-row launch restores
-  identity; seek-only Previous does not. Back/Stop leaves the route. Do not
-  clear queue ownership in an arbitrary job's cleanup or cancel the pending
-  queue launch on fast Retry.
+  Launches that fail before identity settles keep these commands refused until
+  Retry or another admitted queue launch installs a stabilizing plan. Seek-only Previous does not
+  settle it. Queue ownership is never cleared by arbitrary job cleanup or by
+  replaying a retained plan.
 - **[all]** A manual Auto-recovery notice offers **Choose lower quality**, which
   opens the in-player picker, plus the remaining stream actions and dismissal.
   A successful automatic quality recovery offers **Keep current quality**, **Try
@@ -721,6 +730,7 @@ mutating their caller state; valid software Continue delegates to Play and keeps
 its prompt when admission refuses. Invalid selection, automatic Next, Pause,
 and seek-only Previous never reopen it. Previous retains its existing seek
 behavior and applies the fuller start guard only to actual queue selection.
+Ordinary Retry also refuses an active unsettled launch before reopening recovery.
 Pending Stop must drain first. The internal obsolete-replan abort can call Stop
 without leaving the route: its existing projection remains, with recovery and
 `Failed` publication closed until an accepted explicit action. Direct settings,
@@ -879,10 +889,12 @@ server/user IDs, titles, paths, or raw native errors.
   policy validates exact audio/subtitle targets and explicit Off only from the
   vocabulary each controller already owns. Assets, timing, play intent,
   reinitialization, and native command order remain controller-specific.
-  Full Retry uses the existing launch job, while fast Retry leaves a pending
-  queue transition to finish. Cancellation alone cannot prevent a synchronous
-  failure publication after an installer drains Stop, so result boundaries also
-  check launch authority.
+  Ordinary Retry preserves an active unsettled launch before changing its
+  generation. After that launch ends, full startup rebuilds and stabilizes
+  identity; replaying a retained same-item plan cannot establish authority over
+  partially replaced source and track fields. Full Retry uses the existing
+  launch job. Cancellation alone cannot prevent a synchronous failure publication
+  after an installer drains Stop, so result boundaries also check launch authority.
 
 - **Track and timing commands need settled item identity.** Queue planning can
   retain a visible picker and outgoing controller while item, source and track
