@@ -9,6 +9,7 @@ import com.jellyscope.core.domain.model.PlaybackTimingKind
 import com.jellyscope.core.domain.model.PlaybackTimingOffset
 import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.domain.playback.PlayerTimingCommandResult
+import com.jellyscope.core.domain.playback.PlayerTimingController
 import com.jellyscope.core.domain.playback.PlayerTimingState
 import com.jellyscope.core.domain.usecase.GetPlaybackTimingOffsetUseCase
 import kotlinx.coroutines.CancellationException
@@ -18,7 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Loads, applies, and persists player timing offsets. */
+/** Loads, applies, and persists player timing offsets for the installed controller. */
 internal class PlayerTimingCoordinator(
     private val controllerProvider: () -> PlayerController?,
     private val saveAction: SavePlaybackTimingOffsetAction?,
@@ -33,15 +34,22 @@ internal class PlayerTimingCoordinator(
 
     private var timingStateJob: Job? = null
     private var timingLoadJob: Job? = null
+    private var loadGeneration = 0L
+
+    // A manual command supersedes only its own kind's pending restore.
+    private val commandRevisions = LongArray(PlaybackTimingKind.entries.size)
 
     fun observe() {
         timingStateJob?.cancel()
-        val controller = controllerProvider()?.timingController
+        val owner = controllerProvider()
+        val controller = owner?.timingController
         timingState = controller?.timingState?.value?.normalized() ?: PlayerTimingState.Unsupported
         timingStateJob =
             controller?.let { timingController ->
                 scope.launch {
                     timingController.timingState.collect { state ->
+                        // Ignore an outgoing controller after replacement or release.
+                        if (!ownsTiming(owner, timingController)) return@collect
                         timingState = state.normalized()
                         onTimingStateChanged()
                     }
@@ -71,6 +79,7 @@ internal class PlayerTimingCoordinator(
         ) {
             return
         }
+        commandRevisions[kind.ordinal] += 1L
         // Persist the controller-applied value after capability clamping.
         val normalizedOffset =
             offsetMs.coerceIn(-PLAYBACK_TIMING_OFFSET_LIMIT_MS, PLAYBACK_TIMING_OFFSET_LIMIT_MS)
@@ -84,11 +93,32 @@ internal class PlayerTimingCoordinator(
         }
     }
 
-    suspend fun load() {
-        val timingController = controllerProvider()?.timingController ?: return
+    /**
+     * Restores stored offsets through the installed controller. Returns false when no controller is
+     * installed or the request became obsolete; an installed backend without timing support succeeds.
+     */
+    suspend fun load(): Boolean {
+        timingLoadJob?.cancel()
+        timingLoadJob = null
+        return restore(++loadGeneration)
+    }
+
+    private suspend fun restore(generation: Long): Boolean {
+        val owner = controllerProvider() ?: return false
+        val timingController = owner.timingController
+        val keys = PlaybackTimingKind.entries.associateWith(keyProvider)
+        val revisions = commandRevisions.copyOf()
+
+        // Storage reads can outlive their request, track keys, or installed controller.
+        fun isCurrent(): Boolean =
+            generation == loadGeneration &&
+                ownsTiming(owner, timingController) &&
+                PlaybackTimingKind.entries.all { kind -> keyProvider(kind) == keys[kind] }
+        if (!isCurrent()) return false
+        if (timingController == null) return true
         // Load before prepare so the initial native configuration is correct.
         PlaybackTimingKind.entries.forEach { kind ->
-            val key = keyProvider(kind) ?: return@forEach
+            val key = keys[kind] ?: return@forEach
             if (!timingController.timingState.value
                     .value(kind)
                     .isSupported
@@ -105,27 +135,44 @@ internal class PlayerTimingCoordinator(
                 } catch (_: Throwable) {
                     null
                 }
+            if (!isCurrent()) return false
+            if (
+                revisions[kind.ordinal] != commandRevisions[kind.ordinal] ||
+                !timingController.timingState.value
+                    .value(kind)
+                    .isSupported
+            ) {
+                return@forEach
+            }
             timingController.setOffset(kind, stored ?: 0L)
         }
+        return isCurrent()
     }
 
     fun reloadForCurrentTracks() {
         timingLoadJob?.cancel()
+        // Allocate before launch so a delayed start cannot outrank a newer direct load.
+        val generation = ++loadGeneration
         timingLoadJob =
             scope.launch {
-                load()
-                onTimingStateChanged()
+                if (restore(generation)) onTimingStateChanged()
             }
     }
 
     fun cancelLoad() {
+        loadGeneration += 1L
         timingLoadJob?.cancel()
         timingLoadJob = null
     }
 
     fun dispose() {
+        cancelLoad()
         timingStateJob?.cancel()
-        timingLoadJob?.cancel()
         saveAction?.drainLatest()
     }
+
+    private fun ownsTiming(
+        owner: PlayerController?,
+        timingController: PlayerTimingController?,
+    ): Boolean = owner != null && controllerProvider() === owner && owner.timingController === timingController
 }

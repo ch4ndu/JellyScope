@@ -317,6 +317,20 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   request is stored as 0 on Media3), not the raw request. Unsupported platforms
   expose an explicit unsupported capability rather than a misleading applied
   value.
+- The timing owner is the currently installed controller. Commands and restores
+  do nothing while no concrete controller is installed or after disposal;
+  Stop/release retain the last displayed values until a new observation.
+  Replacement observation rejects emissions from the outgoing controller.
+- Stored reads are qualified by the load generation, controller and timing
+  controller identity, and both track keys after suspension. A manual adjustment
+  supersedes only its own kind's pending restore. New restores, Stop, release
+  and disposal invalidate older loads; persistence still records the applied
+  value.
+- Normal startup owns the existing installation admission while restoring
+  offsets, drains deferred Stop on exit, and rechecks request and controller
+  ownership after unlocking before prepare. Offline preparation keeps its
+  existing concurrent controls and post-prepare selection reconciliation;
+  backend switches and replans keep their existing serialized preparation.
 
 ## Quality, tracks, and subtitles
 
@@ -387,6 +401,13 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   external configuration id before reporting active.
 
 ## Why
+
+- Timing providers must read the mutable installed controller, not the initial
+  constructor placeholder. Storage reads can outlive their track or controller,
+  and a mutex handoff can admit another owner before startup resumes. Both the
+  offset command and its prepare continuation therefore need current authority.
+  Per-kind command revisions preserve an unrelated offset restore when the user
+  adjusts only audio or subtitles.
 
 - OpenSubtitles HTTP handling and its response types stay together in transport;
   account and selection orchestration stay with the upper repository. Existing

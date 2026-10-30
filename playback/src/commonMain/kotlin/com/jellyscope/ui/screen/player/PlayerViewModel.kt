@@ -300,7 +300,10 @@ class PlayerViewModel(
     private var activePlaybackPreferences = PlaybackPreferences()
     private val timingCoordinator =
         PlayerTimingCoordinator(
-            controllerProvider = { playerController },
+            // The constructor parameter is the pending placeholder; read the installed member.
+            controllerProvider = {
+                if (disposed || !concreteControllerInstalled) null else this@PlayerViewModel.playerController
+            },
             saveAction = savePlaybackTimingOffsetAction,
             getUseCase = getPlaybackTimingOffsetUseCase,
             scope = viewModelScope,
@@ -1130,6 +1133,7 @@ class PlayerViewModel(
         externalLaunchesClosed = true
         clearPlayingPositionProof()
         invalidateBackendSwitch()
+        timingCoordinator.cancelLoad()
         if (controllerInstallInFlight || controllerInstallMutex.isLocked) {
             stopRequestedDuringControllerInstall = true
             return
@@ -1145,6 +1149,7 @@ class PlayerViewModel(
         queueSwitchJob?.cancel()
         queueSwitchJob = null
         cancelAndInvalidateSubtitleFallback()
+        timingCoordinator.cancelLoad()
         activePlaybackTimelineFacts = null
         emitPlaybackHealthSummary()
         endPlaybackHealthSession()
@@ -1612,6 +1617,7 @@ class PlayerViewModel(
         replanJob =
             viewModelScope.launch {
                 val asset = withContext(workDispatcher) { getLocalSubtitleAssetUseCase?.invoke(assetId, context) }
+                if (controllerInstallInFlight) return@launch
                 if (asset == null) {
                     playerDiagnosticsRecorder.recordDiagnostic(
                         context = playerDiagnosticContext(),
@@ -1843,9 +1849,7 @@ class PlayerViewModel(
         )
     }
 
-    private suspend fun loadTimingOffsets() {
-        timingCoordinator.load()
-    }
+    private suspend fun loadTimingOffsets(): Boolean = timingCoordinator.load()
 
     private fun reloadTimingForCurrentTracks() {
         timingCoordinator.reloadForCurrentTracks()
@@ -2244,12 +2248,74 @@ class PlayerViewModel(
                 ).withPlaybackMetadata(),
             pickerVisible = PlayerPicker.None,
         )
-        // Load timing offsets before native prepare.
-        loadTimingOffsets()
+        // Load timing offsets before native prepare. Install admission keeps track and offset
+        // commands out of the restore window; the selection it restores must still own prepare.
+        val controller = playerController
+        val selectionGeneration = selectedPlaybackGeneration
+        val restoreAudioStreamIndex = this.requestedAudioStreamIndex
+        val restoreSubtitleSelection = this.requestedSubtitleSelection
+        val restoreLocalSubtitleAsset = requestedLocalSubtitleAsset
+
+        fun ownsRestore(): Boolean =
+            !disposed &&
+                isCurrentPlaybackLaunch(launchGeneration, itemId) &&
+                concreteControllerInstalled &&
+                playerControllerFieldOwned &&
+                playerController === controller &&
+                selectedPlaybackGeneration == selectionGeneration &&
+                plan === playbackPlanWithMetadata &&
+                this.requestedAudioStreamIndex == restoreAudioStreamIndex &&
+                this.requestedSubtitleSelection == restoreSubtitleSelection &&
+                requestedLocalSubtitleAsset == restoreLocalSubtitleAsset
+
+        val restored =
+            controllerInstallMutex.withLock {
+                currentCoroutineContext().ensureActive()
+                if (disposed) {
+                    drainStopRequestedDuringControllerInstall(stopController = false)
+                    return@withLock false
+                }
+                // A superseding launch owns any pending Stop.
+                if (!isCurrentPlaybackLaunch(launchGeneration, itemId)) return@withLock false
+                if (stopRequestedDuringControllerInstall) {
+                    drainStopRequestedDuringControllerInstall(stopController = playerControllerFieldOwned)
+                    return@withLock false
+                }
+                if (!ownsRestore()) return@withLock false
+
+                controllerInstallInFlight = true
+                try {
+                    val loaded = loadTimingOffsets()
+                    currentCoroutineContext().ensureActive()
+                    when {
+                        disposed -> {
+                            drainStopRequestedDuringControllerInstall(stopController = false)
+                            false
+                        }
+                        !isCurrentPlaybackLaunch(launchGeneration, itemId) -> false
+                        // Stop also invalidates the load, so drain before rejecting it.
+                        stopRequestedDuringControllerInstall -> {
+                            drainStopRequestedDuringControllerInstall(stopController = playerControllerFieldOwned)
+                            false
+                        }
+                        else -> loaded && ownsRestore()
+                    }
+                } catch (exception: Throwable) {
+                    if (disposed || isCurrentPlaybackLaunch(launchGeneration, itemId)) {
+                        drainStopRequestedDuringControllerInstall(stopController = false)
+                    }
+                    throw exception
+                } finally {
+                    controllerInstallInFlight = false
+                }
+            }
+        // Unlocking can run a queued owner; nothing may suspend between this check and prepare.
+        currentCoroutineContext().ensureActive()
+        if (!restored || !ownsRestore() || controllerInstallInFlight || controllerInstallMutex.isLocked) return false
         excludeSoftwarePlaybackProgress()
         markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
         playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
-        playerController.prepare(playbackPlanWithMetadata)
+        controller.prepare(playbackPlanWithMetadata)
         if (rejectSynchronouslyFailedPrepare()) return false
         installedPlan = playbackPlanWithMetadata
         playerController.runtimeDiagnostics.value.prepareEpoch
@@ -3520,6 +3586,7 @@ class PlayerViewModel(
         playerControllerFieldOwned = false
         concreteControllerInstalled = false
         backendResolvedForSession = false
+        timingCoordinator.cancelLoad()
         playerController.release()
     }
 
