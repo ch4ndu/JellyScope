@@ -582,12 +582,20 @@ suppresses interactive recovery until it is safe to show the consequence.
   fail after queue identity settles; the existing null-installed-plan recovery
   path remains unchanged. Settled matching-item Retry keeps the native fast path.
   Full Retry replaces the existing launch job, so Stop, disposal and newer
-  launches can cancel it. It uses current requested source, track and position
-  fields, checked against fresh detail. Those fields can come from a cancelled
-  other-item launch or from this item's resolved preferences/defaults. Existing
-  track indexes and subtitle Off can be accepted and saved as explicit choices;
-  Off requires no index match. Coherent installed identity does not guarantee
-  preservation of the earlier source, intended tracks or position.
+  launches can cancel it. Ordinary online startup records its raw item, source,
+  audio, subtitle and start-position request before resolution. Full Retry
+  snapshots that item and request after admission and reuses them, preserving
+  explicit route choices through failure without turning resolved runtime
+  values into new explicit choices. Every queue handoff, including the current
+  row, records its own omitted source/audio/subtitle choices and zero position;
+  returning to the initial item does not restore the constructor's old choices.
+  Fresh detail and source-qualified stored selections still resolve omitted or
+  invalid inputs under the [selection contract](subtitles.md#selection-and-delivery).
+  Offline full Retry keeps its artifact-track retention. Kids keeps its own
+  selector and runtime-selection retention: same-target Retry can still pass
+  resolved defaults, including Off, as explicit startup choices and save them.
+  Queue settlement does not prove successful native preparation or preserve an
+  outgoing source merely because the item ID matches.
   Normal detail and planning failures, and offline record, context, backend and
   install results, recheck cancellation and launch authority before publication.
   An obsolete install failure after deferred Stop leaves the UI projection
@@ -892,9 +900,12 @@ server/user IDs, titles, paths, or raw native errors.
   Ordinary Retry preserves an active unsettled launch before changing its
   generation. After that launch ends, full startup rebuilds and stabilizes
   identity; replaying a retained same-item plan cannot establish authority over
-  partially replaced source and track fields. Full Retry uses the existing
-  launch job. Cancellation alone cannot prevent a synchronous failure publication
-  after an installer drains Stop, so result boundaries also check launch authority.
+  partially replaced source and track fields. Ordinary online full Retry reuses
+  the raw accepted request because resolved runtime fields may belong to a
+  cancelled launch or represent defaults rather than explicit user intent. The
+  existing launch job owns its lifetime. Cancellation alone cannot prevent a
+  synchronous failure publication after an installer drains Stop, so result
+  boundaries also check launch authority.
 
 - **Track and timing commands need settled item identity.** Queue planning can
   retain a visible picker and outgoing controller while item, source and track

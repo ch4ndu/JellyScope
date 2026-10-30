@@ -255,9 +255,9 @@ class PlayerViewModel(
         initialPlaybackTarget.takeIf { initialOfflineRestartFromBeginning }
     private var pendingRestartFromBeginningLaunchGeneration: Long? = null
     private var playingPositionOwner: PlayerPlaybackTarget? = null
-    private var hasManuallySelectedAsset = false
 
-    // Explicit launch intent stays authoritative for its target through planning failure and Retry.
+    // Raw accepted launch inputs, never resolved runtime selections, stay authoritative for their
+    // target through planning failure and full Retry.
     private var launchIntentTarget: PlayerPlaybackTarget? = initialPlaybackTarget
     private var launchIntent =
         PlayerLaunchOptions(
@@ -693,6 +693,8 @@ class PlayerViewModel(
         }
         if (stopRequestedDuringControllerInstall || controllerInstallMutex.isLocked) return
         if (queueSwitchInFlight && queueSwitchJob?.isActive == true) return
+        val retryItemId = currentItemId
+        val retryLaunchIntent = launchIntent
         recoveryClosedByStop = false
         invalidateBackendSwitch()
         autoplayGeneration += 1
@@ -771,15 +773,11 @@ class PlayerViewModel(
             viewModelScope.launch {
                 if (
                     startPlaybackForItem(
-                        itemId = currentItemId,
-                        requestedMediaSourceId =
-                            selectedMediaSourceId
-                                ?: mediaSourceId.takeIf {
-                                    !hasManuallySelectedAsset && currentItemId == this@PlayerViewModel.itemId
-                                },
-                        requestedAudioStreamIndex = requestedAudioStreamIndex,
-                        requestedSubtitleSelection = requestedSubtitleSelection,
-                        startPositionTicks = currentStartPositionTicks,
+                        itemId = retryItemId,
+                        requestedMediaSourceId = retryLaunchIntent.mediaSourceId,
+                        requestedAudioStreamIndex = retryLaunchIntent.initialAudioStreamIndex,
+                        requestedSubtitleSelection = retryLaunchIntent.initialSubtitleSelection,
+                        startPositionTicks = retryLaunchIntent.startPositionTicks,
                         resetReporting = false,
                     )
                 ) {
@@ -909,7 +907,6 @@ class PlayerViewModel(
             launchIntentTarget = null
         }
         if (!retainsRuntimeSelection) {
-            hasManuallySelectedAsset = true
             clearPlayingPositionProof()
         }
         forceStartFromBeginning = startsFromBeginning
@@ -1963,6 +1960,16 @@ class PlayerViewModel(
         resetReporting: Boolean,
         retainedOfflineSidecarIdentity: SubtitleActivationIdentity.OfflineSidecar? = null,
     ): Boolean {
+        if (!isKidsSingleAsset && currentOfflineDownloadId == null) {
+            launchIntentTarget = PlayerPlaybackTarget(itemId, null)
+            launchIntent =
+                PlayerLaunchOptions(
+                    startPositionTicks = startPositionTicks,
+                    mediaSourceId = requestedMediaSourceId,
+                    initialAudioStreamIndex = requestedAudioStreamIndex,
+                    initialSubtitleSelection = requestedSubtitleSelection,
+                )
+        }
         clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Superseded)
         invalidateBackendSwitch()
         emitPlaybackHealthSummary()
