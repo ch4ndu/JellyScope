@@ -1025,6 +1025,7 @@ class TvPlaybackSessionPresenter(
             playSessionId = currentPlan.playSessionId ?: playSessionId,
         )
         controller.retry()
+        maybeStartInstalledUnavailableFallback(currentPlan)
     }
 
     private fun clearQualityOverride() {
@@ -1688,7 +1689,16 @@ class TvPlaybackSessionPresenter(
         }
     }
 
+    /** Recovery may spend allowances or command the controller only for the installed current plan. */
+    private fun canHandlePlaybackSessionRecovery(): Boolean =
+        !closed &&
+            !startInFlight &&
+            installedPlayerController != null &&
+            selectedMediaSourceId != null &&
+            plan?.itemId == currentItemId
+
     private fun maybeHandlePlaybackSessionRecovery(playbackState: PlaybackState): TvSessionRecoveryResult {
+        if (!canHandlePlaybackSessionRecovery()) return TvSessionRecoveryResult.NotHandled
         val result =
             playbackSessionRecoveryPolicy.decide(
                 PlaybackSessionRecoveryInput(
@@ -1759,17 +1769,39 @@ class TvPlaybackSessionPresenter(
         }
     }
 
+    /**
+     * Hands planned activation gaps of the installed [playbackPlan] to one recovery decision.
+     *
+     * A selected DirectPlay Audio target without an embedded descriptor, including selected external
+     * Audio, never arms a native activation deadline. The target's stream index equals
+     * `selectedAudioStreamIndex` in decorated plans. The snapshot keeps the plan start position because
+     * a paused VLCKit prepare temporarily reports native time 0.
+     */
     private fun maybeStartInstalledUnavailableFallback(playbackPlan: PlaybackPlan) {
-        val unavailable = playbackPlan.plannedSubtitle as? PlannedSubtitle.Unavailable ?: return
-        if (!unavailable.allowEncodeFallback || unavailable.normalizedFormat == null) {
-            return
-        }
-        val target = unavailable.activationTarget ?: return
-        val unavailableState =
-            playerController.playbackState.value.copy(
-                subtitleActivation = SubtitleActivationState.Unavailable(target),
-            )
-        maybeHandlePlaybackSessionRecovery(unavailableState)
+        val controller = installedPlayerController ?: return
+        if (plan !== playbackPlan || !canHandlePlaybackSessionRecovery()) return
+        val audioTarget =
+            playbackPlan.audioActivationTarget?.takeIf { target ->
+                playbackPlan.streamMode == StreamMode.DirectPlay &&
+                    playbackPlan.embeddedAudioTracks.none { track -> track.jellyfinStreamIndex == target.streamIndex }
+            }
+        val subtitleTarget =
+            (playbackPlan.plannedSubtitle as? PlannedSubtitle.Unavailable)
+                ?.takeIf { unavailable -> unavailable.allowEncodeFallback && unavailable.normalizedFormat != null }
+                ?.activationTarget
+        if (audioTarget == null && subtitleTarget == null) return
+        val nativeState = controller.playbackState.value
+        maybeHandlePlaybackSessionRecovery(
+            nativeState.copy(
+                positionMs = playbackPlan.startPositionMs,
+                audioActivation =
+                    audioTarget?.let { target -> AudioActivationState.Unavailable(target) }
+                        ?: nativeState.audioActivation,
+                subtitleActivation =
+                    subtitleTarget?.let { target -> SubtitleActivationState.Unavailable(target) }
+                        ?: nativeState.subtitleActivation,
+            ),
+        )
     }
 
     private fun markSubtitleFallbackUnavailable(target: SubtitleActivationTarget) {

@@ -527,7 +527,7 @@ suppresses interactive recovery until it is safe to show the consequence.
 
 - **[all]** Fatal errors use typed `PlayerUiState.Error` causes and retain the
   existing Retry/Close actions.
-- **[all]** A cause-less `SourceVideoCopyUnsupported` refusal (the Original
+- **[Compose]** A cause-less `SourceVideoCopyUnsupported` refusal (the Original
   path), or an exhausted recovery whose cause is the planner's
   `SourceVideoCopyRejected`/`NoSupportedStream`, is deterministic Unsupported
   Media with `retryable = false`, so the dialog offers Close. A wrapper carrying
@@ -574,6 +574,25 @@ suppresses interactive recovery until it is safe to show the consequence.
   handoffs, this path omits the full collector's terminal RetryScheduled
   diagnostic; a later collector delivery may report the already-consumed fact
   normally.
+- **[tvOS]** Startup, post-replan preparation and same-plan Retry hand missing
+  DirectPlay audio descriptors and eligible planned-unavailable subtitles to
+  one audio-first policy decision. The handoff requires the exact installed
+  plan, current item, controller and selected source, with startup admission
+  open; recovery checks admission before spending an allowance. It uses the
+  plan's start position because paused VLCKit preparation can report native
+  time zero. Selected external audio also lacks an embedded descriptor; this
+  fallback establishes no native codec incompatibility. Retry resets the
+  policy allowance; paused AVPlayer Retry can resume through Loading.
+  Successful recovery replaces the unmappable plan, but planning failures still
+  map to Network, and subsequent native projections can overwrite Failed while
+  AVPlayer remains gated. VLCKit can continue unconfirmed default audio with
+  Pending activation. Typed, non-overwritable fallback failure remains
+  unresolved. The Audio fallback request disables DirectPlay. Any later
+  DirectPlay replan is rejected while its Audio recovery target remains
+  recorded, during the fallback or after it fails, until a new item, an explicit
+  Audio selection, or a non-DirectPlay install. Collector recovery can preempt
+  the fallback, and an Original failure prompt can coexist with its replacement;
+  this handoff does not serialize those paths.
 - **[all]** Policy-gated decoder, unsupported-media, health, and recovery
   behavior is owned by [quality policy](playback-policy.md#quality-semantics).
   A backend-qualified replacement re-plans from its own capability facts and
@@ -1002,7 +1021,11 @@ server/user IDs, titles, paths, or raw native errors.
   for exact native mapping while other modes begin active, with two deliberate
   renderings for controller state differences. Centralizing the table prevents
   controller copies from drifting without forcing unrelated lifecycle state
-  into a common base class.
+  into a common base class. An absent descriptor never starts the native
+  selection deadline, so tvOS hands that gap to recovery after preparation and
+  Retry. One combined decision preserves Audio-first precedence, and the plan's
+  intended position avoids treating paused VLCKit's temporary zero as a resume
+  position. This does not make fallback failure publication durable.
 
 - **Health evidence is qualified rather than globally tuned.** Capabilities follow
   the installed controller: a retained placeholder suppresses valid signals,

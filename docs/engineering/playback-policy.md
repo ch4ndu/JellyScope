@@ -77,14 +77,15 @@ Diagnostics record the effective policy and origin, never a fake nullable-bitrat
 
 | Policy | Initial wire request | Automatic stream-changing recovery | Persistence |
 | --- | --- | --- | --- |
-| `Original` | No client quality/performance limit; DirectPlay/DirectStream enabled | Never. Source-copy incompatibility fails closed; a runtime decoder failure or reliable missing-video-output fact shows a persistent action notice. | Server default, or current playback only when selected in the player. |
+| `Original` | No client quality/performance limit; DirectPlay/DirectStream enabled | No automatic quality recovery. Source-copy incompatibility fails closed; decoder/health failures prompt. Independent Audio activation recovery below can change delivery mode while retaining this policy and its limits. | Server default, or current playback only when selected in the player. |
 | `Auto` | The same no-client-limit, DirectPlay-first request as Original | Auto may take one compatibility replan. Only an explicit in-player Auto choice may take one strictly lower canonical quality recovery; an inherited Playback-default Auto policy instead presents manual in-player choices. | Server default; a runtime recovery cap and player choice never persist. |
 | `Fixed` | The exact selected bitrate, plus the canonical rung resolution when applicable | Compatibility recovery may stay inside the selected cap; it never lowers the user's fixed choice. | Server default, VLC-family default, or current playback only. |
 
 `Original` does not hide genuine decoder incompatibility. The device profile may
 still cause Jellyfin to choose a compatible stream when authoritative facts
 require that. It means that JellyScope adds no finite quality/performance
-limiter and does not silently choose a different stream after runtime failure.
+limiter and does not silently choose a different stream for decoder or health
+recovery. Independent Audio activation recovery is the exception described below.
 
 In shared Compose playback, a user quality choice is a proposal until a current
 replacement plan succeeds. A rejected proposal preserves the installed stream,
@@ -98,7 +99,7 @@ This preservation applies only while the same installed session remains active;
 startup, terminal recovery, and native prepare failures retain their normal
 failure semantics. A new relevant action or explicit dismissal clears the notice.
 
-`Original` recovery is a single prompt contract. Every trigger below returns
+`Original` decoder/health recovery is a single prompt contract. Every trigger below returns
 `OriginalPlaybackFailed` with exactly `AcceptAuto`, `OpenPlaybackSettings`,
 `Dismiss`, and `Close`; it creates no replan, recovery budget use, or runtime
 quality cap.
@@ -138,6 +139,12 @@ Network retry which repeats the same plan, and an already-qualified backend
 replacement which preserves the selected policy, remain separate from a
 stream-changing quality recovery. A replacement must re-plan from the new
 backend's own facts and discard observations belonging to the old controller.
+
+Exact-target [Audio activation recovery](playback-runtime.md#audio-activation-and-native-mapping)
+is also independent of quality recovery. It disables only DirectPlay, retains
+the selected quality policy and limits (including Original's `NoClientLimit`),
+and spends no prompt, compatibility or quality allowance. It can change delivery
+mode; it does not promise the same stream or rendered quality.
 
 ## 3. Wire and persistence boundaries
 
@@ -542,8 +549,9 @@ without that hardware gate and does not claim HDR support.
 
 - **Original has one manual failure contract.** Decoder, unsupported-media,
   missing-output, buffering, stall, and dropped-frame triggers all preserve the
-  source and present the same actions. Trigger-specific hidden replans would
-  make Original's no-stream-change promise depend on implementation detail.
+  source and present the same actions. Independent exact-target Audio activation
+  recovery retains Original's policy and limits but can change delivery mode;
+  keeping this exception explicit avoids treating it as a hidden quality replan.
 
 - **Capability facts remain concrete-backend owned.** Combining unrelated
   decoder maxima, platform probes, static declarations, or extension support
