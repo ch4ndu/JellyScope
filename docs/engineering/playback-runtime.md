@@ -379,7 +379,7 @@ suppresses interactive recovery until it is safe to show the consequence.
   routes `null`, while touch or D-pad selection routes the chosen non-null
   stream index even when it equals the displayed default. The state is keyed by
   item plus media source, and a source replacement or invalid selection clears
-  that explicit provenance. Player resolves valid explicit route value,
+  that explicit provenance. A fresh launch resolves valid explicit route value,
   remembered explicit value, preferred language, Jellyfin default, then first
   track. Durable writes contain only an explicit route value, remembered
   explicit value, or an in-player audio action; response/native substitution is
@@ -388,7 +388,9 @@ suppresses interactive recovery until it is safe to show the consequence.
   response-selected DirectStream/Transcode track or an exact native DirectPlay
   activation. A pending DirectPlay switch leaves the previous installed row
   selected. A response that authoritatively selects another audio stream
-  replaces both requested memory and installed truth.
+  replaces both requested memory and installed truth. Same-target Kids
+  Retry/Replay can retain playback independently of explicit intent under the
+  [recovery contract](#error-and-audio-recovery).
 - Native embedded mapping filters to the correct type and embedded/external
   class, prefers exact stable source identity, then tries the filtered ordinal
   in deterministic native order and validates available metadata. Conflicting
@@ -591,9 +593,19 @@ suppresses interactive recovery until it is safe to show the consequence.
   returning to the initial item does not restore the constructor's old choices.
   Fresh detail and source-qualified stored selections still resolve omitted or
   invalid inputs under the [selection contract](subtitles.md#selection-and-delivery).
-  Offline full Retry keeps its artifact-track retention. Kids keeps its own
-  selector and runtime-selection retention: same-target Retry can still pass
-  resolved defaults, including Off, as explicit startup choices and save them.
+  Offline full Retry keeps its artifact-track retention. Kids online Retry/Replay
+  carries current playback choices in an attempt-local hint, separate from the
+  target's explicit launch and later accepted in-player track choices. A hint
+  applies only when the same source still resolves; its audio and subtitle values
+  are validated against fresh options or local-asset context. It steers playback,
+  not explicit audio constraints or durable preference writes. Unlike a fresh
+  launch, Retry/Replay can retain a subtitle fallback even when a raw explicit
+  choice becomes valid after metadata changes; only that validated explicit
+  choice is saved. Missing local assets do not turn fallback Off into explicit
+  intent. A changed source discards the hint and uses existing explicit, stored
+  and default resolution with track-membership validation; matching indices do
+  not establish semantic identity across versions. Source selection, played-position
+  proof, Replay zero and offline restart retain their existing owners.
   Queue settlement does not prove successful native preparation or preserve an
   outgoing source merely because the item ID matches.
   Normal detail and planning failures, and offline record, context, backend and
@@ -902,8 +914,12 @@ server/user IDs, titles, paths, or raw native errors.
   identity; replaying a retained same-item plan cannot establish authority over
   partially replaced source and track fields. Ordinary online full Retry reuses
   the raw accepted request because resolved runtime fields may belong to a
-  cancelled launch or represent defaults rather than explicit user intent. The
-  existing launch job owns its lifetime. Cancellation alone cannot prevent a
+  cancelled launch or represent defaults rather than explicit user intent. Kids
+  keeps later deliberate track choices in the same target-owned intent record;
+  source-qualified hints retain playback defaults or substitutions without
+  making them new explicit preferences. This separates the two meanings without
+  another durable owner or observable state. The existing launch job owns its
+  lifetime. Cancellation alone cannot prevent a
   synchronous failure publication after an installer drains Stop, so result
   boundaries also check launch authority.
 

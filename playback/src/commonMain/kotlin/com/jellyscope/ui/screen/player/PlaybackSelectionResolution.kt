@@ -26,6 +26,7 @@ internal fun resolveLaunchAudioSelection(
     rememberedSelection: PlaybackSelection?,
     audioTrackOptions: List<AudioTrackOption>,
     preferredAudioStreamIndex: Int?,
+    retainedAudioStreamIndex: Int? = null,
 ): LaunchAudioSelectionResolution {
     fun validStreamIndex(streamIndex: Int?): Int? =
         streamIndex?.takeIf { candidate -> audioTrackOptions.any { option -> option.streamIndex == candidate } }
@@ -36,8 +37,10 @@ internal fun resolveLaunchAudioSelection(
     return LaunchAudioSelectionResolution(
         explicitLaunchAudioStreamIndex = explicitLaunchAudioPick,
         explicitAudioStreamIndex = explicitLaunchAudioPick ?: durableExplicitAudioStreamIndex,
+        // A retained playback track only steers the request; explicit outputs stay raw or durable intent.
         requestedAudioStreamIndex =
-            explicitLaunchAudioPick
+            validStreamIndex(retainedAudioStreamIndex)
+                ?: explicitLaunchAudioPick
                 ?: rememberedAudioStreamIndex
                 ?: validStreamIndex(preferredAudioStreamIndex)
                 ?: audioTrackOptions.firstOrNull { option -> option.isDefault }?.streamIndex

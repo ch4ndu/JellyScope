@@ -257,7 +257,8 @@ class PlayerViewModel(
     private var playingPositionOwner: PlayerPlaybackTarget? = null
 
     // Raw accepted launch inputs, never resolved runtime selections, stay authoritative for their
-    // target through planning failure and full Retry.
+    // target through planning failure and full Retry. For Kids online playback this is the latest
+    // explicit launch plus later accepted track actions; defaults and server substitutions never enter.
     private var launchIntentTarget: PlayerPlaybackTarget? = initialPlaybackTarget
     private var launchIntent =
         PlayerLaunchOptions(
@@ -865,15 +866,27 @@ class PlayerViewModel(
         val retainedSourceId =
             selectedMediaSourceId.takeIf { retainsRuntimeSelection && offlineDownloadId == null }
                 ?: targetLaunchIntent?.mediaSourceId?.takeIf { offlineDownloadId == null }
+        // Offline startup retains artifact tracks directly. Online startup receives only explicit
+        // intent here; current playback values travel separately so they are never saved as choices.
         val retainedAudioStreamIndex =
-            requestedAudioStreamIndex.takeIf { retainsRuntimeSelection }
+            requestedAudioStreamIndex.takeIf { retainsRuntimeSelection && offlineDownloadId != null }
                 ?: targetLaunchIntent?.initialAudioStreamIndex
         val retainedSubtitleSelection =
             requestedSubtitleSelection.takeIf {
-                retainsRuntimeSelection && it != SubtitleSelectionIntent.Unspecified
+                retainsRuntimeSelection && offlineDownloadId != null && it != SubtitleSelectionIntent.Unspecified
             }
                 ?: targetLaunchIntent?.initialSubtitleSelection
                 ?: SubtitleSelectionIntent.Unspecified
+        val retainedKidsSelection =
+            selectedMediaSourceId
+                ?.takeIf { sourceId -> retainsRuntimeSelection && offlineDownloadId == null && sourceId.isNotBlank() }
+                ?.let { sourceId ->
+                    RetainedKidsPlaybackSelection(
+                        mediaSourceId = sourceId,
+                        audioStreamIndex = requestedAudioStreamIndex,
+                        subtitleSelection = requestedSubtitleSelection,
+                    )
+                }
         val retainedOfflineSidecarIdentity =
             (plan?.plannedSubtitle as? PlannedSubtitle.OfflineSidecar)
                 ?.takeIf { retainsRuntimeSelection && offlineDownloadId != null }
@@ -971,6 +984,7 @@ class PlayerViewModel(
                         startPositionTicks = retainedStartPositionTicks,
                         resetReporting = true,
                         retainedOfflineSidecarIdentity = retainedOfflineSidecarIdentity,
+                        retainedKidsSelection = retainedKidsSelection,
                     )
                 ) {
                     if (isSelectedPlaybackTarget(target, selectionGeneration)) {
@@ -979,6 +993,34 @@ class PlayerViewModel(
                 }
             }
         return true
+    }
+
+    /**
+     * Records an accepted Kids online track action as the target's latest explicit intent, so it
+     * survives a startup failure. Null audio or Unspecified subtitle leaves that choice unchanged.
+     */
+    private fun updateKidsTrackIntent(
+        audioStreamIndex: Int? = null,
+        subtitleSelection: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified,
+    ) {
+        if (!isKidsSingleAsset || currentOfflineDownloadId != null) return
+        val target = PlayerPlaybackTarget(currentItemId, null)
+        val intent =
+            launchIntent.takeIf { target == launchIntentTarget }
+                ?: PlayerLaunchOptions(
+                    startPositionTicks = currentStartPositionTicks,
+                    mediaSourceId = selectedMediaSourceId,
+                    launchPolicy = PlayerLaunchPolicy.KidsSingleAsset,
+                )
+        launchIntentTarget = target
+        launchIntent =
+            intent.copy(
+                mediaSourceId = selectedMediaSourceId,
+                initialAudioStreamIndex = audioStreamIndex ?: intent.initialAudioStreamIndex,
+                initialSubtitleSelection =
+                    subtitleSelection.takeUnless { selection -> selection == SubtitleSelectionIntent.Unspecified }
+                        ?: intent.initialSubtitleSelection,
+            )
     }
 
     private fun retryCurrentPlayback(): Boolean =
@@ -1322,6 +1364,7 @@ class PlayerViewModel(
         audioRecoveryTarget = null
         requestedAudioStreamIndex = streamIndex
         explicitAudioStreamIndex = streamIndex
+        updateKidsTrackIntent(audioStreamIndex = streamIndex)
         rememberSelection()
 
         if (currentPlan.streamMode == StreamMode.DirectPlay) {
@@ -1554,6 +1597,7 @@ class PlayerViewModel(
         requestedSubtitleStreamIndex = streamIndex
         requestedLocalSubtitleAsset = null
         requestedSubtitleSelection = streamIndex.toSubtitleSelectionIntent()
+        updateKidsTrackIntent(subtitleSelection = requestedSubtitleSelection)
         persistSubtitleSelection(requestedSubtitleSelection)
         rememberSelection(persistDurable = false)
 
@@ -1662,6 +1706,7 @@ class PlayerViewModel(
                 requestedSubtitleStreamIndex = null
                 requestedLocalSubtitleAsset = asset
                 requestedSubtitleSelection = SubtitleSelectionIntent.LocalAsset(asset.id)
+                updateKidsTrackIntent(subtitleSelection = requestedSubtitleSelection)
                 persistSubtitleSelection(requestedSubtitleSelection)
                 playerController.selectEmbeddedSubtitle(null)
                 reloadTimingForCurrentTracks()
@@ -1959,6 +2004,7 @@ class PlayerViewModel(
         startPositionTicks: Long,
         resetReporting: Boolean,
         retainedOfflineSidecarIdentity: SubtitleActivationIdentity.OfflineSidecar? = null,
+        retainedKidsSelection: RetainedKidsPlaybackSelection? = null,
     ): Boolean {
         if (!isKidsSingleAsset && currentOfflineDownloadId == null) {
             launchIntentTarget = PlayerPlaybackTarget(itemId, null)
@@ -2080,6 +2126,8 @@ class PlayerViewModel(
                 legacyItemSelection = playbackSelectionMemory.selectionFor(accountIdentity, itemId),
                 durableStoreAvailable = launchContext.playbackSelectionOutcome != PlaybackLaunchReadOutcome.Unavailable,
             )
+        // A Kids Retry/Replay hint applies only to this attempt on its own source; it is never saved.
+        val retainedSelection = retainedKidsSelection?.takeIf { hint -> hint.mediaSourceId == selectedVersion.id }
         val audioTrackOptions = audioOptions(mediaStreams)
         val launchAudioSelection =
             resolveLaunchAudioSelection(
@@ -2089,6 +2137,7 @@ class PlayerViewModel(
                 audioTrackOptions = audioTrackOptions,
                 preferredAudioStreamIndex =
                     audioTrackOptions.preferredAudioStreamIndex(playbackPreferences.preferredAudioLanguage),
+                retainedAudioStreamIndex = retainedSelection?.audioStreamIndex,
             )
         val backendResolved =
             try {
@@ -2174,6 +2223,7 @@ class PlayerViewModel(
                 key = subtitleSelectionKey,
                 options = subtitleTrackOptions,
                 playbackPreferences = playbackPreferences,
+                retained = retainedSelection?.subtitleSelection ?: SubtitleSelectionIntent.Unspecified,
             )
         val effectiveSubtitleStreamIndex = (effectiveSubtitleSelection as? SubtitleSelectionIntent.Track)?.streamIndex
         this.requestedAudioStreamIndex = launchAudioSelection.requestedAudioStreamIndex
@@ -2182,7 +2232,8 @@ class PlayerViewModel(
         this.requestedSubtitleStreamIndex = effectiveSubtitleStreamIndex
         this.requestedSubtitleSelection = effectiveSubtitleSelection
         if (requestedSubtitleSelection.isValidFor(subtitleTrackOptions)) {
-            saveSubtitleSelectionAction?.save(subtitleSelectionKey, effectiveSubtitleSelection)
+            // Save the validated raw explicit choice, even when a retained hint is what plays.
+            saveSubtitleSelectionAction?.save(subtitleSelectionKey, requestedSubtitleSelection)
         }
         val inheritedQualityPolicy = playbackPreferences.effectiveDefaultQualityPolicy(backend)
         qualitySession = qualitySession.inheritLaunchOrDefault(inheritedQualityPolicy)
@@ -2965,7 +3016,14 @@ class PlayerViewModel(
         key: SubtitleSelectionKey,
         options: List<SubtitleTrackOption>,
         playbackPreferences: PlaybackPreferences,
+        retained: SubtitleSelectionIntent = SubtitleSelectionIntent.Unspecified,
     ): SubtitleSelectionIntent {
+        // A retained Kids hint is tried first without deleting an invalid selection at this resolver.
+        // The explicit branch below already resolves an identical value once.
+        if (retained != explicit) {
+            resolveLocalSelection(retained, key, options, preferConfirmedServer = false, deleteInvalid = false)?.let { return it }
+            if (retained.isValidFor(options)) return retained
+        }
         resolveLocalSelection(explicit, key, options, preferConfirmedServer = false, deleteInvalid = false)?.let { return it }
         if (explicit.isValidFor(options)) {
             return explicit
@@ -6229,6 +6287,16 @@ private data class PlaybackLaunchMarker(
     val healthStartedAtMs: Long,
     val controller: PlayerController? = null,
     val prepareEpoch: Long? = null,
+)
+
+/**
+ * Current Kids playback values carried into one same-target Retry/Replay attempt. They apply only
+ * while that source still resolves and never become explicit or persisted intent.
+ */
+private data class RetainedKidsPlaybackSelection(
+    val mediaSourceId: String,
+    val audioStreamIndex: Int?,
+    val subtitleSelection: SubtitleSelectionIntent,
 )
 
 internal fun playbackLaunchMarkerMatches(
