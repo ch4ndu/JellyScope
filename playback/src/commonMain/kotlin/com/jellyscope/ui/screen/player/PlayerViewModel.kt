@@ -130,6 +130,7 @@ import com.jellyscope.core.domain.playback.subtitleKind
 import com.jellyscope.core.domain.playback.subtitleOptions
 import com.jellyscope.core.domain.playback.thresholdClass
 import com.jellyscope.core.domain.playback.toBitrateConstraint
+import com.jellyscope.core.domain.playback.unambiguousAudioStreamIndexes
 import com.jellyscope.core.domain.usecase.GetChronologicalEpisodeQueueUseCase
 import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
 import com.jellyscope.core.domain.usecase.GetItemsByIdsUseCase
@@ -4351,14 +4352,16 @@ class PlayerViewModel(
         }
 
     /**
-     * Describes the launch audio stream, falling back to the source default then the first stream
-     * with a real index. The selected stream's codec is kept even when unknown. Writes nothing.
+     * Describes the launch audio stream, falling back to the source default then the first stream.
+     * Only Audio streams with an actual nonnegative, unambiguous index qualify. The selected
+     * stream's codec is kept even when unknown. Writes nothing.
      */
     private fun MediaVersion.backendSourceDescriptor(launchAudioStreamIndex: Int?): BackendSourceDescriptor {
         val videoStream = mediaStreams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
+        val selectableIndexes = unambiguousAudioStreamIndexes(mediaStreams)
         val audioStreams =
             mediaStreams.filter { stream ->
-                stream.type.equals("Audio", ignoreCase = true) && (stream.index ?: -1) >= 0
+                stream.type.equals("Audio", ignoreCase = true) && stream.index in selectableIndexes
             }
         val audioStream =
             launchAudioStreamIndex?.let { index -> audioStreams.firstOrNull { stream -> stream.index == index } }

@@ -35,9 +35,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   from the server setting, any compatible item override, source descriptor, and
   runtime availability. For shared online Apple Auto launches, the descriptor
   uses the container, first video's codec/range, and effective launch audio
-  selection. Audio lookup uses actual nonnegative stream indexes, falling back
-  to the first default then first valid Audio stream when needed; no valid
-  Audio identity leaves its codec unknown. That durable initial backend remains authoritative for
+  selection. Audio lookup uses actual nonnegative indexes occurring exactly once
+  across all Audio entries, including external audio. It falls back to the first
+  default then first eligible stream; the chosen codec stays unknown if missing,
+  and no eligible stream also leaves it unknown. That durable initial backend remains authoritative for
   queue switches unless the user makes an explicit session-only switch, and
   flows into `PlaybackInfoRequestPolicy.backend` so PlaybackInfo uses that
   backend's device profile. An explicit remote in-player switch is a separate
@@ -386,6 +387,12 @@ suppresses interactive recovery until it is safe to show the consequence.
 
 ## Audio activation and native mapping
 
+- Source audio choices use that same unique, nonnegative Audio identity rule.
+  Missing, negative and repeated indexes are omitted without renumbering retained
+  Audio-relative ordinals. This qualifies selectable rows and initial codec
+  lookup; response-derived native descriptors and download draft selection have
+  separate rules. A nonnegative response-selected audio index remains authoritative
+  even when the response omits its Audio metadata.
 - Requested and installed audio are separate. Detail/Series track state records
   explicit audio provenance at the UI boundary: an untouched resolved default
   routes `null`, while touch or D-pad selection routes the chosen non-null
@@ -875,7 +882,11 @@ server/user IDs, titles, paths, or raw native errors.
   have different decoder requirements from the effective launch choice. Resolve
   that choice before choosing the backend, then commit selection fields only
   after backend success and a fresh launch-authority check. The descriptor's
-  fallback lookup itself writes no selection preferences. Backend-specific
+  fallback lookup itself writes no selection preferences. An ordinal cannot
+  replace missing server identity, and repeated Audio indexes cannot identify
+  one selected codec. Omitting these choices can change the fallback track and
+  Apple Auto routing for malformed metadata; native descriptors stay unchanged.
+  Backend-specific
   quality ordering remains governed by [playback policy](playback-policy.md).
 
 - **A failed request provides no compatibility approval.** Local source-copy

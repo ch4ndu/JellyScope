@@ -119,18 +119,41 @@ private val audioCodecFamilies =
         "mp3" to "mp3",
     )
 
-fun audioOptions(streams: List<PlaybackMediaStream>): List<AudioTrackOption> =
+/**
+ * Actual nonnegative indexes that occur exactly once across all Audio streams,
+ * embedded and external. Missing, negative and repeated indexes are not selectable
+ * server identities.
+ */
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun unambiguousAudioStreamIndexes(streams: List<PlaybackMediaStream>): Set<Int> =
     streams
         .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
-        .mapIndexed { ordinal, stream ->
-            AudioTrackOption(
-                streamIndex = stream.index ?: ordinal,
-                ordinal = ordinal,
-                displayName = stream.readableLabel(),
-                language = stream.language?.takeIf { language -> language.isNotBlank() },
-                isDefault = stream.isDefault == true,
-            )
+        .mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
+        .groupingBy { index -> index }
+        .eachCount()
+        .filterValues { count -> count == 1 }
+        .keys
+
+/** Rows only for unambiguous indexes; ordinals stay relative to every Audio stream. */
+fun audioOptions(streams: List<PlaybackMediaStream>): List<AudioTrackOption> {
+    val selectableIndexes = unambiguousAudioStreamIndexes(streams)
+    return streams
+        .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
+        .mapIndexedNotNull { ordinal, stream ->
+            stream.index
+                ?.takeIf { index -> index in selectableIndexes }
+                ?.let { streamIndex ->
+                    AudioTrackOption(
+                        streamIndex = streamIndex,
+                        ordinal = ordinal,
+                        displayName = stream.readableLabel(),
+                        language = stream.language?.takeIf { language -> language.isNotBlank() },
+                        isDefault = stream.isDefault == true,
+                    )
+                }
         }
+}
 
 fun embeddedAudioTracks(streams: List<PlaybackMediaStream>): List<PlannedEmbeddedTrack> =
     embeddedAudioTracks(
