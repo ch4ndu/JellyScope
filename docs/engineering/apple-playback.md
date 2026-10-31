@@ -96,6 +96,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   duration, then use VLCKit's completion-capable `jumpWithOffset`. An accepted
   jump publishes a prepare-scoped host-seek snapshot before the resulting state
   update for [shared health exclusion](playback-runtime.md#playback-health-and-guidance).
+  Generation-qualified PiP Play/Pause also publish a separate command snapshot
+  before dispatch when they start a playback attempt or clear play intent;
+  shared health consumes it under that same lifecycle contract. It is owner
+  admission, not proof of native success.
   A generation-tagged single-flight gate consumes the system completion exactly
   once from the native seek-finished callback; after matching the request token and native
   session, it refreshes the cached native clock before invoking AVKit's

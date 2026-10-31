@@ -58,6 +58,18 @@ interface PlayerController {
     val lastAcceptedHostSeek: HostSeekObservation?
         get() = null
 
+    /**
+     * Latest native-host Play the owner admitted to start a playback attempt, or Pause it
+     * admitted to clear play intent, for the current prepare epoch. Published on the controller
+     * owner lane before the verb runs, and read on that same lane; the sequence increases
+     * monotonically within the controller lifetime and native teardown clears it. It marks a
+     * command boundary only: not native acceptance, output proof or an event timestamp.
+     * Ordinary app verbs and [recordHostPlaybackIntent] never publish it. Null is the default
+     * for every backend without such a native-host path.
+     */
+    val lastHostPlaybackIntent: HostPlaybackIntentObservation?
+        get() = null
+
     fun prepare(
         plan: PlaybackPlan,
         subtitleAsset: SubtitleAsset? = plan.subtitleAsset,
@@ -162,6 +174,11 @@ data class PlaybackTransitionObservation(
 )
 
 data class HostSeekObservation(
+    val prepareEpoch: Long,
+    val sequence: Long,
+)
+
+data class HostPlaybackIntentObservation(
     val prepareEpoch: Long,
     val sequence: Long,
 )

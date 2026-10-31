@@ -480,6 +480,7 @@ class PlayerViewModel(
             },
             // Reads the currently installed controller, never a captured outgoing one.
             latestHostSeek = { this@PlayerViewModel.playerController.lastAcceptedHostSeek },
+            latestHostPlaybackIntent = { this@PlayerViewModel.playerController.lastHostPlaybackIntent },
         )
     private var backendResolvedForSession = false
     private val playbackReportingQueue =

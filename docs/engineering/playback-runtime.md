@@ -334,14 +334,26 @@ latches survive a restart, so a signal kind reports at most once in an item
 session. Auto's compatibility and quality budgets also survive and remain
 one-per-item-session.
 
-Accepted VLCKit PiP seeks supply a native-host snapshot. Before evaluating a
-status sample or deadline, the coordinator consumes a matching prepare epoch
-and increasing sequence, then restarts evidence with the existing two-second
-exclusion measured from consumption. Repeated snapshots do not extend the
-exclusion; an app-owned restart also acknowledges a pending snapshot. Only an
-actual new prepare or controller admission resets that watermark. Native PiP
-play/pause remain outside this restart path. Snapshot admission and rejection
-are not separately logged.
+VLCKit PiP supplies separate snapshots for accepted seeks and owner-admitted
+play/pause commands. Play publishes before the verb when it starts a playback
+attempt, including from Failed or Completed with retained play intent; Pause
+publishes when it clears play intent. These command facts do not prove native
+acceptance or output. Repeated Play while intent is true and status is Playing
+or Buffering, and Pause while intent is false, publish nothing. Another Play
+before VLC leaves Stopped can qualify again, matching ordinary app Play.
+
+Before evaluating a status sample or deadline, the coordinator independently
+acknowledges each snapshot with a matching prepare epoch and increasing
+sequence, then restarts evidence once if either is new. Pending commands may
+coalesce; the existing two-second exclusion begins at consumption. Reading the
+same snapshot again does not extend it. An app-owned restart also acknowledges
+both pending facts. Session start resets both watermarks; within that session,
+only an actual new prepare or controller admission resets them. Native teardown
+clears published snapshots without resetting their lifetime sequence counters.
+
+This restart contract covers VLCKit PiP. AVPlayer native PiP play/pause/skip and
+Apple audio interruption/route-loss intent changes remain unassessed here.
+Snapshot admission, rejection and consumption are not separately logged.
 
 The bounded health summary additionally records which gate suppressed a would-be
 warning (`postStartGuidanceShown`, `noVideoOutputGuidanceShown`, the resolved guidance
@@ -696,6 +708,10 @@ suppresses interactive recovery until it is safe to show the consequence.
 - the latest accepted native-host seek is an owner-lane snapshot with prepare
   epoch and sequence, independent of presentation readiness; other controllers
   default to no snapshot;
+- VLCKit PiP additionally publishes an owner-lane playback-intent snapshot with
+  prepare epoch and sequence for qualifying Play/Pause commands, without native
+  acceptance or output proof; ordinary app verbs and `recordHostPlaybackIntent`
+  do not publish it, and other controllers default to no snapshot;
 - measurement capabilities state whether a fact is reliable and name its
   evidence class (`NativeFirstOutput`, `DisplayedPictureCounter`,
   `ReadyForDisplayBridge`, or unsupported).
@@ -780,8 +796,8 @@ without leaving the route: its existing projection remains, with recovery and
 track, backend, and transcode-seek replans can still prepare without reopening
 recovery; this contract does not add a retained-screen restart or state replay.
 
-With installation released and queue identity settled, the ViewModel's PiP
-slot retains the strongest trigger
+While the ViewModel is in PiP, with installation released and queue identity
+settled, its recovery slot retains the strongest trigger
 in this locked order: DecoderFailure, UnsupportedMedia, NoVideoOutput,
 CumulativeBuffering, RepeatedStalls, then DroppedFrames. Equal severity keeps
 the first trigger. Leaving PiP consumes one retained trigger; if installation is
@@ -987,8 +1003,10 @@ server/user IDs, titles, paths, or raw native errors.
   evidence and reads the qualified controller snapshot because a state update
   skipped during installation need not be emitted again. Positive facts stay
   admitted so a non-replaying frame event is not lost. Startup timing remains
-  launch-based. Evidence-window restarts also keep app-owned seeks/resumes and
-  accepted VLCKit PiP seeks from contaminating later stall evidence. Reading the accepted seek
-  snapshot before status and deadline evaluation avoids independent event-flow
-  ordering. Native PiP play/pause remain a separate gap. Restarting the window
-  retains one-per-session signal and recovery budgets.
+  launch-based. Evidence-window restarts keep evidence from before app-owned
+  controls or qualifying VLCKit PiP seeks/play/pause from contaminating later
+  stall decisions. Reading separate seek and command snapshots before status
+  and deadline evaluation avoids independent event-flow ordering without
+  treating play intent as native success. AVPlayer PiP and interruption/route-loss
+  restart coverage remain unassessed. Restarting the window retains
+  one-per-session signal and recovery budgets.

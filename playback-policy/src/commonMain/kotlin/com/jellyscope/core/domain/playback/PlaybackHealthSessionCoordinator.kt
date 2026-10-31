@@ -67,6 +67,7 @@ class PlaybackHealthSessionCoordinator(
     private val onSessionEnded: (PlaybackHealthSummary) -> Unit = {},
     private val evaluator: PlaybackHealthEvaluator = PlaybackHealthEvaluator(),
     private val latestHostSeek: () -> HostSeekObservation? = { null },
+    private val latestHostPlaybackIntent: () -> HostPlaybackIntentObservation? = { null },
 ) {
     private var context: PlaybackHealthSessionContext? = null
     private var activeGeneration = 0L
@@ -88,6 +89,7 @@ class PlaybackHealthSessionCoordinator(
     private var lastTransitionSequence = -1L
     private var transitionSettled = false
     private var lastHostSeekSequence = -1L
+    private var lastHostPlaybackIntentSequence = -1L
 
     // Owned by the controller installer, not the session: start/end never clear it.
     private var installationSuspended = false
@@ -120,6 +122,7 @@ class PlaybackHealthSessionCoordinator(
         lastTransitionSequence = -1L
         transitionSettled = false
         lastHostSeekSequence = -1L
+        lastHostPlaybackIntentSequence = -1L
         setGuidance(null)
         evaluator.reset(generation = generation, launchAtMs = startedAtMs)
     }
@@ -132,7 +135,7 @@ class PlaybackHealthSessionCoordinator(
     fun observePlaybackState(playbackState: PlaybackState) {
         if (!active || installationSuspended) return
         latestPlaybackPositionMs = playbackState.positionMs.coerceAtLeast(0L)
-        reconcileHostSeek()
+        reconcileHostCommands()
         val healthStatus =
             playbackState.healthStatusOverride?.takeIf { playbackState.status == PlaybackStatus.Buffering }
                 ?: playbackState.status
@@ -211,8 +214,9 @@ class PlaybackHealthSessionCoordinator(
      * must reject a late frame from the superseded native prepare.
      *
      * Admission means an actual new native prepare or a replacement controller,
-     * never a rearm of the same session: the host-seek snapshot persists, so
-     * resetting its watermark for the same epoch would readmit an old seek.
+     * never a rearm of the same session: the host seek and playback-intent
+     * snapshots persist, so resetting their watermarks for the same epoch would
+     * readmit an old command.
      */
     fun expectVideoOutput(generation: Long) {
         if (!active || generation < 0L) return
@@ -220,9 +224,10 @@ class PlaybackHealthSessionCoordinator(
         // Prepare epochs are controller-local. A replacement controller may
         // legitimately restart its epoch and transition counters at values the
         // outgoing controller already used, so every explicit prepare admission
-        // resets the local transition and host-seek watermarks.
+        // resets the local transition and host-command watermarks.
         lastTransitionSequence = -1L
         lastHostSeekSequence = -1L
+        lastHostPlaybackIntentSequence = -1L
         activeTransitionIdentity = null
         transitionSettled = false
         videoOutputWaitStartedAtMs = null
@@ -276,12 +281,13 @@ class PlaybackHealthSessionCoordinator(
      * Restarts only the current evidence window. The exclusion and timer
      * suppression remain the same as [markExclusion], while the evaluator
      * preserves session timing, status, startup state, and emitted latches.
-     * It also acknowledges any pending accepted host seek, which this restart
-     * already covers, so that seek cannot restart the window again later.
+     * It also acknowledges any pending host seek and playback-intent snapshots,
+     * which this restart already covers, so neither can restart the window again.
      */
     fun restartEvidenceWindow(reason: PlaybackHealthExclusionReason = PlaybackHealthExclusionReason.Resume) {
         if (!active) return
         acknowledgeHostSeek()
+        acknowledgeHostPlaybackIntent()
         val now = monotonicTimeMs()
         evaluator.markExclusion(now, reason)
         evaluator.restartEvidenceWindow()
@@ -373,7 +379,7 @@ class PlaybackHealthSessionCoordinator(
                 scope.launch {
                     delay(remaining)
                     if (!isCurrentGeneration(generation)) return@launch
-                    if (reconcileHostSeek()) return@launch
+                    if (reconcileHostCommands()) return@launch
                     handleSignals(evaluator.evaluateAt(monotonicTimeMs()))
                     syncTimers()
                 }
@@ -384,7 +390,7 @@ class PlaybackHealthSessionCoordinator(
                     scope.launch {
                         delay(delayMs.coerceAtLeast(1L))
                         if (!isCurrentGeneration(generation)) return@launch
-                        if (reconcileHostSeek()) return@launch
+                        if (reconcileHostCommands()) return@launch
                         handleSignals(evaluator.evaluateAt(monotonicTimeMs()))
                         syncTimers()
                     }
@@ -424,8 +430,8 @@ class PlaybackHealthSessionCoordinator(
                             return@launch
                         }
                         // The restart rearms from the new boundary; never
-                        // evaluate this job's pre-seek wait anchors.
-                        if (reconcileHostSeek()) return@launch
+                        // evaluate this job's pre-command wait anchors.
+                        if (reconcileHostCommands()) return@launch
                         val firedAtMs = monotonicTimeMs()
                         if (
                             firedAtMs - waitStartedAtMs < thresholdMs ||
@@ -474,10 +480,33 @@ class PlaybackHealthSessionCoordinator(
         return true
     }
 
-    /** Restarts evidence for a newly consumed host seek before anything evaluates prior evidence. */
-    private fun reconcileHostSeek(): Boolean {
-        if (!acknowledgeHostSeek()) return false
-        restartEvidenceWindow(PlaybackHealthExclusionReason.Seek)
+    /** Consumes the latest native-host playback intent under the same rules as [acknowledgeHostSeek]. */
+    private fun acknowledgeHostPlaybackIntent(): Boolean {
+        val intent = latestHostPlaybackIntent() ?: return false
+        if (
+            !active ||
+            intent.prepareEpoch != activeVideoOutputGeneration ||
+            intent.sequence < 0L ||
+            intent.sequence <= lastHostPlaybackIntentSequence
+        ) {
+            return false
+        }
+        lastHostPlaybackIntentSequence = intent.sequence
+        return true
+    }
+
+    /**
+     * Restarts evidence once for newly consumed host seek and playback-intent
+     * snapshots before anything evaluates prior evidence. Both are acknowledged
+     * independently so a coalesced burst cannot leave either pending.
+     */
+    private fun reconcileHostCommands(): Boolean {
+        val seekAcknowledged = acknowledgeHostSeek()
+        val intentAcknowledged = acknowledgeHostPlaybackIntent()
+        if (!seekAcknowledged && !intentAcknowledged) return false
+        restartEvidenceWindow(
+            if (seekAcknowledged) PlaybackHealthExclusionReason.Seek else PlaybackHealthExclusionReason.Resume,
+        )
         return true
     }
 
