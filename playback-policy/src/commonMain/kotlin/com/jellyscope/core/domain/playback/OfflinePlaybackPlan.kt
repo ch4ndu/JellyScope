@@ -25,10 +25,14 @@ fun buildOfflinePlaybackPlan(
     val chapters = snapshot.chapters.map { chapter -> Chapter(chapter.name, chapter.startTicks) }
     val artifactRef = OfflineArtifactRef(downloadId, attemptGeneration)
     val selectedSubtitleTrack = snapshot.selectedSubtitleTrack
-    val embeddedAudioTracks =
+    // The saved embedded Audio inventory is the cohort; null identities keep their slot.
+    val savedEmbeddedAudioTracks =
         snapshot.embeddedTracks
             .filter { track -> track.kind == OfflineTrackKind.Audio && !track.isExternal }
-            .mapIndexedNotNull { ordinal, track -> track.toPlannedEmbeddedTrack(ordinal) }
+    val embeddedAudioTracks =
+        savedEmbeddedAudioTracks.mapIndexedNotNull { ordinal, track ->
+            track.toPlannedEmbeddedTrack(ordinal, cohortSize = savedEmbeddedAudioTracks.size)
+        }
     val embeddedSubtitleTracks =
         snapshot.embeddedTracks
             .filter { track -> track.kind == OfflineTrackKind.Subtitle && !track.isExternal }
@@ -105,7 +109,10 @@ fun buildOfflinePlaybackPlan(
     )
 }
 
-private fun OfflineTrackSnapshot.toPlannedEmbeddedTrack(ordinal: Int): PlannedEmbeddedTrack? {
+private fun OfflineTrackSnapshot.toPlannedEmbeddedTrack(
+    ordinal: Int,
+    cohortSize: Int? = null,
+): PlannedEmbeddedTrack? {
     val jellyfinStreamIndex = streamIndex ?: return null
     return PlannedEmbeddedTrack(
         jellyfinStreamIndex = jellyfinStreamIndex,
@@ -114,6 +121,6 @@ private fun OfflineTrackSnapshot.toPlannedEmbeddedTrack(ordinal: Int): PlannedEm
         normalizedLanguage = language,
         label = label,
         directPlayAdmissible = true,
-        responseAuthoritativeCohortSize = null,
+        responseAuthoritativeCohortSize = cohortSize,
     )
 }

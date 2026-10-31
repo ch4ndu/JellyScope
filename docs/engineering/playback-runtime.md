@@ -447,15 +447,23 @@ suppresses interactive recovery until it is safe to show the consequence.
   decoding**: the libvlc-family and mpv backends accept a `set*Track` and read the
   index back for any stream present in the container, whether or not they own a
   decoder for it, so they have no decode-capability signal at selection time.
-  Desktop LibVLC Audio uses the original known response cohort size for its
-  positional shortcut. DirectPlay with an equal native count keeps the original
-  ordinal without waiting for Playing; a count mismatch in either direction
-  permits only a unique comparable label match. Unknown cohorts, including
-  offline, retain the descriptor-list count shortcuts and shared resolver.
+  Desktop LibVLC Audio uses the original response cohort size or complete saved
+  offline Audio count for its positional shortcut. DirectPlay and Offline with
+  an equal native count keep the original ordinal without waiting for Playing;
+  a known count mismatch in either direction permits only a unique comparable
+  label match. Unknown cohorts retain descriptor-list count shortcuts and the
+  shared resolver.
   One matching sole planned track with an effective source count of one may
   confirm after current-generation Playing when VLC exposes at most one track,
-  without a setter or readback; a known cohort also requires DirectPlay here.
+  without a setter or readback; a known cohort also requires DirectPlay or Offline.
   Other Audio confirmation requires exact native selector readback.
+  Offline Audio count mismatch never uses positional fallback, even for complete valid
+  downloads. Outside the true-singleton exception above, lack of a unique
+  comparable label makes bounded attempts end in Audio Unavailable with no
+  automatic session recovery; an already-playing backend can continue its
+  default audio. Saved labels prefer display titles while VLC
+  supplies its own track names, so label matching cannot be relied on. Unavailable
+  does not force a stop or guarantee a visible error.
   Desktop embedded subtitles retain a separate shortcut: DirectPlay in the
   current native Playing generation with an equal known response cohort may use
   the original ordinal without comparable labels. Their unchanged shared fallback
@@ -934,11 +942,12 @@ server/user IDs, titles, paths, or raw native errors.
 ## Why
 
 - **Desktop Audio mapping needs the original cohort.** Omitting descriptors
-  does not remove their native ordinal slots. A mismatched native count cannot
-  justify a positional guess; unique labels provide separate evidence. Equal
-  counts need no Playing gate: TracksChanged can arrive first, and pausing during
-  opening must not turn a valid mapping into a recovery timeout. Unknown/offline
-  mapping and the existing no-setter singleton remain separate exceptions.
+  does not remove their native ordinal slots, so saved offline Audio counts must
+  precede identity omission. A mismatched native count cannot justify a positional
+  guess; unique labels provide separate evidence. Equal counts need no Playing
+  gate: TracksChanged can arrive first, and pausing during opening must not turn
+  a valid mapping into a selection timeout. Unknown-cohort mapping and the
+  existing no-setter true-singleton route remain separate exceptions.
 
 - **Initial routing describes the selected audio.** The first listed track can
   have different decoder requirements from the effective launch choice. Resolve

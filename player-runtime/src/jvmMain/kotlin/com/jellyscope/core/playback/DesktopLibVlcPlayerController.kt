@@ -1064,17 +1064,22 @@ class DesktopLibVlcPlayerController private constructor(
         var allResolved = true
         pendingAudioSelection?.let { selection ->
             val audioTracks = active.audioTracks()
-            // A known response cohort is the original source count; the retained
-            // descriptor list may be shorter. Unknown cohorts keep the list length.
+            // A known cohort is the original source or saved offline Audio count; the
+            // retained descriptor list may be shorter. Unknown cohorts keep the list length.
+            // Only DirectPlay and Offline play the file layout that a known cohort describes.
             val plannedCohortSize = selection.descriptor.responseAuthoritativeCohortSize
             val sourceAudioTrackCount = plannedCohortSize ?: lastPlan?.embeddedAudioTracks?.size
-            val isDirectPlay = lastPlan?.streamMode == StreamMode.DirectPlay
+            val playsCohortLayout =
+                when (lastPlan?.streamMode) {
+                    StreamMode.DirectPlay, StreamMode.Offline -> true
+                    else -> false
+                }
             val singlePlannedAudioTrack = lastPlan?.embeddedAudioTracks?.singleOrNull()
             val confirmsSolePlannedAudioTrack =
                 audioTracks.size <= 1 &&
                     nativePlayingGeneration == generation &&
                     sourceAudioTrackCount == 1 &&
-                    (plannedCohortSize == null || isDirectPlay) &&
+                    (plannedCohortSize == null || playsCohortLayout) &&
                     singlePlannedAudioTrack?.jellyfinStreamIndex == selection.descriptor.jellyfinStreamIndex
             emitDesktopVlcProbe(
                 DesktopVlcProbeRecord(
@@ -1094,7 +1099,7 @@ class DesktopLibVlcPlayerController private constructor(
                 if (plannedCohortSize == null) {
                     audioTracks.size == sourceAudioTrackCount
                 } else {
-                    isDirectPlay && audioTracks.size == plannedCohortSize
+                    playsCohortLayout && audioTracks.size == plannedCohortSize
                 }
             val exactCountOrdinalCandidate =
                 audioTracks

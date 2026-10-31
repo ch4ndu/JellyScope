@@ -145,10 +145,10 @@ data class PlannedEmbeddedTrack(
      */
     val directPlayAdmissible: Boolean = true,
     /**
-     * Cardinality of the response-authoritative filtered native-track cohort.
+     * Cardinality of the response-derived cohort or complete saved offline Audio inventory.
      * For Audio, count embedded streams before omitting ineligible identities.
      * Null means the descriptor came from detail metadata or otherwise lacks
-     * enough response evidence for an exact-count native mapping.
+     * enough cohort evidence for an exact-count native mapping.
      */
     val responseAuthoritativeCohortSize: Int? = null,
 )
