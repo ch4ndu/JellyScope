@@ -397,7 +397,7 @@ class PlayerViewModel(
     // Stop closes recovery admission until an accepted explicit playback action reopens it.
     private var recoveryClosedByStop = false
 
-    // Launch generation of a normal-start prepare still establishing its install; callbacks wait for it.
+    // Launch generation of a startup prepare or same-plan Retry still establishing its install; callbacks wait for it.
     private var startupPrepareGeneration: Long? = null
     private var volumeControl: PlayerVolumeState? = (playerController as? PlayerVolumeController)?.volumeState?.value
 
@@ -762,11 +762,43 @@ class PlayerViewModel(
                 )
             }
             playbackLaunchMarker = null
-            playerController.retry()
-            playerController.runtimeDiagnostics.value.prepareEpoch
+            val retryPlan = plan
+            val retryController = playerController
+            val retryInstalledPlan = installedPlan
+            val retrySelectionGeneration = selectedPlaybackGeneration
+            val retryReplanGeneration = replanRequestGeneration
+
+            // An inline Stop, disposal, queue change, selection, install or replan during Retry owns playback now.
+            fun ownsRetry(): Boolean =
+                admitsPlaybackSessionRecovery() &&
+                    isCurrentReplan(retryReplanGeneration, retryGeneration, retryItemId) &&
+                    selectedPlaybackGeneration == retrySelectionGeneration &&
+                    playerController === retryController &&
+                    installedPlan === retryInstalledPlan &&
+                    plan === retryPlan
+            startupPrepareGeneration = retryGeneration
+            try {
+                retryController.retry()
+            } finally {
+                if (startupPrepareGeneration == retryGeneration) startupPrepareGeneration = null
+            }
+            if (!ownsRetry() || rejectSynchronouslyFailedPrepare(refreshObservation = true)) return
+            retryController.runtimeDiagnostics.value.prepareEpoch
                 ?.let(playbackHealthCoordinator::expectVideoOutput)
             armSoftwarePlaybackRecovery()
             armFirstVideoOutputState()
+            if (retryPlan == null || !ownsRetry()) return
+            // Native Retry keeps matching selections but cannot recreate a missing activation descriptor.
+            // VLCKit reprepares this plan's start paused at raw zero before its deferred play.
+            val vlcKitRetry = backend == PlayerBackend.VlcKit
+            maybeStartInstalledActivationFallback(
+                expectedController = retryController,
+                expectedPlan = retryPlan,
+                reconcileNativeState = true,
+                expectedInstalledPlan = retryInstalledPlan,
+                recoveryPositionOverrideMs = retryPlan.startPositionMs.takeIf { vlcKitRetry },
+                pausedAtRequestOverride = (!desiredPlayWhenReady).takeIf { vlcKitRetry },
+            )
             return
         }
 
@@ -4914,9 +4946,16 @@ class PlayerViewModel(
         }
     }
 
-    private fun maybeHandleImmediatePlaybackSessionRecovery(playbackState: PlaybackState): Boolean {
+    private fun maybeHandleImmediatePlaybackSessionRecovery(
+        playbackState: PlaybackState,
+        pausedAtRequestOverride: Boolean? = null,
+    ): Boolean {
         if (plan?.streamMode == StreamMode.Offline) return false
-        return executePlaybackSessionRecovery(nextPlaybackSessionRecoveryDecision(playbackState), playbackState)
+        return executePlaybackSessionRecovery(
+            nextPlaybackSessionRecoveryDecision(playbackState),
+            playbackState,
+            pausedAtRequestOverride,
+        )
     }
 
     /**
@@ -4963,6 +5002,7 @@ class PlayerViewModel(
     private fun executePlaybackSessionRecovery(
         decision: PlaybackSessionRecoveryDecision,
         playbackState: PlaybackState,
+        pausedAtRequestOverride: Boolean? = null,
     ): Boolean =
         when (decision) {
             PlaybackSessionRecoveryDecision.NoAction,
@@ -4993,6 +5033,7 @@ class PlayerViewModel(
                     targetPositionMs = playbackState.positionMs,
                     requestPolicy = decision.requestPolicy,
                     audioRecovery = decision.target,
+                    pausedAtRequestOverride = pausedAtRequestOverride,
                 )
                 true
             }
@@ -5012,6 +5053,7 @@ class PlayerViewModel(
                     requestPolicy = decision.requestPolicy,
                     nonFatalSubtitleFallback = decision.target,
                     subtitleFallbackGeneration = fallbackGeneration,
+                    pausedAtRequestOverride = pausedAtRequestOverride,
                 )
                 true
             }
@@ -5182,6 +5224,7 @@ class PlayerViewModel(
         audioRecovery: AudioActivationTarget? = null,
         proposedQualitySessionState: PlayerQualitySessionState? = null,
         preserveRecoveryBudgetOnQualityCommit: Boolean = false,
+        pausedAtRequestOverride: Boolean? = null,
     ) {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
@@ -5193,7 +5236,7 @@ class PlayerViewModel(
         val controllerAtRequest = playerController
         val installedPlanAtRequest = installedPlan
         val playbackWasPausedAtRequest =
-            controllerAtRequest.playbackState.value.status == PlaybackStatus.Paused
+            pausedAtRequestOverride ?: (controllerAtRequest.playbackState.value.status == PlaybackStatus.Paused)
         val playbackIntentRevisionAtRequest = playbackIntentRevision
         val proposalWasActiveAtRequest =
             proposedQualitySessionState != null &&
@@ -5562,16 +5605,21 @@ class PlayerViewModel(
      * Reports planned activation gaps after installation ownership is released. Both facts share one
      * policy decision, so audio takes precedence and the subtitle allowance stays for a later state.
      * Startup also reconsiders native unavailability that prepare callbacks could not act on.
+     * Same-plan Retry passes its logical plan facts as [expectedPlan] while [expectedInstalledPlan]
+     * guards the possibly null prepared identity; the overrides replace a transitional Retry snapshot.
      */
     private fun maybeStartInstalledActivationFallback(
         expectedController: PlayerController,
         expectedPlan: PlaybackPlan,
         reconcileNativeState: Boolean = false,
+        expectedInstalledPlan: PlaybackPlan? = expectedPlan,
+        recoveryPositionOverrideMs: Long? = null,
+        pausedAtRequestOverride: Boolean? = null,
     ) {
         if (
             !admitsPlaybackSessionRecovery() ||
             playerController !== expectedController ||
-            installedPlan !== expectedPlan
+            installedPlan !== expectedInstalledPlan
         ) {
             return
         }
@@ -5604,6 +5652,7 @@ class PlayerViewModel(
         if (audioTarget == null && encodeSubtitleTarget == null && !reconcilesNativeActivation) return
         maybeHandleImmediatePlaybackSessionRecovery(
             nativeState.copy(
+                positionMs = recoveryPositionOverrideMs ?: nativeState.positionMs,
                 audioActivation =
                     audioTarget?.let { target -> AudioActivationState.Unavailable(target) }
                         ?: nativeState.audioActivation,
@@ -5613,6 +5662,7 @@ class PlayerViewModel(
                             .Unavailable(target)
                     } ?: nativeState.subtitleActivation,
             ),
+            pausedAtRequestOverride = pausedAtRequestOverride,
         )
     }
 

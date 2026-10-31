@@ -560,27 +560,43 @@ suppresses interactive recovery until it is safe to show the consequence.
   post-replan paths can supply both facts; current explicit-switch intent
   validation excludes a planned-unavailable subtitle replacement, so that
   switch handoff supplies installed audio fallback. The handoff requires the
-  same prepared controller/plan, current caller authority, and released
-  installation ownership, including an unlocked mutex. Desired speed/style
-  settings may be copies without changing that prepared identity.
-  At initial startup, a launch-owned marker blocks recovery decisions during
-  the synchronous `prepare()` call. Failed snapshots wait until it returns;
-  non-Failed status, health and reporting observations continue. The marker
-  clears in `finally`, then startup rechecks cancellation and captured ownership
-  before accepting the result. A reentrant Stop cannot install or play that
-  abandoned result. A still-current synchronous failure restarts the existing
-  state collector, or starts one when absent, so ordinary failure handling and
-  recovery remain available even when the installed plan stays null. Same-item
-  fast retry and later runtime selection retain that admission.
-  After successful preparation, the request token is captured after the plan
-  becomes authoritative: a newer replan admitted afterward takes priority.
-  Startup also reconsiders current non-Failed native unavailable-activation
-  facts through the same combined immediate decision. It does not replay the
-  full state handler or retain overwritten native events. One decision per
-  handoff does not serialize later collector recovery. Like the other immediate
-  handoffs, this path omits the full collector's terminal RetryScheduled
-  diagnostic; a later collector delivery may report the already-consumed fact
-  normally.
+  captured controller and prepared identity, current caller authority, and
+  released installation ownership, including an unlocked mutex. Same-item
+  Error Retry supplies current logical activation facts separately from its
+  captured, possibly null installed identity; diagnostic/speed/style copies do
+  not become prepared authority.
+  A launch-owned marker blocks recovery during synchronous startup `prepare()`
+  and same-plan native `retry()`. Failed snapshots wait until return; non-Failed
+  status, health and reporting observations continue. The marker clears in
+  `finally`, then the caller rechecks ownership. A reentrant Stop cannot install
+  or play an abandoned startup result. Retry additionally checks the logical
+  plan, selection generation and replan request before health binding and again
+  before its handoff; a newer owner wins. A still-current synchronous Failed
+  clears installed authority and restarts the existing state collector, or
+  starts one when absent, for ordinary failure handling. If a later fast Retry
+  succeeds without a replan, installed authority stays null: seek remains
+  unavailable, backend switching is refused and quality changes lack installed
+  plan preservation. A native Retry that publishes nothing can rehandle the
+  old Failed snapshot with the reset budgets.
+  Startup captures its request token after the plan becomes authoritative.
+  Startup and accepted same-item Error Retry reconsider current non-Failed
+  native unavailability alongside planned gaps, after binding the returned
+  prepare epoch and arming health observation. Matching native selections are
+  retained by the backend; Retry does not replay every selection.
+  Only VLCKit's Retry handoff substitutes the logical plan's start position for
+  its temporary paused native zero and follows ViewModel play intent rather
+  than that transitional pause. Later ViewModel pause/play revisions still win;
+  a prior pause made only through native PiP, an interruption or route loss is
+  not preserved by this recovery replacement. Other backends retain their
+  existing snapshot behavior, including Android mpv's current retry position.
+  Ordinary VLCKit Start/Pause reports at zero and post-replan zero snapshots
+  remain separate from this handoff's corrected Stopped position.
+  Fallback Error is not durable: later non-Failed native updates can replace it
+  with Content, so the Error Retry path depends on timing. This handoff does
+  not replay the full state handler, retain overwritten events, or serialize
+  later collector recovery. Like other immediate handoffs, it omits the full
+  collector's terminal RetryScheduled diagnostic; a later collector delivery
+  may report the already-consumed fact normally.
 - **[tvOS]** Startup, post-replan preparation and same-plan Retry hand missing
   DirectPlay audio descriptors and eligible planned-unavailable subtitles to
   one audio-first policy decision. The handoff requires the exact installed
@@ -1036,10 +1052,14 @@ server/user IDs, titles, paths, or raw native errors.
   renderings for controller state differences. Centralizing the table prevents
   controller copies from drifting without forcing unrelated lifecycle state
   into a common base class. An absent descriptor never starts the native
-  selection deadline, so tvOS hands that gap to recovery after preparation and
-  Retry. One combined decision preserves Audio-first precedence, and the plan's
-  intended position avoids treating paused VLCKit's temporary zero as a resume
-  position. This does not make fallback failure publication durable.
+  selection deadline, so preparation and accepted same-plan Retry hand the
+  gap to recovery. One combined decision preserves Audio-first precedence.
+  Compose Retry separates logical activation facts from captured installed
+  authority, since diagnostic copies are not new preparations. VLCKit's
+  synchronous Retry snapshot precedes deferred play; using its intended plan
+  position and ViewModel play intent avoids a new zero-position fallback and
+  false pause without changing Android mpv's current-position Retry. This does
+  not make fallback failure durable or synchronize native-only play intent.
 
 - **Health evidence is qualified rather than globally tuned.** Capabilities follow
   the installed controller: a retained placeholder suppresses valid signals,
