@@ -387,12 +387,21 @@ suppresses interactive recovery until it is safe to show the consequence.
 
 ## Audio activation and native mapping
 
-- Source audio choices use that same unique, nonnegative Audio identity rule.
-  Missing, negative and repeated indexes are omitted without renumbering retained
-  Audio-relative ordinals. This qualifies selectable rows and initial codec
-  lookup; response-derived native descriptors and download draft selection have
-  separate rules. A nonnegative response-selected audio index remains authoritative
-  even when the response omits its Audio metadata.
+- Source audio choices, initial codec lookup and response-derived embedded Audio
+  descriptors require actual nonnegative indexes occurring once across all
+  case-insensitive Audio streams, including external entries. Missing, negative
+  and repeated identities are omitted. Choice ordinals remain relative to all
+  Audio; native descriptor ordinals and cohort sizes remain relative to embedded
+  Audio before omissions. External entries can disqualify a duplicate identity
+  without adding an embedded slot. Both descriptor overloads retain the same
+  identities and positions; a false DirectPlay-switch admissibility stamp does
+  not remove an eligible descriptor for the server-approved initial track.
+  A nonnegative response-selected audio index remains authoritative even without
+  a descriptor or Audio metadata, including sparse DirectStream/Transcode
+  responses. An unmappable DirectPlay target uses the existing bounded Audio
+  recovery, which may convert delivery or fail on a constrained server; an absent
+  target creates no synthetic recovery obligation. Download drafts and offline
+  descriptors retain their separate rules.
 - Requested and installed audio are separate. Detail/Series track state records
   explicit audio provenance at the UI boundary: an untouched resolved default
   routes `null`, while touch or D-pad selection routes the chosen non-null
@@ -603,8 +612,9 @@ suppresses interactive recovery until it is safe to show the consequence.
   plan, current item, controller and selected source, with startup admission
   open; recovery checks admission before spending an allowance. It uses the
   plan's start position because paused VLCKit preparation can report native
-  time zero. Selected external audio also lacks an embedded descriptor; this
-  fallback establishes no native codec incompatibility. Retry resets the
+  time zero. Selected external audio and ambiguous response Audio identities
+  lack an embedded descriptor; this fallback establishes no native codec
+  incompatibility. Retry resets the
   policy allowance; paused AVPlayer Retry can resume through Loading.
   Successful recovery replaces the unmappable plan, but planning failures still
   map to Network, and subsequent native projections can overwrite Failed while
@@ -933,10 +943,14 @@ server/user IDs, titles, paths, or raw native errors.
   after backend success and a fresh launch-authority check. The descriptor's
   fallback lookup itself writes no selection preferences. An ordinal cannot
   replace missing server identity, and repeated Audio indexes cannot identify
-  one selected codec. Omitting these choices can change the fallback track and
-  Apple Auto routing for malformed metadata; native descriptors stay unchanged.
-  Backend-specific
-  quality ordering remains governed by [playback policy](playback-policy.md).
+  one selected codec or native track. Omitting source choices can change the
+  fallback track and Apple Auto routing for malformed metadata. Response
+  descriptors apply the same identity qualification without renumbering the
+  original embedded cohort: retaining the first duplicate would invent a choice,
+  while closing its ordinal slot would shift later native mappings. The selected
+  response index remains authoritative; an absent descriptor follows existing
+  activation recovery. Backend-specific quality ordering remains governed by
+  [playback policy](playback-policy.md).
 
 - **A failed request provides no compatibility approval.** Local source-copy
   bounds cannot establish the container, codec-tag, audio, and progressive-video

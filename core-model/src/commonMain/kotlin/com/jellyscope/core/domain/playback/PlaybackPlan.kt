@@ -140,12 +140,13 @@ data class PlannedEmbeddedTrack(
     /**
      * Audio only: whether the effective policy admits a later DirectPlay switch.
      *
-     * Keep the descriptor for the server-approved initial track even when later
-     * switches are inadmissible; initial selection is exempt from this check.
+     * Keep an identity-eligible descriptor for the server-approved initial track
+     * even when later switches are inadmissible; initial selection is exempt.
      */
     val directPlayAdmissible: Boolean = true,
     /**
      * Cardinality of the response-authoritative filtered native-track cohort.
+     * For Audio, count embedded streams before omitting ineligible identities.
      * Null means the descriptor came from detail metadata or otherwise lacks
      * enough response evidence for an exact-count native mapping.
      */
