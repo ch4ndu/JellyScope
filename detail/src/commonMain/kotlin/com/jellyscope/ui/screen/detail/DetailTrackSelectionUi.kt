@@ -102,7 +102,9 @@ internal fun DetailTrackSelectionUi.resolveLaunchDefaults(
     val audio = audioOptions
     val subtitles = subtitleOptions
     val preferredAudioStreamIndex =
-        rememberedSelection?.audioStreamIndex
+        rememberedSelection
+            ?.audioStreamIndex
+            ?.takeIf { index -> audio.any { option -> option.streamIndex == index } }
             ?: audio.preferredAudioStreamIndex(playbackPreferences.preferredAudioLanguage)
     val subtitleDefaults = subtitles.resolveSubtitleDefaults(playbackPreferences, storedSubtitleSelection)
 

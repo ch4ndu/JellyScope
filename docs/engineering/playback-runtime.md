@@ -402,7 +402,10 @@ suppresses interactive recovery until it is safe to show the consequence.
   recovery, which may convert delivery or fail on a constrained server; an absent
   target creates no synthetic recovery obligation. Download drafts and offline
   descriptors retain their separate rules.
-- Requested and installed audio are separate. Detail/Series track state records
+- Requested and installed audio are separate. Detail/Series accept a remembered
+  default only when its Audio index is offered by the current source; otherwise
+  they use preferred language, Jellyfin default, then first track. This does not
+  change remembered records or memory-tier precedence. Their track state records
   explicit audio provenance at the UI boundary: an untouched resolved default
   routes `null`, while touch or D-pad selection routes the chosen non-null
   stream index even when it equals the displayed default. The state is keyed by
@@ -949,7 +952,9 @@ server/user IDs, titles, paths, or raw native errors.
   original embedded cohort: retaining the first duplicate would invent a choice,
   while closing its ordinal slot would shift later native mappings. The selected
   response index remains authoritative; an absent descriptor follows existing
-  activation recovery. Backend-specific quality ordering remains governed by
+  activation recovery. Detail/Series check remembered defaults against offered
+  indexes, as playback and native tvOS do, because reconciliation can otherwise
+  keep reinstating a stale default. Backend-specific quality ordering follows
   [playback policy](playback-policy.md).
 
 - **A failed request provides no compatibility approval.** Local source-copy
