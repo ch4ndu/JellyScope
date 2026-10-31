@@ -734,10 +734,13 @@ explicit-session-Auto authorization; inherited Auto receives the typed manual
 choice prompt without spending the quality budget. The ViewModel and
 `TvPlaybackSessionPresenter` own execution, position preservation, policy
 persistence, notice state, and stale-work cancellation. While the Compose
-ViewModel owns a controller installation, automatic triggers are ignored before
-recovery decisions, budget, quality, notice or PiP-slot changes, including manual
-prompts. A replan rejected during installation leaves backend-switch authority
-intact. Initial switch preflight retains its existing recovery arbitration.
+ViewModel owns a controller installation or queue item identity is unsettled,
+automatic triggers are ignored before recovery decisions, budget, quality,
+notice or PiP-slot changes, including manual prompts. Session recovery also
+requires settled queue identity. Health signals, first-output state and their
+diagnostics may already have been recorded before the trigger gate. A replan
+rejected during installation leaves backend-switch authority intact. Initial
+switch preflight retains its existing recovery arbitration.
 
 The Compose owner closes automatic and session recovery at the first Stop
 request, even when native Stop must wait for installation, and at disposal.
@@ -746,6 +749,22 @@ closed is discarded before publication or suspended diagnostic capture; it is
 not automatically redelivered when recovery reopens. Existing generation and
 controller checks still reject captures invalidated by Stop. This is an
 admission-time boundary, not proof of when a delayed native event was emitted.
+After session recovery returns, a `Failed` result is also discarded if queue
+identity is unsettled, Stop/disposal closed ownership, or the captured launch or
+selection generation changed. Queue refusal must not publish an outgoing Error;
+an awaited backend recovery must not publish a displaced result. This check
+precedes terminal outcome, Error, Stop and last-status publication, but does not
+isolate earlier metadata, health or diagnostic work. Queue identity settles when
+a stabilizing plan is installed, before native prepare; current synchronous
+failure and settled Retry can still recover with a null installed plan.
+
+Android alternate-backend fallback rechecks its captured launch/item and
+queue/Stop/disposal ownership after controller installation, before replanning,
+Applied diagnostics or recovered guidance. Merely handing the lock to a waiter
+is not displacement: a waiter that has not run or declines leaves current
+fallback able to replan. Successful installation may intentionally cancel the
+fallback's collector and replace its controller, so neither collector activity
+nor old-controller identity determines this continuation's authority.
 
 Only an accepted explicit Play, Retry, Kids selection/replay, manual queue
 selection, or Still Watching confirmation reopens recovery. Starts refuse
@@ -761,12 +780,13 @@ without leaving the route: its existing projection remains, with recovery and
 track, backend, and transcode-seek replans can still prepare without reopening
 recovery; this contract does not add a retained-screen restart or state replay.
 
-Outside installation, while the ViewModel is in PiP, its one pending-recovery
+With installation released and queue identity settled, the ViewModel's PiP
 slot retains the strongest trigger
 in this locked order: DecoderFailure, UnsupportedMedia, NoVideoOutput,
 CumulativeBuffering, RepeatedStalls, then DroppedFrames. Equal severity keeps
 the first trigger. Leaving PiP consumes one retained trigger; if installation is
-busy, it is discarded without execution or a later retry. New item or queue
+busy or queue identity is unsettled, it is discarded without execution or a
+later retry. New item or queue
 launch, retry, actual controller release and session end clear retained work.
 Rejected or cancelled switch planning that keeps the outgoing controller also
 keeps its pending evidence, unless PiP exit has already consumed it. Installation
@@ -895,6 +915,12 @@ server/user IDs, titles, paths, or raw native errors.
   null installed plan, because recovery after a synchronous failure can still
   own that null identity. Refreshing the failure collector and reconsidering
   only activation facts avoid duplicating full failure handling.
+  Queue admission must precede recovery policy changes, and its refusal must
+  not turn an outgoing failure into Error through the no-action fallthrough.
+  Backend recovery can suspend across ownership handoff, so its continuation
+  and the caller's late Failed result both check actual launch/queue/Stop/disposal
+  ownership. Lock possession alone could abandon a valid fallback whose waiter
+  later declines; collector cancellation is also intentional during replacement.
   Clearing retained PiP evidence at controller release and session end prevents
   retained outgoing failures from spending a replacement's recovery budget. Clearing at
   switch request would discard evidence even when planning keeps the old owner.

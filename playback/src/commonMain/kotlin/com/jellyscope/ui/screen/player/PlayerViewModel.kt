@@ -4455,6 +4455,20 @@ class PlayerViewModel(
                 currentAudioUnavailable != enrichedPlaybackState.audioUnavailable ||
                 currentUpNext != upNext
         val terminalRecovery = maybeHandlePlaybackSessionRecovery(enrichedPlaybackState)
+        // Queue refusal must not publish the outgoing item's failure, and awaited backend recovery
+        // may have handed ownership to another launch. Fallback can cancel this collector legitimately.
+        if (
+            enrichedPlaybackState.status == PlaybackStatus.Failed &&
+            (
+                disposed ||
+                    recoveryClosedByStop ||
+                    queueSwitchInFlight ||
+                    playbackLaunchGeneration != launchGenerationAtState ||
+                    selectedPlaybackGeneration != selectionGenerationAtState
+            )
+        ) {
+            return
+        }
         if (terminalRecovery != null) {
             terminalRecovery.outcome?.let { outcome ->
                 playerDiagnosticsRecorder.recordTerminalOutcome(
@@ -4707,8 +4721,8 @@ class PlayerViewModel(
     }
 
     private fun handleAutomaticRecoveryTrigger(trigger: AutoPlaybackRecoveryTrigger): AutomaticRecoveryDiagnostic? {
-        // An owned install keeps switch authority; reject before spending recovery state or the PiP slot.
-        if (controllerInstallInFlight) return null
+        // An owned install or unsettled queue identity rejects before spending recovery state or the PiP slot.
+        if (controllerInstallInFlight || queueSwitchInFlight) return null
         if (recoveryClosedByStop) return null
         if (_softwarePlaybackRecovery.value != null) return null
         if (plan?.streamMode == StreamMode.Offline) return null
@@ -4912,11 +4926,13 @@ class PlayerViewModel(
             !stopRequestedDuringControllerInstall
 
     /**
-     * Session recovery acts only for a settled controller owner that Stop has not closed. A null
-     * installed plan stays admissible: synchronous failures and fast retries recover without one.
+     * Session recovery acts only for settled queue identity and a settled controller owner that Stop
+     * has not closed. A null installed plan stays admissible: synchronous failures and fast retries
+     * recover without one.
      */
     private fun admitsPlaybackSessionRecovery(): Boolean =
         canAcceptPlaybackStart() &&
+            !queueSwitchInFlight &&
             !recoveryClosedByStop &&
             offlineReprepareGeneration == null &&
             concreteControllerInstalled &&
@@ -5029,6 +5045,8 @@ class PlayerViewModel(
         val profileProvider = deviceProfileProvider ?: return false
         if (profileProvider.backendPolicy.platform != PlayerBackendPlatform.Android) return false
         if (PlayerBackend.ExoPlayer !in profileProvider.availableBackends) return false
+        val fallbackGeneration = playbackLaunchGeneration
+        val fallbackItemId = currentItemId
         alternateBackendFallbackAttempted = true
         val lastConfirmedPositionMs = positionMs.coerceAtLeast(0L)
         val requestedBackend = backend
@@ -5050,9 +5068,19 @@ class PlayerViewModel(
             installController(
                 resolvedBackend = PlayerBackend.ExoPlayer,
                 requestedBackend = requestedBackend,
-                expectedGeneration = playbackLaunchGeneration,
-                expectedItemId = currentItemId,
+                expectedGeneration = fallbackGeneration,
+                expectedItemId = fallbackItemId,
             ) ?: return false
+        // Follow actual launch ownership, not lock handoff: a waiter that has not run or declines leaves
+        // this fallback current. The caller's late Failed guard drops every refusal here.
+        if (
+            disposed ||
+            recoveryClosedByStop ||
+            queueSwitchInFlight ||
+            !isCurrentPlaybackLaunch(fallbackGeneration, fallbackItemId)
+        ) {
+            return false
+        }
         replanAtPosition(
             targetPositionMs = lastConfirmedPositionMs,
             requestPolicy =
