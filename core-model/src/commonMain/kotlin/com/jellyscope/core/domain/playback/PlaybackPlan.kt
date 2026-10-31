@@ -138,11 +138,10 @@ data class PlannedEmbeddedTrack(
     val normalizedLanguage: String?,
     val label: String?,
     /**
-     * Audio only: false when the active backend cannot decode this codec.
+     * Audio only: whether the effective policy admits a later DirectPlay switch.
      *
-     * A flag rather than a filtered list — the desktop VLC controller uses the
-     * descriptor count as a native-track sanity check, so shortening the list
-     * would break its ordinal mapping.
+     * Keep the descriptor for the server-approved initial track even when later
+     * switches are inadmissible; initial selection is exempt from this check.
      */
     val directPlayAdmissible: Boolean = true,
     /**

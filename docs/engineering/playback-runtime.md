@@ -435,13 +435,20 @@ suppresses interactive recovery until it is safe to show the consequence.
   decoding**: the libvlc-family and mpv backends accept a `set*Track` and read the
   index back for any stream present in the container, whether or not they own a
   decoder for it, so they have no decode-capability signal at selection time.
-  Desktop LibVLC has one additional fail-closed guard for response-derived
-  embedded subtitles: only a DirectPlay plan in the current native Playing
-  generation with a known response cohort whose size exactly matches the native
-  candidate list may use the filtered ordinal without comparable labels. All
-  other cases use the shared resolver. A successful setter call is not activation;
-  desktop embedded-subtitle state becomes Active only after exact native selector
-  readback.
+  Desktop LibVLC Audio uses the original known response cohort size for its
+  positional shortcut. DirectPlay with an equal native count keeps the original
+  ordinal without waiting for Playing; a count mismatch in either direction
+  permits only a unique comparable label match. Unknown cohorts, including
+  offline, retain the descriptor-list count shortcuts and shared resolver.
+  One matching sole planned track with an effective source count of one may
+  confirm after current-generation Playing when VLC exposes at most one track,
+  without a setter or readback; a known cohort also requires DirectPlay here.
+  Other Audio confirmation requires exact native selector readback.
+  Desktop embedded subtitles retain a separate shortcut: DirectPlay in the
+  current native Playing generation with an equal known response cohort may use
+  the original ordinal without comparable labels. Their unchanged shared fallback
+  can also accept an ordinal when no available metadata conflicts. A successful
+  subtitle setter alone is not activation; Active requires exact native readback.
 - DirectPlay audio switches use the negotiated effective policy, stamped by
   `admitsDirectPlayAudioSwitch` on response-derived descriptors. A known codec
   must occur in a matching container profile after effective codec filtering;
@@ -896,6 +903,13 @@ server/user IDs, titles, paths, or raw native errors.
     server.
 
 ## Why
+
+- **Desktop Audio mapping needs the original cohort.** Omitting descriptors
+  does not remove their native ordinal slots. A mismatched native count cannot
+  justify a positional guess; unique labels provide separate evidence. Equal
+  counts need no Playing gate: TracksChanged can arrive first, and pausing during
+  opening must not turn a valid mapping into a recovery timeout. Unknown/offline
+  mapping and the existing no-setter singleton remain separate exceptions.
 
 - **Initial routing describes the selected audio.** The first listed track can
   have different decoder requirements from the effective launch choice. Resolve
