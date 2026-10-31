@@ -628,7 +628,7 @@ class PlayerViewModel(
             (currentQueueIndex - 1)
                 .takeIf { index -> queueIds.size > 1 && index in queueIds.indices }
                 ?: return
-        // The seek above keeps its original guard; only an actual queue start needs full start admission.
+        // Only an actual queue start needs full start admission; seekTo applies its own guards.
         if (!canAcceptPlaybackStart()) return
         stillWatchingState = stillWatchingState.resetForManualNavigation()
         invalidateSubtitleFallback()
@@ -652,7 +652,7 @@ class PlayerViewModel(
 
     private fun seekTo(positionMs: Long) {
         if (_softwarePlaybackRecovery.value != null) return
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         val target = positionMs.coerceAtLeast(0L)
         excludeSoftwarePlaybackProgress()
@@ -1126,7 +1126,7 @@ class PlayerViewModel(
 
     // Auto-skip fires once per segment identity in each item session.
     private fun maybeAutoSkipSegment(enrichedPlaybackState: PlaybackState) {
-        if (enrichedPlaybackState.status != PlaybackStatus.Playing) return
+        if (enrichedPlaybackState.status != PlaybackStatus.Playing || queueSwitchInFlight) return
         val segment = enrichedPlaybackState.currentSegment ?: return
         if (activePlaybackPreferences.policyFor(segment.type) != SegmentSkipPolicy.AutoSkip) return
         val key = "${segment.type.name}:${segment.startTicks}:${segment.endTicks}"
@@ -1718,14 +1718,14 @@ class PlayerViewModel(
     }
 
     private fun selectQuality(maxBitrateBps: Long?) {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         requestQualityChange(qualitySession.selectFixedOrOriginal(maxBitrateBps))
     }
 
     private fun selectQuality(policy: PlaybackQualityPolicy) {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val normalized = policy.normalized()
@@ -1739,14 +1739,14 @@ class PlayerViewModel(
     }
 
     private fun acceptAutoPlayback() {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         requestQualityChange(qualitySession.selectAuto())
     }
 
     private fun clearQualityOverride() {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val inheritedPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend)
@@ -1754,7 +1754,7 @@ class PlayerViewModel(
     }
 
     private fun keepRecoveredQualityForSession() {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val bitrate = autoRecoveryState.runtimeQualityCapBps ?: qualitySession.maximumBitrateBps ?: return
@@ -1762,7 +1762,7 @@ class PlayerViewModel(
     }
 
     private fun tryHigherQualityOrOriginal() {
-        if (controllerInstallInFlight) return
+        if (controllerInstallInFlight || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         requestQualityChange(

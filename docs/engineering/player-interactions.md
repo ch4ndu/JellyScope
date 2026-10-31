@@ -198,6 +198,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   never stabilizes switch identity, and `startQueueSwitch` cancels any in-flight
   `replanJob` so a stale quality/track plan cannot install mid-switch. Leaving
   `Content` or disposing the player cancels the pending state too.
+  The shared ViewModel also refuses in-item seek commands while queue identity
+  is unsettled. Previous at or past five seconds remains a seek-to-zero and is
+  refused without falling through to queue navigation; Previous below that
+  threshold, Next and queue-row selection retain their traversal behavior.
 - **[desktop]** Pointer scrubbing owns the pending state: an active slider press
   (`pointerScrubActive`, hoisted from `SeekSlider` press/release/ cancel
   interactions) makes keyboard seek keys inert, and a pointer press mid-hold
@@ -218,7 +222,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   policy).
 - `AutoSkip` seeks in-item to the segment end through the normal `seekTo` path,
   **once per segment identity (type+start+end) per item playback session**, only
-  while `Playing`: resuming or seeking into an auto segment skips it once;
+  while `Playing` with settled queue identity. Queue refusal happens before
+  recording the once-per-segment key. Resuming or seeking into an auto segment skips it once;
   seeking back into an already-skipped segment never re-yanks; the session set
   clears on each playback start (including queue advancement). Auto-skip never
   calls `playNext`, never opens Up Next early, and cannot bypass the Still

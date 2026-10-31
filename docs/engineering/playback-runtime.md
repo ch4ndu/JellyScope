@@ -613,19 +613,23 @@ suppresses interactive recovery until it is safe to show the consequence.
   An obsolete install failure after deferred Stop leaves the UI projection
   intact; current failures retain their errors and diagnostics. These checks
   qualify named boundaries, not every mutable launch-state write.
-- **[Compose]** Audio, subtitle (including Off), local-subtitle and audio/subtitle
-  offset adjust/reset commands refuse while queue identity is unsettled, before
-  switch invalidation, selection changes, native commands or persistence. The
+- **[Compose]** Audio, subtitle (including Off), local-subtitle, audio/subtitle
+  offset adjust/reset, quality changes and seeks refuse while queue identity is
+  unsettled, before command switch invalidation, selection/proposal changes,
+  health/progress work, replanning, native commands, reporting or persistence. The
   existing queue boundary follows the [item-identity contract](player-interactions.md):
   admission clears stable identity synchronously; only a stabilizing launch
   restores it. Installation ownership alone does not cover reporting and
   planning. The local-asset continuation also checks this boundary beside its
   installation check; entry refusal and existing job cancellation prevent a
   new outgoing-context read from surviving the queue handoff. Pickers can remain
-  visible while commands are refused.
+  visible while commands are refused. Opening the quality picker and dismissing
+  notices remain presentation actions. Auto-skip refuses before recording its
+  once-per-segment key, leaving it eligible for a later admitted observation.
   Launches that fail before identity settles keep these commands refused until
-  Retry or another admitted queue launch installs a stabilizing plan. Seek-only Previous does not
-  settle it. Queue ownership is never cleared by arbitrary job cleanup or by
+  Retry or another admitted queue launch installs a stabilizing plan. Previous
+  at or past five seconds remains a seek-to-zero and is refused while unsettled;
+  it does not fall through to queue navigation. Queue ownership is never cleared by arbitrary job cleanup or by
   replaying a retained plan.
 - **[all]** A manual Auto-recovery notice offers **Choose lower quality**, which
   opens the in-player picker, plus the remaining stream actions and dismissal.
@@ -923,11 +927,17 @@ server/user IDs, titles, paths, or raw native errors.
   synchronous failure publication after an installer drains Stop, so result
   boundaries also check launch authority.
 
-- **Track and timing commands need settled item identity.** Queue planning can
+- **Playback commands need settled item identity.** Queue planning can
   retain a visible picker and outgoing controller while item, source and track
   fields change. Installation guards alone allow an outgoing choice or offset
-  to be applied and saved under the incoming identity. Reusing the queue boundary
-  rejects that command before side effects without introducing another owner.
+  to be applied and saved under the incoming identity. Quality commit checks
+  also miss earlier planning failures that can publish Error. Without entry
+  admission, an out-of-window transcode seek can replan through absent installed
+  authority, install and restart reporting during the handoff, or stop a newer
+  queue launch when its obsolete continuation finishes. Direct progress refusal
+  does not guard that replan path. These are source-supported, timing-dependent
+  paths, not native reproductions. Reusing the queue boundary rejects commands
+  before these side effects without introducing another owner.
 
 - **Health policy is selected by the application surface.** Android TV uses the
   shared Actionable policy, while desktop and tvOS remain Advisory; placing that
