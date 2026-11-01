@@ -57,8 +57,9 @@ class KtorJellyfinApi(
         context: AuthenticatedRequestContext,
         itemId: String,
         mediaSourceId: String,
+        selectedAudioStreamIndex: Int?,
     ): OriginalDownloadPreflightResult {
-        val validation = validateOriginalDownloadSource(context, itemId, mediaSourceId)
+        val validation = validateOriginalDownloadSource(context, itemId, mediaSourceId, selectedAudioStreamIndex)
         if (validation is OriginalSourceValidation.Rejected) {
             return OriginalDownloadPreflightResult.Rejected(validation.failure)
         }
@@ -110,6 +111,7 @@ class KtorJellyfinApi(
                             embeddedSubtitleStreamIndices = validation.embeddedSubtitleStreamIndices,
                             externalSubtitleStreamIndices = validation.externalSubtitleStreamIndices,
                             unsupportedExternalSubtitleStreamIndices = validation.unsupportedExternalSubtitleStreamIndices,
+                            selectedAudioStreamIndex = selectedAudioStreamIndex,
                         ),
                     )
                 }
@@ -136,6 +138,7 @@ class KtorJellyfinApi(
                 context = context,
                 itemId = source.itemId,
                 mediaSourceId = source.mediaSourceId,
+                selectedAudioStreamIndex = source.selectedAudioStreamIndex,
             )
         if (validation is OriginalSourceValidation.Rejected) {
             return OriginalDownloadStreamResult.Rejected(validation.failure)
@@ -151,6 +154,16 @@ class KtorJellyfinApi(
             validation.unsupportedExternalSubtitleStreamIndices != source.unsupportedExternalSubtitleStreamIndices
         ) {
             return OriginalDownloadStreamResult.Rejected(OriginalDownloadFailure.SourceChanged)
+        }
+        // The selected codec chose the backend at preflight; drift must refuse before any body is opened.
+        if (source.selectedAudioStreamIndex != null) {
+            val preflightBackendSource =
+                source.backendSource
+                    ?: return OriginalDownloadStreamResult.Rejected(OriginalDownloadFailure.SourceChanged)
+            val freshAudioCodec = validation.backendSource.audioCodec.normalizedAudioCodec()
+            if (freshAudioCodec != preflightBackendSource.audioCodec.normalizedAudioCodec()) {
+                return OriginalDownloadStreamResult.Rejected(OriginalDownloadFailure.SourceChanged)
+            }
         }
 
         val trustedUrl =
@@ -1527,6 +1540,7 @@ class KtorJellyfinApi(
         context: AuthenticatedRequestContext,
         itemId: String,
         mediaSourceId: String,
+        selectedAudioStreamIndex: Int?,
     ): OriginalSourceValidation {
         if (
             context.serverUrl.isBlank() ||
@@ -1588,12 +1602,22 @@ class KtorJellyfinApi(
             return OriginalSourceValidation.Rejected(OriginalDownloadFailure.SourceUnavailable)
         }
         val source = sources.single()
+        // Every Audio entry, external included, counts before the membership set collapses duplicates.
+        val audioStreams = source.mediaStreams.filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
+        val selectedAudio =
+            when {
+                selectedAudioStreamIndex == null && audioStreams.isEmpty() -> null
+                selectedAudioStreamIndex == null || selectedAudioStreamIndex < 0 ->
+                    return OriginalSourceValidation.Rejected(OriginalDownloadFailure.SourceChanged)
+                else ->
+                    audioStreams.singleOrNull { stream -> stream.index == selectedAudioStreamIndex }
+                        ?: return OriginalSourceValidation.Rejected(OriginalDownloadFailure.SourceChanged)
+            }
         return OriginalSourceValidation.Ready(
             declaredBytes = source.size?.takeIf { size -> size > 0L },
-            backendSource = source.toBackendSourceDescriptor(),
+            backendSource = source.toBackendSourceDescriptor(selectedAudio),
             audioStreamIndices =
-                source.mediaStreams
-                    .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
+                audioStreams
                     .mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
                     .toSet(),
             embeddedSubtitleStreamIndices =
@@ -1623,13 +1647,9 @@ class KtorJellyfinApi(
         )
     }
 
-    private fun MediaSourceDto.toBackendSourceDescriptor(): BackendSourceDescriptor {
+    /** [audio] is the resolved selected stream, or null only for a source without Audio. */
+    private fun MediaSourceDto.toBackendSourceDescriptor(audio: MediaStreamDto?): BackendSourceDescriptor {
         val video = mediaStreams.firstOrNull { stream -> stream.type.equals("Video", ignoreCase = true) }
-        val audio =
-            mediaStreams
-                .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
-                .firstOrNull { stream -> stream.isDefault == true }
-                ?: mediaStreams.firstOrNull { stream -> stream.type.equals("Audio", ignoreCase = true) }
         return BackendSourceDescriptor(
             container = container,
             videoCodec = video?.codec,
@@ -1646,6 +1666,9 @@ class KtorJellyfinApi(
             videoFrameRate = (video?.realFrameRate ?: video?.averageFrameRate)?.toDouble(),
         )
     }
+
+    /** Trim/case-insensitive codec identity; blank is unknown. No alias policy. */
+    private fun String?.normalizedAudioCodec(): String? = this?.trim()?.lowercase()?.takeIf(String::isNotEmpty)
 
     private fun MediaStreamDto.isOriginalDownloadTextSubtitle(): Boolean {
         val method = deliveryMethod?.trim()?.lowercase()

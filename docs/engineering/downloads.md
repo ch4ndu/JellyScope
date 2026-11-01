@@ -76,24 +76,43 @@ clients; core retains their redirect/timeout/logging configuration and engines.
   same stream. Embedded Audio entries keep their source order; entries without
   an eligible identity retain metadata with a null index and cannot be selected.
   [Native mapping](playback-runtime.md#audio-activation-and-native-mapping)
-  preserves those slots. This does not localize external Audio for Original.
+  preserves those slots. Original does not localize external Audio: a unique
+  selected external track's codec can describe the saved backend and influence
+  Apple Auto selection even though the Original file lacks that external track.
 - Compose refuses an invalid explicit Audio choice for both Original and Fixed.
   With no explicit choice, it uses an eligible projected default, then the first
   eligible raw default, then the first eligible Audio stream. tvOS preserves its
-  fallback for absent or invalid requests: the first eligible raw default, then the first
-  eligible stream. Audio present without an eligible choice makes the draft
+  fallback for absent or invalid requests: the first eligible raw default, then
+  the first eligible stream. Audio present without an eligible choice makes the draft
   unavailable; a genuine no-Audio source can still form an Original draft.
   Fixed requires a resolved Audio choice.
-- Original admission also compares authenticated source codec, dimensions, and
-  frame rate with the normally selected offline backend's probed finite decoder
-  bounds. A source proven to exceed those bounds is rejected with guidance to
-  choose a converted download. Missing source facts or unknown decoder limits
-  remain admissible; they are not evidence of incompatibility. The authenticated
-  backend audio codec comes from the server's first default or first Audio stream
-  and replaces the draft value, so it can differ from the selected track or
-  describe an ineligible entry. Draft identity validation does not correct this
-  admission metadata. Original preflight and transfer re-checks exclude missing
-  and negative indexes from Audio membership; Subtitle membership is unchanged.
+- Original preflight authenticates the requested Audio index against all Audio
+  entries, including external collisions. It requires one actual nonnegative
+  match; a missing or repeated selected identity fails as `SourceChanged`.
+  A null selection is valid only when the source has no Audio. The authenticated
+  backend descriptor describes that selected stream; neither a default track
+  nor draft metadata substitutes for missing authenticated facts.
+- Admission checks the selected snapshot's kind, index and codec. Each transfer
+  attempt compares fresh selected codec facts with both the saved backend and
+  selected track; streaming revalidates against preflight before opening the
+  body. A contradiction fails as `SourceChanged`. Codec comparison ignores case
+  and surrounding whitespace and treats null/blank as unknown; unknown matches
+  unknown, while known/unknown drift is refused. These checks supplement byte
+  validators and do not prove unchanged labels, whole-cohort order or semantic
+  identity when an index and codec remain the same. Subtitle membership is
+  unchanged; missing and negative Audio indexes stay outside membership sets.
+- The authenticated descriptor drives offline backend selection. Audio codec
+  can influence Apple Auto selection; admission then compares video codec,
+  dimensions and frame rate with that backend's probed finite video bounds.
+  A proven excess is rejected with guidance to choose a converted download.
+  Unknown facts or limits are not evidence of incompatibility. This does not
+  establish audio decoder support or native playback correctness.
+- Older queued requests with missing selection or contradictory saved facts
+  may be refused. Retry keeps the same request and remains refused while the
+  contradiction persists; another Detail submission also reuses the row. To
+  replace it, Cancel the failed download (removing its row and local files),
+  refresh Detail, then request it again. Delete/Remove is for completed
+  downloads. Completed artifacts are not migrated or rewritten.
 - Original localizes one selected external text subtitle into the same private
   package, whether it came from a bounded Jellyfin subtitle response or an
   installed local OpenSubtitles asset. It cannot copy an external bitmap
@@ -280,7 +299,10 @@ identity, artifact, and progress rules live in
   or choosing the first duplicate can select different metadata and audio.
   Keeping unselectable embedded slots preserves physical order; resolving the
   selected stream once prevents a later snapshot fallback from replacing the
-  user's choice, including before Fixed conversion.
+  user's choice, including before Fixed conversion. Authenticated selected
+  codec checks at admission, each queued attempt and immediate streaming keep
+  immutable backend facts from silently changing. Byte validators alone do not
+  establish that selected Audio metadata is unchanged.
 - **One queue and device allocation make admission deterministic.** Reservations
   and the free-space floor prevent overcommit without eviction. Android
   notification permission controls visibility, never transfer authorization.

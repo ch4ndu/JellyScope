@@ -32,10 +32,15 @@ interface JellyfinApi {
     suspend fun getCurrentUser(context: AuthenticatedRequestContext): UserDto =
         throw UnsupportedOperationException("Current-user policy is unavailable.")
 
+    /**
+     * Authenticated Original admission bound to the requested actual Audio stream index.  A null
+     * selection is valid only for a source without Audio; no default or first track is substituted.
+     */
     suspend fun preflightOriginalDownload(
         context: AuthenticatedRequestContext,
         itemId: String,
         mediaSourceId: String,
+        selectedAudioStreamIndex: Int? = null,
     ): OriginalDownloadPreflightResult =
         OriginalDownloadPreflightResult.Rejected(
             OriginalDownloadFailure.ServerUnavailable,

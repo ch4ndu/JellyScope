@@ -24,6 +24,7 @@ import com.jellyscope.core.domain.model.DownloadEnqueueResult
 import com.jellyscope.core.domain.model.DownloadQuality
 import com.jellyscope.core.domain.model.DownloadRequest
 import com.jellyscope.core.domain.model.DownloadSubtitleSelection
+import com.jellyscope.core.domain.model.OfflineTrackKind
 import com.jellyscope.core.domain.model.OriginalDownloadDraft
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
@@ -100,6 +101,7 @@ internal class DefaultOriginalDownloadAdmission(
                             context = context,
                             itemId = draft.businessKey.itemId,
                             mediaSourceId = draft.businessKey.mediaSourceId,
+                            selectedAudioStreamIndex = draft.selectedAudioStreamIndex,
                         )
                     } catch (cancellation: CancellationException) {
                         throw cancellation
@@ -111,11 +113,20 @@ internal class DefaultOriginalDownloadAdmission(
                 is OriginalDownloadPreflightResult.Rejected ->
                     return TrustedAdmission.Rejected(preflight.failure.toDecision())
             }
-        if (source.itemId != draft.businessKey.itemId || source.mediaSourceId != draft.businessKey.mediaSourceId) {
+        if (
+            source.itemId != draft.businessKey.itemId ||
+            source.mediaSourceId != draft.businessKey.mediaSourceId ||
+            source.selectedAudioStreamIndex != draft.selectedAudioStreamIndex
+        ) {
             return TrustedAdmission.Rejected(DownloadAdmissionDecision.SourceChanged)
         }
         source.selectionDecision(draft)?.let { decision -> return TrustedAdmission.Rejected(decision) }
-        val trustedBackendSource = source.backendSource ?: draft.snapshot.backendSource
+        val trustedBackendSource =
+            source.backendSource
+                ?: return TrustedAdmission.Rejected(DownloadAdmissionDecision.SourceChanged)
+        if (!draft.hasSelectedAudioSnapshotMatching(trustedBackendSource)) {
+            return TrustedAdmission.Rejected(DownloadAdmissionDecision.SourceChanged)
+        }
         val playbackBackend = resolveOfflinePlaybackBackend(session.accountIdentity(), draft.businessKey.itemId, trustedBackendSource)
         val compatibility =
             if (playbackBackend != null && deviceProfileProvider != null) {
@@ -336,6 +347,22 @@ internal class DefaultOriginalDownloadAdmission(
                 }
         }
     }
+
+    /**
+     * The selected snapshot must describe the authenticated selected stream; it is refused rather
+     * than rewritten. A null selection carries no selected track (transport proved the source has no Audio).
+     */
+    private fun OriginalDownloadDraft.hasSelectedAudioSnapshotMatching(source: BackendSourceDescriptor): Boolean {
+        val selectedTrack = snapshot.selectedAudioTrack
+        val selectedIndex = selectedAudioStreamIndex ?: return selectedTrack == null
+        return selectedTrack != null &&
+            selectedTrack.kind == OfflineTrackKind.Audio &&
+            selectedTrack.streamIndex == selectedIndex &&
+            selectedTrack.codec.normalizedAudioCodec() == source.audioCodec.normalizedAudioCodec()
+    }
+
+    /** Trim/case-insensitive codec identity; blank is unknown. No alias policy. */
+    private fun String?.normalizedAudioCodec(): String? = this?.trim()?.lowercase()?.takeIf(String::isNotEmpty)
 
     private fun OriginalDownloadFailure.toDecision(): DownloadAdmissionDecision =
         when (this) {
