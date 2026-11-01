@@ -666,10 +666,15 @@ suppresses interactive recovery until it is safe to show the consequence.
   AVPlayer may remain Audio-gated; VLCKit may continue unconfirmed default
   audio with Pending activation. No native Stop is implied.
 
-  A failed user-requested quality, track or local-subtitle change, or an
-  out-of-window seek, can leave Failed over the continuing previous stream.
-  Retry reloads that installed plan from its own start position, possibly
-  rewinding, and starts a new reporting session; Close/Back exits. Remote
+  A failed or pending user-requested quality, track or local-subtitle change,
+  or an out-of-window seek, can leave Failed over the continuing previous stream.
+  Same-plan Error Retry cancels the earlier replan and invalidates its pending
+  subtitle fallback before resetting recovery allowances and reporting. A late
+  result or error from that cancelled job cannot replace the Retry attempt.
+  The cancelled replan's change is abandoned, but its selected menu value and
+  already-saved track choice remain. A local-subtitle check not yet replanning
+  can still finish and submit its choice after Retry. Retry reloads the installed plan from its own start
+  position, possibly rewinding, and starts a new reporting session; Close/Back exits. Remote
   Play/Pause can still control the hidden stream. tvOS retains Retry for
   UnsupportedMedia. It has a dismissible automatic-recovery prompt, which can
   appear above Failed, but lacks Compose's dismissible change-rejection
@@ -710,7 +715,8 @@ suppresses interactive recovery until it is safe to show the consequence.
   Resume can remain at the fallback's captured position. Reporting restart is
   not part of this handoff. Collector recovery can preempt the fallback, and an
   Original failure prompt can coexist with its replacement; this handoff does
-  not serialize those paths or establish general Retry ownership.
+  not serialize those paths. Retry cancels pending replans, while broader
+  recovery arbitration and native callback ownership remain separate.
 - **[all]** Policy-gated decoder, unsupported-media, health, and recovery
   behavior is owned by [quality policy](playback-policy.md#quality-semantics).
   A backend-qualified replacement re-plans from its own capability facts and
@@ -1187,6 +1193,10 @@ server/user IDs, titles, paths, or raw native errors.
   while Audio is unresolved. A drop after reporting Stop can leave reporting
   quiet while native playback continues, matching the existing cancelled
   subtitle replacement limit; another install reopens reporting.
+  Same-plan Error Retry cancels earlier planning before resetting reporting, so
+  its late result or failure cannot claim the new attempt. The existing
+  cancellation checks cover planner delivery and the suspended reporting Stop;
+  no extra generation is needed for those jobs.
   Local-file subtitle replans carry invocation-local nonfatal provenance so
   durable fatal publication does not turn an unavailable file into a blocking
   failure. Both planner catches reject cancelled work before publication,

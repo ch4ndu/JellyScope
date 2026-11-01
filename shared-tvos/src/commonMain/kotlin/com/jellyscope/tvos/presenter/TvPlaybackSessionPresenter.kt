@@ -1016,6 +1016,8 @@ class TvPlaybackSessionPresenter(
             return
         }
         val reportingCoordinator = installedPlaybackReportingCoordinator ?: return
+        // Pending replans belong to the failed attempt and must not install over this Retry.
+        cancelAndInvalidateSubtitleFallback()
         playbackSessionRecoveryState =
             playbackSessionRecoveryPolicy.reset(playbackHealthGeneration, currentItemId)
         playSessionId = deviceInfoProvider.newDeviceId()
