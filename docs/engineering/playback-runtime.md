@@ -583,8 +583,9 @@ suppresses interactive recovery until it is safe to show the consequence.
   captured controller and prepared identity, current caller authority, and
   released installation ownership, including an unlocked mutex. Same-item
   Error Retry supplies current logical activation facts separately from its
-  captured, possibly null installed identity; diagnostic/speed/style copies do
-  not become prepared authority.
+  captured, possibly null installed identity; ViewModel-side diagnostic,
+  speed and style copies alone do not become prepared authority. A controller's
+  own prepared retry copy can qualify through the admission checks below.
   A launch-owned marker blocks recovery during synchronous startup `prepare()`
   and same-plan native `retry()`. Failed snapshots wait until return; non-Failed
   status, health and reporting observations continue. The marker clears in
@@ -593,10 +594,18 @@ suppresses interactive recovery until it is safe to show the consequence.
   plan, selection generation and replan request before health binding and again
   before its handoff; a newer owner wins. A still-current synchronous Failed
   clears installed authority and restarts the existing state collector, or
-  starts one when absent, for ordinary failure handling. If a later fast Retry
-  succeeds without a replan, installed authority stays null: seek remains
-  unavailable, backend switching is refused and quality changes lack installed
-  plan preservation. A native Retry that publishes nothing can rehandle the
+  starts one when absent, for ordinary failure handling. An owned fast Retry
+  can restore missing installed authority from the controller's `retainedPlan`
+  only after a changed non-null prepare epoch, a non-Failed snapshot, and a
+  matching item and nonblank source. The actual controller snapshot, rather
+  than the logical plan copy, restores seekability, backend selection and
+  quality-change preservation. The captured expected identity advances with
+  that assignment, the screen refreshes immediately, and ownership is checked
+  again before activation fallback. Existing non-null authority is unchanged.
+  Missing/unchanged epochs, unknown retained plans, failed preparation and
+  item/source mismatches do not grant missing authority. This establishes a
+  newly admitted preparation, not native readiness or output. A native Retry
+  that publishes nothing can still rehandle the
   old Failed snapshot with the reset budgets.
   Startup captures its request token after the plan becomes authoritative.
   Startup and accepted same-item Error Retry reconsider current non-Failed
@@ -814,6 +823,11 @@ suppresses interactive recovery until it is safe to show the consequence.
 `PlayerController` reports native facts through narrow contracts:
 
 - state and runtime diagnostics are `StateFlow` snapshots;
+- `retainedPlan` is an optional owner-lane snapshot of the project plan kept
+  for Retry, including controller-made position, speed, style or subtitle-target
+  copies. Stop/release do not clear it, so it is neither current ownership nor
+  readiness proof. Read it immediately after an owned retry with a changed
+  non-null prepare epoch; unknown implementations default to no snapshot;
 - dropped frames and first-video-output observations are event flows scoped to
   the controller prepare generation;
 - iOS VLCKit prepare/resume/seek observations additionally carry a transition
@@ -1135,6 +1149,12 @@ server/user IDs, titles, paths, or raw native errors.
   until an accepted attempt resets it, so unrelated native updates cannot
   remove Retry/Close. Resets at guarded install/prepare boundaries admit a new
   attempt without treating its planning as a successful replacement.
+  Fast Retry recovers revoked authority from the controller's retained plan
+  only when a new prepare epoch and the current owner admit it. Native and
+  logical plans can differ, so treating a ViewModel copy as the prepared plan
+  would invent timeline or selection facts. Advancing the captured identity
+  with the assignment preserves the following activation handoff's ownership
+  check; a new epoch still does not establish native readiness.
   tvOS likewise retains Failed phase/cause while projecting current native
   facts; its existing early replan Loading remains a separate reset boundary.
   Local-file subtitle replans carry invocation-local nonfatal provenance so

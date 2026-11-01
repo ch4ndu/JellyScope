@@ -223,6 +223,8 @@ internal class AndroidMpvPlayerController(
     @Volatile
     private var generation = 0L
     private var lastPlan: PlaybackPlan? = null
+    override val retainedPlan: PlaybackPlan?
+        get() = lastPlan
     private var lastSubtitleAsset: SubtitleAsset? = null
     private var playIntent = false
     private var playbackFocusAdmitted = audioFocusCoordinator == null

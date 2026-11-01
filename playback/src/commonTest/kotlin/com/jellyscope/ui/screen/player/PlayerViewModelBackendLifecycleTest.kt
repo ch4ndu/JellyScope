@@ -14,7 +14,10 @@ import com.jellyscope.core.domain.playback.DeviceDirectPlayProfile
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.MediaSegment
 import com.jellyscope.core.domain.playback.MediaSegmentType
+import com.jellyscope.core.domain.playback.PlaybackContentTimeline
+import com.jellyscope.core.domain.playback.PlaybackContentTimelineSource
 import com.jellyscope.core.domain.playback.PlaybackError
+import com.jellyscope.core.domain.playback.PlaybackPlan
 import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerDeviceSettings
@@ -812,4 +815,62 @@ class PlayerViewModelBackendLifecycleTest {
             }
         assertSame(expectedFailure, thrown)
     }
+
+    @Test
+    fun sameItemRetryRestoresSeekabilityFromConcreteRetainedPlan() =
+        runPlayerViewModelTest {
+            val unboundedItem =
+                MediaItem(
+                    id = "item-1",
+                    name = "Item",
+                    kind = MediaKind.Movie,
+                    versions = listOf(MediaVersion(id = "source-1", name = "Source", mediaStreams = playbackStreams)),
+                )
+            // The controller re-prepares a bounded snapshot, so only its own retained plan can grant seeking.
+            val controller =
+                object : FakePlayerController(confirmInitialAudio = true, publishPrepareEpoch = true) {
+                    override val retainedPlan: PlaybackPlan?
+                        get() = preparedPlan
+
+                    override fun retry() {
+                        super.retry()
+                        val retained = preparedPlan ?: error("retry requires a prepared plan")
+                        prepare(
+                            retained.copy(
+                                contentTimeline =
+                                    PlaybackContentTimeline.BoundedVod(
+                                        durationMs = 90.seconds.inWholeMilliseconds,
+                                        source = PlaybackContentTimelineSource.SelectedMediaSource,
+                                    ),
+                            ),
+                        )
+                    }
+                }
+            controller.activeBackend = PlayerBackend.AVPlayer
+            controller.preparePublishedState = playbackState(PlaybackStatus.Failed)
+            val fixture =
+                playerFixture(
+                    detailItems = mapOf("item-1" to unboundedItem),
+                    initialControllerIsPending = true,
+                    deviceProfileProvider = appleOfflineProfileProvider(),
+                    playerControllerFactory = { controller },
+                )
+
+            runCurrent()
+
+            assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
+            assertEquals(1, controller.prepareCount)
+            assertEquals(PlaybackContentTimeline.UnknownOrUnbounded, controller.preparedPlan?.contentTimeline)
+            controller.preparePublishedState = null
+
+            fixture.viewModel.accept(PlayerIntent.Retry)
+            runCurrent()
+
+            assertSame(controller, fixture.viewModel.currentPlayerController)
+            assertEquals(2, controller.prepareCount)
+            assertEquals(1, controller.retryCount)
+            assertTrue(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+            fixture.viewModel.dispose()
+            runCurrent()
+        }
 }

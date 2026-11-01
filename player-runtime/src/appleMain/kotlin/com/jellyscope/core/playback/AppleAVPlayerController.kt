@@ -215,6 +215,8 @@ class AppleAVPlayerController(
     private var statePollingJob: Job? = null
     private val notificationObservers = mutableListOf<Any>()
     private var lastPlan: PlaybackPlan? = null
+    override val retainedPlan: PlaybackPlan?
+        get() = lastPlan
     private val trackResolutionDiagnostics = TrackResolutionDiagnosticGate()
     private var requestedPlaybackSpeed = DEFAULT_PLAYBACK_SPEED
 

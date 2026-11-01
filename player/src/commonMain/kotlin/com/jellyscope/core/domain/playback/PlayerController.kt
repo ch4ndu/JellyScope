@@ -70,6 +70,17 @@ interface PlayerController {
     val lastHostPlaybackIntent: HostPlaybackIntentObservation?
         get() = null
 
+    /**
+     * Latest project plan this controller retains for [retry]. Stop and release do not clear it,
+     * and it may be a controller-made copy carrying the current position, speed, style or subtitle
+     * target. It may be assigned before native completion: null means unavailable, while a value
+     * is not success, readiness, current-session or prepared-ownership proof. Read it only on the
+     * owner lane immediately after an owned [retry] that published a changed non-null prepare
+     * epoch, together with every shell ownership guard. Null is the default for unknown backends.
+     */
+    val retainedPlan: PlaybackPlan?
+        get() = null
+
     fun prepare(
         plan: PlaybackPlan,
         subtitleAsset: SubtitleAsset? = plan.subtitleAsset,

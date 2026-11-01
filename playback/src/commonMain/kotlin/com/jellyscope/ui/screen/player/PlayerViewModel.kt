@@ -764,7 +764,7 @@ class PlayerViewModel(
             playbackLaunchMarker = null
             val retryPlan = plan
             val retryController = playerController
-            val retryInstalledPlan = installedPlan
+            var expectedRetryInstalledPlan = installedPlan
             val retrySelectionGeneration = selectedPlaybackGeneration
             val retryReplanGeneration = replanRequestGeneration
 
@@ -774,8 +774,9 @@ class PlayerViewModel(
                     isCurrentReplan(retryReplanGeneration, retryGeneration, retryItemId) &&
                     selectedPlaybackGeneration == retrySelectionGeneration &&
                     playerController === retryController &&
-                    installedPlan === retryInstalledPlan &&
+                    installedPlan === expectedRetryInstalledPlan &&
                     plan === retryPlan
+            val prepareEpochBeforeRetry = retryController.runtimeDiagnostics.value.prepareEpoch
             startupPrepareGeneration = retryGeneration
             try {
                 retryController.retry()
@@ -788,6 +789,31 @@ class PlayerViewModel(
             armSoftwarePlaybackRecovery()
             armFirstVideoOutputState()
             if (retryPlan == null || !ownsRetry()) return
+            // ViewModel plan copies alone do not become prepared authority. Only a newly admitted native
+            // prepare restores a missing slot, using the controller's own retained snapshot, which
+            // may differ from the logical plan; admission is not readiness or output proof.
+            if (expectedRetryInstalledPlan == null) {
+                val retryPrepareEpoch = retryController.runtimeDiagnostics.value.prepareEpoch
+                if (
+                    retryPrepareEpoch != null &&
+                    retryPrepareEpoch != prepareEpochBeforeRetry &&
+                    retryController.playbackState.value.status != PlaybackStatus.Failed
+                ) {
+                    val retainedPlan = retryController.retainedPlan
+                    if (
+                        retainedPlan != null &&
+                        retainedPlan.itemId == retryItemId &&
+                        retainedPlan.mediaSourceId.isNotBlank() &&
+                        retainedPlan.mediaSourceId == retryPlan.mediaSourceId
+                    ) {
+                        installedPlan = retainedPlan
+                        expectedRetryInstalledPlan = retainedPlan
+                        // A paused native retry may publish nothing further; refresh seek and backend UI now.
+                        publishContent()
+                        if (!ownsRetry()) return
+                    }
+                }
+            }
             // Native Retry keeps matching selections but cannot recreate a missing activation descriptor.
             // VLCKit reprepares this plan's start paused at raw zero before its deferred play.
             val vlcKitRetry = backend == PlayerBackend.VlcKit
@@ -795,7 +821,7 @@ class PlayerViewModel(
                 expectedController = retryController,
                 expectedPlan = retryPlan,
                 reconcileNativeState = true,
-                expectedInstalledPlan = retryInstalledPlan,
+                expectedInstalledPlan = expectedRetryInstalledPlan,
                 recoveryPositionOverrideMs = retryPlan.startPositionMs.takeIf { vlcKitRetry },
                 pausedAtRequestOverride = (!desiredPlayWhenReady).takeIf { vlcKitRetry },
             )
@@ -5610,7 +5636,8 @@ class PlayerViewModel(
      * policy decision, so audio takes precedence and the subtitle allowance stays for a later state.
      * Startup also reconsiders native unavailability that prepare callbacks could not act on.
      * Same-plan Retry passes its logical plan facts as [expectedPlan] while [expectedInstalledPlan]
-     * guards the possibly null prepared identity; the overrides replace a transitional Retry snapshot.
+     * guards the prepared identity: the existing one, the controller's restored retained snapshot,
+     * or still null when Retry could not qualify restored authority. The overrides replace a transitional Retry snapshot.
      */
     private fun maybeStartInstalledActivationFallback(
         expectedController: PlayerController,

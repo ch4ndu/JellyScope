@@ -186,6 +186,8 @@ internal class AppleVlcKitPlayerController(
         get() = released
 
     private var lastPlan: PlaybackPlan? = null
+    override val retainedPlan: PlaybackPlan?
+        get() = lastPlan
     private var requestedPlaybackSpeed = DEFAULT_PLAYBACK_SPEED
     private var requestedSubtitleStyle = SubtitleStyle()
     private var playWhenReady = false

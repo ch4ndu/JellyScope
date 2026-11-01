@@ -195,6 +195,8 @@ class LibVlcPlayerController(
     private val tickerOwner = LibVlcTickerOwner()
     private val progressCadence = LibVlcProgressCadence()
     private var lastPlan: PlaybackPlan? = null
+    override val retainedPlan: PlaybackPlan?
+        get() = lastPlan
     private var playIntent = false
     private var playbackFocusAdmitted = audioFocusCoordinator == null
     private var nativePlayingObserved = false

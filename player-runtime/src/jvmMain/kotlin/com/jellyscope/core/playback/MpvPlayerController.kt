@@ -267,6 +267,8 @@ class MpvPlayerController private constructor(
 
     @Volatile
     private var lastPlan: PlaybackPlan? = null
+    override val retainedPlan: PlaybackPlan?
+        get() = lastPlan
 
     @Volatile
     private var lastSubtitleAsset: SubtitleAsset? = null

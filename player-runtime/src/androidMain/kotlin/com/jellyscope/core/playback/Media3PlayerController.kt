@@ -108,6 +108,8 @@ class Media3PlayerController(
     private var released = false
     private var positionJob: Job? = null
     private var lastPlan: PlaybackPlan? = null
+    override val retainedPlan: PlaybackPlan?
+        get() = lastPlan
     private var audioTrackInitRetries = 0
     private var audioDisabledForOutputFailure = false
     private var recoveringFromAudioOutputFailure = false
