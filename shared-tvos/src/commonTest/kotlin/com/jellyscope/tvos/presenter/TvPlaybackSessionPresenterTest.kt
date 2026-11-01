@@ -24,6 +24,7 @@ import com.jellyscope.core.domain.playback.MediaSegmentType
 import com.jellyscope.core.domain.playback.PlannedSubtitle
 import com.jellyscope.core.domain.playback.PlaybackAction
 import com.jellyscope.core.domain.playback.PlaybackActionNoticeReason
+import com.jellyscope.core.domain.playback.PlaybackBitrateConstraint
 import com.jellyscope.core.domain.playback.PlaybackClientTrigger
 import com.jellyscope.core.domain.playback.PlaybackError
 import com.jellyscope.core.domain.playback.PlaybackHealthGuidancePolicy
@@ -591,6 +592,9 @@ class TvPlaybackSessionPresenterTest {
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
                 runCurrent()
                 val requestCountBeforeRecovery = fixture.repository.planRequests.size
+                // Both queued responses are consumed; the recovery's forced retry
+                // receives a transcode it can install.
+                fixture.repository.defaultPlaybackInfo = Result.success(transcodeInfo())
 
                 repeat(3) { index ->
                     fixture.controller.playbackStateFlow.value =
@@ -607,6 +611,11 @@ class TvPlaybackSessionPresenterTest {
                 // request when the first response still advertises the over-cap source.
                 assertEquals(requestCountBeforeRecovery + 2, fixture.repository.planRequests.size)
                 assertEquals(null, fixture.presenter.state.value.playbackActionNotice)
+                assertTrue(
+                    fixture.controller.preparedPlans
+                        .last()
+                        .bitrateConstraint is PlaybackBitrateConstraint.AutoSessionLimit,
+                )
 
                 fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 3_000L)
                 runCurrent()
@@ -639,6 +648,61 @@ class TvPlaybackSessionPresenterTest {
                         .first { choice -> choice.inheritsPlaybackDefault }
                         .selected,
                 )
+            } finally {
+                fixture.presenter.close()
+                runCurrent()
+            }
+        }
+
+    @Test
+    fun failedAutoQualityRecoveryDoesNotCreditTheOldStreamWhenItPlays() =
+        runTest {
+            val fixture =
+                fixture(
+                    playbackInfos = List(2) { Result.success(directPlayInfo()) },
+                    preferences =
+                        com.jellyscope.core.domain.model.PlaybackPreferences(
+                            playbackWarningsEnabled = true,
+                        ),
+                    playbackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Actionable,
+                )
+            try {
+                fixture.controller.playbackHealthMeasurementCapabilities =
+                    PlaybackHealthMeasurementCapabilities.BufferingOnly
+                fixture.presenter.accept(TvPlaybackSessionIntent.Start)
+                runCurrent()
+                fixture.presenter.accept(TvPlaybackSessionIntent.SelectQualityPolicy(PlaybackQualityPolicy.Auto))
+                runCurrent()
+                advanceTimeBy(2_000L)
+                runCurrent()
+                fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 1_000L)
+                runCurrent()
+                val requestCountBeforeRecovery = fixture.repository.planRequests.size
+                val preparedCountBeforeRecovery = fixture.controller.preparedPlans.size
+
+                repeat(3) { index ->
+                    fixture.controller.playbackStateFlow.value =
+                        playbackState(PlaybackStatus.Buffering, positionMs = 2_000L + index)
+                    runCurrent()
+                    if (index < 2) {
+                        fixture.controller.playbackStateFlow.value =
+                            playbackState(PlaybackStatus.Playing, positionMs = 2_000L + index)
+                        runCurrent()
+                    }
+                }
+
+                // The lowered request and its forced retry both receive the
+                // dimensionless direct-play source, so nothing is installed.
+                assertEquals(requestCountBeforeRecovery + 2, fixture.repository.planRequests.size)
+                assertEquals(TvPlaybackPhase.Failed, fixture.presenter.state.value.phase)
+                assertEquals(PlaybackError.UnsupportedMedia, fixture.presenter.state.value.error)
+                assertEquals(preparedCountBeforeRecovery, fixture.controller.preparedPlans.size)
+
+                // The old stream keeps publishing; it must not claim the recovery.
+                fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 3_000L)
+                runCurrent()
+
+                assertNull(fixture.presenter.state.value.playbackActionNotice)
             } finally {
                 fixture.presenter.close()
                 runCurrent()

@@ -1018,6 +1018,8 @@ class TvPlaybackSessionPresenter(
         val reportingCoordinator = installedPlaybackReportingCoordinator ?: return
         // Pending replans belong to the failed attempt and must not install over this Retry.
         cancelAndInvalidateSubtitleFallback()
+        // Drop a stored notice; pending credit stays with the installed plan this Retry re-prepares.
+        playbackActionNotice = null
         playbackSessionRecoveryState =
             playbackSessionRecoveryPolicy.reset(playbackHealthGeneration, currentItemId)
         playSessionId = deviceInfoProvider.newDeviceId()
@@ -1881,6 +1883,10 @@ class TvPlaybackSessionPresenter(
         val replanItemId = currentItemId
         if (nonFatalSubtitleFallback == null) {
             invalidateSubtitleFallback()
+            // A superseding request must not inherit the installed recovery's
+            // unconsumed credit; an Encode continuation keeps that stream's credit.
+            pendingRecoveredPlaybackGuidance = false
+            pendingRecoveredAutoQualityBps = null
         }
         replanJob?.cancel()
         replanJob =
@@ -2036,6 +2042,15 @@ class TvPlaybackSessionPresenter(
                 } else {
                     playerController.pause()
                 }
+                // Credit only a prepared recovery stream, by this request's own intent; the
+                // planner's forced retry relabels only its internal request as Compatibility.
+                when (requestPolicy.recoveryIntent) {
+                    PlaybackRecoveryIntent.Compatibility -> pendingRecoveredPlaybackGuidance = true
+                    PlaybackRecoveryIntent.Quality ->
+                        pendingRecoveredAutoQualityBps =
+                            (enrichedPlan.bitrateConstraint as? PlaybackBitrateConstraint.AutoSessionLimit)?.bitrateBps
+                    PlaybackRecoveryIntent.Initial -> Unit
+                }
                 if (audioRecoveryTarget != null && enrichedPlan.streamMode != StreamMode.DirectPlay) {
                     audioRecoveryTarget = null
                 }
@@ -2129,7 +2144,6 @@ class TvPlaybackSessionPresenter(
         when (val decision = result.decision) {
             AutoPlaybackRecoveryDecision.NoAction -> return false
             is AutoPlaybackRecoveryDecision.CompatibilityReplan -> {
-                pendingRecoveredPlaybackGuidance = true
                 replanAtPosition(
                     targetPositionMs = playerController.playbackState.value.positionMs,
                     requestPolicy =
@@ -2149,7 +2163,6 @@ class TvPlaybackSessionPresenter(
                 selectedQualityPolicy = PlaybackQualityPolicy.Auto
                 selectedQualityMaxBitrate = decision.maxBitrateBps
                 selectedQualityCapOrigin = PlaybackQualityCapOrigin.AutoSessionRecovery
-                pendingRecoveredAutoQualityBps = decision.maxBitrateBps
                 playbackActionNotice = null
                 replanAtPosition(
                     targetPositionMs = playerController.playbackState.value.positionMs,

@@ -799,6 +799,20 @@ suppresses interactive recovery until it is safe to show the consequence.
   higher quality**, **Choose lower quality**, and **Dismiss**. Neither notice
   routes to Playback Settings. Any chosen row is current-playback only and a
   fresh playback resolves its defaults again.
+- **[tvOS]** Compatibility credit and the automatic quality recovery notice are
+  armed only after the recovery request installs and prepares its replacement,
+  then consumed by a later Playing observation. The request's original recovery
+  intent controls credit; a planner-internal forced retry does not turn an
+  ordinary change into automatic recovery. Quality credit uses the installed
+  plan's Auto session limit. A failed, cancelled or rejected replacement cannot
+  credit the still-playing old stream. An admitted ordinary replan clears
+  unconsumed credit, while a subtitle encode continuation and native Retry of
+  the installed recovery preserve it. Same-plan Retry clears a stored action
+  notice before its next publication; it does not dismiss a visible overlay.
+  This changes no Auto budget, cap or quality intent. A retained session cap can
+  constrain a later non-Quality replan without a new recovery-applied notice.
+  Preparation followed by Playing establishes neither audible output nor
+  native video readiness.
 - **[all]** A failed Fixed policy remains user-controlled: it offers **Choose
   lower quality**, **Try higher quality**, **Try Original**, and **Dismiss**.
   It never lowers automatically or sends the user to Playback Settings.
@@ -1197,6 +1211,11 @@ server/user IDs, titles, paths, or raw native errors.
   its late result or failure cannot claim the new attempt. The existing
   cancellation checks cover planner delivery and the suspended reporting Stop;
   no extra generation is needed for those jobs.
+  Recovery credit is armed at preparation rather than at the decision because
+  the previous stream can keep emitting Playing while replacement planning
+  fails. Original request intent prevents a planner's internal fallback from
+  taking credit for an ordinary change. Subtitle encode continuation and native
+  Retry keep the installed recovery's credit; a superseding request clears it.
   Local-file subtitle replans carry invocation-local nonfatal provenance so
   durable fatal publication does not turn an unavailable file into a blocking
   failure. Both planner catches reject cancelled work before publication,
