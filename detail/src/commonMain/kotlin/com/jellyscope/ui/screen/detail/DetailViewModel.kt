@@ -161,6 +161,8 @@ class DetailViewModel(
     private var highestObservedSettlementSequence = 0L
     private var highestRefreshedSettlementSequence = 0L
     private var loadGeneration = 0L
+    private var watchedRevision = 0L
+    private var favoriteRevision = 0L
     private var activeLoadJob: Job? = null
     private var selectedMediaSourceId: String? = null
     private var observedDownloads: List<DownloadRecord> = emptyList()
@@ -173,7 +175,16 @@ class DetailViewModel(
     private fun reduce(change: DetailChange): Boolean {
         var applied = false
         _state.update { current ->
-            val next = reduceDetail(current, change, loadGeneration, mediaSourceSelectionGeneration, selectedMediaSourceId)
+            val next =
+                reduceDetail(
+                    current,
+                    change,
+                    loadGeneration,
+                    mediaSourceSelectionGeneration,
+                    selectedMediaSourceId,
+                    watchedRevision,
+                    favoriteRevision,
+                )
             applied = next !== current
             next
         }
@@ -572,11 +583,14 @@ class DetailViewModel(
     private fun toggleWatched() {
         val content = _state.value as? DetailUiState.Content ?: return
         val previous = content.detail
+        if (previous.watchedToggleInFlight) return
+        watchedRevision += 1L
         val played = !previous.isWatched
         reduce(DetailChange.WatchedStarted(previous, played))
 
         viewModelScope.launch {
             val result = setItemPlayedAction(itemId = previous.itemId, played = played)
+            watchedRevision += 1L
             reduce(DetailChange.WatchedFinished(previous, result.isSuccess))
         }
     }
@@ -600,11 +614,14 @@ class DetailViewModel(
     private fun toggleFavorite() {
         val content = _state.value as? DetailUiState.Content ?: return
         val previous = content.detail
+        if (previous.favoriteToggleInFlight) return
+        favoriteRevision += 1L
         val favorite = !previous.isFavorite
         reduce(DetailChange.FavoriteStarted(previous, favorite))
 
         viewModelScope.launch {
             val result = setItemFavoriteAction(itemId = previous.itemId, favorite = favorite)
+            favoriteRevision += 1L
             reduce(DetailChange.FavoriteFinished(previous, result.isSuccess))
         }
     }
@@ -775,6 +792,8 @@ class DetailViewModel(
         // newest request may publish the header/userData, so an older response
         // finishing last can never reintroduce a stale resume point.
         val generation = ++loadGeneration
+        val requestedWatchedRevision = watchedRevision
+        val requestedFavoriteRevision = favoriteRevision
         val job =
             viewModelScope.launch {
                 if (showLoading) {
@@ -819,7 +838,16 @@ class DetailViewModel(
                         break
                     }
                 }
-                val committed = reduce(DetailChange.Loaded(generation, showLoading, detailUi))
+                val committed =
+                    reduce(
+                        DetailChange.Loaded(
+                            generation,
+                            showLoading,
+                            detailUi,
+                            requestedWatchedRevision,
+                            requestedFavoriteRevision,
+                        ),
+                    )
                 if (!committed || generation != loadGeneration) {
                     return@launch
                 }

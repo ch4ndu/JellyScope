@@ -2,10 +2,13 @@
 
 package com.jellyscope.tvos.presenter
 
+import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.domain.action.AddRecentSearchAction
 import com.jellyscope.core.domain.action.ClearRecentSearchesAction
 import com.jellyscope.core.domain.model.FindResults
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
+import com.jellyscope.core.domain.model.SessionState
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.usecase.FindPersonsUseCase
 import com.jellyscope.core.domain.usecase.GetRecentSearchesUseCase
 import com.jellyscope.core.domain.usecase.SearchLibraryUseCase
@@ -234,7 +237,7 @@ class TvSearchPresenterTest {
 
     private fun presenterClose(fixture: Fixture) = fixture.presenter.close()
 
-    private fun TestScope.fixture(
+    private suspend fun TestScope.fixture(
         repository: FakeTvMediaRepository,
         recents: List<String> = emptyList(),
         store: FakeRecentSearchStore = FakeRecentSearchStore(recents),
@@ -242,13 +245,15 @@ class TvSearchPresenterTest {
         val mainDispatcher = StandardTestDispatcher(testScheduler)
         val workDispatcher = StandardTestDispatcher(testScheduler)
         store.expectedDispatcher = workDispatcher
+        val sessions = FakeTvSessionRepository().apply { update(SessionState.LoggedIn(testSession(), 1L)) }
+        val registry = ServerScopedStoreRegistry().apply { transitionToAccount(testSession().accountIdentity(), 1L) }
         val presenter =
             TvSearchPresenter(
                 session = testSession(),
                 searchLibrary = SearchLibraryUseCase(repository),
                 findPersons = FindPersonsUseCase(repository),
                 getRecentSearches = GetRecentSearchesUseCase(store),
-                addRecentSearch = AddRecentSearchAction(store),
+                addRecentSearch = AddRecentSearchAction(store, sessions, registry),
                 clearRecentSearches = ClearRecentSearchesAction(store),
                 imageUrlBuilder = JellyfinImageUrlBuilder(),
                 dispatchers =

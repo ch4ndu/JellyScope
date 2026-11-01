@@ -371,6 +371,7 @@ class DefaultMediaRepository(
                 items = items,
                 totalCount = result.totalRecordCount,
                 startIndex = query.startIndex ?: 0,
+                receivedCount = result.items.size,
             )
         }
 

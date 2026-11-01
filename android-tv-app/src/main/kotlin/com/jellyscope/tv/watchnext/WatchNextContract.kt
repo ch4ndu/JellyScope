@@ -140,7 +140,8 @@ internal object WatchNextContract {
         imageSource: PosterImageSource?,
     ): String {
         if (imageSource == null) return safeFileStem(itemId)
-        val sourceKey = "${imageSource.type.apiValue}:${imageSource.tag}"
+        // v2 excludes older entries that may contain fallback bytes under a remote key.
+        val sourceKey = "v2:${imageSource.type.apiValue}:${imageSource.tag}"
         val digest =
             java.security.MessageDigest
                 .getInstance("SHA-256")

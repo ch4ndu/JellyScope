@@ -219,6 +219,9 @@ this module boundary does not change cleanup ordering or credential authority.
 - Cold restore publishes LoggedIn only after installing exact identity and
   boundary epoch under the gate. Background work captures one immutable snapshot
   and acquires an account lease; stale leases cannot begin or commit work.
+  Search owners capture their account epoch at construction. Recent-history writes
+  validate that captured owner under the registry gate, so delayed results cannot
+  recreate removed history or adopt a later login epoch.
 - Shared, Android TV, and native tvOS logged-in roots are keyed by identity plus
   epoch, so same-account token rotation receives a fresh lifecycle. `accounts`
   and `SessionState` derive from one committed snapshot, including active markers.
@@ -259,7 +262,9 @@ See the dedicated [launcher persistence contract](../launcher/engineering.md#ind
 
 - Capturing the account epoch at submission prevents delayed preference writes
   from surviving a switch away and back. Publishing an already committed
-  boundary keeps observers aligned even when refetchable cleanup fails.
+  boundary keeps observers aligned even when refetchable cleanup fails. Search
+  owners capture their epoch at construction because their delayed results must
+  not adopt a later login's authority.
 - Credential removal must settle before artifact failures can become cleanup
   debt; otherwise cold restore could revive an account being removed.
 

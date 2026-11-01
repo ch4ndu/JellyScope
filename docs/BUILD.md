@@ -262,18 +262,17 @@ disables developer properties, and runs the iOS release-ready license check.
 Other configurations cannot archive/install; local Release uses the
 non-distribution check.
 
-Native Debug builds enable incremental compilation of project klibs through
-`kotlin.incremental.native=true`. The first build populates caches; subsequent
-Kotlin edits can reuse them. For a diagnostic comparison, override the setting
-on a direct Gradle invocation with `-Pkotlin.incremental.native=false`. This
-setting does not make the pinned compiler's optimized Release links incremental.
+Native Debug builds use `kotlin.incremental.native=false`. With the pinned Kotlin
+2.4.10/coroutines 1.11.0 toolchain, per-file incremental caches can emit an
+unresolved `BufferedChannel` synthetic accessor. The failure survives a clean
+rebuild of the coroutine cache and appears only when Xcode links the complete
+app; creating the static Kotlin framework can still succeed.
 
-After moving declarations between modules, an existing Native Debug cache may
-report a missing file under its previous owner. Stop Gradle and move aside the
-affected project-library entries for that owner and its consumers under
-`ios-framework/build/kotlin-native-ic-cache/`, then rerun the link. Leave global
-toolchain caches and compiler settings unchanged. Use the same targeted recovery
-in `shared-tvos/build/kotlin-native-ic-cache/` if its framework reports this error.
+Standard linking avoids that failure. This may increase Debug edit/build time;
+optimized Release linking is unaffected. Re-enable native incremental compilation
+only after the full app links successfully with the selected toolchain, rather
+than using a framework-only result. Do not clear shared toolchain caches or
+change dependency versions to work around this symptom.
 
 `ios-framework` produces the static `SharedUi` framework consumed by Xcode.
 It owns the Swift entry point and download bridge. App composition, DI, and

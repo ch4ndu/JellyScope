@@ -130,6 +130,7 @@ val downloadsModule =
         single { DownloadExecutionProgress(sink = getOrNull<DownloadExecutionProgressSink>()) }
         single {
             DownloadHlsTransferCoordinator(
+                cleanupScope = get(),
                 serverScopedStoreRegistry = get(),
                 jellyfinApi = get(),
                 queueCoordinator = get(),

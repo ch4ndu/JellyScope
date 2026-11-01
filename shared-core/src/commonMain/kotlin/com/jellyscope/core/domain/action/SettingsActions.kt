@@ -13,7 +13,9 @@ import com.jellyscope.core.data.local.PlaybackPreferencesStore
 import com.jellyscope.core.data.local.PlayerClockStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.RecentSearchStore
+import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.local.TileSizeStore
+import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.AppColorThemeId
 import com.jellyscope.core.domain.model.DesktopMpvPresentation
@@ -22,8 +24,11 @@ import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.LibrarySortBy
 import com.jellyscope.core.domain.model.LibrarySortOrder
 import com.jellyscope.core.domain.model.PlaybackPreferences
+import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.TileSizeId
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.PlayerDeviceSettings
+import kotlinx.coroutines.CancellationException
 
 class SetAppThemeAction(
     private val appThemeStore: AppThemeStore,
@@ -127,17 +132,32 @@ class SetLibrarySortAction(
 
 class AddRecentSearchAction(
     private val recentSearchStore: RecentSearchStore,
+    private val sessions: SessionRepository,
+    private val registry: ServerScopedStoreRegistry,
 ) {
-    suspend operator fun invoke(
-        serverId: String,
-        query: String,
-    ) = recentSearchStore.add(serverId = serverId, query = query)
+    class CapturedOwner internal constructor(
+        internal val accountIdentity: AccountIdentity,
+        internal val boundaryEpoch: Long,
+    )
+
+    fun capture(accountIdentity: AccountIdentity): CapturedOwner? {
+        val loggedIn = sessions.sessionState.value as? SessionState.LoggedIn ?: return null
+        if (loggedIn.session.accountIdentity() != accountIdentity) return null
+        return CapturedOwner(accountIdentity, loggedIn.boundaryEpoch)
+    }
 
     suspend operator fun invoke(
-        serverId: String,
-        userId: String,
+        owner: CapturedOwner?,
         query: String,
-    ) = recentSearchStore.add(serverId = serverId, userId = userId, query = query)
+    ) {
+        val captured = owner ?: throw CancellationException("Recent search account boundary changed.")
+        val lease =
+            registry.acquireWorkLease(captured.accountIdentity, captured.boundaryEpoch)
+                ?: throw CancellationException("Recent search account boundary changed.")
+        registry.withGuardedLease(lease) {
+            recentSearchStore.add(captured.accountIdentity.serverId, captured.accountIdentity.userId, query)
+        } ?: throw CancellationException("Recent search account boundary changed.")
+    }
 }
 
 class ClearRecentSearchesAction(

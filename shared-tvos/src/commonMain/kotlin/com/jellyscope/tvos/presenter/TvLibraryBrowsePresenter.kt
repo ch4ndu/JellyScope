@@ -458,7 +458,7 @@ class TvLibraryBrowsePresenter(
         return TvLibraryPageProjection(
             items = projectedItems,
             addedCount = cards.size,
-            rawCount = items.size,
+            rawCount = receivedCount,
             totalCount = totalCount,
         )
     }

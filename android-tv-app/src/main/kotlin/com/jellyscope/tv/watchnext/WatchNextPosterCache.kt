@@ -15,6 +15,8 @@ import com.jellyscope.core.domain.model.MediaItem
 import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.util.DiagnosticOperation
+import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import com.jellyscope.core.util.runCatchingCancellable
 import com.jellyscope.tv.R
 import io.ktor.client.HttpClient
@@ -41,8 +43,8 @@ internal class WatchNextPosterCache(
         withContext(Dispatchers.IO) {
             val accountIdentity = session.accountIdentity()
             val imageSource = item.posterImageSource()
-            val destination = WatchNextContract.posterFile(appContext, accountIdentity, item.id, imageSource)
-            val uri = WatchNextContract.posterUri(appContext, accountIdentity, item.id, imageSource)
+            var destination = WatchNextContract.posterFile(appContext, accountIdentity, item.id, imageSource)
+            var uri = WatchNextContract.posterUri(appContext, accountIdentity, item.id, imageSource)
             if (destination.exists() && destination.length() > 0L) {
                 return@withContext StagedPoster(uri = uri, stagedFile = null, destination = destination)
             }
@@ -55,7 +57,16 @@ internal class WatchNextPosterCache(
             val stagedFile = java.io.File(stagingDirectory, "${safeStageName(item.id, imageSource)}$POSTER_FILE_EXTENSION")
             val wroteRemote = imageUrl?.let { url -> writeRemotePoster(url, session, stagedFile) } == true
             if (!wroteRemote) {
-                writeFallbackPoster(stagedFile, landscape = item.kind == MediaKind.Episode)
+                // Keep outage artwork separate so the next sync retries the remote source.
+                destination = WatchNextContract.posterFile(appContext, accountIdentity, item.id)
+                uri = WatchNextContract.posterUri(appContext, accountIdentity, item.id)
+                val wroteFallback = writeFallbackPoster(stagedFile, landscape = item.kind == MediaKind.Episode)
+                watchNextLogger.i {
+                    "stage=poster event=fallback result=${if (wroteFallback) "written" else "failed"} " +
+                        "reason=${if (imageUrl == null) "no-image-source" else "remote-unavailable"}"
+                }
+            } else {
+                watchNextLogger.i { "stage=poster event=remote-written" }
             }
 
             if (stagedFile.exists() && stagedFile.length() > 0L) {
@@ -113,15 +124,29 @@ internal class WatchNextPosterCache(
                 httpClient.get(imageUrl) {
                     header(HttpHeaders.Authorization, authHeaderProvider.authHeader(session.accessToken))
                 }
-            }.getOrElse { return false }
+            }.getOrElse { throwable ->
+                logPosterFailure("request-failed", throwable)
+                return false
+            }
 
         if (response.status.value !in HTTP_SUCCESS_STATUS_RANGE) {
+            watchNextLogger.w { "stage=poster event=http-rejected" }
             return false
         }
 
-        val bytes = runCatchingCancellable { response.bodyAsBytes() }.getOrElse { return false }
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return false
-        return writeBitmap(bitmap, file)
+        val bytes =
+            runCatchingCancellable { response.bodyAsBytes() }.getOrElse { throwable ->
+                logPosterFailure("body-read-failed", throwable)
+                return false
+            }
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        if (bitmap == null) {
+            watchNextLogger.w { "stage=poster event=decode-failed" }
+            return false
+        }
+        return writeBitmap(bitmap, file).also { written ->
+            if (!written) watchNextLogger.w { "stage=poster event=write-rejected" }
+        }
     }
 
     private fun writeFallbackPoster(
@@ -179,3 +204,17 @@ internal data class StagedPoster(
     val stagedFile: java.io.File?,
     val destination: java.io.File,
 )
+
+private fun logPosterFailure(
+    event: String,
+    throwable: Throwable,
+) {
+    watchNextLogger.w {
+        formatSafeFailureDiagnostic(
+            stage = "poster",
+            event = event,
+            operation = DiagnosticOperation.WatchNextSync,
+            throwable = throwable,
+        )
+    }
+}

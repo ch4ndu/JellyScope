@@ -6,6 +6,8 @@ data class PagedItems(
     val items: List<MediaItem>,
     val totalCount: Int,
     val startIndex: Int,
+    /** Response rows consumed before invalid-item filtering or display deduplication. */
+    val receivedCount: Int = items.size,
 )
 
 data class LibraryItemsRequest(

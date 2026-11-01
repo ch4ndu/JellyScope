@@ -528,7 +528,7 @@ val coreModule =
         single { SendPlaybackTimelineAction(logBufferStore = get(), mediaRepository = get()) }
         single { SetGridSortAction(gridSortStore = get()) }
         single { SetLibrarySortAction(librarySortStore = get()) }
-        single { AddRecentSearchAction(recentSearchStore = get()) }
+        single { AddRecentSearchAction(recentSearchStore = get(), sessions = get(), registry = get()) }
         single { ClearRecentSearchesAction(recentSearchStore = get()) }
         single { SetItemFavoriteAction(mediaRepository = get()) }
         single { SetItemPlayedAction(mediaRepository = get()) }

@@ -61,6 +61,8 @@ internal sealed interface DetailChange {
         val generation: Long,
         val showLoading: Boolean,
         val detailUi: DetailUi,
+        val watchedRevision: Long,
+        val favoriteRevision: Long,
     ) : DetailChange
 
     data class RelatedAdded(
@@ -76,6 +78,8 @@ internal fun reduceDetail(
     loadGeneration: Long,
     mediaSourceSelectionGeneration: Long,
     selectedMediaSourceId: String?,
+    currentWatchedRevision: Long,
+    currentFavoriteRevision: Long,
 ): DetailUiState =
     when (change) {
         DetailChange.Loading -> DetailUiState.Loading
@@ -93,7 +97,7 @@ internal fun reduceDetail(
                     if (succeeded) {
                         current.copy(detail = current.detail.copy(watchedToggleInFlight = false))
                     } else {
-                        current.copy(detail = current.detail.withWatchedRollbackFrom(previous))
+                        current.copy(detail = current.detail.withWatchedStateFrom(previous).copy(watchedToggleInFlight = false))
                     }
                 } else {
                     current
@@ -206,12 +210,16 @@ internal fun reduceDetail(
                 } else if (showLoading) {
                     DetailUiState.Content(detail = detailUi)
                 } else if (current is DetailUiState.Content && current.detail.itemId == detailUi.itemId) {
-                    // Related can still be streaming while a retained Detail route
-                    // silently refreshes. Merge at commit time so groups emitted
-                    // during the refresh are never overwritten or marked complete.
+                    // Preserve mutations that overlapped this read, including ones
+                    // already settled, while still accepting unrelated metadata.
+                    val preserveWatched = this.watchedRevision != currentWatchedRevision || current.detail.watchedToggleInFlight
+                    val preserveFavorite = this.favoriteRevision != currentFavoriteRevision || current.detail.favoriteToggleInFlight
+                    val merged = if (preserveWatched) detailUi.withWatchedStateFrom(current.detail) else detailUi
                     DetailUiState.Content(
                         detail =
-                            detailUi.copy(
+                            merged.copy(
+                                isFavorite = if (preserveFavorite) current.detail.isFavorite else detailUi.isFavorite,
+                                favoriteToggleInFlight = current.detail.favoriteToggleInFlight,
                                 relatedGroups = current.detail.relatedGroups,
                                 relatedLoading = current.detail.relatedLoading,
                             ),

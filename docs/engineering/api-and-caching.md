@@ -106,6 +106,10 @@ export boundary.
 
 ## Cache
 
+Watch Next stores outage fallback artwork separately from tagged remote posters.
+A subsequent sync retries the remote source; only successful image bytes satisfy
+its cache key. Remote keys are versioned to exclude older cached fallback bytes.
+
 - Distinguish re-fetchable server cache from durable user-authored local data.
 - Room downgrade recovery is cache-scoped: only refetchable recent searches and
   Watch Next rows are recreated when a higher-version database is opened by the
@@ -257,3 +261,7 @@ See the dedicated [launcher data and artwork contract](../launcher/engineering.m
 - **Source identity remains exact and session-scoped.** Version changes reproject
   source-owned fields together; persisting transient response IDs risks mixed
   state.
+
+- Watch Next outage artwork uses a separate cache identity. Otherwise a temporary
+  failure remains a successful cache hit and prevents the real image
+  from being retried.

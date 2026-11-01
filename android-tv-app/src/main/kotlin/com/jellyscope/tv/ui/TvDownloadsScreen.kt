@@ -234,6 +234,7 @@ private fun TvDownloadsContent(
     val currentDefaultFocusKeys by rememberUpdatedState(defaultFocusKeys)
     var focusedKey by rememberSaveable { mutableStateOf<String?>(null) }
     var initialContentFocusCompleted by rememberSaveable { mutableStateOf(false) }
+    var pendingLoadingEntry by remember { mutableStateOf(false) }
     val focusContent =
         remember(focusScope, loadingFocusRequester) {
             {
@@ -243,8 +244,9 @@ private fun TvDownloadsContent(
                     } else {
                         focusScope.requestEntry(currentDefaultFocusKeys)
                     }
-                if (focused && !currentLoading) {
-                    initialContentFocusCompleted = true
+                if (focused) {
+                    pendingLoadingEntry = currentLoading
+                    if (!currentLoading) initialContentFocusCompleted = true
                 }
                 focused
             }
@@ -261,7 +263,14 @@ private fun TvDownloadsContent(
         semanticKeys,
         requestInitialContentFocus,
         initialContentFocusCompleted,
+        pendingLoadingEntry,
+        hostedRail.railHasFocus,
+        modalVisible,
     ) {
+        if (hostedRail.railHasFocus || modalVisible) {
+            pendingLoadingEntry = false
+            if (!requestInitialContentFocus || modalVisible) return@LaunchedEffect
+        }
         when {
             loading && requestInitialContentFocus ->
                 requestTvFocusWithRetry { loadingFocusRequester.requestFocusSafely() }
@@ -284,12 +293,16 @@ private fun TvDownloadsContent(
                         },
                     )
                 if (restored) {
+                    pendingLoadingEntry = false
                     initialContentFocusCompleted = true
                 }
             }
-            !loading && requestInitialContentFocus && !initialContentFocusCompleted -> {
-                initialContentFocusCompleted =
-                    requestTvFocusWithRetry { focusScope.requestEntry(defaultFocusKeys) }
+            !loading && (pendingLoadingEntry || requestInitialContentFocus && !initialContentFocusCompleted) -> {
+                val focused = requestTvFocusWithRetry { focusScope.requestEntry(defaultFocusKeys) }
+                if (focused) {
+                    pendingLoadingEntry = false
+                    initialContentFocusCompleted = true
+                }
             }
         }
     }
@@ -319,7 +332,10 @@ private fun TvDownloadsContent(
     if (loading) {
         TvLoadingFocusPark(
             focusRequester = loadingFocusRequester,
-            onRequestRailFocus = hostedRail::requestRailFocus,
+            onRequestRailFocus = {
+                pendingLoadingEntry = false
+                hostedRail.requestRailFocus()
+            },
             requestFocusOnAttach = requestInitialContentFocus,
             modifier =
                 Modifier

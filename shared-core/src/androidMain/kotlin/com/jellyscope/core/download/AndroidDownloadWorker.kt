@@ -41,7 +41,7 @@ class AndroidDownloadWorker(
                 progressJob =
                     launch {
                         while (isActive) {
-                            setForeground(scheduler.foregroundInfo(id))
+                            setForeground(scheduler.progressForegroundInfo(id))
                             delay(PROGRESS_REFRESH_MILLIS)
                         }
                     }

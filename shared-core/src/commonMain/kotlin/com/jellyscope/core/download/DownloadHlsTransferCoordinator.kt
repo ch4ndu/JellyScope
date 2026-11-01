@@ -14,6 +14,7 @@ import com.jellyscope.core.data.local.DownloadArtifactWriteMode
 import com.jellyscope.core.data.local.DownloadArtifactWriter
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.remote.AuthenticatedRequestContext
+import com.jellyscope.core.data.remote.FixedDownloadCleanupResult
 import com.jellyscope.core.data.remote.FixedDownloadFailure
 import com.jellyscope.core.data.remote.FixedDownloadPreflightResult
 import com.jellyscope.core.data.remote.FixedDownloadRequest
@@ -39,6 +40,7 @@ import com.jellyscope.core.util.safeDiagnosticType
 import io.ktor.utils.io.errors.IOException
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
@@ -53,6 +55,7 @@ internal class DownloadHlsTransferCoordinator(
     private val jellyfinApi: JellyfinApi,
     private val queueCoordinator: DownloadQueueCoordinator,
     private val artifactStore: DownloadArtifactStore,
+    private val cleanupScope: CoroutineScope,
     private val artworkCapture: DownloadArtworkCapture? = null,
     private val executionProgress: DownloadExecutionProgress = DownloadExecutionProgress(),
 ) {
@@ -138,7 +141,14 @@ internal class DownloadHlsTransferCoordinator(
             "stage=fixed-download event=transfer-preflight-ready requestKind=Transfer result=Ready"
         }
         return withFixedDownloadEncodingCleanup(
-            cleanup = { jellyfinApi.stopFixedDownloadEncoding(context, source) },
+            cleanupScope = cleanupScope,
+            cleanup = {
+                if (jellyfinApi.stopFixedDownloadEncoding(context, source) == FixedDownloadCleanupResult.Rejected) {
+                    fixedDownloadTransferLogger.w {
+                        "stage=fixed-download event=encoding-cleanup-rejected requestKind=Transfer result=Rejected"
+                    }
+                }
+            },
         ) {
             if (
                 source.itemId != record.businessKey.itemId ||
@@ -432,7 +442,10 @@ internal class DownloadHlsTransferCoordinator(
         try {
             while (true) {
                 val read = resource.body.readAvailable(buffer, 0, buffer.size)
-                if (read < 0) break
+                if (read < 0) {
+                    resource.body.closedCause?.let { throw it }
+                    break
+                }
                 if (read == 0) continue
                 if (read > maxBytes - count) {
                     return HlsFetchResult.Failed(
@@ -446,7 +459,10 @@ internal class DownloadHlsTransferCoordinator(
             }
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (_: IOException) {
+        } catch (failure: IOException) {
+            fixedDownloadTransferLogger.w {
+                formatSafeFailureDiagnostic("fixed-download", "playlist-read-failed", failure)
+            }
             return HlsFetchResult.Failed(
                 failure = DownloadFailure.Network,
                 fetchReason = FixedDownloadPlaylistFetchRejectReason.NetworkFailure,
@@ -756,10 +772,15 @@ internal class DownloadHlsTransferCoordinator(
         while (true) {
             val read =
                 try {
-                    resource.body.readAvailable(buffer, 0, buffer.size)
+                    val count = resource.body.readAvailable(buffer, 0, buffer.size)
+                    if (count < 0) resource.body.closedCause?.let { throw it }
+                    count
                 } catch (cancellation: CancellationException) {
                     throw cancellation
-                } catch (_: IOException) {
+                } catch (failure: IOException) {
+                    fixedDownloadTransferLogger.w {
+                        formatSafeFailureDiagnostic("fixed-download", "segment-read-failed", failure)
+                    }
                     throw HlsTransferOutcomeException(DownloadTransferResult.Failed(DownloadFailure.Network))
                 }
             if (read < 0) break

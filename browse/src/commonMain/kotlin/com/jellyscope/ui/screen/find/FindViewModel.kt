@@ -14,6 +14,7 @@ import com.jellyscope.core.domain.model.Person
 import com.jellyscope.core.domain.model.RuntimeBucket
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.WatchedFilter
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.model.parseFindYear
 import com.jellyscope.core.domain.usecase.FindPersonsUseCase
 import com.jellyscope.core.domain.usecase.GetRecentSearchesUseCase
@@ -44,6 +45,8 @@ class FindViewModel(
     private val _state = MutableStateFlow(FindUiState())
     val state: StateFlow<FindUiState> = _state.asStateFlow()
 
+    // Retained work must never adopt a later login epoch for the same account.
+    private val recentSearchOwner = addRecentSearchAction?.capture(session.accountIdentity())
     private var debounceJob: Job? = null
     private var searchJob: Job? = null
     private var recentSearchesJob: Job? = null
@@ -286,11 +289,7 @@ class FindViewModel(
         val getRecentSearches = getRecentSearchesUseCase ?: return null
         return try {
             withContext(workDispatcher) {
-                addRecentSearch(
-                    serverId = session.serverId,
-                    userId = session.userId,
-                    query = label,
-                )
+                addRecentSearch(recentSearchOwner, label)
                 getRecentSearches(session.serverId, session.userId)
             }
         } catch (exception: CancellationException) {

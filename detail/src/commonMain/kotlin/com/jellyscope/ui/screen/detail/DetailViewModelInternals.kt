@@ -25,7 +25,7 @@ internal fun DetailUi.withWatched(played: Boolean): DetailUi {
     )
 }
 
-internal fun DetailUi.withWatchedRollbackFrom(previous: DetailUi): DetailUi =
+internal fun DetailUi.withWatchedStateFrom(previous: DetailUi): DetailUi =
     copy(
         playAction =
             playAction.copy(
@@ -34,7 +34,7 @@ internal fun DetailUi.withWatchedRollbackFrom(previous: DetailUi): DetailUi =
             ),
         restartAction = previous.restartAction?.copy(mediaSourceId = selectedMediaSourceId),
         isWatched = previous.isWatched,
-        watchedToggleInFlight = false,
+        watchedToggleInFlight = previous.watchedToggleInFlight,
         progressFraction = previous.progressFraction,
     )
 

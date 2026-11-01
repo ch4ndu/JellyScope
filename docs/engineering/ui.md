@@ -392,7 +392,12 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
 - Library, Collection, and Person keep loaded cards and offset after a page
   error. Automatic viewport/focus/restore paging stops at the error latch;
   deliberate Retry clears it and retries the failed offset. Initial failures
-  retain their first-page behavior.
+  retain their first-page behavior. Library tracks consumed server rows separately
+  from unique displayed cards, including rows discarded by mapping. Full pages
+  with no new cards advance automatically for at most three consecutive pages,
+  then expose Retry at the next offset; re-entry preserves a latched failure.
+- Silent Detail refreshes preserve Favorite/Watched mutations that overlap the
+  read, including completed mutations, without discarding unrelated metadata.
 - Library actions are collection-aware. Movies expose Shuffle All and Bitrate;
   shows expose Last Episode Added. Shuffle respects filters and reports
   empty/failure through a passive snackbar; repeating it retries. Do not add
@@ -523,6 +528,11 @@ See [native tvOS UI](tvos-ui.md#native-tvos-screens).
   TV presentation cannot drift.
 - Library selection persists through its server-scoped operation; UI does not
   write stores. Separate inner-view owners preserve paging and scroll context.
+- Library offsets count consumed server rows because overlapping or unmappable
+  rows still advance the server window. Visible cards keep unique IDs so lazy
+  layout keys remain stable.
+- Detail mutation revisions prevent an older refresh snapshot from undoing a
+  newer command while allowing unrelated metadata to refresh.
 - Playback-warning suppression changes presentation only. Recovery policy and
   fatal failure reporting must remain active.
 - Player hot state is read at leaves because parent reads recompose unrelated

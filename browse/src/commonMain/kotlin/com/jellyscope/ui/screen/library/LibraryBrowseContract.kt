@@ -18,6 +18,7 @@ data class LibraryBrowseUiState(
     val items: List<MediaCardUi> = emptyList(),
     val totalCount: Int = 0,
     val startIndex: Int = 0,
+    val consumedOffset: Int = 0,
     val hasMore: Boolean = false,
     val isLoading: Boolean = true,
     val isLoadingMore: Boolean = false,

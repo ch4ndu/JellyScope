@@ -124,7 +124,7 @@ class LibraryBrowseViewModel(
 
     private fun retry() {
         val current = _state.value
-        if (current.error && current.items.isNotEmpty()) {
+        if (current.error && current.consumedOffset > 0) {
             invalidatePageRequests()
             reduce(LibraryBrowseChange.RetryingPage)
             paginator.more()
@@ -144,8 +144,8 @@ class LibraryBrowseViewModel(
     // skipped: briefly stale userData beats a giant re-fetch.
     private fun refreshSilently() {
         val snapshot = _state.value
-        if (snapshot.isLoading || snapshot.isLoadingMore || silentRefreshJob?.isActive == true) return
-        val windowSize = snapshot.items.size.coerceAtLeast(pageSize)
+        if (snapshot.error || snapshot.isLoading || snapshot.isLoadingMore || silentRefreshJob?.isActive == true) return
+        val windowSize = snapshot.consumedOffset.coerceAtLeast(pageSize)
         if (windowSize > MAX_SILENT_REFRESH_WINDOW) return
         val generation = pageGeneration.addAndFetch(1L)
         silentRefreshJob =
@@ -170,7 +170,19 @@ class LibraryBrowseViewModel(
                         }
                     }
                 result.onSuccess { (page, pageItems) ->
-                    reduce(LibraryBrowseChange.WindowRefreshed(generation, pageItems, page.startIndex, page.items.size >= windowSize))
+                    reduce(
+                        LibraryBrowseChange.WindowRefreshed(
+                            generation,
+                            pageItems,
+                            page.startIndex,
+                            page.receivedCount >= windowSize,
+                            page.receivedCount,
+                        ),
+                    )
+                    if (generation == pageGeneration.load() && pageItems.isEmpty() && page.receivedCount >= windowSize) {
+                        // There is no grid to request more while this refreshed window has no displayable cards.
+                        paginator.more()
+                    }
                 }
             }
     }
@@ -267,16 +279,12 @@ class LibraryBrowseViewModel(
     private suspend fun loadPageLocked(reset: Boolean) {
         val generation = pageGeneration.addAndFetch(1L)
         val snapshot = _state.value
-        val startIndex =
-            if (reset) {
-                0
-            } else {
-                snapshot.items.size
-            }
+        var startIndex = if (reset) 0 else snapshot.consumedOffset
+        var replace = reset
+        var emptyPages = 0
         reduce(LibraryBrowseChange.PageStarted(reset))
-
-        val result =
-            try {
+        while (generation == pageGeneration.load()) {
+            val result =
                 getLibraryItemsUseCase(
                     LibraryItemsRequest(
                         parentId = parentId,
@@ -287,20 +295,38 @@ class LibraryBrowseViewModel(
                         limit = pageSize,
                     ),
                 )
-            } catch (exception: CancellationException) {
-                throw exception
-            }
-
-        // Map DTOs -> cards once, outside update{}; the state reducer stays cheap.
-        result.fold(
-            onSuccess = { page ->
-                val pageItems = page.items.map { item -> item.toMediaCardUi(session, imageUrlBuilder) }
-                reduce(LibraryBrowseChange.PageLoaded(generation, reset, pageItems, page.startIndex, page.items.size >= pageSize))
-            },
-            onFailure = {
+            if (generation != pageGeneration.load()) return
+            val page =
+                result.getOrElse {
+                    reduce(LibraryBrowseChange.PageFailed(generation))
+                    return
+                }
+            val pageItems = page.items.map { item -> item.toMediaCardUi(session, imageUrlBuilder) }
+            val existingIds = if (replace) emptySet() else _state.value.items.mapTo(mutableSetOf()) { it.id }
+            val addsCards = pageItems.any { it.id !in existingIds }
+            val hasMore = page.receivedCount >= pageSize
+            val continueLoading = hasMore && !addsCards
+            reduce(
+                LibraryBrowseChange.PageLoaded(
+                    generation,
+                    replace,
+                    pageItems,
+                    page.startIndex,
+                    hasMore,
+                    page.receivedCount,
+                    continueLoading,
+                ),
+            )
+            if (!continueLoading) return
+            // Avoid stranding an empty/duplicate-only page, but bound automatic
+            // traversal if a server keeps repeating or returning unmappable rows.
+            if (++emptyPages >= 3) {
                 reduce(LibraryBrowseChange.PageFailed(generation))
-            },
-        )
+                return
+            }
+            startIndex = page.startIndex + page.receivedCount
+            replace = false
+        }
     }
 
     private fun loadFacets() {

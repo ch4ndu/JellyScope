@@ -22,6 +22,7 @@ internal sealed interface LibraryBrowseChange {
         val items: List<MediaCardUi>,
         val startIndex: Int,
         val hasMore: Boolean,
+        val receivedCount: Int = items.size,
     ) : LibraryBrowseChange
 
     data class SortSelected(
@@ -47,6 +48,8 @@ internal sealed interface LibraryBrowseChange {
         val items: List<MediaCardUi>,
         val startIndex: Int,
         val hasMore: Boolean,
+        val receivedCount: Int = items.size,
+        val continueLoading: Boolean = false,
     ) : LibraryBrowseChange
 
     data class PageFailed(
@@ -76,10 +79,12 @@ internal fun reduceLibraryBrowse(
             if (currentGeneration != change.generation) {
                 current
             } else {
+                val items = change.items.distinctBy { it.id }
                 current.copy(
-                    items = change.items,
-                    totalCount = change.items.size,
+                    items = items,
+                    totalCount = items.size,
                     startIndex = change.startIndex,
+                    consumedOffset = change.startIndex + change.receivedCount,
                     hasMore = change.hasMore,
                     isLoading = false,
                     isLoadingMore = false,
@@ -94,6 +99,7 @@ internal fun reduceLibraryBrowse(
                 items = emptyList(),
                 totalCount = 0,
                 startIndex = 0,
+                consumedOffset = 0,
                 hasMore = false,
                 isLoading = true,
                 isLoadingMore = false,
@@ -106,6 +112,7 @@ internal fun reduceLibraryBrowse(
                 items = emptyList(),
                 totalCount = 0,
                 startIndex = 0,
+                consumedOffset = 0,
                 hasMore = false,
                 isLoading = true,
                 isLoadingMore = false,
@@ -120,8 +127,8 @@ internal fun reduceLibraryBrowse(
         }
         is LibraryBrowseChange.PageStarted -> {
             current.copy(
-                isLoading = change.reset,
-                isLoadingMore = !change.reset,
+                isLoading = change.reset || current.items.isEmpty(),
+                isLoadingMore = !change.reset && current.items.isNotEmpty(),
                 error = false,
             )
         }
@@ -129,16 +136,24 @@ internal fun reduceLibraryBrowse(
             if (currentGeneration != change.generation) {
                 current
             } else {
-                val nextItems = if (change.reset) change.items else current.items + change.items
+                val nextItems =
+                    if (change.reset) {
+                        change.items.distinctBy { it.id }
+                    } else {
+                        val ids = current.items.mapTo(mutableSetOf()) { it.id }
+                        val additions = change.items.filter { ids.add(it.id) }
+                        if (additions.isEmpty()) current.items else current.items + additions
+                    }
                 current.copy(
                     items = nextItems,
                     // The exact server total is skipped for speed; surface the
                     // loaded count and page by whether the last page was full.
                     totalCount = nextItems.size,
                     startIndex = change.startIndex,
+                    consumedOffset = change.startIndex + change.receivedCount,
                     hasMore = change.hasMore,
-                    isLoading = false,
-                    isLoadingMore = false,
+                    isLoading = change.continueLoading && nextItems.isEmpty(),
+                    isLoadingMore = change.continueLoading && nextItems.isNotEmpty(),
                     error = false,
                 )
             }

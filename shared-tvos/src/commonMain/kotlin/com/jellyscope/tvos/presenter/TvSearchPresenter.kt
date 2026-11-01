@@ -12,6 +12,7 @@ import com.jellyscope.core.domain.model.Person
 import com.jellyscope.core.domain.model.RuntimeBucket
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.WatchedFilter
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.model.parseFindYear
 import com.jellyscope.core.domain.usecase.FindPersonsUseCase
 import com.jellyscope.core.domain.usecase.GetRecentSearchesUseCase
@@ -53,6 +54,7 @@ class TvSearchPresenter(
     private var suggestionsGeneration = 0L
     private var recentsGeneration = 0L
     private val recentsMutationMutex = Mutex()
+    private val recentSearchOwner = addRecentSearch.capture(session.accountIdentity())
 
     init {
         scope.launch { refreshRecents(keepExistingOnFailure = false) }
@@ -306,7 +308,7 @@ class TvSearchPresenter(
         try {
             recentsMutationMutex.withLock {
                 withContext(workDispatcher) {
-                    addRecentSearch(session.serverId, session.userId, recent)
+                    addRecentSearch(recentSearchOwner, recent)
                 }
             }
             refreshRecents(keepExistingOnFailure = true)

@@ -746,10 +746,15 @@ internal class DownloadTransferCoordinator(
             val readLength = minOf(buffer.size.toLong(), remaining).toInt()
             val read =
                 try {
-                    stream.body.readAvailable(buffer, 0, readLength)
+                    val count = stream.body.readAvailable(buffer, 0, readLength)
+                    if (count < 0) stream.body.closedCause?.let { throw it }
+                    count
                 } catch (cancellation: CancellationException) {
                     throw cancellation
-                } catch (_: IOException) {
+                } catch (failure: IOException) {
+                    originalDownloadTransferLogger.w {
+                        formatSafeFailureDiagnostic("original-download", "body-read-failed", failure)
+                    }
                     return BodyOutcome.Network
                 }
             if (read < 0) break

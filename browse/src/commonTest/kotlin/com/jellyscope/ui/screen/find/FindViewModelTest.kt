@@ -4,9 +4,12 @@ package com.jellyscope.ui.screen.find
 
 import com.jellyscope.core.data.local.RECENT_SEARCH_LIMIT
 import com.jellyscope.core.data.local.RecentSearchStore
+import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.repository.MediaRepository
+import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.domain.action.AddRecentSearchAction
 import com.jellyscope.core.domain.action.ClearRecentSearchesAction
+import com.jellyscope.core.domain.action.SessionRemovalAuthorization
 import com.jellyscope.core.domain.model.FindQuery
 import com.jellyscope.core.domain.model.FindResults
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
@@ -18,13 +21,16 @@ import com.jellyscope.core.domain.model.MediaRibbon
 import com.jellyscope.core.domain.model.Person
 import com.jellyscope.core.domain.model.RuntimeBucket
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.WatchedFilter
+import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.PlaybackInfo
 import com.jellyscope.core.domain.usecase.FindPersonsUseCase
 import com.jellyscope.core.domain.usecase.GetRecentSearchesUseCase
 import com.jellyscope.core.domain.usecase.SearchLibraryUseCase
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -37,6 +43,37 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class FindViewModelTest {
+    @Test
+    fun pendingSearchCannotRecreateHistoryAfterItsOwnerEpochIsRemoved() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            try {
+                val response = CompletableDeferred<Result<FindResults>>()
+                val repository = RecordingMediaRepository(deferredSearchResults = ArrayDeque(listOf(response)))
+                val store = FakeRecentSearchStore(listOf("saved"))
+                val registry = ServerScopedStoreRegistry()
+                val sessions = FindSessionRepository()
+                val viewModel = repository.findViewModel(store, registry, sessions, dispatcher)
+                runCurrent()
+                viewModel.accept(FindIntent.SelectRecentSearch("saved"))
+                runCurrent()
+                registry.withBoundaryMutation {
+                    installLoggedOut()
+                    store.clear(session.serverId)
+                    installRestoredAccount(session.accountIdentity(), 3L)
+                    sessions.sessionState.value = SessionState.LoggedIn(session, 3L)
+                    response.complete(Result.success(FindResults()))
+                    runCurrent()
+                    assertEquals(emptyList(), store.stored())
+                }
+                advanceUntilIdle()
+                assertEquals(emptyList(), store.stored())
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
+
     @Test
     fun reducerIgnoresLateResultsWithoutRelyingOnJobCancellation() {
         val oldToken = FindRequestToken(1)
@@ -418,21 +455,37 @@ class FindViewModelTest {
         }
 }
 
-private fun MediaRepository.findViewModel(
+private suspend fun MediaRepository.findViewModel(
     recentSearchStore: RecentSearchStore? = null,
+    boundary: ServerScopedStoreRegistry = ServerScopedStoreRegistry(),
+    sessions: SessionRepository = FindSessionRepository(),
     // Installed Main is a StandardTestDispatcher (setMain), so off-main mapping is
     // driven by runCurrent().
     dispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main,
-) = FindViewModel(
-    session = session,
-    searchLibraryUseCase = SearchLibraryUseCase(this),
-    findPersonsUseCase = FindPersonsUseCase(this),
-    imageUrlBuilder = JellyfinImageUrlBuilder(),
-    getRecentSearchesUseCase = recentSearchStore?.let { GetRecentSearchesUseCase(it) },
-    addRecentSearchAction = recentSearchStore?.let { AddRecentSearchAction(it) },
-    clearRecentSearchesAction = recentSearchStore?.let { ClearRecentSearchesAction(it) },
-    workDispatcher = dispatcher,
-)
+): FindViewModel {
+    boundary.transitionToAccount(session.accountIdentity(), 1L)
+    return FindViewModel(
+        session = session,
+        searchLibraryUseCase = SearchLibraryUseCase(this),
+        findPersonsUseCase = FindPersonsUseCase(this),
+        imageUrlBuilder = JellyfinImageUrlBuilder(),
+        getRecentSearchesUseCase = recentSearchStore?.let { GetRecentSearchesUseCase(it) },
+        addRecentSearchAction = recentSearchStore?.let { AddRecentSearchAction(it, sessions, boundary) },
+        clearRecentSearchesAction = recentSearchStore?.let { ClearRecentSearchesAction(it) },
+        workDispatcher = dispatcher,
+    )
+}
+
+private class FindSessionRepository : SessionRepository {
+    override val sessionState = MutableStateFlow<SessionState>(SessionState.LoggedIn(session, 1L))
+
+    override suspend fun setLoggedIn(session: Session) = error("Unused")
+
+    override suspend fun setLoggedOut(
+        serverUrl: String?,
+        authorization: SessionRemovalAuthorization,
+    ): Result<Unit> = error("Unused")
+}
 
 private class RecordingMediaRepository(
     private val results: FindResults = FindResults(),

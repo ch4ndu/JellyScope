@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -290,6 +291,7 @@ private fun LibraryTabHub(
 ) {
     val hubState by hubViewModel.state.collectAsStateWithLifecycle()
     val recommendedListState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
 
     OnResumeEffect { hubViewModel.accept(LibraryHubIntent.RefreshRecommended) }
 
@@ -306,6 +308,7 @@ private fun LibraryTabHub(
     when (hubState.selectedView) {
         com.jellyscope.core.domain.model.LibraryInnerView.Library ->
             LibraryGridInnerView(
+                gridState = gridState,
                 session = session,
                 library = library,
                 onItemSelected = onItemSelected,
@@ -352,6 +355,7 @@ private fun LibraryTabHub(
 
 @Composable
 private fun LibraryGridInnerView(
+    gridState: LazyGridState,
     session: Session,
     library: Library,
     onItemSelected: (MediaCardUi) -> Unit,
@@ -369,7 +373,6 @@ private fun LibraryGridInnerView(
         ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val gridState = rememberLazyGridState()
     val emptyMessage = stringResource(Res.string.library_shuffle_empty)
     val unavailableMessage = stringResource(Res.string.library_shuffle_unavailable)
     val currentOnShuffleQueue by rememberUpdatedState(onShuffleQueue)

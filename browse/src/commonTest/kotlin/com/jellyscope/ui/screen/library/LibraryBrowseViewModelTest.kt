@@ -247,7 +247,7 @@ class LibraryBrowseViewModelTest {
         }
 
     @Test
-    fun pagingAppendsAndUsesTotalCountForHasMore() =
+    fun pagingKeepsUniqueCardsAndConsumesOverlappingRawPages() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             Dispatchers.setMain(dispatcher)
@@ -256,25 +256,27 @@ class LibraryBrowseViewModelTest {
                     LibraryBrowseRepository(
                         pages =
                             mapOf(
-                                0 to Result.success(page(startIndex = 0, total = 3, mediaItem("item-1"), mediaItem("item-2"))),
-                                2 to Result.success(page(startIndex = 2, total = 3, mediaItem("item-3"))),
+                                0 to Result.success(page(startIndex = 0, total = 3, mediaItem("item-1"), mediaItem("item-1"))),
+                                2 to Result.success(page(startIndex = 2, total = 3, mediaItem("item-1")).copy(receivedCount = 2)),
+                                4 to Result.success(page(startIndex = 4, total = 3, mediaItem("item-3"))),
                             ),
                     )
                 val viewModel = repository.libraryBrowseViewModel(dispatcher)
                 advanceUntilIdle()
 
                 val first = viewModel.state.value
-                assertEquals(listOf("item-1", "item-2"), first.items.map { item -> item.id })
-                assertEquals(2, first.totalCount)
+                assertEquals(listOf("item-1"), first.items.map { item -> item.id })
+                assertEquals(1, first.totalCount)
                 assertTrue(first.hasMore)
 
                 viewModel.accept(LibraryBrowseIntent.LoadMore)
                 advanceUntilIdle()
 
                 val second = viewModel.state.value
-                assertEquals(listOf("item-1", "item-2", "item-3"), second.items.map { item -> item.id })
+                assertEquals(listOf("item-1", "item-3"), second.items.map { item -> item.id })
                 assertFalse(second.hasMore)
-                assertEquals(listOf(0, 2), repository.requests.map { request -> request.startIndex })
+                assertEquals(5, second.consumedOffset)
+                assertEquals(listOf(0, 2, 4), repository.requests.map { request -> request.startIndex })
             } finally {
                 Dispatchers.resetMain()
             }
@@ -542,6 +544,7 @@ class LibraryBrowseViewModelTest {
                             mapOf(
                                 0 to Result.success(page(startIndex = 0, total = 3, mediaItem("item-1"), mediaItem("item-2"))),
                                 2 to Result.success(page(startIndex = 2, total = 3, mediaItem("item-3"))),
+                                3 to Result.success(page(startIndex = 3, total = 4, mediaItem("after-empty-window"))),
                             ),
                         deferredPages = mapOf(0 to queuedPages),
                     )
@@ -576,6 +579,23 @@ class LibraryBrowseViewModelTest {
                         .map { item -> item.id },
                 )
                 assertTrue(viewModel.state.value.hasMore)
+
+                val emptyRefresh = CompletableDeferred<Result<PagedItems>>()
+                queuedPages.add(emptyRefresh)
+                viewModel.accept(LibraryBrowseIntent.Refresh)
+                runCurrent()
+                emptyRefresh.complete(Result.success(page(0, 4).copy(receivedCount = 3)))
+                advanceUntilIdle()
+
+                assertEquals(
+                    listOf("after-empty-window"),
+                    viewModel.state.value.items
+                        .map { it.id },
+                )
+                assertEquals(3, repository.requests.last().startIndex)
+                assertEquals(4, viewModel.state.value.consumedOffset)
+                assertFalse(viewModel.state.value.isLoading)
+                assertFalse(viewModel.state.value.hasMore)
             } finally {
                 Dispatchers.resetMain()
             }

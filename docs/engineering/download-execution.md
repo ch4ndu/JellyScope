@@ -80,7 +80,11 @@ and retains their engines, account admission, attempts and lifecycle policy.
 - Earlier iOS versions, or iOS without an active grant, retain app-active
   downloading; suspension checkpoints to the runnable queue. JVM desktop
   likewise transfers only while open and checkpoints on graceful exit. The
-  next active launch recovers durable state. iOS continued processing does not
+  next active launch recovers durable state. Fixed-transfer settlement awaits local
+  writer closure and durable checkpoints, never the remote encoding-stop request.
+  That request is bounded application-owned best effort using the original
+  device/play-session identity; suspension or process exit may prevent completion.
+  Admission previews retain their awaited cleanup. iOS continued processing does not
   promise completion, process-death survival, force-quit survival, or a
   closed-app download daemon. Existing per-write quota, source validation,
   redirect, and account-lease safeguards apply to both iOS transfer qualities.
@@ -127,5 +131,10 @@ and retains their engines, account admission, attempts and lifecycle policy.
   coupling Room generation to transfer and lifecycle policy.
 
 - Bounded in-window network retries absorb transient reads without creating
-  background execution promises. Exact attempt claims preserve queue ownership,
+  background execution promises. A failed body channel retains its failure even
+  when the HTTP reader returns EOF; only clean early EOF means truncated content. Exact attempt claims preserve queue ownership,
   while continued drains distinguish row failure from enrollment completion.
+
+- Lifecycle settlement waits for local checkpoint and writer closure. A remote
+  encoding stop cannot improve that local durability, so transfer cleanup belongs
+  to the application scope and must not hold the lifecycle callback open.

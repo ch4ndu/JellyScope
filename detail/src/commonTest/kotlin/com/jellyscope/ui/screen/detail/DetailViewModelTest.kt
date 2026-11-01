@@ -107,6 +107,38 @@ import kotlin.time.Duration.Companion.minutes
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailViewModelTest {
     @Test
+    fun staleRefreshKeepsSuccessfulFavoriteAndWatchedMutations() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            try {
+                val repository = DeferredSettlementDetailRepository()
+                val viewModel = repository.detailViewModel("episode-1")
+                advanceUntilIdle()
+                val initial = assertIs<DetailUiState.Content>(viewModel.state.value).detail
+                viewModel.accept(DetailIntent.Refresh)
+                runCurrent()
+                viewModel.accept(DetailIntent.ToggleFavorite)
+                viewModel.accept(DetailIntent.ToggleWatched)
+                runCurrent()
+                val changed = assertIs<DetailUiState.Content>(viewModel.state.value).detail
+                assertEquals(!initial.isFavorite, changed.isFavorite)
+                assertEquals(!initial.isWatched, changed.isWatched)
+                repository.firstRefresh.complete(Result.success(episodeDetail))
+                advanceUntilIdle()
+                val refreshed = assertIs<DetailUiState.Content>(viewModel.state.value).detail
+                assertEquals(changed.isFavorite, refreshed.isFavorite)
+                assertEquals(changed.isWatched, refreshed.isWatched)
+                assertEquals(changed.playAction, refreshed.playAction)
+                assertEquals(changed.progressFraction, refreshed.progressFraction)
+                assertFalse(refreshed.favoriteToggleInFlight)
+                assertFalse(refreshed.watchedToggleInFlight)
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
+
+    @Test
     fun staleFixedPreviewCannotPublishAfterANewerChoiceWins() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)

@@ -201,6 +201,13 @@ internal class AndroidDownloadScheduler(
             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
 
+    internal suspend fun progressForegroundInfo(workId: UUID): ForegroundInfo =
+        ForegroundInfo(
+            NOTIFICATION_ID,
+            notification(DownloadPlatformWorkIdentity(DownloadPlatformWorkKind.AndroidWorkManager, workId.toString())),
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
+
     internal fun uidtNotification(): Notification = buildNotification(identity = UIDT_WORK_ID, progress = 0)
 
     internal suspend fun notification(identity: DownloadPlatformWorkIdentity): Notification =
