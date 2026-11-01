@@ -317,13 +317,60 @@ val macOsBundledMpvDeviceProfileDeclaration =
         audioCodecs = desktopMpvDeviceProfileDeclaration.audioCodecs + macOsBundledMpvPcmAudioCodecs,
     )
 
+/**
+ * Desktop LibVLC declaration for runtimes outside the pinned macOS bundle. It
+ * advertises no PCM: there is no generic "pcm" codec name, and these runtimes
+ * have no qualified decoder set.
+ */
 @OptIn(ExperimentalObjCRefinement::class)
 @HiddenFromObjC
 val desktopLibVlcDeviceProfileDeclaration =
     DeviceProfileDeclaration(
         containers = listOf("mp4", "m4v", "mov", "mkv", "webm", "mpegts", "ts", "avi"),
         videoCodecs = listOf("h264", "hevc", "vp9", "av1"),
-        audioCodecs = listOf("aac", "mp3", "flac", "ac3", "eac3", "opus", "vorbis", "pcm", "dts", "dca", "truehd", "mp2"),
+        audioCodecs = listOf("aac", "mp3", "flac", "ac3", "eac3", "opus", "vorbis", "dts", "dca", "truehd", "mp2"),
+    )
+
+// For the bundled VLC 3.0.24 avcodec plugin, which statically embeds FFmpeg
+// 8.1.2, every name below has a compiled avcodec route to a registered
+// libavcodec decoder. That static check does not establish which module VLC
+// selects at runtime or that decoded audio is audible. pcm_dvd and the other
+// FFmpeg PCM names are excluded because they have no entry in this VLC avcodec
+// mapping; native VLC decoder paths for them remain unqualified. Requalify when
+// the VLC or FFmpeg version or configure line changes.
+private val macOsBundledLibVlcPcmAudioCodecs =
+    listOf(
+        "pcm_alaw",
+        "pcm_bluray",
+        "pcm_f32be",
+        "pcm_f32le",
+        "pcm_f64be",
+        "pcm_f64le",
+        "pcm_mulaw",
+        "pcm_s16be",
+        "pcm_s16le",
+        "pcm_s16le_planar",
+        "pcm_s24be",
+        "pcm_s24daud",
+        "pcm_s24le",
+        "pcm_s32be",
+        "pcm_s32le",
+        "pcm_s8",
+        "pcm_u16be",
+        "pcm_u16le",
+        "pcm_u24be",
+        "pcm_u24le",
+        "pcm_u32be",
+        "pcm_u32le",
+        "pcm_u8",
+    )
+
+/** Desktop LibVLC declaration for the bundled macOS VLC 3.0.24 runtime. */
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+val macOsBundledLibVlcDeviceProfileDeclaration =
+    desktopLibVlcDeviceProfileDeclaration.copy(
+        audioCodecs = desktopLibVlcDeviceProfileDeclaration.audioCodecs + macOsBundledLibVlcPcmAudioCodecs,
     )
 
 @OptIn(ExperimentalObjCRefinement::class)
@@ -344,6 +391,7 @@ internal val diagnosticsDeviceProfileDeclarations =
         desktopMpvDeviceProfileDeclaration,
         macOsBundledMpvDeviceProfileDeclaration,
         desktopLibVlcDeviceProfileDeclaration,
+        macOsBundledLibVlcDeviceProfileDeclaration,
         appleDeviceProfileDeclaration,
     )
 

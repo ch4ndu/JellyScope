@@ -288,12 +288,14 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   frame, rebuffers, audio underruns, and Status. Runtime rows are Decoder,
   Runtime format, Renderer target, dropped frames, buffer policy, target/allocated, buffered
   ahead, and bandwidth estimate. For mpv, replace Decoder/Runtime format with
-  Codec description, Video decoding, and Decoded size, followed by Renderer
-  target. Its localized values are HDR, SDR, SDR (HDR input observed), or Unknown;
+  Codec description, Engine decode path, Decoder component, and Decoded size,
+  followed by Renderer target. Its localized values are HDR, SDR, SDR (HDR input observed), or Unknown;
   it does not confirm the physical display. The
   [diagnostics contract](diagnostics.md#renderer-color-evidence) owns the evidence
-  and unavailable-state rules. Active decoding is
-  Hardware, Hardware (copy-back), Software, or Unknown; it is independent of the
+  and unavailable-state rules. Engine decode path is
+  Hardware API path, Hardware API path (copy-back), Software, or Unknown;
+  it describes mpv's observed driver, not proof of physical acceleration.
+  Decoder component remains Unknown. These observations are independent of the
   configured hardware preference and presentation renderer. Decoded size is
   native decoder-reported width/height, not the display or render-surface size;
   the Video row retains stream frame-rate information. Policy rows are source bitrate, request cap and

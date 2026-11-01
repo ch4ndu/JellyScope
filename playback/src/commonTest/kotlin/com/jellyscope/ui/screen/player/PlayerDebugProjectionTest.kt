@@ -19,10 +19,11 @@ class PlayerDebugProjectionTest {
     private val mpvLabels =
         PlayerDebugMpvLabels(
             codecDescription = "Codec description",
-            decoding = "Video decoding",
+            decoding = "Engine decode path",
+            decoderComponent = "Decoder component",
             decodedSize = "Decoded size",
-            hardware = "Hardware",
-            hardwareCopyBack = "Hardware (copy-back)",
+            hardware = "Hardware API path",
+            hardwareCopyBack = "Hardware API path (copy-back)",
             software = "Software",
             unknown = "Unknown",
             rendererTarget = "Renderer target",
@@ -119,7 +120,8 @@ class PlayerDebugProjectionTest {
         assertEquals(
             listOf(
                 "Codec description",
-                "Video decoding",
+                "Engine decode path",
+                "Decoder component",
                 "Decoded size",
                 "Renderer target",
                 "Dropped frames",

@@ -33,6 +33,7 @@ import com.jellyscope.core.domain.playback.isExternalSubtitle
 import com.jellyscope.core.domain.playback.qualityRungs
 import com.jellyscope.core.domain.playback.subtitleKind
 import com.jellyscope.core.domain.playback.ticksToMilliseconds
+import com.jellyscope.core.domain.playback.unambiguousAudioStreamIndexes
 
 internal fun tvDownloadSections(
     records: List<DownloadRecord>,
@@ -200,7 +201,7 @@ internal data class TvLoadedDownloadRequest(
 )
 
 internal fun TvLoadedDownloadRequest.summary(selection: TvDetailPlaybackSelection): TvDownloadRequestSummary {
-    val audio = audioStreamIndex?.let(version::audioStreamAt)?.stream
+    val audio = audioStreamIndex?.let { index -> version.audioStreamAt(index) }
     val subtitleLabel =
         when (selection.subtitleMode) {
             TvPlaybackSubtitleMode.Off,
@@ -396,7 +397,11 @@ private fun TvLoadedDownloadRequest.resolveOriginalSubtitle(selection: TvDetailP
 }
 
 private fun TvLoadedDownloadRequest.buildSnapshot(subtitle: TvOriginalSubtitleResolution.Ready): OfflineMediaSnapshot? {
-    val audio = audioStreamIndex?.let(version::audioStreamAt)
+    val eligibleAudioIndexes = unambiguousAudioStreamIndexes(version.mediaStreams)
+    val audioStreams = version.mediaStreams.filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
+    // The loaded index is the only Audio choice; no snapshot-time fallback may replace it.
+    val audio = audioStreamIndex?.let { index -> version.audioStreamAt(index, eligibleAudioIndexes) ?: return null }
+    if (audio == null && audioStreams.isNotEmpty()) return null
     val selectedSubtitle =
         when (val selection = subtitle.selection) {
             DownloadSubtitleSelection.Off -> null
@@ -440,13 +445,12 @@ private fun TvLoadedDownloadRequest.buildSnapshot(subtitle: TvOriginalSubtitleRe
             chapters = detail.chapters.map { chapter -> OfflineChapterSnapshot(chapter.name, chapter.startTicks) },
             sourcePresentation = version.releaseBasename?.takeIf(String::isNotBlank) ?: version.name,
             embeddedTracks =
-                version.mediaStreams
-                    .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
-                    .mapIndexedNotNull { ordinal, stream ->
+                audioStreams
+                    .mapNotNull { stream ->
                         if (stream.isExternalSubtitle()) {
                             null
                         } else {
-                            stream.toOfflineTrack(OfflineTrackKind.Audio, stream.index ?: ordinal)
+                            stream.toOfflineTrack(OfflineTrackKind.Audio, stream.eligibleAudioIndex(eligibleAudioIndexes))
                         }
                     } +
                     version.mediaStreams
@@ -458,13 +462,13 @@ private fun TvLoadedDownloadRequest.buildSnapshot(subtitle: TvOriginalSubtitleRe
                                 stream.toOfflineTrack(OfflineTrackKind.Subtitle, stream.index ?: ordinal)
                             }
                         },
-            selectedAudioTrack = audio?.stream?.toOfflineTrack(OfflineTrackKind.Audio, audio.canonicalIndex),
+            selectedAudioTrack = audio?.toOfflineTrack(OfflineTrackKind.Audio, audio.index),
             selectedSubtitleTrack = selectedSubtitle,
             backendSource =
                 BackendSourceDescriptor(
                     container = version.container,
                     videoCodec = video?.codec,
-                    audioCodec = audio?.stream?.codec,
+                    audioCodec = audio?.codec,
                     isHdrOrDolbyVision =
                         listOfNotNull(video?.videoRangeType, video?.codec).any { value ->
                             value.contains("hdr", ignoreCase = true) ||
@@ -500,12 +504,17 @@ private data class TvIndexedStream(
         get() = stream.index ?: ordinal
 }
 
-private fun MediaVersion.audioStreamAt(index: Int): TvIndexedStream? =
-    mediaStreams
-        .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
-        .withIndex()
-        .firstOrNull { (ordinal, stream) -> stream.index == index || (stream.index == null && ordinal == index) }
-        ?.let { indexed -> TvIndexedStream(indexed.index, indexed.value) }
+/** Exact lookup of an unambiguous actual Audio index; missing, negative, repeated or ordinal input finds nothing. */
+private fun MediaVersion.audioStreamAt(
+    index: Int,
+    eligibleIndexes: Set<Int> = unambiguousAudioStreamIndexes(mediaStreams),
+): PlaybackMediaStream? =
+    mediaStreams.firstOrNull { stream ->
+        stream.type.equals("Audio", ignoreCase = true) && stream.eligibleAudioIndex(eligibleIndexes) == index
+    }
+
+private fun PlaybackMediaStream.eligibleAudioIndex(eligibleIndexes: Set<Int>): Int? =
+    index?.takeIf { candidate -> candidate in eligibleIndexes }
 
 private fun MediaVersion.subtitleStreamAt(index: Int): TvIndexedStream? =
     mediaStreams
@@ -514,24 +523,23 @@ private fun MediaVersion.subtitleStreamAt(index: Int): TvIndexedStream? =
         .firstOrNull { (ordinal, stream) -> stream.index == index || (stream.index == null && ordinal == index) }
         ?.let { indexed -> TvIndexedStream(indexed.index, indexed.value) }
 
-internal fun MediaVersion.resolvedAudioStreamIndex(requested: Int?): Int? =
-    requested
-        ?.let(::audioStreamAt)
-        ?.canonicalIndex
-        ?: mediaStreams
-            .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
-            .withIndex()
-            .firstOrNull { (_, stream) -> stream.isDefault == true }
-            ?.let { indexed -> indexed.value.index ?: indexed.index }
-        ?: mediaStreams
-            .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
-            .withIndex()
-            .firstOrNull()
-            ?.let { indexed -> indexed.value.index ?: indexed.index }
+/** A valid requested identity, else the first eligible raw default, else the first eligible Audio stream. */
+internal fun MediaVersion.resolvedAudioStreamIndex(requested: Int?): Int? {
+    val eligibleIndexes = unambiguousAudioStreamIndexes(mediaStreams)
+    val eligibleAudio =
+        mediaStreams.filter { stream ->
+            stream.type.equals("Audio", ignoreCase = true) && stream.eligibleAudioIndex(eligibleIndexes) != null
+        }
+    val resolved =
+        eligibleAudio.firstOrNull { stream -> stream.index == requested }
+            ?: eligibleAudio.firstOrNull { stream -> stream.isDefault == true }
+            ?: eligibleAudio.firstOrNull()
+    return resolved?.index
+}
 
 private fun PlaybackMediaStream.toOfflineTrack(
     kind: OfflineTrackKind,
-    streamIndex: Int,
+    streamIndex: Int?,
 ): OfflineTrackSnapshot =
     OfflineTrackSnapshot(
         kind = kind,

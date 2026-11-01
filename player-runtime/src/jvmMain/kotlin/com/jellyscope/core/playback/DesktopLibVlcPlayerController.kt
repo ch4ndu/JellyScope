@@ -1064,16 +1064,28 @@ class DesktopLibVlcPlayerController private constructor(
         var allResolved = true
         pendingAudioSelection?.let { selection ->
             val audioTracks = active.audioTracks()
+            // A known cohort is the original source or saved offline Audio count; the
+            // retained descriptor list may be shorter. Unknown cohorts keep the list length.
+            // Only DirectPlay and Offline play the file layout that a known cohort describes.
+            val plannedCohortSize = selection.descriptor.responseAuthoritativeCohortSize
+            val sourceAudioTrackCount = plannedCohortSize ?: lastPlan?.embeddedAudioTracks?.size
+            val playsCohortLayout =
+                when (lastPlan?.streamMode) {
+                    StreamMode.DirectPlay, StreamMode.Offline -> true
+                    else -> false
+                }
             val singlePlannedAudioTrack = lastPlan?.embeddedAudioTracks?.singleOrNull()
             val confirmsSolePlannedAudioTrack =
                 audioTracks.size <= 1 &&
                     nativePlayingGeneration == generation &&
+                    sourceAudioTrackCount == 1 &&
+                    (plannedCohortSize == null || playsCohortLayout) &&
                     singlePlannedAudioTrack?.jellyfinStreamIndex == selection.descriptor.jellyfinStreamIndex
             emitDesktopVlcProbe(
                 DesktopVlcProbeRecord(
                     action = DesktopVlcProbeAction.AUDIO_COHORT,
                     nativeIds = audioTracks.map(DesktopVlcTrack::id),
-                    count = lastPlan?.embeddedAudioTracks?.size,
+                    count = sourceAudioTrackCount,
                     ordinal = selection.descriptor.filteredContainerOrdinal,
                     accepted = confirmsSolePlannedAudioTrack,
                 ),
@@ -1083,11 +1095,26 @@ class DesktopLibVlcPlayerController private constructor(
                 audioActivationConfirmation.confirm(selection.target)
                 return@let
             }
+            val ordinalCountQualified =
+                if (plannedCohortSize == null) {
+                    audioTracks.size == sourceAudioTrackCount
+                } else {
+                    playsCohortLayout && audioTracks.size == plannedCohortSize
+                }
             val exactCountOrdinalCandidate =
                 audioTracks
-                    .takeIf { tracks -> tracks.size == lastPlan?.embeddedAudioTracks?.size }
+                    .takeIf { ordinalCountQualified }
                     ?.getOrNull(selection.descriptor.filteredContainerOrdinal)
                     ?.id
+            // Without count-qualified positional evidence a known cohort may match only
+            // by a unique label: the shared resolver skips an out-of-range ordinal, and
+            // desktop candidates carry no stable index, codec or language.
+            val fallbackDescriptor =
+                if (plannedCohortSize != null && !ordinalCountQualified) {
+                    selection.descriptor.copy(filteredContainerOrdinal = -1)
+                } else {
+                    selection.descriptor
+                }
             val resolution =
                 exactCountOrdinalCandidate?.let { candidate ->
                     NativeTrackResolution(
@@ -1096,7 +1123,7 @@ class DesktopLibVlcPlayerController private constructor(
                         reason = NativeTrackMappingReason.Ordinal,
                     )
                 } ?: resolveEmbeddedTrack(
-                    descriptor = selection.descriptor,
+                    descriptor = fallbackDescriptor,
                     orderedCandidates =
                         audioTracks.map { track ->
                             NativeTrackCandidate(

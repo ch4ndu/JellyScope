@@ -77,14 +77,15 @@ Diagnostics record the effective policy and origin, never a fake nullable-bitrat
 
 | Policy | Initial wire request | Automatic stream-changing recovery | Persistence |
 | --- | --- | --- | --- |
-| `Original` | No client quality/performance limit; DirectPlay/DirectStream enabled | Never. Source-copy incompatibility fails closed; a runtime decoder failure or reliable missing-video-output fact shows a persistent action notice. | Server default, or current playback only when selected in the player. |
+| `Original` | No client quality/performance limit; DirectPlay/DirectStream enabled | No automatic quality recovery. Source-copy incompatibility fails closed; decoder/health failures prompt. Independent Audio activation recovery below can change delivery mode while retaining this policy and its limits. | Server default, or current playback only when selected in the player. |
 | `Auto` | The same no-client-limit, DirectPlay-first request as Original | Auto may take one compatibility replan. Only an explicit in-player Auto choice may take one strictly lower canonical quality recovery; an inherited Playback-default Auto policy instead presents manual in-player choices. | Server default; a runtime recovery cap and player choice never persist. |
 | `Fixed` | The exact selected bitrate, plus the canonical rung resolution when applicable | Compatibility recovery may stay inside the selected cap; it never lowers the user's fixed choice. | Server default, VLC-family default, or current playback only. |
 
 `Original` does not hide genuine decoder incompatibility. The device profile may
 still cause Jellyfin to choose a compatible stream when authoritative facts
 require that. It means that JellyScope adds no finite quality/performance
-limiter and does not silently choose a different stream after runtime failure.
+limiter and does not silently choose a different stream for decoder or health
+recovery. Independent Audio activation recovery is the exception described below.
 
 In shared Compose playback, a user quality choice is a proposal until a current
 replacement plan succeeds. A rejected proposal preserves the installed stream,
@@ -98,7 +99,7 @@ This preservation applies only while the same installed session remains active;
 startup, terminal recovery, and native prepare failures retain their normal
 failure semantics. A new relevant action or explicit dismissal clears the notice.
 
-`Original` recovery is a single prompt contract. Every trigger below returns
+`Original` decoder/health recovery is a single prompt contract. Every trigger below returns
 `OriginalPlaybackFailed` with exactly `AcceptAuto`, `OpenPlaybackSettings`,
 `Dismiss`, and `Close`; it creates no replan, recovery budget use, or runtime
 quality cap.
@@ -138,6 +139,12 @@ Network retry which repeats the same plan, and an already-qualified backend
 replacement which preserves the selected policy, remain separate from a
 stream-changing quality recovery. A replacement must re-plan from the new
 backend's own facts and discard observations belonging to the old controller.
+
+Exact-target [Audio activation recovery](playback-runtime.md#audio-activation-and-native-mapping)
+is also independent of quality recovery. It disables only DirectPlay, retains
+the selected quality policy and limits (including Original's `NoClientLimit`),
+and spends no prompt, compatibility or quality allowance. It can change delivery
+mode; it does not promise the same stream or rendered quality.
 
 ## 3. Wire and persistence boundaries
 
@@ -471,7 +478,8 @@ cause conversion or an unsupported result.
 | VLCKit (iOS) | MP4, M4V, MOV, MKV, WebM, TS, M2TS, AVI, FLV, 3GP, OGV, ASF, WMV | H.264, HEVC, VP8, VP9, MPEG-1/2/4, VC-1, WMV, ProRes, Theora, MJPEG, AV1, and more | AAC, AC-3, E-AC-3, DTS, MP1–MP3, FLAC, ALAC, Opus, Vorbis, PCM, WMA, and more |
 | Bundled macOS mpv | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis, 35 exact PCM formats |
 | Other desktop mpv runtimes | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis |
-| Desktop LibVLC | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis, generic `pcm` token |
+| Bundled macOS LibVLC | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis, 23 exact PCM formats |
+| Installed desktop LibVLC | MP4, M4V, MOV, MKV, WebM, TS, AVI | H.264, HEVC, VP9, AV1 | AAC, MP2, MP3, AC-3, E-AC-3, DTS, TrueHD, FLAC, Opus, Vorbis |
 
 On Android, support depends on the selected player and device decoders. On
 Apple devices, the hardware AV1 check applies to AVPlayer. VLCKit declares AV1
@@ -499,8 +507,9 @@ without that hardware gate and does not claim HDR support.
 - **Android mpv input codecs use exact metadata names.** The pinned FFmpeg
   registers decoders for 35 PCM codec IDs, ALAC and MLP. Their descriptor names
   match the `codec_name` vocabulary used by ffprobe; a literal `pcm` is not a
-  wildcard for `pcm_*`. Desktop LibVLC retains that generic token and still needs
-  qualification; [desktop runtime provenance](desktop-playback.md#desktop) governs mpv declarations. Decoder symbols are not generally wire names (DTS uses dca).
+  wildcard for `pcm_*`. [Desktop runtime provenance](desktop-playback.md#desktop)
+  scopes the independently qualified mpv and LibVLC declarations. Decoder symbols
+  are not generally wire names (DTS uses dca).
   The [native runbook](../operations/android-native-dependencies.md#pinned-inputs)
   owns the registration evidence and its limits. This expands input decoding
   declarations and the finite diagnostic vocabulary, without changing channel
@@ -540,8 +549,9 @@ without that hardware gate and does not claim HDR support.
 
 - **Original has one manual failure contract.** Decoder, unsupported-media,
   missing-output, buffering, stall, and dropped-frame triggers all preserve the
-  source and present the same actions. Trigger-specific hidden replans would
-  make Original's no-stream-change promise depend on implementation detail.
+  source and present the same actions. Independent exact-target Audio activation
+  recovery retains Original's policy and limits but can change delivery mode;
+  keeping this exception explicit avoids treating it as a hidden quality replan.
 
 - **Capability facts remain concrete-backend owned.** Combining unrelated
   decoder maxima, platform probes, static declarations, or extension support

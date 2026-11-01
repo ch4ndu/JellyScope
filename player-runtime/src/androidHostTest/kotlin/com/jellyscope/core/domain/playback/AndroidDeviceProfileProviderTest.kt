@@ -514,7 +514,9 @@ class AndroidDeviceProfileProviderTest {
         assertFalse("not-declared" in projected.videoResolutionsByCodec)
         assertEquals(
             declared.copy(videoResolutionsByCodec = projected.videoResolutionsByCodec),
-            projected,
+            projected.copy(
+                videoCodecEvidence = projected.videoCodecEvidence.mapValues { (_, evidence) -> evidence.copy(probeProjection = null) },
+            ),
         )
     }
 

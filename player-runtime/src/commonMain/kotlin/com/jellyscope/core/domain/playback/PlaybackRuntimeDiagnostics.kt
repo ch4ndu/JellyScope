@@ -2,7 +2,11 @@
 
 package com.jellyscope.core.domain.playback
 
-/** mpv's hwdec-current reports the active driver, "no" for software, or unavailable. */
+/**
+ * Maps mpv's hwdec-current (the active hardware API path, "no" for software,
+ * or unavailable) on Android and desktop. The result is the engine-observed
+ * decode path, not the actual decoder component or hardware proof.
+ */
 internal fun mpvVideoDecodingMode(hardwareDecoder: String?): PlaybackVideoDecodingMode? =
     when {
         hardwareDecoder.isNullOrBlank() -> null

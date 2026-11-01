@@ -2,6 +2,7 @@
 
 package com.jellyscope.core.domain.action
 
+import kotlinx.atomicfu.locks.ReentrantLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -13,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.atomicfu.locks.withLock as withVisibilityLock
 
 /**
  * Coalesces rapid per-key writes before they reach a store. Same-key calls are
@@ -20,6 +22,12 @@ import kotlinx.coroutines.withTimeoutOrNull
  * enqueue/flush lane runs on `limitedParallelism(1)` so two rapid same-key calls
  * cannot acquire the mutex out of order on a multi-threaded dispatcher. [save] is
  * non-suspending so UI callers can invoke it from event handlers.
+ *
+ * [outstanding] exposes the latest value submitted per key from [save] until its write
+ * terminates: the enqueue job retires it unless it was handed to a flush job, whose completion
+ * retires it on success, failure, or cancellation. A newer same-key value is never retired by an
+ * older request. Visibility is transient work state, not evidence of durable success, and a
+ * superseded caller's Deferred still completes early.
  */
 internal class DebouncedKeyedStoreWriter<K : Any, V : Any>(
     private val scope: CoroutineScope,
@@ -33,26 +41,49 @@ internal class DebouncedKeyedStoreWriter<K : Any, V : Any>(
     private val jobs = mutableMapOf<K, Job>()
     private var latest: Deferred<Unit>? = null
 
+    // Guards only the visible requests and handoff flags; never held across suspension, writes,
+    // job cancellation, or Deferred completion. The coroutine mutex may take it, never the reverse.
+    private val visibilityLock = ReentrantLock()
+    private val visible = mutableMapOf<K, PendingWrite<V>>()
+
     fun save(
         key: K,
         value: V,
     ): Deferred<Unit> {
         val completion = CompletableDeferred<Unit>()
         latest = completion
-        scope.launch(writeDispatcher) {
-            mutex.withLock {
-                pending[key]?.completion?.complete(Unit)
-                pending[key] = PendingWrite(value, completion)
-                jobs[key]?.cancel()
-                jobs[key] =
-                    scope.launch(writeDispatcher) {
-                        delay(debounceMs)
-                        flush(key)
+        val request = PendingWrite(value, completion)
+        // Publish and dispatch together so publication order matches enqueue order.
+        visibilityLock.withVisibilityLock {
+            visible[key] = request
+            val enqueue =
+                scope.launch(writeDispatcher) {
+                    mutex.withLock {
+                        pending[key]?.completion?.complete(Unit)
+                        pending[key] = request
+                        jobs[key]?.cancel()
+                        val flushJob =
+                            scope.launch(writeDispatcher) {
+                                delay(debounceMs)
+                                flush(key)
+                            }
+                        jobs[key] = flushJob
+                        visibilityLock.withVisibilityLock {
+                            request.handedOff = true
+                            flushJob.invokeOnCompletion { retire(key, request) }
+                        }
                     }
+                }
+            // Registered last: it runs immediately if the scope already cancelled the enqueue.
+            enqueue.invokeOnCompletion {
+                visibilityLock.withVisibilityLock { if (!request.handedOff) retire(key, request) }
             }
         }
         return completion
     }
+
+    /** Latest value submitted for [key] whose write has not yet terminated. */
+    fun outstanding(key: K): V? = visibilityLock.withVisibilityLock { visible[key]?.value }
 
     fun latestWrite(): Deferred<Unit>? = latest
 
@@ -87,8 +118,19 @@ internal class DebouncedKeyedStoreWriter<K : Any, V : Any>(
         }
     }
 
-    private data class PendingWrite<V>(
+    private fun retire(
+        key: K,
+        request: PendingWrite<V>,
+    ) {
+        visibilityLock.withVisibilityLock { if (visible[key] === request) visible.remove(key) }
+    }
+
+    // Identity, not value equality, distinguishes repeated submissions of the same value.
+    private class PendingWrite<V>(
         val value: V,
         val completion: CompletableDeferred<Unit>,
-    )
+    ) {
+        // Set under visibilityLock once a flush job owns retirement.
+        var handedOff = false
+    }
 }

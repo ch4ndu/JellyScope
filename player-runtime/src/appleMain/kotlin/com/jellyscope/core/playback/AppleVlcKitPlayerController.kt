@@ -12,6 +12,8 @@ import com.jellyscope.core.domain.playback.DEFAULT_PLAYBACK_SPEED
 import com.jellyscope.core.domain.playback.EmbeddedAudioSelection
 import com.jellyscope.core.domain.playback.EmbeddedSubtitleSelection
 import com.jellyscope.core.domain.playback.EmbeddedTrackKind
+import com.jellyscope.core.domain.playback.HostPlaybackIntentObservation
+import com.jellyscope.core.domain.playback.HostSeekObservation
 import com.jellyscope.core.domain.playback.LocalSubtitleKind
 import com.jellyscope.core.domain.playback.NativeTrackCandidate
 import com.jellyscope.core.domain.playback.NativeTrackMappingReason
@@ -226,6 +228,17 @@ internal class AppleVlcKitPlayerController(
 
     private val pictureInPictureSeekGate = VlcSingleFlightCompletionGate()
     private var pictureInPictureSeekCompletionJob: Job? = null
+
+    // Lifetime-monotonic: never reset, so a cleared snapshot can never be
+    // followed by a sequence the health coordinator already consumed.
+    private var hostSeekSequence = 0L
+    override var lastAcceptedHostSeek: HostSeekObservation? = null
+        private set
+
+    // Lifetime-monotonic for the same reason as hostSeekSequence.
+    private var hostPlaybackIntentSequence = 0L
+    override var lastHostPlaybackIntent: HostPlaybackIntentObservation? = null
+        private set
     private var pendingEmbeddedAudioSelection: EmbeddedAudioSelection? = null
     private var pendingEmbeddedSubtitleSelection: EmbeddedSubtitleSelection? = null
     private var expectedSubtitleTarget: SubtitleActivationTarget? = null
@@ -347,6 +360,7 @@ internal class AppleVlcKitPlayerController(
                 subtitleStyle = requestedSubtitleStyle,
                 error = null,
                 audioUnavailable = false,
+                healthStatusOverride = null,
             )
         }
 
@@ -472,10 +486,7 @@ internal class AppleVlcKitPlayerController(
 
     override fun play() {
         if (released) return warnReleased(PlayerOperation.Play)
-        val shouldBeginTransition =
-            !playWhenReady ||
-                _playbackState.value.status !in setOf(PlaybackStatus.Playing, PlaybackStatus.Buffering)
-        if (shouldBeginTransition) {
+        if (shouldBeginPlayTransition()) {
             // A paused PiP seek can still be waiting for VLCKit's seek-finished
             // callback. Play replaces that transition, so release the system
             // completion before starting the replacement.
@@ -506,6 +517,10 @@ internal class AppleVlcKitPlayerController(
         applyRequestedRate()
         updateStateFromPlayer()
     }
+
+    private fun shouldBeginPlayTransition(): Boolean =
+        !playWhenReady ||
+            _playbackState.value.status !in setOf(PlaybackStatus.Playing, PlaybackStatus.Buffering)
 
     override fun pause() {
         if (released) return warnReleased(PlayerOperation.Pause)
@@ -622,6 +637,9 @@ internal class AppleVlcKitPlayerController(
             ) {
                 return@dispatch_async
             }
+            // Published before the verb so shared health reconciles the new
+            // attempt ahead of any state or deadline it causes.
+            if (shouldBeginPlayTransition()) publishHostPlaybackIntent(generation)
             play()
         }
     }
@@ -637,8 +655,14 @@ internal class AppleVlcKitPlayerController(
             ) {
                 return@dispatch_async
             }
+            if (playWhenReady) publishHostPlaybackIntent(generation)
             pause()
         }
+    }
+
+    private fun publishHostPlaybackIntent(generation: Long) {
+        lastHostPlaybackIntent =
+            HostPlaybackIntentObservation(prepareEpoch = generation, sequence = ++hostPlaybackIntentSequence)
     }
 
     override fun reportUnavailable(generation: Long) {
@@ -727,6 +751,9 @@ internal class AppleVlcKitPlayerController(
             return
         }
 
+        // Published before the resulting state so shared health reconciles the
+        // accepted seek ahead of any sample or deadline it causes.
+        lastAcceptedHostSeek = HostSeekObservation(prepareEpoch = generation, sequence = ++hostSeekSequence)
         armPictureInPictureSeekCompletionDeadline(token, generation)
         updateStateFromPlayer(statusOverride = if (playWhenReady) PlaybackStatus.Buffering else PlaybackStatus.Paused)
         if (completionArrivedSynchronously) {
@@ -806,6 +833,7 @@ internal class AppleVlcKitPlayerController(
                 audioActivation = AudioActivationState.None,
                 subtitleActivation = SubtitleActivationState.None,
                 audioUnavailable = false,
+                healthStatusOverride = null,
             )
         }
         offlinePath = null
@@ -1340,6 +1368,25 @@ internal class AppleVlcKitPlayerController(
                         nativeState = nativeState,
                     )
             }
+        // Health-only: once the clock has advanced at the target, a still-held public
+        // Buffering no longer hides native transport from playback health. Before that
+        // advance (seek, PiP dispatch, cold start) health keeps the held Buffering.
+        val healthStatusOverride =
+            if (
+                terminalDecision == null &&
+                status == PlaybackStatus.Buffering &&
+                activeTransitionDecision?.forceBuffering == true &&
+                playbackTransition.snapshot(currentGeneration)?.clockAdvanced == true
+            ) {
+                nativePlayer.resolvePlaybackStatus(
+                    previous = previousStatus,
+                    buffering = buffering,
+                    playIntent = playWhenReady,
+                    nativeState = nativeState,
+                )
+            } else {
+                null
+            }
         pictureInPictureSeekable.store(if (nativePlayer.seekable) 1L else 0L)
         val resolvedPosition =
             when {
@@ -1367,6 +1414,7 @@ internal class AppleVlcKitPlayerController(
                         else -> null
                     },
                 audioUnavailable = false,
+                healthStatusOverride = healthStatusOverride,
             )
         }
         surfaceOwner.invalidatePlaybackState()
@@ -1388,7 +1436,9 @@ internal class AppleVlcKitPlayerController(
                 videoWidth = videoSize.first.takeIf { value -> value > 0 },
                 videoHeight = videoSize.second.takeIf { value -> value > 0 },
                 droppedVideoFrames = droppedFrames,
-                outputDroppedVideoFrames = droppedFrames,
+                // lostPictures combines output losses with some pre-queue picture
+                // failures, so no output-only count is available.
+                outputDroppedVideoFrames = null,
                 videoDecoderName = null,
                 videoFrameRate = null,
                 bandwidthEstimateBps = null,
@@ -1479,6 +1529,7 @@ internal class AppleVlcKitPlayerController(
                 status = PlaybackStatus.Failed,
                 error = error,
                 audioUnavailable = false,
+                healthStatusOverride = null,
             )
         }
     }
@@ -1514,6 +1565,8 @@ internal class AppleVlcKitPlayerController(
         surfaceOwner.detachNativeSession(expectReplacement)
         logSlowTeardownStep("surface-detach", surfaceDetachStarted.elapsedNow().inWholeMilliseconds)
         generation.addAndFetch(1L)
+        lastAcceptedHostSeek = null
+        lastHostPlaybackIntent = null
         clearPlaybackTransition()
         resetVideoOutputBaseline()
         val oldMedia = currentMedia
@@ -2152,8 +2205,9 @@ private fun String?.toVlcRgb(): String? {
 
 private const val DEFAULT_VLC_SUBTITLE_SIZE = 25f
 
-// Native time callbacks arrive ~4x/s; sample the runtime diagnostics (videoSize
-// plus the media statistics C struct) roughly once per second.
+// Sample the runtime diagnostics (videoSize plus the media statistics C struct) on
+// every fourth state update; cadence follows native callbacks and commands, so it
+// maps to no fixed number of seconds.
 private const val RUNTIME_DIAGNOSTICS_SAMPLE_TICKS = 4
 
 private const val REQUIRED_VLCKIT_PICTURE_ADVANCES = 2

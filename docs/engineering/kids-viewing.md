@@ -81,7 +81,9 @@ a zero effective local-resume input when building an offline plan. Replay does n
 erase durable progress to construct that plan. A pending from-beginning launch
 keeps that intent through Retry until the matching asset actually starts playing;
 a different target or disposal clears it. Meaningful current source/track
-choices are preserved for replay. Account/catalogue ownership belongs to
+choices are preserved for replay, with online playback retention kept separate
+from [explicit preference intent](playback-runtime.md#error-and-audio-recovery).
+Account/catalogue ownership belongs to
 [Kids account playback](#kids-account-playback), and layout/input
 to [Kids watch page](#kids-watch-page).
 

@@ -815,10 +815,11 @@
     <string name="settings_value_off">Off</string>
     <string name="session_restoring">Restoring session</string>
     <string name="player_debug_codec_description">Codec description</string>
-    <string name="player_debug_decoding">Video decoding</string>
+    <string name="player_debug_decoding">Engine decode path</string>
+    <string name="player_debug_decoder_component">Decoder component</string>
     <string name="player_debug_decoded_size">Decoded size</string>
-    <string name="player_debug_hardware">Hardware</string>
-    <string name="player_debug_hardware_copy_back">Hardware (copy-back)</string>
+    <string name="player_debug_hardware">Hardware API path</string>
+    <string name="player_debug_hardware_copy_back">Hardware API path (copy-back)</string>
     <string name="player_debug_software">Software</string>
     <string name="player_debug_unknown">Unknown</string>
     <string name="player_debug_renderer_target">Renderer target</string>

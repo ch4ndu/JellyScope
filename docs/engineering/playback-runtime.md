@@ -35,9 +35,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   from the server setting, any compatible item override, source descriptor, and
   runtime availability. For shared online Apple Auto launches, the descriptor
   uses the container, first video's codec/range, and effective launch audio
-  selection. Audio lookup uses actual nonnegative stream indexes, falling back
-  to the first default then first valid Audio stream when needed; no valid
-  Audio identity leaves its codec unknown. That durable initial backend remains authoritative for
+  selection. Audio lookup uses actual nonnegative indexes occurring exactly once
+  across all Audio entries, including external audio. It falls back to the first
+  default then first eligible stream; the chosen codec stays unknown if missing,
+  and no eligible stream also leaves it unknown. That durable initial backend remains authoritative for
   queue switches unless the user makes an explicit session-only switch, and
   flows into `PlaybackInfoRequestPolicy.backend` so PlaybackInfo uses that
   backend's device profile. An explicit remote in-player switch is a separate
@@ -52,7 +53,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   keeps that playback. The factory's actual backend requires a matching clean
   plan; only an explicit target switch
   may construct the concrete platform default once after target construction
-  fails, never the Android automatic-health fallback.
+  fails, never the Android automatic-health fallback. Installed audio fallback
+  runs after installation releases ownership and any software-decoding switch
+  result is recorded; a follow-up replan cannot turn that completed switch into
+  a failed switch report.
 - Android's ExoPlayer path is Media3 1.9.0 with decoder fallback and
   the Jellyfin FFmpeg extension (`org.jellyfin.media3:media3-ffmpeg-decoder`
   from Maven Central); FFmpeg is an ExoPlayer decoder extension, not a third
@@ -95,8 +99,14 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   subtitle, HDR, audio, passthrough, or software-decoder declaration. This is a
   conservative platform-decoder safety input: hardware, software, unclassified,
   and legacy-classified probe bounds all remain enforced. Their provenance
-  describes Android's selected decoder, not measured limits of LibVLC's own
-  software decoder. Unprobed AV1 retains the pinned engine's unknown bounds.
+  describes the selected Android probe candidate, not the component opened by
+  LibVLC or measured limits of its software decoder. Unprobed AV1 retains the
+  pinned engine's unknown bounds. The shared mpv/LibVLC projection also records
+  closed diagnostic reasons for retained declarations, missing probe facts,
+  incomplete tuples not projected, and complete or permitted partial tuples
+  projected. Probe classification is retained separately from engine decode
+  evidence; neither diagnostic field changes admission or recovery. mpv still
+  requires a complete tuple, while LibVLC keeps its existing partial-limit rule.
 - When a projected bound rejects a source, the shared planner owns the normal
   compatibility path before native prepare: it records the capability-driven
   retry and `SourceCopyRejected`/`VerifiedDeviceCap` rather than handing the
@@ -136,7 +146,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   completed, position, duration, buffered position, audio and subtitle
   activation, an optional `PlaybackError` cause only when failed, and a
   non-fatal `audioUnavailable` flag only while playback continues video-only
-  after audio output fails.
+  after audio output fails. Its optional `healthStatusOverride` supplies health
+  status only while the public status is `Buffering`; null uses the public
+  status. UI, reporting, failure and terminal handling retain the public status.
 - The AVPlayer controller derives buffered position from
   `AVPlayerItem.loadedTimeRanges` by reporting the end of the loaded range
   covering the current playhead. It derives `Buffering` from AVFoundation's
@@ -146,7 +158,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   position, so its buffer-ahead is unavailable, not a measured empty buffer.
   Its `Buffering` combines native buffering progress under play intent with the
   prepare/resume/seek transition hold owned by
-  [iOS recovery](apple-playback.md#ios-recovery).
+  [iOS recovery](apple-playback.md#ios-recovery). Once the transition clock has
+  reached the target and advanced, health uses the ordinary native status
+  mapping during the remaining picture-readiness hold. The spinner and pinned
+  target remain unchanged. Before that clock advance, health uses public
+  `Buffering`; genuine native buffering after the advance remains measurable.
 - `PlaybackProgressReporter` owns Jellyfin progress reporting actions for start,
   pause, seek, stop, completion, and failure.
 - Direct-play planning uses `/Videos/{itemId}/stream?static=true` with
@@ -245,8 +261,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 The pure shared `PlaybackHealthEvaluator` receives native controller facts but
 owns the meaning of those facts. Slow startup is eligible after 10 seconds
 before the first `Playing` and clears at the first `Playing`; it has a separate
-message-only startup budget. Post-start guidance uses one shared budget and
-the first admissible signal wins: one buffering interval of at least 5 seconds,
+message-only startup budget. VLCKit's health status can end that accounting
+before picture readiness: it represents native transport plus an earlier clock
+advance at the target, not first-video-output proof. Post-start guidance uses one
+shared budget and the first admissible signal wins: one buffering interval of at
+least 5 seconds,
 10 seconds of buffering in a rolling 60-second window, three post-start
 `Playing`→`Buffering` stalls in 60 seconds, or sustained dropped-frame evidence
 of at least 2 frames/second for 20 seconds within 60 seconds. Existing dropped-
@@ -254,19 +273,47 @@ frame measurements remain duration spans, not report counts; stale batch spans
 and spans crossing the 2-second exclusion after seek, prepare, re-plan, resume,
 or backend replacement are rejected or clipped before they qualify.
 
-`PlaybackHealthSessionCoordinator` owns generation-scoped timer evaluation. Startup/buffering/output jobs are
-canceled on failure, completion, stop, item switch, controller replacement, and
-dispose; a stale callback cannot mutate a new item session. First-video-output
-is evaluated only when video is expected, playback is actively Playing or
+`PlaybackHealthSessionCoordinator` owns generation-scoped timer evaluation.
+Failure, completion, stop, item switch and disposal cancel its jobs; a stale
+callback cannot mutate a new item session. During the Compose ViewModel's
+controller installations, health evaluation is suspended and all three timers
+are canceled. This covers timing restoration, controller construction,
+serialized backend switching and same-controller replans, including final
+planning while the outgoing controller still exists. Initial switch preflight
+remains outside that suspension. Matching prepare identity, positive output and
+Started/Presented transition facts remain admitted; they do not spend warning
+or signal slots and may have no replay.
+
+Settlement restarts rolling buffering, stall, dropped-frame and no-output
+waiting evidence before lifting suspension. It preserves previously spent
+signal/guidance slots, Auto recovery budgets and current-prepare positive facts.
+Health receives the current owned, prepared controller's state only when the
+installing launch still owns it. An ended session stays ended. Without a
+qualified snapshot, the next prepare admission or observed state can rearm
+timers. Slow-startup timing still counts from launch: an unstarted session may
+show that message immediately after settlement, without automatic recovery.
+
+A typed TimedOut delivered during suspension is discarded before its transition
+or no-output slot is spent. A fact delivered afterward still follows existing
+prepare/transition identity checks, including a retained transition whose
+fact was produced while busy. Native observation timestamps do not share the
+coordinator's clock and are not compared to an installation cutoff. The current
+VLCKit producer lacks reliable first-output capability, so it cannot enter this
+health signal path; a future reliable producer needs an explicit clock or
+identity contract before promising stronger stale-fact rejection.
+
+First-video-output is evaluated only when video is expected, playback is actively Playing or
 progressing, a reliable current-prepare observation has been armed, and the
 session is outside seek/replan/resume/surface/backend/background/PiP-transition
 exclusions. A positive Media3 first-frame fact, mpv software-frame publication,
 VLC displayed-picture counter, or AVPlayer ready-for-display bridge is
 sufficient; mpv OpenGL, Vout, and surface
 attachment is not. The deadline begins at active playback, not request launch.
-Capability is checked when the deadline is armed. The coordinator rechecks that reliable first-output measurement is still
-supported when the deadline fires; capability loss or an unsupported backend
-cancels the signal rather than manufacturing a no-video recovery.
+The ViewModel reads both capability sets from the same installed concrete
+controller on each evaluation. It reports no measurement capabilities while
+pending or between release and replacement. Capability is checked when the
+deadline is armed and again when it fires; capability loss or an unsupported
+backend cancels the signal rather than manufacturing a no-video recovery.
 
 The no-video-output deadline additionally requires an **advancing playback
 clock**: a clock progressing with no displayed picture is the black-video
@@ -279,16 +326,38 @@ diagnostic threshold class records the bound that actually applied. These
 qualifications prevent a slow or frozen startup from triggering a false
 `NoVideoOutput` compatibility replan.
 
-A seek or a play/pause **restarts the evidence window**: accumulated buffering
-intervals, stall events, and dropped-frame spans are cleared so evidence gathered
-under previous conditions cannot reach a threshold. Restarting during an active
-buffering episode reopens the interval at the boundary — the retained status is
+App-owned seek and play/pause commands **restart the evidence window**:
+accumulated buffering intervals, stall events, and dropped-frame spans are cleared
+so evidence gathered under previous conditions cannot reach a threshold.
+Restarting during an active buffering episode reopens the interval at the boundary — the retained status is
 unchanged, so the ongoing wait remains measurable. Once-per-session emission
 latches survive a restart, so a signal kind reports at most once in an item
 session. Auto's compatibility and quality budgets also survive and remain
-one-per-item-session. The bounded
-health summary additionally records which gate suppressed a would-be warning
-(`postStartGuidanceShown`, `noVideoOutputGuidanceShown`, the resolved guidance
+one-per-item-session.
+
+VLCKit PiP supplies separate snapshots for accepted seeks and owner-admitted
+play/pause commands. Play publishes before the verb when it starts a playback
+attempt, including from Failed or Completed with retained play intent; Pause
+publishes when it clears play intent. These command facts do not prove native
+acceptance or output. Repeated Play while intent is true and status is Playing
+or Buffering, and Pause while intent is false, publish nothing. Another Play
+before VLC leaves Stopped can qualify again, matching ordinary app Play.
+
+Before evaluating a status sample or deadline, the coordinator independently
+acknowledges each snapshot with a matching prepare epoch and increasing
+sequence, then restarts evidence once if either is new. Pending commands may
+coalesce; the existing two-second exclusion begins at consumption. Reading the
+same snapshot again does not extend it. An app-owned restart also acknowledges
+both pending facts. Session start resets both watermarks; within that session,
+only an actual new prepare or controller admission resets them. Native teardown
+clears published snapshots without resetting their lifetime sequence counters.
+
+This restart contract covers VLCKit PiP. AVPlayer native PiP play/pause/skip and
+Apple audio interruption/route-loss intent changes remain unassessed here.
+Snapshot admission, rejection and consumption are not separately logged.
+
+The bounded health summary additionally records which gate suppressed a would-be
+warning (`postStartGuidanceShown`, `noVideoOutputGuidanceShown`, the resolved guidance
 policy, `guidancePublishable`, and whether a buffering interval opened since the
 last restart), because gates that emit no signal are invisible to signal-scoped
 logging.
@@ -318,12 +387,30 @@ suppresses interactive recovery until it is safe to show the consequence.
 
 ## Audio activation and native mapping
 
-- Requested and installed audio are separate. Detail/Series track state records
+- Source audio choices, initial codec lookup and response-derived embedded Audio
+  descriptors require actual nonnegative indexes occurring once across all
+  case-insensitive Audio streams, including external entries. Missing, negative
+  and repeated identities are omitted. Choice ordinals remain relative to all
+  Audio; native descriptor ordinals and cohort sizes remain relative to embedded
+  Audio before omissions. External entries can disqualify a duplicate identity
+  without adding an embedded slot. Both descriptor overloads retain the same
+  identities and positions; a false DirectPlay-switch admissibility stamp does
+  not remove an eligible descriptor for the server-approved initial track.
+  A nonnegative response-selected audio index remains authoritative even without
+  a descriptor or Audio metadata, including sparse DirectStream/Transcode
+  responses. An unmappable DirectPlay target uses the existing bounded Audio
+  recovery, which may convert delivery or fail on a constrained server; an absent
+  target creates no synthetic recovery obligation. Download drafts and offline
+  descriptors retain their separate rules.
+- Requested and installed audio are separate. Detail/Series accept a remembered
+  default only when its Audio index is offered by the current source; otherwise
+  they use preferred language, Jellyfin default, then first track. This does not
+  change remembered records or memory-tier precedence. Their track state records
   explicit audio provenance at the UI boundary: an untouched resolved default
   routes `null`, while touch or D-pad selection routes the chosen non-null
   stream index even when it equals the displayed default. The state is keyed by
   item plus media source, and a source replacement or invalid selection clears
-  that explicit provenance. Player resolves valid explicit route value,
+  that explicit provenance. A fresh launch resolves valid explicit route value,
   remembered explicit value, preferred language, Jellyfin default, then first
   track. Durable writes contain only an explicit route value, remembered
   explicit value, or an in-player audio action; response/native substitution is
@@ -332,7 +419,9 @@ suppresses interactive recovery until it is safe to show the consequence.
   response-selected DirectStream/Transcode track or an exact native DirectPlay
   activation. A pending DirectPlay switch leaves the previous installed row
   selected. A response that authoritatively selects another audio stream
-  replaces both requested memory and installed truth.
+  replaces both requested memory and installed truth. Same-target Kids
+  Retry/Replay can retain playback independently of explicit intent under the
+  [recovery contract](#error-and-audio-recovery).
 - Native embedded mapping filters to the correct type and embedded/external
   class, prefers exact stable source identity, then tries the filtered ordinal
   in deterministic native order and validates available metadata. Conflicting
@@ -358,13 +447,28 @@ suppresses interactive recovery until it is safe to show the consequence.
   decoding**: the libvlc-family and mpv backends accept a `set*Track` and read the
   index back for any stream present in the container, whether or not they own a
   decoder for it, so they have no decode-capability signal at selection time.
-  Desktop LibVLC has one additional fail-closed guard for response-derived
-  embedded subtitles: only a DirectPlay plan in the current native Playing
-  generation with a known response cohort whose size exactly matches the native
-  candidate list may use the filtered ordinal without comparable labels. All
-  other cases use the shared resolver. A successful setter call is not activation;
-  desktop embedded-subtitle state becomes Active only after exact native selector
-  readback.
+  Desktop LibVLC Audio uses the original response cohort size or complete saved
+  offline Audio count for its positional shortcut. DirectPlay and Offline with
+  an equal native count keep the original ordinal without waiting for Playing;
+  a known count mismatch in either direction permits only a unique comparable
+  label match. Unknown cohorts retain descriptor-list count shortcuts and the
+  shared resolver.
+  One matching sole planned track with an effective source count of one may
+  confirm after current-generation Playing when VLC exposes at most one track,
+  without a setter or readback; a known cohort also requires DirectPlay or Offline.
+  Other Audio confirmation requires exact native selector readback.
+  Offline Audio count mismatch never uses positional fallback, even for complete valid
+  downloads. Outside the true-singleton exception above, lack of a unique
+  comparable label makes bounded attempts end in Audio Unavailable with no
+  automatic session recovery; an already-playing backend can continue its
+  default audio. Saved labels prefer display titles while VLC
+  supplies its own track names, so label matching cannot be relied on. Unavailable
+  does not force a stop or guarantee a visible error.
+  Desktop embedded subtitles retain a separate shortcut: DirectPlay in the
+  current native Playing generation with an equal known response cohort may use
+  the original ordinal without comparable labels. Their unchanged shared fallback
+  can also accept an ordinal when no available metadata conflicts. A successful
+  subtitle setter alone is not activation; Active requires exact native readback.
 - DirectPlay audio switches use the negotiated effective policy, stamped by
   `admitsDirectPlayAudioSwitch` on response-derived descriptors. A known codec
   must occur in a matching container profile after effective codec filtering;
@@ -450,7 +554,7 @@ suppresses interactive recovery until it is safe to show the consequence.
 
 - **[all]** Fatal errors use typed `PlayerUiState.Error` causes and retain the
   existing Retry/Close actions.
-- **[all]** A cause-less `SourceVideoCopyUnsupported` refusal (the Original
+- **[Compose]** A cause-less `SourceVideoCopyUnsupported` refusal (the Original
   path), or an exhausted recovery whose cause is the planner's
   `SourceVideoCopyRejected`/`NoSupportedStream`, is deterministic Unsupported
   Media with `retryable = false`, so the dialog offers Close. A wrapper carrying
@@ -469,6 +573,70 @@ suppresses interactive recovery until it is safe to show the consequence.
   and targets while keeping network, audio-target and subtitle-request budgets
   armed across replans. Activation checks precede decoder/unsupported failure;
   the separate network retry preserves the quality policy.
+- **[Compose]** The installed-activation handoff uses one current controller
+  snapshot, overlaying eligible missing audio mapping and unavailable subtitle
+  facts together. One policy decision preserves audio-first priority and leaves
+  the other allowance available for a later current plan or state. Startup and
+  post-replan paths can supply both facts; current explicit-switch intent
+  validation excludes a planned-unavailable subtitle replacement, so that
+  switch handoff supplies installed audio fallback. The handoff requires the
+  captured controller and prepared identity, current caller authority, and
+  released installation ownership, including an unlocked mutex. Same-item
+  Error Retry supplies current logical activation facts separately from its
+  captured, possibly null installed identity; diagnostic/speed/style copies do
+  not become prepared authority.
+  A launch-owned marker blocks recovery during synchronous startup `prepare()`
+  and same-plan native `retry()`. Failed snapshots wait until return; non-Failed
+  status, health and reporting observations continue. The marker clears in
+  `finally`, then the caller rechecks ownership. A reentrant Stop cannot install
+  or play an abandoned startup result. Retry additionally checks the logical
+  plan, selection generation and replan request before health binding and again
+  before its handoff; a newer owner wins. A still-current synchronous Failed
+  clears installed authority and restarts the existing state collector, or
+  starts one when absent, for ordinary failure handling. If a later fast Retry
+  succeeds without a replan, installed authority stays null: seek remains
+  unavailable, backend switching is refused and quality changes lack installed
+  plan preservation. A native Retry that publishes nothing can rehandle the
+  old Failed snapshot with the reset budgets.
+  Startup captures its request token after the plan becomes authoritative.
+  Startup and accepted same-item Error Retry reconsider current non-Failed
+  native unavailability alongside planned gaps, after binding the returned
+  prepare epoch and arming health observation. Matching native selections are
+  retained by the backend; Retry does not replay every selection.
+  Only VLCKit's Retry handoff substitutes the logical plan's start position for
+  its temporary paused native zero and follows ViewModel play intent rather
+  than that transitional pause. Later ViewModel pause/play revisions still win;
+  a prior pause made only through native PiP, an interruption or route loss is
+  not preserved by this recovery replacement. Other backends retain their
+  existing snapshot behavior, including Android mpv's current retry position.
+  Ordinary VLCKit Start/Pause reports at zero and post-replan zero snapshots
+  remain separate from this handoff's corrected Stopped position.
+  Fallback Error is not durable: later non-Failed native updates can replace it
+  with Content, so the Error Retry path depends on timing. This handoff does
+  not replay the full state handler, retain overwritten events, or serialize
+  later collector recovery. Like other immediate handoffs, it omits the full
+  collector's terminal RetryScheduled diagnostic; a later collector delivery
+  may report the already-consumed fact normally.
+- **[tvOS]** Startup, post-replan preparation and same-plan Retry hand missing
+  DirectPlay audio descriptors and eligible planned-unavailable subtitles to
+  one audio-first policy decision. The handoff requires the exact installed
+  plan, current item, controller and selected source, with startup admission
+  open; recovery checks admission before spending an allowance. It uses the
+  plan's start position because paused VLCKit preparation can report native
+  time zero. Selected external audio and ambiguous response Audio identities
+  lack an embedded descriptor; this fallback establishes no native codec
+  incompatibility. Retry resets the
+  policy allowance; paused AVPlayer Retry can resume through Loading.
+  Successful recovery replaces the unmappable plan, but planning failures still
+  map to Network, and subsequent native projections can overwrite Failed while
+  AVPlayer remains gated. VLCKit can continue unconfirmed default audio with
+  Pending activation. Typed, non-overwritable fallback failure remains
+  unresolved. The Audio fallback request disables DirectPlay. Any later
+  DirectPlay replan is rejected while its Audio recovery target remains
+  recorded, during the fallback or after it fails, until a new item, an explicit
+  Audio selection, or a non-DirectPlay install. Collector recovery can preempt
+  the fallback, and an Original failure prompt can coexist with its replacement;
+  this handoff does not serialize those paths.
 - **[all]** Policy-gated decoder, unsupported-media, health, and recovery
   behavior is owned by [quality policy](playback-policy.md#quality-semantics).
   A backend-qualified replacement re-plans from its own capability facts and
@@ -485,6 +653,66 @@ suppresses interactive recovery until it is safe to show the consequence.
   subtitle target, so its in-player subtitle changes survive retry. Each
   controller retains its released checks, play intent, native preparation/order,
   and backend-specific position, timing, asset, and engine behavior.
+- **[Compose]** Ordinary Retry refuses an active launch while queue identity is
+  unsettled, before changing recovery admission, loading, generations, budgets
+  or native playback. This includes repeated Retry during a full rebuild. A
+  cancelled child request can briefly keep the launch active after Error is
+  published; Retry during that interval is ignored until the job ends. Kids
+  delegates to its own selector before this check. Disposed owners, pending Stop
+  and installation ownership retain their existing refusals.
+  Once the launch ends, unsettled identity forces full startup even when the
+  retained plan names the current item. A failure before the stabilizing plan
+  install keeps its typed Error and unsettled identity. Native preparation can
+  fail after queue identity settles; the existing null-installed-plan recovery
+  path remains unchanged. Settled matching-item Retry keeps the native fast path.
+  Full Retry replaces the existing launch job, so Stop, disposal and newer
+  launches can cancel it. Ordinary online startup records its raw item, source,
+  audio, subtitle and start-position request before resolution. Full Retry
+  snapshots that item and request after admission and reuses them, preserving
+  explicit route choices through failure without turning resolved runtime
+  values into new explicit choices. Every queue handoff, including the current
+  row, records its own omitted source/audio/subtitle choices and zero position;
+  returning to the initial item does not restore the constructor's old choices.
+  Fresh detail and source-qualified stored selections still resolve omitted or
+  invalid inputs under the [selection contract](subtitles.md#selection-and-delivery).
+  Offline full Retry keeps its artifact-track retention. Kids online Retry/Replay
+  carries current playback choices in an attempt-local hint, separate from the
+  target's explicit launch and later accepted in-player track choices. A hint
+  applies only when the same source still resolves; its audio and subtitle values
+  are validated against fresh options or local-asset context. It steers playback,
+  not explicit audio constraints or durable preference writes. Unlike a fresh
+  launch, Retry/Replay can retain a subtitle fallback even when a raw explicit
+  choice becomes valid after metadata changes; only that validated explicit
+  choice is saved. Missing local assets do not turn fallback Off into explicit
+  intent. A changed source discards the hint and uses existing explicit, stored
+  and default resolution with track-membership validation; matching indices do
+  not establish semantic identity across versions. Source selection, played-position
+  proof, Replay zero and offline restart retain their existing owners.
+  Queue settlement does not prove successful native preparation or preserve an
+  outgoing source merely because the item ID matches.
+  Normal detail and planning failures, and offline record, context, backend and
+  install results, recheck cancellation and launch authority before publication.
+  An obsolete install failure after deferred Stop leaves the UI projection
+  intact; current failures retain their errors and diagnostics. These checks
+  qualify named boundaries, not every mutable launch-state write.
+- **[Compose]** Audio, subtitle (including Off), local-subtitle, audio/subtitle
+  offset adjust/reset, quality changes and seeks refuse while queue identity is
+  unsettled, before command switch invalidation, selection/proposal changes,
+  health/progress work, replanning, native commands, reporting or persistence. The
+  existing queue boundary follows the [item-identity contract](player-interactions.md):
+  admission clears stable identity synchronously; only a stabilizing launch
+  restores it. Installation ownership alone does not cover reporting and
+  planning. The local-asset continuation also checks this boundary beside its
+  installation check; entry refusal and existing job cancellation prevent a
+  new outgoing-context read from surviving the queue handoff. Pickers can remain
+  visible while commands are refused. Opening the quality picker and dismissing
+  notices remain presentation actions. Auto-skip refuses before recording its
+  once-per-segment key, leaving it eligible for a later admitted observation.
+  Launches that fail before identity settles keep these commands refused until
+  Retry or another admitted queue launch installs a stabilizing plan. Previous
+  at or past five seconds remains a seek-to-zero and is refused while unsettled;
+  it does not fall through to queue navigation. Queue ownership is never cleared by arbitrary job cleanup or by
+  replaying a retained plan.
 - **[all]** A manual Auto-recovery notice offers **Choose lower quality**, which
   opens the in-player picker, plus the remaining stream actions and dismissal.
   A successful automatic quality recovery offers **Keep current quality**, **Try
@@ -547,6 +775,13 @@ suppresses interactive recovery until it is safe to show the consequence.
 - iOS VLCKit prepare/resume/seek observations additionally carry a transition
   sequence within that generation, so Started, Presented, and TimedOut settle
   only the exact target transition;
+- the latest accepted native-host seek is an owner-lane snapshot with prepare
+  epoch and sequence, independent of presentation readiness; other controllers
+  default to no snapshot;
+- VLCKit PiP additionally publishes an owner-lane playback-intent snapshot with
+  prepare epoch and sequence for qualifying Play/Pause commands, without native
+  acceptance or output proof; ordinary app verbs and `recordHostPlaybackIntent`
+  do not publish it, and other controllers default to no snapshot;
 - measurement capabilities state whether a fact is reliable and name its
   evidence class (`NativeFirstOutput`, `DisplayedPictureCounter`,
   `ReadyForDisplayBridge`, or unsupported).
@@ -585,13 +820,66 @@ explicit-session-Auto authorization; inherited Auto receives the typed manual
 choice prompt without spending the quality budget. The ViewModel and
 `TvPlaybackSessionPresenter` own execution, position preservation, policy
 persistence, notice state, and stale-work cancellation. While the Compose
-ViewModel is in PiP, its one pending-recovery slot retains the strongest trigger
+ViewModel owns a controller installation or queue item identity is unsettled,
+automatic triggers are ignored before recovery decisions, budget, quality,
+notice or PiP-slot changes, including manual prompts. Session recovery also
+requires settled queue identity. Health signals, first-output state and their
+diagnostics may already have been recorded before the trigger gate. A replan
+rejected during installation leaves backend-switch authority intact. Initial
+switch preflight retains its existing recovery arbitration.
+
+The Compose owner closes automatic and session recovery at the first Stop
+request, even when native Stop must wait for installation, and at disposal.
+Stop also clears retained PiP recovery. A `Failed` snapshot first handled while
+closed is discarded before publication or suspended diagnostic capture; it is
+not automatically redelivered when recovery reopens. Existing generation and
+controller checks still reject captures invalidated by Stop. This is an
+admission-time boundary, not proof of when a delayed native event was emitted.
+After session recovery returns, a `Failed` result is also discarded if queue
+identity is unsettled, Stop/disposal closed ownership, or the captured launch or
+selection generation changed. Queue refusal must not publish an outgoing Error;
+an awaited backend recovery must not publish a displaced result. This check
+precedes terminal outcome, Error, Stop and last-status publication, but does not
+isolate earlier metadata, health or diagnostic work. Queue identity settles when
+a stabilizing plan is installed, before native prepare; current synchronous
+failure and settled Retry can still recover with a null installed plan.
+
+Android alternate-backend fallback rechecks its captured launch/item and
+queue/Stop/disposal ownership after controller installation, before replanning,
+Applied diagnostics or recovered guidance. Merely handing the lock to a waiter
+is not displacement: a waiter that has not run or declines leaves current
+fallback able to replan. Successful installation may intentionally cancel the
+fallback's collector and replace its controller, so neither collector activity
+nor old-controller identity determines this continuation's authority.
+
+Only an accepted explicit Play, Retry, Kids selection/replay, manual queue
+selection, or Still Watching confirmation reopens recovery. Starts refuse
+disposed, installing, locked-installation, or pending-Stop ownership before
+mutating their caller state; valid software Continue delegates to Play and keeps
+its prompt when admission refuses. Invalid selection, automatic Next, Pause,
+and seek-only Previous never reopen it. Previous retains its existing seek
+behavior and applies the fuller start guard only to actual queue selection.
+Ordinary Retry also refuses an active unsettled launch before reopening recovery.
+Pending Stop must drain first. The internal obsolete-replan abort can call Stop
+without leaving the route: its existing projection remains, with recovery and
+`Failed` publication closed until an accepted explicit action. Direct settings,
+track, backend, and transcode-seek replans can still prepare without reopening
+recovery; this contract does not add a retained-screen restart or state replay.
+
+While the ViewModel is in PiP, with installation released and queue identity
+settled, its recovery slot retains the strongest trigger
 in this locked order: DecoderFailure, UnsupportedMedia, NoVideoOutput,
 CumulativeBuffering, RepeatedStalls, then DroppedFrames. Equal severity keeps
-the first trigger. Leaving PiP clears and handles one retained trigger, while a
-new item or queue launch and retry clear stale pending work. Measurement remains
-lifecycle-safe while recovery presentation is deferred. The one retained trigger
-still enters `AutoPlaybackRecoveryCoordinator`; arbitration grants no new
+the first trigger. Leaving PiP consumes one retained trigger; if installation is
+busy or queue identity is unsettled, it is discarded without execution or a
+later retry. New item or queue
+launch, retry, actual controller release and session end clear retained work.
+Rejected or cancelled switch planning that keeps the outgoing controller also
+keeps its pending evidence, unless PiP exit has already consumed it. Installation
+settlement preserves evidence retained for the replacement. PiP presentation
+deferral alone keeps health measurement active; controller installation suspends evaluation as
+[described above](#playback-health-and-guidance). An admitted retained trigger enters
+`AutoPlaybackRecoveryCoordinator`; arbitration grants no new
 stream-change authority, so Original and inherited Auto keep their existing
 manual prompt contracts.
 
@@ -653,12 +941,30 @@ server/user IDs, titles, paths, or raw native errors.
 
 ## Why
 
+- **Desktop Audio mapping needs the original cohort.** Omitting descriptors
+  does not remove their native ordinal slots, so saved offline Audio counts must
+  precede identity omission. A mismatched native count cannot justify a positional
+  guess; unique labels provide separate evidence. Equal counts need no Playing
+  gate: TracksChanged can arrive first, and pausing during opening must not turn
+  a valid mapping into a selection timeout. Unknown-cohort mapping and the
+  existing no-setter true-singleton route remain separate exceptions.
+
 - **Initial routing describes the selected audio.** The first listed track can
   have different decoder requirements from the effective launch choice. Resolve
   that choice before choosing the backend, then commit selection fields only
   after backend success and a fresh launch-authority check. The descriptor's
-  fallback lookup itself writes no selection preferences. Backend-specific
-  quality ordering remains governed by [playback policy](playback-policy.md).
+  fallback lookup itself writes no selection preferences. An ordinal cannot
+  replace missing server identity, and repeated Audio indexes cannot identify
+  one selected codec or native track. Omitting source choices can change the
+  fallback track and Apple Auto routing for malformed metadata. Response
+  descriptors apply the same identity qualification without renumbering the
+  original embedded cohort: retaining the first duplicate would invent a choice,
+  while closing its ordinal slot would shift later native mappings. The selected
+  response index remains authoritative; an absent descriptor follows existing
+  activation recovery. Detail/Series check remembered defaults against offered
+  indexes, as playback and native tvOS do, because reconciliation can otherwise
+  keep reinstating a stale default. Backend-specific quality ordering follows
+  [playback policy](playback-policy.md).
 
 - **A failed request provides no compatibility approval.** Local source-copy
   bounds cannot establish the container, codec-tag, audio, and progressive-video
@@ -697,22 +1003,71 @@ server/user IDs, titles, paths, or raw native errors.
   authoritative, then one release-first installation commits. Persisting the
   switch, importing outgoing health facts, or retaining two live controllers
   would blur session and ownership boundaries.
+  Installation admission must precede switch invalidation: a rejected recovery
+  must not abandon paused or partly replaced playback. Installed activation
+  recovery follows release of that ownership and software-switch reporting,
+  because its replan invalidates switch authority. Combining installed audio
+  and subtitle facts prevents two helper calls from spending both allowances
+  and letting the second replan cancel the first.
 
 - **Recovery and reporting decisions are shared without moving lifecycle
   ownership.** Common immutable coordinators keep precedence, PiP arbitration,
   budgets, reporting order, and settlement consistent. Jobs, notices, native
   commands, navigation, and stale cancellation stay with each presentation
   owner; a universal stateful player would couple unrelated lifecycles.
+  Startup guards its unfinished prepare interval rather than rejecting every
+  null installed plan, because recovery after a synchronous failure can still
+  own that null identity. Refreshing the failure collector and reconsidering
+  only activation facts avoid duplicating full failure handling.
+  Queue admission must precede recovery policy changes, and its refusal must
+  not turn an outgoing failure into Error through the no-action fallthrough.
+  Backend recovery can suspend across ownership handoff, so its continuation
+  and the caller's late Failed result both check actual launch/queue/Stop/disposal
+  ownership. Lock possession alone could abandon a valid fallback whose waiter
+  later declines; collector cancellation is also intentional during replacement.
+  Clearing retained PiP evidence at controller release and session end prevents
+  retained outgoing failures from spending a replacement's recovery budget. Clearing at
+  switch request would discard evidence even when planning keeps the old owner.
+  Stop needs persistent recovery closure because a later failure can capture
+  the post-Stop generation. Rejecting it before suspended diagnostics prevents
+  an explicit Play from admitting that old capture when recovery reopens.
+  Explicit starts share ownership checks so they cannot reopen around a pending
+  native Stop; ordinary Pause remains eligible for recovery.
 
 - **Controller installation is serialized.** A current launch waits for an
   earlier installer and rechecks generation and item authority. Dropping a
   launch while installation is busy can leave the current item without a
   controller.
 
-- **Same-plan Retry shares validation, not mutable replay state.** The common
+- **Retry follows existing launch and controller ownership.** The common
   policy validates exact audio/subtitle targets and explicit Off only from the
   vocabulary each controller already owns. Assets, timing, play intent,
   reinitialization, and native command order remain controller-specific.
+  Ordinary Retry preserves an active unsettled launch before changing its
+  generation. After that launch ends, full startup rebuilds and stabilizes
+  identity; replaying a retained same-item plan cannot establish authority over
+  partially replaced source and track fields. Ordinary online full Retry reuses
+  the raw accepted request because resolved runtime fields may belong to a
+  cancelled launch or represent defaults rather than explicit user intent. Kids
+  keeps later deliberate track choices in the same target-owned intent record;
+  source-qualified hints retain playback defaults or substitutions without
+  making them new explicit preferences. This separates the two meanings without
+  another durable owner or observable state. The existing launch job owns its
+  lifetime. Cancellation alone cannot prevent a
+  synchronous failure publication after an installer drains Stop, so result
+  boundaries also check launch authority.
+
+- **Playback commands need settled item identity.** Queue planning can
+  retain a visible picker and outgoing controller while item, source and track
+  fields change. Installation guards alone allow an outgoing choice or offset
+  to be applied and saved under the incoming identity. Quality commit checks
+  also miss earlier planning failures that can publish Error. Without entry
+  admission, an out-of-window transcode seek can replan through absent installed
+  authority, install and restart reporting during the handoff, or stop a newer
+  queue launch when its obsolete continuation finishes. Direct progress refusal
+  does not guard that replan path. These are source-supported, timing-dependent
+  paths, not native reproductions. Reusing the queue boundary rejects commands
+  before these side effects without introducing another owner.
 
 - **Health policy is selected by the application surface.** Android TV uses the
   shared Actionable policy, while desktop and tvOS remain Advisory; placing that
@@ -724,10 +1079,30 @@ server/user IDs, titles, paths, or raw native errors.
   for exact native mapping while other modes begin active, with two deliberate
   renderings for controller state differences. Centralizing the table prevents
   controller copies from drifting without forcing unrelated lifecycle state
-  into a common base class.
+  into a common base class. An absent descriptor never starts the native
+  selection deadline, so preparation and accepted same-plan Retry hand the
+  gap to recovery. One combined decision preserves Audio-first precedence.
+  Compose Retry separates logical activation facts from captured installed
+  authority, since diagnostic copies are not new preparations. VLCKit's
+  synchronous Retry snapshot precedes deferred play; using its intended plan
+  position and ViewModel play intent avoids a new zero-position fallback and
+  false pause without changing Android mpv's current-position Retry. This does
+  not make fallback failure durable or synchronize native-only play intent.
 
-- **Health evidence is qualified rather than globally tuned.** Backend-specific
-  first-output thresholds, advancing-clock checks, generation exclusions, and
-  evidence-window restarts prevent slow start, seek, resume, or surface work
-  from becoming false no-output or stall recovery. Restarting the window retains
+- **Health evidence is qualified rather than globally tuned.** Capabilities follow
+  the installed controller: a retained placeholder suppresses valid signals,
+  while a released controller can admit obsolete evidence during replacement.
+  Backend-specific first-output thresholds, advancing-clock checks and generation
+  exclusions keep slow start and surface work from becoming false no-output recovery.
+  Installation suspension prevents long planning or replacement gaps from
+  spending health slots before recovery admission. Settlement restarts rolling
+  evidence and reads the qualified controller snapshot because a state update
+  skipped during installation need not be emitted again. Positive facts stay
+  admitted so a non-replaying frame event is not lost. Startup timing remains
+  launch-based. Evidence-window restarts keep evidence from before app-owned
+  controls or qualifying VLCKit PiP seeks/play/pause from contaminating later
+  stall decisions. Reading separate seek and command snapshots before status
+  and deadline evaluation avoids independent event-flow ordering without
+  treating play intent as native success. AVPlayer PiP and interruption/route-loss
+  restart coverage remain unassessed. Restarting the window retains
   one-per-session signal and recovery budgets.

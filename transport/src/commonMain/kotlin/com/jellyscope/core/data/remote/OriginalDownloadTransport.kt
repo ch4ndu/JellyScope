@@ -9,6 +9,9 @@ import io.ktor.utils.io.ByteReadChannel
 /**
  * Stable facts established by the authenticated Original-download preflight.
  * The URL and credential used to establish them are deliberately not retained.
+ *
+ * [selectedAudioStreamIndex] is the ephemeral Audio binding the preflight validated, and
+ * [backendSource] describes that selected stream. Streaming revalidates against this binding.
  */
 data class OriginalDownloadSource(
     val itemId: String,
@@ -20,12 +23,16 @@ data class OriginalDownloadSource(
     val embeddedSubtitleStreamIndices: Set<Int> = emptySet(),
     val externalSubtitleStreamIndices: Set<Int> = emptySet(),
     val unsupportedExternalSubtitleStreamIndices: Set<Int> = emptySet(),
+    val selectedAudioStreamIndex: Int? = null,
 ) {
     init {
         require(itemId.isNotBlank()) { "itemId must not be blank." }
         require(mediaSourceId.isNotBlank()) { "mediaSourceId must not be blank." }
         require(totalBytes > 0L) { "totalBytes must be positive." }
         require(lastModified.isSafeValidator()) { "lastModified must be a bounded HTTP validator." }
+        require(selectedAudioStreamIndex == null || selectedAudioStreamIndex >= 0) {
+            "Selected audio stream index must be non-negative."
+        }
         require(audioStreamIndices.all { index -> index >= 0 }) { "Audio stream indices must be non-negative." }
         require(embeddedSubtitleStreamIndices.all { index -> index >= 0 }) { "Subtitle stream indices must be non-negative." }
         require(externalSubtitleStreamIndices.all { index -> index >= 0 }) { "Subtitle stream indices must be non-negative." }

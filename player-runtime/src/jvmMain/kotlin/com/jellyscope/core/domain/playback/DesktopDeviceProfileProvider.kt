@@ -3,6 +3,7 @@
 package com.jellyscope.core.domain.playback
 
 import com.jellyscope.core.playback.DesktopMpvRuntime
+import com.jellyscope.core.playback.desktopLibVlcPinnedBundle
 import com.jellyscope.core.playback.desktopLibVlcRuntimeAvailable
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
@@ -11,6 +12,8 @@ class DesktopDeviceProfileProvider(
     private val hostOsName: String = System.getProperty("os.name").orEmpty(),
     // Read only on the first mpv profile build, after startup froze the runtime.
     private val mpvPinnedBundle: () -> Boolean = { DesktopMpvRuntime.active().pinnedBundle },
+    // Read only on the first LibVLC profile build, from the frozen runtime choice.
+    private val libVlcPinnedBundle: () -> Boolean = ::desktopLibVlcPinnedBundle,
 ) : DeviceProfileProvider {
     override val backendPolicy: PlayerBackendPolicy = desktopPlayerBackendPolicy()
     override val availableBackends: Set<PlayerBackend> by lazy {
@@ -45,14 +48,17 @@ class DesktopDeviceProfileProvider(
         )
     }
     private val cachedLibVlcCapabilities: DeviceDecodingCapabilities by lazy {
+        // Only the bundled macOS runtime's pinned VLC build qualifies PCM; every
+        // LibVLC runtime keeps static declaration evidence.
+        val declaration =
+            if (libVlcPinnedBundle()) macOsBundledLibVlcDeviceProfileDeclaration else desktopLibVlcDeviceProfileDeclaration
         buildDesktopCapabilities(
-            declaration = desktopLibVlcDeviceProfileDeclaration,
+            declaration = declaration,
             decodeSource = CapabilityEvidenceSource.StaticDeclaration,
             audioLimitSource = CapabilityEvidenceSource.Unknown,
             videoInputEnvelope = MACOS_LIBVLC_STANDARD_INPUT_ENVELOPE.takeIf { hostOsName.isMacOs() },
             supportsHdr = false,
-            videoRangeCapabilitiesByCodec =
-                desktopLibVlcDeviceProfileDeclaration.videoCodecs.associateWith { VideoRangeCapabilities() },
+            videoRangeCapabilitiesByCodec = declaration.videoCodecs.associateWith { VideoRangeCapabilities() },
         )
     }
 

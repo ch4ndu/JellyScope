@@ -47,6 +47,29 @@ interface PlayerController {
     val playbackHealthMeasurementCapabilities: PlaybackHealthMeasurementCapabilities
         get() = PlaybackHealthMeasurementCapabilities.None
 
+    /**
+     * Latest seek the native host initiated outside app-owned seek dispatch and the native
+     * player accepted. An immutable snapshot read on the controller owner lane: the sequence
+     * increases monotonically within the controller lifetime, the prepare epoch separates
+     * native sessions, and native teardown clears it. It is not presentation readiness,
+     * output proof or an event timestamp. Null means no fact, the default for every backend
+     * without a native-host seek path.
+     */
+    val lastAcceptedHostSeek: HostSeekObservation?
+        get() = null
+
+    /**
+     * Latest native-host Play the owner admitted to start a playback attempt, or Pause it
+     * admitted to clear play intent, for the current prepare epoch. Published on the controller
+     * owner lane before the verb runs, and read on that same lane; the sequence increases
+     * monotonically within the controller lifetime and native teardown clears it. It marks a
+     * command boundary only: not native acceptance, output proof or an event timestamp.
+     * Ordinary app verbs and [recordHostPlaybackIntent] never publish it. Null is the default
+     * for every backend without such a native-host path.
+     */
+    val lastHostPlaybackIntent: HostPlaybackIntentObservation?
+        get() = null
+
     fun prepare(
         plan: PlaybackPlan,
         subtitleAsset: SubtitleAsset? = plan.subtitleAsset,
@@ -150,6 +173,16 @@ data class PlaybackTransitionObservation(
     val observedAtMs: Long,
 )
 
+data class HostSeekObservation(
+    val prepareEpoch: Long,
+    val sequence: Long,
+)
+
+data class HostPlaybackIntentObservation(
+    val prepareEpoch: Long,
+    val sequence: Long,
+)
+
 enum class PlaybackTransitionOutcome {
     Started,
     Presented,
@@ -187,6 +220,16 @@ data class PlaybackState(
     val subtitleActivation: SubtitleActivationState = SubtitleActivationState.None,
     val error: PlaybackError? = null,
     val audioUnavailable: Boolean = false,
+    /**
+     * Health-only evaluation status; UI and server reporting use [status].
+     *
+     * Non-null only while [status] is [PlaybackStatus.Buffering], carrying the native
+     * ordinary mapping (Playing, Buffering, Loading, Paused or Failed) the public hold
+     * hides. Null means health uses [status] as usual; it never means skip the sample.
+     * UI, server reporting, failure and terminal handling keep reading [status];
+     * health-driven recovery consumes the resulting health signals under existing policy.
+     */
+    val healthStatusOverride: PlaybackStatus? = null,
 )
 
 sealed interface PlaybackError {

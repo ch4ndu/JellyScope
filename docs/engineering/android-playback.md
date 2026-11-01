@@ -305,9 +305,13 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   ≤20 s cosmetic offset versus the audible audio is an **accepted** trade — do
   NOT reintroduce clock compensation (it re-syncs video to the shifted audio and
   cancels the correction). A non-zero offset forces a decoder for encoded
-  passthrough (so the PCM processor sees samples) and every offset change is
-  applied by a single coalesced (~400 ms), position/speed/style-preserving
-  re-prepare rather than mutating the processor from the main thread.
+  passthrough (so the PCM processor sees samples). With native playback outside
+  `IDLE` (including paused `READY` and `ENDED`), changes use a single coalesced
+  (~400 ms), position/speed/style-preserving re-prepare. Stop cancels pending
+  reconfiguration; scheduling and application both reject native `IDLE`.
+  Offsets set while idle remain available to the next native prepare. Changing
+  an offset on an idle failed item therefore does not implicitly retry it;
+  explicit Retry retains the existing plan.
 - Media3 subtitle timing is **PositiveOnly**: the decoder callback is the
   earliest observable point for a cue, so a negative (earlier) shift is clamped
   to zero and the UI hides the negative controls; a both-signs implementation
@@ -666,6 +670,12 @@ their own Advisory bindings.
 - LibVLC uses the [shared terminal evidence policy](playback-runtime.md#vlc-terminal-policy).
 
 ## Why
+
+- Media3 retains its last plan for Retry after Stop, so plan presence cannot
+  authorize a timing re-prepare. Native `IDLE` marks the need for preparation;
+  paused `READY` still owns a valid timing target. Checking both scheduling and
+  delayed application prevents old media from loading after Stop, while the
+  processor retains the requested offset for the next legitimate preparation.
 
 - Embedded output must retire before its window handle disappears: changing
   `wid` rebuilds output while a selected video track still exists. Native idle

@@ -130,6 +130,10 @@ object DiagnosticsReport {
         evidence: CodecCapabilityEvidence?,
     ) {
         appendCodecEvidence("video", codec, evidence)
+        evidence?.probeProjection?.let { projection ->
+            appendLine("capabilities.video.$codec.probeClassificationEvidence=${projection.classificationSources.renderEvidence()}")
+            appendLine("capabilities.video.$codec.probeProjection=${projection.reason.name}")
+        }
         appendLine("capabilities.video.$codec.maxWidth=${resolution?.maxWidth.renderNullable()}")
         appendLine("capabilities.video.$codec.maxHeight=${resolution?.maxHeight.renderNullable()}")
         appendLine("capabilities.video.$codec.maxFrameArea=${resolution?.maxFrameArea.renderNullable()}")

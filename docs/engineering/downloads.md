@@ -70,11 +70,49 @@ clients; core retains their redirect/timeout/logging configuration and engines.
   `SourceChanged` instead of appending incompatible bytes. The resulting private
   artifact preserves all embedded tracks from the source, and its snapshot
   remembers the selected audio/subtitle intent for offline playback.
-- Original admission also compares authenticated source codec, dimensions, and
-  frame rate with the normally selected offline backend's probed finite decoder
-  bounds. A source proven to exceed those bounds is rejected with guidance to
-  choose a converted download. Missing source facts or unknown decoder limits
-  remain admissible; they are not evidence of incompatibility.
+- New client drafts resolve Audio only by actual nonnegative indexes occurring
+  once across all Audio streams, including external Audio collisions. The
+  selected index, track metadata and draft backend audio codec come from the
+  same stream. Embedded Audio entries keep their source order; entries without
+  an eligible identity retain metadata with a null index and cannot be selected.
+  [Native mapping](playback-runtime.md#audio-activation-and-native-mapping)
+  preserves those slots. Original does not localize external Audio: a unique
+  selected external track's codec can describe the saved backend and influence
+  Apple Auto selection even though the Original file lacks that external track.
+- Compose refuses an invalid explicit Audio choice for both Original and Fixed.
+  With no explicit choice, it uses an eligible projected default, then the first
+  eligible raw default, then the first eligible Audio stream. tvOS preserves its
+  fallback for absent or invalid requests: the first eligible raw default, then
+  the first eligible stream. Audio present without an eligible choice makes the draft
+  unavailable; a genuine no-Audio source can still form an Original draft.
+  Fixed requires a resolved Audio choice.
+- Original preflight authenticates the requested Audio index against all Audio
+  entries, including external collisions. It requires one actual nonnegative
+  match; a missing or repeated selected identity fails as `SourceChanged`.
+  A null selection is valid only when the source has no Audio. The authenticated
+  backend descriptor describes that selected stream; neither a default track
+  nor draft metadata substitutes for missing authenticated facts.
+- Admission checks the selected snapshot's kind, index and codec. Each transfer
+  attempt compares fresh selected codec facts with both the saved backend and
+  selected track; streaming revalidates against preflight before opening the
+  body. A contradiction fails as `SourceChanged`. Codec comparison ignores case
+  and surrounding whitespace and treats null/blank as unknown; unknown matches
+  unknown, while known/unknown drift is refused. These checks supplement byte
+  validators and do not prove unchanged labels, whole-cohort order or semantic
+  identity when an index and codec remain the same. Subtitle membership is
+  unchanged; missing and negative Audio indexes stay outside membership sets.
+- The authenticated descriptor drives offline backend selection. Audio codec
+  can influence Apple Auto selection; admission then compares video codec,
+  dimensions and frame rate with that backend's probed finite video bounds.
+  A proven excess is rejected with guidance to choose a converted download.
+  Unknown facts or limits are not evidence of incompatibility. This does not
+  establish audio decoder support or native playback correctness.
+- Older queued requests with missing selection or contradictory saved facts
+  may be refused. Retry keeps the same request and remains refused while the
+  contradiction persists; another Detail submission also reuses the row. To
+  replace it, Cancel the failed download (removing its row and local files),
+  refresh Detail, then request it again. Delete/Remove is for completed
+  downloads. Completed artifacts are not migrated or rewritten.
 - Original localizes one selected external text subtitle into the same private
   package, whether it came from a bounded Jellyfin subtitle response or an
   installed local OpenSubtitles asset. It cannot copy an external bitmap
@@ -84,8 +122,9 @@ clients; core retains their redirect/timeout/logging configuration and engines.
 - Fixed always asks Jellyfin to encode the exact selected source to the chosen
   canonical rung as finite HLS-TS VOD with H.264 video and AAC audio. Direct
   play, direct stream, and audio/video stream copy are disabled. The package
-  contains exactly the selected audio track, or the source default/fallback
-  audio when none was selected. Subtitles are either Off or one compatible
+  contains exactly the selected audio track. New client drafts carry a resolved
+  selection; preflight retains its source default/fallback for other callers
+  that omit one. Subtitles are either Off or one compatible
   embedded text track after explicit confirmation that it will be permanently
   burned into the video; Fixed never writes a selectable subtitle sidecar. Its
   bitrate-times-duration plus ten-percent admission estimate is not a promised
@@ -256,6 +295,14 @@ identity, artifact, and progress rules live in
   parsing would make artifact identity and completeness ambiguous.
   A missing subtitle sidecar contributes zero bytes to a package checkpoint;
   it must never reset already downloaded main-file bytes.
+- **Audio identity and position serve different purposes.** Inventing an index
+  or choosing the first duplicate can select different metadata and audio.
+  Keeping unselectable embedded slots preserves physical order; resolving the
+  selected stream once prevents a later snapshot fallback from replacing the
+  user's choice, including before Fixed conversion. Authenticated selected
+  codec checks at admission, each queued attempt and immediate streaming keep
+  immutable backend facts from silently changing. Byte validators alone do not
+  establish that selected Audio metadata is unchanged.
 - **One queue and device allocation make admission deterministic.** Reservations
   and the free-space floor prevent overcommit without eviction. Android
   notification permission controls visibility, never transfer authorization.

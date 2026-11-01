@@ -40,48 +40,99 @@ fun androidLibVlcCapabilityMatrix(): LibVlcCapabilityMatrix =
  * software decoders; codecs such as AV1 with no corresponding probe fact
  * retain the engine declaration and its unknown bounds. All other LibVLC
  * capability facts remain owned by the engine declaration.
+ *
+ * Each codec present in both the declared resolution and evidence maps also
+ * records [VideoProbeProjectionEvidence]: the probe's platform decoder
+ * classification and why its limits were or were not projected. This is
+ * diagnostic only and changes no resolution or limit source.
  */
 internal fun DeviceDecodingCapabilities.narrowedToProbedVideoResolutions(
     probed: DeviceDecodingCapabilities,
     allowPartialProbeLimits: Boolean,
 ): DeviceDecodingCapabilities {
+    val decisions =
+        videoResolutionsByCodec.mapValues { (codec, declaredResolution) ->
+            probed.videoProbeProjectionReason(codec, declaredResolution, allowPartialProbeLimits)
+        }
     val projectedResolutions =
         videoResolutionsByCodec.mapValues { (codec, declaredResolution) ->
-            if (codec !in probed.videoCodecs || !declaredResolution.isUnknown()) {
-                declaredResolution
+            if (decisions.getValue(codec).projectsProbeLimits) {
+                probed.videoResolutionsByCodec.getValue(codec)
             } else {
-                probed.videoResolutionsByCodec[codec]
-                    ?.takeIf { resolution ->
-                        if (allowPartialProbeLimits) resolution.hasAnyFiniteLimit() else resolution.isComplete()
-                    }
-                    ?: declaredResolution
+                declaredResolution
             }
         }
     val projectedEvidence =
         videoCodecEvidence.mapValues { (codec, declaredEvidence) ->
-            if (
-                codec in probed.videoCodecs &&
-                videoResolutionsByCodec[codec]?.isUnknown() == true &&
-                probed.videoResolutionsByCodec[codec]?.let { resolution ->
-                    if (allowPartialProbeLimits) resolution.hasAnyFiniteLimit() else resolution.isComplete()
-                } == true
-            ) {
-                declaredEvidence.copy(
-                    finiteLimitSources =
+            val reason = decisions[codec] ?: return@mapValues declaredEvidence
+            declaredEvidence.copy(
+                finiteLimitSources =
+                    if (reason.projectsProbeLimits) {
                         probed.videoCodecEvidence[codec]
                             ?.finiteLimitSources
                             ?.takeIf { sources -> sources.isNotEmpty() }
-                            ?: setOf(CapabilityEvidenceSource.Unknown),
-                )
-            } else {
-                declaredEvidence
-            }
+                            ?: setOf(CapabilityEvidenceSource.Unknown)
+                    } else {
+                        declaredEvidence.finiteLimitSources
+                    },
+                probeProjection =
+                    VideoProbeProjectionEvidence(
+                        classificationSources = probed.probeClassificationSources(codec),
+                        reason = reason,
+                    ),
+            )
         }
     return copy(
         videoResolutionsByCodec = projectedResolutions,
         videoCodecEvidence = projectedEvidence,
     )
 }
+
+private fun DeviceDecodingCapabilities.videoProbeProjectionReason(
+    codec: String,
+    declaredResolution: VideoCodecResolution,
+    allowPartialProbeLimits: Boolean,
+): VideoProbeProjectionReason {
+    val probedResolution = videoResolutionsByCodec[codec]
+    return when {
+        !declaredResolution.isUnknown() -> VideoProbeProjectionReason.DeclaredLimitsRetained
+        codec !in videoCodecs -> VideoProbeProjectionReason.NoProbeCodec
+        probedResolution == null || !probedResolution.hasAnyFiniteLimit() -> VideoProbeProjectionReason.NoFiniteProbeLimits
+        !allowPartialProbeLimits && !probedResolution.isComplete() -> VideoProbeProjectionReason.IncompleteProbeLimitsNotProjected
+        probedResolution.isComplete() -> VideoProbeProjectionReason.CompleteProbeLimitsProjected
+        else -> VideoProbeProjectionReason.PartialProbeLimitsProjected
+    }
+}
+
+private val VideoProbeProjectionReason.projectsProbeLimits: Boolean
+    get() =
+        this == VideoProbeProjectionReason.CompleteProbeLimitsProjected ||
+            this == VideoProbeProjectionReason.PartialProbeLimitsProjected
+
+/**
+ * Platform decoder classification the probe reported for [codec]. A codec the
+ * probe did not enumerate, including the static fallback, stays Unknown.
+ */
+private fun DeviceDecodingCapabilities.probeClassificationSources(codec: String): Set<CapabilityEvidenceSource> {
+    val sources: Set<CapabilityEvidenceSource> =
+        if (codec in videoCodecs) {
+            videoCodecEvidence[codec]
+                ?.decodeSources
+                .orEmpty()
+                .filterTo(linkedSetOf()) { source -> source in platformProbeClassificationSources }
+        } else {
+            emptySet()
+        }
+    return sources.ifEmpty { setOf(CapabilityEvidenceSource.Unknown) }
+}
+
+private val platformProbeClassificationSources =
+    setOf(
+        CapabilityEvidenceSource.PlatformHardwareProbe,
+        CapabilityEvidenceSource.PlatformSoftwareProbe,
+        CapabilityEvidenceSource.PlatformUnclassifiedProbe,
+        CapabilityEvidenceSource.LegacyCodecNameClassification,
+    )
 
 private fun VideoCodecResolution.isUnknown(): Boolean =
     maxWidth == null && maxHeight == null && maxFrameArea == null && maxFrameAreaPerSecond == null

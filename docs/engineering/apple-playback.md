@@ -70,7 +70,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   and audio-only transitions settle without video evidence. The strict hold is
   bounded: a timeout remains an explicit diagnostic outcome but releases
   `Buffering`, follows later native clock samples, and no longer excludes those
-  samples from terminal progress evidence. This prevents an unavailable VLCKit
+  samples from terminal progress evidence. The remaining picture wait follows
+  the [shared health status contract](playback-runtime.md#playback-health-and-guidance).
+  Releasing the bounded hold prevents an unavailable VLCKit
   picture counter from pinning the timeline or turning a genuine natural end
   into `Paused` for the rest of the session. Each transition has a generation-
   local sequence and one timeout observation, so stale callbacks cannot clear a
@@ -91,9 +93,15 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   separately cached native VLC clock so the advertised time range describes the
   sample-buffer stream that AVKit is actually presenting. VLCKit PiP skips bound
   the relative request against that native clock and the canonical content
-  duration, then use VLCKit's completion-capable `jumpWithOffset`. A generation-
-  tagged single-flight gate consumes the system completion exactly once from the
-  native seek-finished callback; after matching the request token and native
+  duration, then use VLCKit's completion-capable `jumpWithOffset`. An accepted
+  jump publishes a prepare-scoped host-seek snapshot before the resulting state
+  update for [shared health exclusion](playback-runtime.md#playback-health-and-guidance).
+  Generation-qualified PiP Play/Pause also publish a separate command snapshot
+  before dispatch when they start a playback attempt or clear play intent;
+  shared health consumes it under that same lifecycle contract. It is owner
+  admission, not proof of native success.
+  A generation-tagged single-flight gate consumes the system completion exactly
+  once from the native seek-finished callback; after matching the request token and native
   session, it refreshes the cached native clock before invoking AVKit's
   completion. The shared transition independently owns the target-pinned
   timeline, buffering state, and picture-readiness evidence, and never blocks a
@@ -105,8 +113,14 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   `Unknown` (fallback-ladder eligible). Never guess Decoder/UnsupportedMedia.
 - Apple controllers supply buffering/startup state and only the first-output
   evidence their measurement capabilities support. Neither supplies shared
-  dropped-frame health measurements; VLCKit's best-effort debug lost-picture
-  counter is separate, and its first-output measurement is not reliable.
+  dropped-frame health measurements. VLCKit's native cumulative lost-picture
+  total combines output losses with some pre-queue picture failures. It remains
+  a generic best-effort count; the output-only count is unknown. Sampling occurs
+  every fourth state update at a variable cadence. Assigning media to each fresh
+  native player creates the zeroed statistics snapshot before app reads. The
+  wrapper exposes no availability result, and native allocation-failure handling
+  is not qualified. Initial zeros and repeated totals establish neither output,
+  freshness nor a drop rate. First-output measurement remains unreliable.
   VLCKit opts into the shared actionable guidance presentation; the banner may
   offer a safe next lower rung and Open
   Playback Settings, but no controller changes quality automatically. Android
@@ -342,4 +356,5 @@ resolves artifact paths. Queue/countdown and native panel behavior are owned by
   arrival alone cannot prove fresh video, so bounded transition evidence also
   requires later clock and displayed-picture progress and rejects stale
   generations. VLCKit's public PiP protocols retain engine ownership; private
-  traversal or a parallel controller would duplicate it.
+  traversal or a parallel controller would duplicate it. The cumulative native
+  loss total cannot establish an output-only loss count.

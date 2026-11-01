@@ -119,18 +119,41 @@ private val audioCodecFamilies =
         "mp3" to "mp3",
     )
 
-fun audioOptions(streams: List<PlaybackMediaStream>): List<AudioTrackOption> =
+/**
+ * Actual nonnegative indexes that occur exactly once across all Audio streams,
+ * embedded and external. Missing, negative and repeated indexes are not selectable
+ * server identities.
+ */
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun unambiguousAudioStreamIndexes(streams: List<PlaybackMediaStream>): Set<Int> =
     streams
         .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
-        .mapIndexed { ordinal, stream ->
-            AudioTrackOption(
-                streamIndex = stream.index ?: ordinal,
-                ordinal = ordinal,
-                displayName = stream.readableLabel(),
-                language = stream.language?.takeIf { language -> language.isNotBlank() },
-                isDefault = stream.isDefault == true,
-            )
+        .mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
+        .groupingBy { index -> index }
+        .eachCount()
+        .filterValues { count -> count == 1 }
+        .keys
+
+/** Rows only for unambiguous indexes; ordinals stay relative to every Audio stream. */
+fun audioOptions(streams: List<PlaybackMediaStream>): List<AudioTrackOption> {
+    val selectableIndexes = unambiguousAudioStreamIndexes(streams)
+    return streams
+        .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
+        .mapIndexedNotNull { ordinal, stream ->
+            stream.index
+                ?.takeIf { index -> index in selectableIndexes }
+                ?.let { streamIndex ->
+                    AudioTrackOption(
+                        streamIndex = streamIndex,
+                        ordinal = ordinal,
+                        displayName = stream.readableLabel(),
+                        language = stream.language?.takeIf { language -> language.isNotBlank() },
+                        isDefault = stream.isDefault == true,
+                    )
+                }
         }
+}
 
 fun embeddedAudioTracks(streams: List<PlaybackMediaStream>): List<PlannedEmbeddedTrack> =
     embeddedAudioTracks(
@@ -140,39 +163,48 @@ fun embeddedAudioTracks(streams: List<PlaybackMediaStream>): List<PlannedEmbedde
     )
 
 /**
- * Same descriptors, with each one stamped with whether [effectivePolicy] admits it
+ * Embedded Audio descriptors, each stamped with whether [effectivePolicy] admits it
  * as a DirectPlay audio switch from [container]. Stamping reads the stream's codec
- * and channel metadata here, while it is still available. The list length and
- * ordinals are identical to the single-argument overload — consumers rely on both.
+ * and channel metadata here, while it is still available; an inadmissible stamp
+ * never removes a descriptor.
+ *
+ * Only identities from [unambiguousAudioStreamIndexes] over every Audio stream,
+ * external included, get a descriptor; missing, negative and repeated indexes get
+ * none. Ordinal and cohort size stay relative to all embedded Audio before those
+ * omissions. The single-argument overload delegates here, so both return the same
+ * identities, ordinals and cohort sizes — consumers rely on that.
  */
 fun embeddedAudioTracks(
     streams: List<PlaybackMediaStream>,
     effectivePolicy: EffectivePlayerDevicePolicy?,
     container: String?,
-): List<PlannedEmbeddedTrack> =
-    streams
-        .filter { stream ->
+): List<PlannedEmbeddedTrack> {
+    val selectableIndexes = unambiguousAudioStreamIndexes(streams)
+    val embeddedStreams =
+        streams.filter { stream ->
             stream.type.equals("Audio", ignoreCase = true) && stream.isExternal != true
-        }.let { embeddedStreams ->
-            embeddedStreams.mapIndexedNotNull { ordinal, stream ->
-                stream.index?.let { streamIndex ->
-                    stream
-                        .toPlannedEmbeddedTrack(
-                            streamIndex = streamIndex,
-                            filteredContainerOrdinal = ordinal,
-                            responseAuthoritativeCohortSize = embeddedStreams.size,
-                            trackKind = EmbeddedTrackKind.Audio,
-                        ).copy(
-                            directPlayAdmissible =
-                                effectivePolicy?.admitsDirectPlayAudioSwitch(
-                                    codec = stream.codec,
-                                    channels = stream.channels,
-                                    container = container,
-                                ) ?: true,
-                        )
-                }
-            }
         }
+    return embeddedStreams.mapIndexedNotNull { ordinal, stream ->
+        stream.index
+            ?.takeIf { index -> index in selectableIndexes }
+            ?.let { streamIndex ->
+                stream
+                    .toPlannedEmbeddedTrack(
+                        streamIndex = streamIndex,
+                        filteredContainerOrdinal = ordinal,
+                        responseAuthoritativeCohortSize = embeddedStreams.size,
+                        trackKind = EmbeddedTrackKind.Audio,
+                    ).copy(
+                        directPlayAdmissible =
+                            effectivePolicy?.admitsDirectPlayAudioSwitch(
+                                codec = stream.codec,
+                                channels = stream.channels,
+                                container = container,
+                            ) ?: true,
+                    )
+            }
+    }
+}
 
 fun responseEmbeddedSubtitleTracks(streams: List<PlaybackMediaStream>): List<PlannedEmbeddedTrack> {
     val responseApprovedStreams =

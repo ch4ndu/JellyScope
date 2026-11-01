@@ -40,6 +40,7 @@ import com.jellyscope.core.domain.model.DownloadRecord
 import com.jellyscope.core.domain.model.DownloadReservationExtensionResult
 import com.jellyscope.core.domain.model.DownloadState
 import com.jellyscope.core.domain.model.DownloadSubtitleSelection
+import com.jellyscope.core.domain.model.OfflineTrackKind
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.util.DiagnosticTag
@@ -242,6 +243,7 @@ internal class DownloadTransferCoordinator(
                     context = requestContext,
                     itemId = record.businessKey.itemId,
                     mediaSourceId = record.businessKey.mediaSourceId,
+                    selectedAudioStreamIndex = record.request.selectedAudioStreamIndex,
                 )
             } catch (cancellation: CancellationException) {
                 invalidateUnregisteredClaim(attempt, cancellation.lifecycleNextState())
@@ -1222,10 +1224,25 @@ internal class DownloadTransferCoordinator(
             request.artifactKind == DownloadArtifactKind.OriginalFile
 
     private fun OriginalDownloadSource.selectedTrackFailure(record: DownloadRecord): DownloadFailure? {
-        if (record.request.selectedAudioStreamIndex != null &&
-            record.request.selectedAudioStreamIndex !in audioStreamIndices
-        ) {
-            return DownloadFailure.SourceChanged
+        val requestedAudioIndex = record.request.selectedAudioStreamIndex
+        if (selectedAudioStreamIndex != requestedAudioIndex) return DownloadFailure.SourceChanged
+        if (requestedAudioIndex != null) {
+            if (requestedAudioIndex !in audioStreamIndices) return DownloadFailure.SourceChanged
+            // The immutable request's saved selected codec chose its backend; fresh drift refuses
+            // the attempt. A null selection skips this so legacy video-only snapshots stay valid.
+            val freshBackendSource = backendSource ?: return DownloadFailure.SourceChanged
+            val freshAudioCodec = freshBackendSource.audioCodec.normalizedAudioCodec()
+            val snapshot = record.request.snapshot
+            val selectedTrack = snapshot.selectedAudioTrack
+            if (
+                selectedTrack == null ||
+                selectedTrack.kind != OfflineTrackKind.Audio ||
+                selectedTrack.streamIndex != requestedAudioIndex ||
+                freshAudioCodec != snapshot.backendSource.audioCodec.normalizedAudioCodec() ||
+                freshAudioCodec != selectedTrack.codec.normalizedAudioCodec()
+            ) {
+                return DownloadFailure.SourceChanged
+            }
         }
         return when (val selection = record.request.subtitleSelection) {
             DownloadSubtitleSelection.Off,
@@ -1241,6 +1258,9 @@ internal class DownloadTransferCoordinator(
                 }
         }
     }
+
+    /** Trim/case-insensitive codec identity; blank is unknown. No alias policy. */
+    private fun String?.normalizedAudioCodec(): String? = this?.trim()?.lowercase()?.takeIf(String::isNotEmpty)
 
     private fun isExactStaging(
         inspection: DownloadArtifactInspection?,

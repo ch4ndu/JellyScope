@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.player_debug_codec_description
 import com.jellyscope.ui.generated.resources.player_debug_decoded_size
+import com.jellyscope.ui.generated.resources.player_debug_decoder_component
 import com.jellyscope.ui.generated.resources.player_debug_decoding
 import com.jellyscope.ui.generated.resources.player_debug_hardware
 import com.jellyscope.ui.generated.resources.player_debug_hardware_copy_back
@@ -21,6 +22,7 @@ import org.jetbrains.compose.resources.stringResource
 data class PlayerDebugMpvLabels(
     val codecDescription: String,
     val decoding: String,
+    val decoderComponent: String,
     val decodedSize: String,
     val hardware: String,
     val hardwareCopyBack: String,
@@ -37,6 +39,7 @@ fun playerDebugMpvLabels(): PlayerDebugMpvLabels =
     PlayerDebugMpvLabels(
         codecDescription = stringResource(Res.string.player_debug_codec_description),
         decoding = stringResource(Res.string.player_debug_decoding),
+        decoderComponent = stringResource(Res.string.player_debug_decoder_component),
         decodedSize = stringResource(Res.string.player_debug_decoded_size),
         hardware = stringResource(Res.string.player_debug_hardware),
         hardwareCopyBack = stringResource(Res.string.player_debug_hardware_copy_back),
