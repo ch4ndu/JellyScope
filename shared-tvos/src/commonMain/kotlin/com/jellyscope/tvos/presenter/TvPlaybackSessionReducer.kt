@@ -85,7 +85,7 @@ internal fun reduceTvPlaybackSession(
                 current.copy(
                     playerInstalled = playerInstalled,
                     phase = TvPlaybackPhase.Failed,
-                    error = PlaybackError.Unknown,
+                    error = if (current.phase == TvPlaybackPhase.Failed) current.error else PlaybackError.Unknown,
                 )
             }
         TvPlaybackSessionChange.DiagnosticsHidden ->
@@ -104,6 +104,7 @@ internal fun reduceTvPlaybackSession(
             with(change) {
                 current.copy(
                     phase = TvPlaybackPhase.Loading,
+                    error = null,
                     itemId = itemId,
                     mediaSourceId = mediaSourceId,
                     planEpoch = planEpoch,
@@ -127,17 +128,30 @@ internal fun reduceTvPlaybackSession(
             }
         TvPlaybackSessionChange.Loading ->
             run {
-                current.copy(phase = TvPlaybackPhase.Loading)
+                current.copy(
+                    phase = TvPlaybackPhase.Loading,
+                    error = null,
+                )
             }
         is TvPlaybackSessionChange.Projected ->
             with(change) {
-                state.copy(diagnostics = current.diagnostics)
+                // A published failure owns the screen until a new attempt
+                // resets it; native fields keep updating underneath.
+                if (current.phase == TvPlaybackPhase.Failed) {
+                    state.copy(
+                        diagnostics = current.diagnostics,
+                        phase = current.phase,
+                        error = current.error,
+                    )
+                } else {
+                    state.copy(diagnostics = current.diagnostics)
+                }
             }
         is TvPlaybackSessionChange.Failed ->
             with(change) {
                 current.copy(
                     phase = TvPlaybackPhase.Failed,
-                    error = error,
+                    error = if (current.phase == TvPlaybackPhase.Failed) current.error else error,
                 )
             }
     }

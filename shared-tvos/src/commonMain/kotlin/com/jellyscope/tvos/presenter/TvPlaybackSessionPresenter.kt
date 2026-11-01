@@ -52,6 +52,7 @@ import com.jellyscope.core.domain.playback.PlaybackInfoPlanner
 import com.jellyscope.core.domain.playback.PlaybackInfoRequestPolicy
 import com.jellyscope.core.domain.playback.PlaybackMediaStream
 import com.jellyscope.core.domain.playback.PlaybackPlan
+import com.jellyscope.core.domain.playback.PlaybackPlanningException
 import com.jellyscope.core.domain.playback.PlaybackProgressEvent
 import com.jellyscope.core.domain.playback.PlaybackQualityCapOrigin
 import com.jellyscope.core.domain.playback.PlaybackQualityMode
@@ -1370,7 +1371,8 @@ class TvPlaybackSessionPresenter(
                     event = PlaybackDiagnosticEvent.Failed,
                     exception = exception,
                 )
-                publishFailure(PlaybackError.Network)
+                currentCoroutineContext().ensureActive()
+                publishFailure(planningPlaybackError(exception))
                 return false
             }
         val segments = segmentsDeferred.await()
@@ -1847,6 +1849,7 @@ class TvPlaybackSessionPresenter(
         forcePlay: Boolean = false,
         nonFatalSubtitleFallback: SubtitleActivationTarget? = null,
         subtitleFallbackGeneration: Long? = null,
+        nonFatalLocalSubtitleFailure: Boolean = false,
     ) {
         if (startInFlight) return
         val mediaSource = selectedMediaSourceId ?: return
@@ -1895,7 +1898,12 @@ class TvPlaybackSessionPresenter(
                             event = PlaybackDiagnosticEvent.Failed,
                             exception = exception,
                         )
-                        if (
+                        // An ordinary Throwable resume can win over cancellation;
+                        // reject stale catch publication before any branch.
+                        currentCoroutineContext().ensureActive()
+                        if (nonFatalLocalSubtitleFailure) {
+                            publish(playerController.playbackState.value)
+                        } else if (
                             nonFatalSubtitleFallback != null &&
                             isCurrentSubtitleFallback(
                                 target = nonFatalSubtitleFallback,
@@ -1905,7 +1913,7 @@ class TvPlaybackSessionPresenter(
                         ) {
                             markSubtitleFallbackUnavailable(nonFatalSubtitleFallback)
                         } else if (nonFatalSubtitleFallback == null) {
-                            publishFailure(PlaybackError.Network)
+                            publishFailure(planningPlaybackError(exception))
                         }
                         return@launch
                     }
@@ -1929,7 +1937,11 @@ class TvPlaybackSessionPresenter(
                     }
                 }
                 if (audioRecoveryTarget != null && playbackPlan.streamMode == StreamMode.DirectPlay) {
-                    publishFailure(PlaybackError.UnsupportedMedia)
+                    if (nonFatalLocalSubtitleFailure) {
+                        publish(playerController.playbackState.value)
+                    } else {
+                        publishFailure(PlaybackError.UnsupportedMedia)
+                    }
                     return@launch
                 }
                 val currentPlanState = plan
@@ -2000,6 +2012,11 @@ class TvPlaybackSessionPresenter(
         playbackPlan: PlaybackPlan,
         resetReporting: Boolean,
     ) {
+        // An owned replacement is a new attempt; clear a failure published
+        // after the existing early Loading reset.
+        if (_state.value.phase == TvPlaybackPhase.Failed) {
+            reduce(TvPlaybackSessionChange.Loading)
+        }
         plan = playbackPlan
         updatePlaybackHealthSessionContext()
         planEpoch += 1
@@ -2290,7 +2307,10 @@ class TvPlaybackSessionPresenter(
         persistSubtitleSelection(SubtitleSelectionIntent.Off)
         playerController.selectEmbeddedSubtitle(null)
         publishLocalSubtitleUnavailableNotice()
-        replanAtPosition(playerController.playbackState.value.positionMs)
+        replanAtPosition(
+            playerController.playbackState.value.positionMs,
+            nonFatalLocalSubtitleFailure = true,
+        )
     }
 
     private fun publishLocalSubtitleUnavailableNotice() {
@@ -2977,6 +2997,27 @@ class TvPlaybackSessionPresenter(
             error = error,
         )
         reduce { TvPlaybackSessionChange.Failed(error) }
+    }
+
+    // Mirrors the Compose player's planning-error mapping; change both together.
+    private fun planningPlaybackError(exception: Throwable): PlaybackError {
+        val copyFailure = exception as? PlaybackPlanningException.SourceVideoCopyUnsupported
+        val isDeterministicCapabilityFailure =
+            when (copyFailure?.cause) {
+                null -> copyFailure != null
+                is PlaybackPlanningException.SourceVideoCopyRejected,
+                PlaybackPlanningException.NoSupportedStream,
+                -> true
+
+                else -> false
+            }
+        val rootFailure = copyFailure?.cause ?: exception
+        return when {
+            isDeterministicCapabilityFailure -> PlaybackError.UnsupportedMedia
+            rootFailure is PlaybackPlanningException.RemoteRequestFailed && rootFailure.isNetworkFailure ->
+                PlaybackError.Network
+            else -> PlaybackError.Unknown
+        }
     }
 }
 

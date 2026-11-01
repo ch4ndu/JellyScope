@@ -554,14 +554,14 @@ suppresses interactive recovery until it is safe to show the consequence.
 
 - **[all]** Fatal errors use typed `PlayerUiState.Error` causes and retain the
   existing Retry/Close actions.
-- **[Compose]** A cause-less `SourceVideoCopyUnsupported` refusal (the Original
-  path), or an exhausted recovery whose cause is the planner's
-  `SourceVideoCopyRejected`/`NoSupportedStream`, is deterministic Unsupported
+- **[Compose]** `SourceVideoCopyUnsupported` with no cause or with immediate
+  cause `SourceVideoCopyRejected`/`NoSupportedStream` is deterministic Unsupported
   Media with `retryable = false`, so the dialog offers Close. A wrapper carrying
-  the forced-transcode repository failure remains retryable Network, and an
-  unknown/non-planning cause stays on that conservative Network path. The
-  wrapper is classified by cause rather than treated as one universal network
-  failure.
+  a forced-transcode `RemoteRequestFailed` with `isNetworkFailure = true`
+  remains retryable Network; other unknown/non-planning causes map to Unknown.
+  Bare `NoSupportedStream`/`SourceVideoCopyRejected` also remain Unknown. The
+  wrapper is classified by its immediate cause rather than treated as one
+  universal network failure.
 - **[all]** `PlaybackSessionRecoveryPolicy` is the single semantic owner for
   activation-first precedence, exact current-target validation, typed replan
   causes, and the independent network/audio/subtitle one-shot facts. Compose
@@ -640,11 +640,42 @@ suppresses interactive recovery until it is safe to show the consequence.
   lack an embedded descriptor; this fallback establishes no native codec
   incompatibility. Retry resets the
   policy allowance; paused AVPlayer Retry can resume through Loading.
-  Successful recovery replaces the unmappable plan, but planning failures still
-  map to Network, and subsequent native projections can overwrite Failed while
-  AVPlayer remains gated. VLCKit can continue unconfirmed default audio with
-  Pending activation. Typed, non-overwritable fallback failure remains
-  unresolved. The Audio fallback request disables DirectPlay. Any later
+  Startup and replan failures use a private copy of Compose's planner-error
+  classifier; check both helpers when changing its immediate-cause mapping.
+  Unlike Compose's Audio-fallback catch, tvOS does not force every such failure
+  to UnsupportedMedia: the recorded Audio target is not request provenance.
+  Failed retains its first cause, including a missing native cause, across
+  later failure and state projections while other native fields keep updating.
+  Accepted start/item/replan Loading clears it; replacement installation also
+  clears a failure that arrived after planning began. Existing early replan
+  Loading can clear an earlier failure even if planning never installs.
+  AVPlayer may remain Audio-gated; VLCKit may continue unconfirmed default
+  audio with Pending activation. No native Stop is implied.
+
+  A failed user-requested quality, track or local-subtitle change, or an
+  out-of-window seek, can leave Failed over the continuing previous stream.
+  Retry reloads that installed plan from its own start position, possibly
+  rewinding, and starts a new reporting session; Close/Back exits. Remote
+  Play/Pause can still control the hidden stream. tvOS retains Retry for
+  UnsupportedMedia. It has a dismissible automatic-recovery prompt, which can
+  appear above Failed, but lacks Compose's dismissible change-rejection
+  notice. Preserving healthy playback after a rejected change remains open.
+  Failed can block completion auto-close while autoplay still advances.
+
+  App-local subtitle activation failure, deletion or a missing picked file
+  remains nonfatal: the producer disables the file, saves Off and sets its
+  passive notice. Its replan failure or rejected DirectPlay result republishes
+  actual native state rather than manufacturing Failed; a real native Failed
+  remains visible. Both planner failure catches check cancellation after their
+  diagnostic and before any publication, so a cancelled exceptional result
+  cannot acquire a newer attempt's Failed state. The local-file branch reads
+  the controller only after that check. It never requests ForceEncode.
+  This request can subsume pending quality/track choices or spent Audio
+  recovery; it adds no recovery arbitration. Completion during that request
+  can project Loading, and a restored native Failed lacks the full terminal
+  diagnostic. Native/manual acceptance remains outstanding.
+
+  The Audio fallback request disables DirectPlay. Any later
   DirectPlay replan is rejected while its Audio recovery target remains
   recorded, during the fallback or after it fails, until a new item, an explicit
   Audio selection, or a non-DirectPlay install. Collector recovery can preempt
@@ -1104,6 +1135,13 @@ server/user IDs, titles, paths, or raw native errors.
   until an accepted attempt resets it, so unrelated native updates cannot
   remove Retry/Close. Resets at guarded install/prepare boundaries admit a new
   attempt without treating its planning as a successful replacement.
+  tvOS likewise retains Failed phase/cause while projecting current native
+  facts; its existing early replan Loading remains a separate reset boundary.
+  Local-file subtitle replans carry invocation-local nonfatal provenance so
+  durable fatal publication does not turn an unavailable file into a blocking
+  failure. Both planner catches reject cancelled work before publication,
+  because exceptional coroutine delivery can win over cancellation and must
+  not give an abandoned request durable ownership of a newer screen state.
 
 - **Health evidence is qualified rather than globally tuned.** Capabilities follow
   the installed controller: a retained placeholder suppresses valid signals,
