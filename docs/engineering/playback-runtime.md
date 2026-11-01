@@ -611,10 +611,23 @@ suppresses interactive recovery until it is safe to show the consequence.
   existing snapshot behavior, including Android mpv's current retry position.
   Ordinary VLCKit Start/Pause reports at zero and post-replan zero snapshots
   remain separate from this handoff's corrected Stopped position.
-  Fallback Error is not durable: later non-Failed native updates can replace it
-  with Content, so the Error Retry path depends on timing. This handoff does
-  not replay the full state handler, retain overwritten events, or serialize
-  later collector recovery. Like other immediate handoffs, it omits the full
+  A shown Error retains its first cause across later native failures and
+  Content projections. Retry, an accepted queue change and existing explicit
+  Loading transitions reopen the screen. Non-forced replans clear Error only
+  at the guarded replacement install; reused-controller startup clears it at
+  the final owned prepare after timing restoration. A non-forced replan that
+  never installs keeps the first Error. A full Retry that fails before prepare can
+  retain an earlier native cause and its Retry eligibility. Stop or ownership
+  loss after reset does not restore that Error; Loading can remain until the
+  next native update. During restoration, Error can remain visible with Retry
+  refused and Close using deferred Stop. Native observation, reporting and
+  recovery continue; forced-play recovery keeps its existing early Loading.
+  Error retains TV display-mode reset, pins the Kids watch page and hides
+  Up Next; final-item completion can still close the player. Software recovery
+  can overlay Error and refuse Retry. Content projections are still built
+  before the reducer discards them. This handoff does not replay the full state
+  handler or serialize later collector recovery. Like other immediate handoffs,
+  it omits the full
   collector's terminal RetryScheduled diagnostic; a later collector delivery
   may report the already-consumed fact normally.
 - **[tvOS]** Startup, post-replan preparation and same-plan Retry hand missing
@@ -1086,8 +1099,11 @@ server/user IDs, titles, paths, or raw native errors.
   authority, since diagnostic copies are not new preparations. VLCKit's
   synchronous Retry snapshot precedes deferred play; using its intended plan
   position and ViewModel play intent avoids a new zero-position fallback and
-  false pause without changing Android mpv's current-position Retry. This does
-  not make fallback failure durable or synchronize native-only play intent.
+  false pause without changing Android mpv's current-position Retry. Native-only
+  play intent remains separate. The Compose reducer retains terminal Error
+  until an accepted attempt resets it, so unrelated native updates cannot
+  remove Retry/Close. Resets at guarded install/prepare boundaries admit a new
+  attempt without treating its planning as a successful replacement.
 
 - **Health evidence is qualified rather than globally tuned.** Capabilities follow
   the installed controller: a retained placeholder suppresses valid signals,

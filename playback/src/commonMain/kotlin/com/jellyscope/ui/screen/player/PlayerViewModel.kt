@@ -2450,6 +2450,8 @@ class PlayerViewModel(
         playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
         startupPrepareGeneration = launchGeneration
         try {
+            // This owned prepare is a new attempt for a shown Error.
+            if (_state.value is PlayerUiState.Error) reduce(PlayerChange.Loading)
             controller.prepare(playbackPlanWithMetadata)
         } finally {
             if (startupPrepareGeneration == launchGeneration) startupPrepareGeneration = null
@@ -5529,6 +5531,8 @@ class PlayerViewModel(
                                 performStop(stopController = true)
                                 return@withLock false
                             }
+                            // This owned install is a new attempt for a shown Error.
+                            if (_state.value is PlayerUiState.Error) reduce(PlayerChange.Loading)
                             if (proposedQualitySessionState != null) {
                                 commitQualityProposal(
                                     proposedQualitySessionState = proposedQualitySessionState,

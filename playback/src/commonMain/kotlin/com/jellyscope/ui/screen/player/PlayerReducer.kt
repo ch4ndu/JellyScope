@@ -25,10 +25,15 @@ internal fun reducePlayer(
 ): PlayerUiState =
     when (change) {
         PlayerChange.Loading -> PlayerUiState.Loading
-        is PlayerChange.Failed -> change.state
-        is PlayerChange.ContentReady -> change.content
+        // A shown Error is terminal until a new attempt publishes Loading.
+        is PlayerChange.Failed -> current as? PlayerUiState.Error ?: change.state
+        is PlayerChange.ContentReady -> current as? PlayerUiState.Error ?: change.content
         PlayerChange.SeekUnavailable ->
             (current as? PlayerUiState.Content)?.copy(isSeekable = false) ?: current
         PlayerChange.QueueSwitchStarted ->
-            (current as? PlayerUiState.Content)?.copy(isSeekable = false, playbackItemId = null) ?: current
+            when (current) {
+                is PlayerUiState.Error -> PlayerUiState.Loading
+                is PlayerUiState.Content -> current.copy(isSeekable = false, playbackItemId = null)
+                else -> current
+            }
     }

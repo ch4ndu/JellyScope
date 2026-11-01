@@ -724,7 +724,7 @@ class PlayerViewModelBackendLifecycleTest {
 
             runCurrent()
 
-            assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
+            val error = assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
             assertEquals(1, fixture.controller.prepareCount)
             assertEquals(0, fixture.controller.playCount)
             assertTrue(fixture.controller.embeddedAudioOrdinals.isEmpty())
@@ -732,7 +732,7 @@ class PlayerViewModelBackendLifecycleTest {
 
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Paused)
             runCurrent()
-            assertFalse(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+            assertEquals(error, fixture.viewModel.state.value)
             fixture.viewModel.dispose()
         }
 
@@ -765,7 +765,7 @@ class PlayerViewModelBackendLifecycleTest {
             fixture.viewModel.accept(PlayerIntent.SelectQualityBitrate(maxBitrateBps = 8_000_000L))
             runCurrent()
 
-            assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
+            val error = assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
             assertEquals(2, fixture.controller.prepareCount)
             assertEquals(playCount, fixture.controller.playCount)
             assertEquals(audioSelectionCount, fixture.controller.embeddedAudioOrdinals.size)
@@ -773,7 +773,7 @@ class PlayerViewModelBackendLifecycleTest {
 
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Paused)
             runCurrent()
-            assertFalse(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+            assertEquals(error, fixture.viewModel.state.value)
             fixture.viewModel.dispose()
         }
 
