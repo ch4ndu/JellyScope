@@ -70,11 +70,30 @@ clients; core retains their redirect/timeout/logging configuration and engines.
   `SourceChanged` instead of appending incompatible bytes. The resulting private
   artifact preserves all embedded tracks from the source, and its snapshot
   remembers the selected audio/subtitle intent for offline playback.
+- New client drafts resolve Audio only by actual nonnegative indexes occurring
+  once across all Audio streams, including external Audio collisions. The
+  selected index, track metadata and draft backend audio codec come from the
+  same stream. Embedded Audio entries keep their source order; entries without
+  an eligible identity retain metadata with a null index and cannot be selected.
+  [Native mapping](playback-runtime.md#audio-activation-and-native-mapping)
+  preserves those slots. This does not localize external Audio for Original.
+- Compose refuses an invalid explicit Audio choice for both Original and Fixed.
+  With no explicit choice, it uses an eligible projected default, then the first
+  eligible raw default, then the first eligible Audio stream. tvOS preserves its
+  fallback for absent or invalid requests: the first eligible raw default, then the first
+  eligible stream. Audio present without an eligible choice makes the draft
+  unavailable; a genuine no-Audio source can still form an Original draft.
+  Fixed requires a resolved Audio choice.
 - Original admission also compares authenticated source codec, dimensions, and
   frame rate with the normally selected offline backend's probed finite decoder
   bounds. A source proven to exceed those bounds is rejected with guidance to
   choose a converted download. Missing source facts or unknown decoder limits
-  remain admissible; they are not evidence of incompatibility.
+  remain admissible; they are not evidence of incompatibility. The authenticated
+  backend audio codec comes from the server's first default or first Audio stream
+  and replaces the draft value, so it can differ from the selected track or
+  describe an ineligible entry. Draft identity validation does not correct this
+  admission metadata. Original preflight and transfer re-checks exclude missing
+  and negative indexes from Audio membership; Subtitle membership is unchanged.
 - Original localizes one selected external text subtitle into the same private
   package, whether it came from a bounded Jellyfin subtitle response or an
   installed local OpenSubtitles asset. It cannot copy an external bitmap
@@ -84,8 +103,9 @@ clients; core retains their redirect/timeout/logging configuration and engines.
 - Fixed always asks Jellyfin to encode the exact selected source to the chosen
   canonical rung as finite HLS-TS VOD with H.264 video and AAC audio. Direct
   play, direct stream, and audio/video stream copy are disabled. The package
-  contains exactly the selected audio track, or the source default/fallback
-  audio when none was selected. Subtitles are either Off or one compatible
+  contains exactly the selected audio track. New client drafts carry a resolved
+  selection; preflight retains its source default/fallback for other callers
+  that omit one. Subtitles are either Off or one compatible
   embedded text track after explicit confirmation that it will be permanently
   burned into the video; Fixed never writes a selectable subtitle sidecar. Its
   bitrate-times-duration plus ten-percent admission estimate is not a promised
@@ -256,6 +276,11 @@ identity, artifact, and progress rules live in
   parsing would make artifact identity and completeness ambiguous.
   A missing subtitle sidecar contributes zero bytes to a package checkpoint;
   it must never reset already downloaded main-file bytes.
+- **Audio identity and position serve different purposes.** Inventing an index
+  or choosing the first duplicate can select different metadata and audio.
+  Keeping unselectable embedded slots preserves physical order; resolving the
+  selected stream once prevents a later snapshot fallback from replacing the
+  user's choice, including before Fixed conversion.
 - **One queue and device allocation make admission deterministic.** Reservations
   and the free-space floor prevent overcommit without eviction. Android
   notification permission controls visibility, never transfer authorization.

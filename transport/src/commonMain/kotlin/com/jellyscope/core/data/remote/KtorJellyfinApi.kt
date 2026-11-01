@@ -1594,7 +1594,7 @@ class KtorJellyfinApi(
             audioStreamIndices =
                 source.mediaStreams
                     .filter { stream -> stream.type.equals("Audio", ignoreCase = true) }
-                    .mapNotNull { stream -> stream.index }
+                    .mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
                     .toSet(),
             embeddedSubtitleStreamIndices =
                 source.mediaStreams

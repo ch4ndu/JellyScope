@@ -38,7 +38,7 @@ class OriginalDownloadDraftFactoryTest {
     }
 
     @Test
-    fun nullStreamIndexesUseAudioAndSubtitleOrdinalsIndependently() {
+    fun audioUsesActualIndexWhileNullIndexSubtitleKeepsOrdinal() {
         val version =
             MediaVersionUi(
                 id = "source",
@@ -47,7 +47,7 @@ class OriginalDownloadDraftFactoryTest {
                     listOf(
                         PlaybackMediaStream(0, "Video", null, null, null, "h264", null, null, 1080, null, false, null, null),
                         PlaybackMediaStream(null, "Audio", "English", null, "en", "aac", null, null, null, true, false, null, null),
-                        PlaybackMediaStream(null, "Audio", "French", null, "fr", "aac", null, null, null, false, false, null, null),
+                        PlaybackMediaStream(0, "Audio", "French", null, "fr", "ac3", null, null, null, false, false, null, null),
                         PlaybackMediaStream(null, "Subtitle", "English", null, "en", "srt", null, null, null, true, false, "Embed", null),
                     ),
                 trackSelection =
@@ -69,7 +69,17 @@ class OriginalDownloadDraftFactoryTest {
             )
 
         val draft = assertIs<OriginalDownloadDraftBuildResult.Ready>(result).draft
-        assertEquals("aac", draft.snapshot.selectedAudioTrack?.codec)
+        assertEquals(0, draft.selectedAudioStreamIndex)
+        assertEquals(0, draft.snapshot.selectedAudioTrack?.streamIndex)
+        assertEquals("ac3", draft.snapshot.selectedAudioTrack?.codec)
+        assertEquals("French", draft.snapshot.selectedAudioTrack?.label)
+        assertEquals("ac3", draft.snapshot.backendSource.audioCodec)
+        assertEquals(
+            listOf(null, 0),
+            draft.snapshot.embeddedTracks
+                .filter { track -> track.kind == OfflineTrackKind.Audio }
+                .map { track -> track.streamIndex },
+        )
         assertEquals(OfflineTrackKind.Subtitle, draft.snapshot.selectedSubtitleTrack?.kind)
         assertEquals("srt", draft.snapshot.selectedSubtitleTrack?.codec)
     }
