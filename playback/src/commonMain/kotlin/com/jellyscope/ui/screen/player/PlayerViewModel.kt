@@ -824,6 +824,7 @@ class PlayerViewModel(
                 expectedInstalledPlan = expectedRetryInstalledPlan,
                 recoveryPositionOverrideMs = retryPlan.startPositionMs.takeIf { vlcKitRetry },
                 pausedAtRequestOverride = (!desiredPlayWhenReady).takeIf { vlcKitRetry },
+                includeInadmissibleAudio = true,
             )
             return
         }
@@ -5180,9 +5181,10 @@ class PlayerViewModel(
         val activeTarget = (playbackState.audioActivation as? AudioActivationState.Active)?.target ?: return false
         val currentPlan = plan ?: return false
         if (currentPlan.audioActivationTarget != activeTarget || activeTarget.itemId != currentItemId) return false
+        // Exact activation resolves recovery even when the installed index never changed.
+        audioRecoveryTarget = null
         if (installedAudioStreamIndex == activeTarget.streamIndex) return false
         installedAudioStreamIndex = activeTarget.streamIndex
-        audioRecoveryTarget = null
         if (currentPlan.audioSelectionAuthoritative && requestedAudioStreamIndex != activeTarget.streamIndex) {
             requestedAudioStreamIndex = activeTarget.streamIndex
             // Runtime substitutions never replace durable audio intent.
@@ -5638,6 +5640,10 @@ class PlayerViewModel(
      * Same-plan Retry passes its logical plan facts as [expectedPlan] while [expectedInstalledPlan]
      * guards the prepared identity: the existing one, the controller's restored retained snapshot,
      * or still null when Retry could not qualify restored authority. The overrides replace a transitional Retry snapshot.
+     * Only ordinary Error Retry sets [includeInadmissibleAudio]: a present switch-inadmissible descriptor then counts
+     * as a gap when [audioRecoveryTarget] still records its executed, unresolved fallback. Server-approved initial
+     * audio has no such record, so its switch stamp alone never triggers a fallback. A current exact Active snapshot
+     * for the target resolves it even before the collector retires the record.
      */
     private fun maybeStartInstalledActivationFallback(
         expectedController: PlayerController,
@@ -5646,6 +5652,7 @@ class PlayerViewModel(
         expectedInstalledPlan: PlaybackPlan? = expectedPlan,
         recoveryPositionOverrideMs: Long? = null,
         pausedAtRequestOverride: Boolean? = null,
+        includeInadmissibleAudio: Boolean = false,
     ) {
         if (
             !admitsPlaybackSessionRecovery() ||
@@ -5654,10 +5661,19 @@ class PlayerViewModel(
         ) {
             return
         }
+        val nativeState = playerController.playbackState.value
         val audioTarget =
             expectedPlan.audioActivationTarget?.takeIf { target ->
                 expectedPlan.streamMode == StreamMode.DirectPlay &&
-                    expectedPlan.embeddedAudioTracks.none { track -> track.jellyfinStreamIndex == target.streamIndex }
+                    expectedPlan.embeddedAudioTracks.none { track ->
+                        track.jellyfinStreamIndex == target.streamIndex &&
+                            (
+                                !includeInadmissibleAudio ||
+                                    track.directPlayAdmissible ||
+                                    audioRecoveryTarget != target ||
+                                    (nativeState.audioActivation as? AudioActivationState.Active)?.target == target
+                            )
+                    }
             }
         val unavailableSubtitle = expectedPlan.plannedSubtitle as? PlannedSubtitle.Unavailable
         val subtitleTarget = unavailableSubtitle?.activationTarget
@@ -5673,7 +5689,6 @@ class PlayerViewModel(
             )
         }
         val encodeSubtitleTarget = unavailableSubtitle?.takeIf { subtitle -> subtitle.allowEncodeFallback }?.activationTarget
-        val nativeState = playerController.playbackState.value
         val nativeActivationUnavailable =
             nativeState.audioActivation is AudioActivationState.Unavailable ||
                 nativeState.subtitleActivation is com.jellyscope.core.domain.playback.SubtitleActivationState.Unavailable

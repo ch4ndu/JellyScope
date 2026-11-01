@@ -586,6 +586,11 @@ suppresses interactive recovery until it is safe to show the consequence.
   captured, possibly null installed identity; ViewModel-side diagnostic,
   speed and style copies alone do not become prepared authority. A controller's
   own prepared retry copy can qualify through the admission checks below.
+  Ordinary Error Retry also reconsiders a present switch-inadmissible audio
+  descriptor when its exact target still records an executed, unresolved audio
+  fallback. An exact current native Audio confirmation resolves that record,
+  including when the installed index is unchanged or the collector is pending.
+  The switch stamp alone does not invalidate server-approved initial audio. Startup and post-install handoffs keep their existing admission rules.
   A launch-owned marker blocks recovery during synchronous startup `prepare()`
   and same-plan native `retry()`. Failed snapshots wait until return; non-Failed
   status, health and reporting observations continue. The marker clears in
@@ -1155,6 +1160,9 @@ server/user IDs, titles, paths, or raw native errors.
   would invent timeline or selection facts. Advancing the captured identity
   with the assignment preserves the following activation handoff's ownership
   check; a new epoch still does not establish native readiness.
+  An inadmissible switch can fail server fallback while native audio retains the
+  previous choice. Retry uses the unresolved fallback target to repeat that
+  request; requiring this lineage preserves the initial audio exemption.
   tvOS likewise retains Failed phase/cause while projecting current native
   facts; its existing early replan Loading remains a separate reset boundary.
   Local-file subtitle replans carry invocation-local nonfatal provenance so

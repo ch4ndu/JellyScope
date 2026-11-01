@@ -7,6 +7,7 @@ import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.MediaVersion
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
+import com.jellyscope.core.domain.playback.AudioActivationState
 import com.jellyscope.core.domain.playback.BackendSourceDescriptor
 import com.jellyscope.core.domain.playback.Chapter
 import com.jellyscope.core.domain.playback.DeviceDecodingCapabilities
@@ -14,6 +15,7 @@ import com.jellyscope.core.domain.playback.DeviceDirectPlayProfile
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.MediaSegment
 import com.jellyscope.core.domain.playback.MediaSegmentType
+import com.jellyscope.core.domain.playback.PlaybackClientTrigger
 import com.jellyscope.core.domain.playback.PlaybackContentTimeline
 import com.jellyscope.core.domain.playback.PlaybackContentTimelineSource
 import com.jellyscope.core.domain.playback.PlaybackError
@@ -22,6 +24,7 @@ import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerDeviceSettings
 import com.jellyscope.core.domain.playback.PlayerVolumeState
+import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.core.domain.playback.TrickplayInfo
 import com.jellyscope.core.domain.playback.androidPlayerBackendPolicy
 import com.jellyscope.core.domain.playback.applePlayerBackendPolicy
@@ -870,6 +873,98 @@ class PlayerViewModelBackendLifecycleTest {
             assertEquals(2, controller.prepareCount)
             assertEquals(1, controller.retryCount)
             assertTrue(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
+            fixture.viewModel.dispose()
+            runCurrent()
+        }
+
+    @Test
+    fun ordinaryRetryRepeatsOnlyARecordedUnresolvedInadmissibleAudioFallback() =
+        runPlayerViewModelTest {
+            // The mp4 detail source routes to AVPlayer while the mkv response stamps both AAC switches inadmissible.
+            val version =
+                MediaVersion(id = "source-1", name = "Source", mediaStreams = playbackStreams, container = "mp4", runtime = 90.seconds)
+            val profileProvider =
+                object : DeviceProfileProvider {
+                    override val backendPolicy = applePlayerBackendPolicy()
+                    override val availableBackends: Set<PlayerBackend> = setOf(PlayerBackend.AVPlayer, PlayerBackend.VlcKit)
+
+                    override fun capabilities(backend: PlayerBackend): DeviceDecodingCapabilities =
+                        DeviceDecodingCapabilities(
+                            videoCodecs = listOf("h264"),
+                            audioCodecs = listOf("aac"),
+                            supportsDolbyVision = false,
+                            directPlayProfiles = listOf(DeviceDirectPlayProfile(listOf("mp4"), listOf("h264"), listOf("aac"))),
+                        )
+                }
+            // Like AVPlayer, native Retry re-prepares the retained plan and restarts Audio mapping as Pending.
+            val controller =
+                object : FakePlayerController(confirmInitialAudio = true, publishPrepareEpoch = true) {
+                    override fun retry() {
+                        super.retry()
+                        val retained = checkNotNull(preparedPlan)
+                        prepare(retained)
+                        playbackStateFlow.value =
+                            playbackStateFlow.value.copy(
+                                audioActivation = AudioActivationState.Pending(checkNotNull(retained.audioActivationTarget)),
+                            )
+                    }
+                }
+            controller.activeBackend = PlayerBackend.AVPlayer
+            val fixture =
+                playerFixture(
+                    detailItems =
+                        mapOf(
+                            "item-1" to MediaItem(id = "item-1", name = "Item", kind = MediaKind.Movie, versions = listOf(version)),
+                        ),
+                    playbackInfoResults =
+                        ArrayDeque(
+                            listOf(
+                                Result.success(directPlayPlaybackInfo),
+                                Result.failure(IllegalStateException("fallback failed")),
+                            ),
+                        ),
+                    initialControllerIsPending = true,
+                    deviceProfileProvider = profileProvider,
+                    playerControllerFactory = { controller },
+                )
+            val requests = fixture.repository.requests
+
+            runCurrent()
+            val initialPlan = checkNotNull(controller.preparedPlan)
+            assertEquals(StreamMode.DirectPlay, initialPlan.streamMode)
+            assertEquals(listOf(false, false), initialPlan.embeddedAudioTracks.map { track -> track.directPlayAdmissible })
+            controller.playbackStateFlow.value = controller.playbackStateFlow.value.copy(status = PlaybackStatus.Playing)
+            runCurrent()
+            controller.playbackStateFlow.value =
+                controller.playbackStateFlow.value.copy(status = PlaybackStatus.Failed, error = PlaybackError.Drm)
+            runCurrent()
+            assertEquals(PlayerUiState.Error(error = PlaybackError.Drm), fixture.viewModel.state.value)
+            assertEquals(1, requests.size)
+
+            // The server-approved initial Audio has no recorded fallback, so its switch stamp alone is no gap.
+            fixture.viewModel.accept(PlayerIntent.Retry)
+            runCurrent()
+            assertEquals(1, requests.size)
+            controller.playbackStateFlow.value =
+                controller.playbackStateFlow.value.copy(status = PlaybackStatus.Playing, error = null)
+            runCurrent()
+
+            fixture.viewModel.accept(PlayerIntent.SelectAudio(3))
+            runCurrent()
+            assertEquals(2, requests.size)
+            assertEquals(PlayerUiState.Error(error = PlaybackError.UnsupportedMedia), fixture.viewModel.state.value)
+            assertEquals(3, requests.last().audioStreamIndex)
+            assertFalse(requests.last().requestPolicy.enableDirectPlay)
+
+            // Native Retry re-maps Audio 1, so only the recorded unresolved Audio 3 fallback repeats.
+            fixture.viewModel.accept(PlayerIntent.Retry)
+            runCurrent()
+            assertEquals(3, requests.size)
+            val fallbackRequest = requests.last()
+            assertEquals(3, fallbackRequest.audioStreamIndex)
+            assertFalse(fallbackRequest.requestPolicy.enableDirectPlay)
+            assertEquals(PlaybackClientTrigger.AudioActivationFallback, fallbackRequest.requestPolicy.clientTrigger)
+            assertEquals(StreamMode.Transcode, controller.preparedPlan?.streamMode)
             fixture.viewModel.dispose()
             runCurrent()
         }
