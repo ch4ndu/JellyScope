@@ -1025,8 +1025,10 @@ class TvPlaybackSessionPresenter(
             plan = currentPlan,
             playSessionId = currentPlan.playSessionId ?: playSessionId,
         )
+        // Native retry can replace an uncollected exact Active with Pending.
+        retireResolvedAudioFallback(controller.playbackState.value)
         controller.retry()
-        maybeStartInstalledUnavailableFallback(currentPlan)
+        maybeStartInstalledUnavailableFallback(currentPlan, includeInadmissibleAudio = true)
     }
 
     private fun clearQualityOverride() {
@@ -1514,6 +1516,7 @@ class TvPlaybackSessionPresenter(
         if (plan?.itemId != currentItemId) {
             return
         }
+        retireResolvedAudioFallback(playbackState)
         playbackHealthCoordinator.observePlaybackState(playbackState)
         if (playbackState.status == PlaybackStatus.Failed) {
             recordControllerFailure()
@@ -1743,6 +1746,7 @@ class TvPlaybackSessionPresenter(
                 replanAtPosition(
                     targetPositionMs = playbackState.positionMs,
                     requestPolicy = decision.requestPolicy,
+                    audioRecovery = decision.target,
                 )
                 TvSessionRecoveryResult.RetryScheduled
             }
@@ -1778,21 +1782,37 @@ class TvPlaybackSessionPresenter(
      * Audio, never arms a native activation deadline. The target's stream index equals
      * `selectedAudioStreamIndex` in decorated plans. The snapshot keeps the plan start position because
      * a paused VLCKit prepare temporarily reports native time 0.
+     *
+     * Only ordinary Retry passes [includeInadmissibleAudio]: a descriptor stamped not DirectPlay-admissible
+     * is then a gap only while it is the exact unresolved [audioRecoveryTarget] an earlier fallback
+     * recorded and the snapshot is not that exact target's Active. A server-approved initial inadmissible
+     * track has no record and stays exempt.
      */
-    private fun maybeStartInstalledUnavailableFallback(playbackPlan: PlaybackPlan) {
+    private fun maybeStartInstalledUnavailableFallback(
+        playbackPlan: PlaybackPlan,
+        includeInadmissibleAudio: Boolean = false,
+    ) {
         val controller = installedPlayerController ?: return
         if (plan !== playbackPlan || !canHandlePlaybackSessionRecovery()) return
+        val nativeState = controller.playbackState.value
         val audioTarget =
             playbackPlan.audioActivationTarget?.takeIf { target ->
                 playbackPlan.streamMode == StreamMode.DirectPlay &&
-                    playbackPlan.embeddedAudioTracks.none { track -> track.jellyfinStreamIndex == target.streamIndex }
+                    playbackPlan.embeddedAudioTracks.none { track ->
+                        track.jellyfinStreamIndex == target.streamIndex &&
+                            (
+                                !includeInadmissibleAudio ||
+                                    track.directPlayAdmissible ||
+                                    audioRecoveryTarget != target ||
+                                    (nativeState.audioActivation as? AudioActivationState.Active)?.target == target
+                            )
+                    }
             }
         val subtitleTarget =
             (playbackPlan.plannedSubtitle as? PlannedSubtitle.Unavailable)
                 ?.takeIf { unavailable -> unavailable.allowEncodeFallback && unavailable.normalizedFormat != null }
                 ?.activationTarget
         if (audioTarget == null && subtitleTarget == null) return
-        val nativeState = controller.playbackState.value
         maybeHandlePlaybackSessionRecovery(
             nativeState.copy(
                 positionMs = playbackPlan.startPositionMs,
@@ -1850,6 +1870,7 @@ class TvPlaybackSessionPresenter(
         nonFatalSubtitleFallback: SubtitleActivationTarget? = null,
         subtitleFallbackGeneration: Long? = null,
         nonFatalLocalSubtitleFailure: Boolean = false,
+        audioRecovery: AudioActivationTarget? = null,
     ) {
         if (startInFlight) return
         val mediaSource = selectedMediaSourceId ?: return
@@ -1901,6 +1922,9 @@ class TvPlaybackSessionPresenter(
                         // An ordinary Throwable resume can win over cancellation;
                         // reject stale catch publication before any branch.
                         currentCoroutineContext().ensureActive()
+                        if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
+                            return@launch
+                        }
                         if (nonFatalLocalSubtitleFailure) {
                             publish(playerController.playbackState.value)
                         } else if (
@@ -1936,6 +1960,9 @@ class TvPlaybackSessionPresenter(
                         return@launch
                     }
                 }
+                if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
+                    return@launch
+                }
                 if (audioRecoveryTarget != null && playbackPlan.streamMode == StreamMode.DirectPlay) {
                     if (nonFatalLocalSubtitleFailure) {
                         publish(playerController.playbackState.value)
@@ -1967,6 +1994,9 @@ class TvPlaybackSessionPresenter(
                 ) {
                     return@launch
                 }
+                if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
+                    return@launch
+                }
                 playbackReportingCoordinator.stopNow(target)
                 currentCoroutineContext().ensureActive()
                 if (
@@ -1977,6 +2007,10 @@ class TvPlaybackSessionPresenter(
                         itemId = replanItemId,
                     )
                 ) {
+                    return@launch
+                }
+                // Accepted limit: a drop here follows the queued Stop, so reporting stays stopped.
+                if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
                     return@launch
                 }
                 installPlan(enrichedPlan, resetReporting = true)
@@ -2390,6 +2424,47 @@ class TvPlaybackSessionPresenter(
             currentItemId == itemId &&
             plan?.subtitleActivationTarget == target &&
             (requestedSubtitleSelection as? SubtitleSelectionIntent.Track)?.streamIndex == target.streamIndex
+
+    /**
+     * Native exact Active resolves the recorded Audio fallback for the current plan and item. Retry also
+     * samples the installed controller before native retry so an uncollected Active is not lost to Pending.
+     * Shared recovery budgets, selection and persistence are untouched.
+     */
+    private fun retireResolvedAudioFallback(playbackState: PlaybackState) {
+        val target = audioRecoveryTarget ?: return
+        val currentPlan = plan ?: return
+        if (
+            (playbackState.audioActivation as? AudioActivationState.Active)?.target == target &&
+            currentPlan.audioActivationTarget == target &&
+            target.itemId == currentItemId &&
+            currentPlan.itemId == currentItemId
+        ) {
+            audioRecoveryTarget = null
+        }
+    }
+
+    /**
+     * Whether the Audio fallback request captured as [target] for [itemId] still owns its record. The
+     * installed controller's exact Active resolves it before the collector observes that sample.
+     *
+     * Accepted limit: when this turns false while `stopNow` is suspended, installation is dropped after
+     * Stop was queued. Native playback continues, but progress, pause and final Stop reporting stay
+     * disabled until another install, explicit Retry or item change, and resume keeps the captured
+     * fallback position.
+     */
+    private fun isCurrentAudioFallback(
+        target: AudioActivationTarget,
+        itemId: String,
+    ): Boolean =
+        !closed &&
+            !startInFlight &&
+            audioRecoveryTarget == target &&
+            plan?.audioActivationTarget == target &&
+            target.itemId == itemId &&
+            currentItemId == itemId &&
+            plan?.itemId == itemId &&
+            (installedPlayerController?.playbackState?.value?.audioActivation as? AudioActivationState.Active)
+                ?.target != target
 
     private fun newSubtitleActivationTarget(
         streamIndex: Int,

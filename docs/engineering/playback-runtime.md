@@ -656,8 +656,8 @@ suppresses interactive recovery until it is safe to show the consequence.
   policy allowance; paused AVPlayer Retry can resume through Loading.
   Startup and replan failures use a private copy of Compose's planner-error
   classifier; check both helpers when changing its immediate-cause mapping.
-  Unlike Compose's Audio-fallback catch, tvOS does not force every such failure
-  to UnsupportedMedia: the recorded Audio target is not request provenance.
+  Unlike Compose's Audio-fallback catch, tvOS preserves typed classification
+  even though each Audio fallback now captures its own request target.
   Failed retains its first cause, including a missing native cause, across
   later failure and state projections while other native fields keep updating.
   Accepted start/item/replan Loading clears it; replacement installation also
@@ -692,9 +692,25 @@ suppresses interactive recovery until it is safe to show the consequence.
   The Audio fallback request disables DirectPlay. Any later
   DirectPlay replan is rejected while its Audio recovery target remains
   recorded, during the fallback or after it fails, until a new item, an explicit
-  Audio selection, or a non-DirectPlay install. Collector recovery can preempt
-  the fallback, and an Original failure prompt can coexist with its replacement;
-  this handoff does not serialize those paths.
+  Audio selection, a non-DirectPlay install, or exact native Audio confirmation
+  for the recorded current-plan target and item. The collector retires that
+  record; Retry also samples confirmation before native re-prepare can replace
+  it with Pending. Ordinary Error Retry additionally treats a present
+  switch-inadmissible descriptor as a gap only for that exact unresolved
+  fallback target. Server-approved initial Audio stays exempt without a record;
+  startup and post-install handoffs keep their existing admission rules.
+
+  Each Audio fallback captures its own target. Exact resolution, a changed
+  target or item, or closed/start admission rejects its late planner error,
+  DirectPlay result, and replacement before and after reporting Stop. A current
+  native confirmation also rejects the request before collector delivery.
+  If resolution occurs while reporting Stop is suspended, dropping installation
+  leaves native playback continuing but progress, pause/unpause and final
+  disposal Stop unreported until another install, explicit Retry or item change.
+  Resume can remain at the fallback's captured position. Reporting restart is
+  not part of this handoff. Collector recovery can preempt the fallback, and an
+  Original failure prompt can coexist with its replacement; this handoff does
+  not serialize those paths or establish general Retry ownership.
 - **[all]** Policy-gated decoder, unsupported-media, health, and recovery
   behavior is owned by [quality policy](playback-policy.md#quality-semantics).
   A backend-qualified replacement re-plans from its own capability facts and
@@ -1165,6 +1181,12 @@ server/user IDs, titles, paths, or raw native errors.
   request; requiring this lineage preserves the initial audio exemption.
   tvOS likewise retains Failed phase/cause while projecting current native
   facts; its existing early replan Loading remains a separate reset boundary.
+  tvOS samples exact Audio confirmation before native Retry can reset mapping
+  to Pending. Capturing each fallback target also rejects obsolete errors and
+  installs after resolution; the global DirectPlay refusal remains necessary
+  while Audio is unresolved. A drop after reporting Stop can leave reporting
+  quiet while native playback continues, matching the existing cancelled
+  subtitle replacement limit; another install reopens reporting.
   Local-file subtitle replans carry invocation-local nonfatal provenance so
   durable fatal publication does not turn an unavailable file into a blocking
   failure. Both planner catches reject cancelled work before publication,
