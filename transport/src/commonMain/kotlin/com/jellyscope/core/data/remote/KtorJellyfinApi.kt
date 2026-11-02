@@ -1624,7 +1624,7 @@ class KtorJellyfinApi(
                 source.mediaStreams
                     .filter { stream ->
                         stream.type.equals("Subtitle", ignoreCase = true) && stream.isExternal != true
-                    }.mapNotNull { stream -> stream.index }
+                    }.mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
                     .toSet(),
             externalSubtitleStreamIndices =
                 source.mediaStreams
@@ -1633,7 +1633,7 @@ class KtorJellyfinApi(
                             stream.isExternal == true &&
                             stream.index != null &&
                             stream.isOriginalDownloadTextSubtitle()
-                    }.mapNotNull { stream -> stream.index }
+                    }.mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
                     .toSet(),
             unsupportedExternalSubtitleStreamIndices =
                 source.mediaStreams
@@ -1642,7 +1642,7 @@ class KtorJellyfinApi(
                             stream.isExternal == true &&
                             stream.index != null &&
                             !stream.isOriginalDownloadTextSubtitle()
-                    }.mapNotNull { stream -> stream.index }
+                    }.mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
                     .toSet(),
         )
     }

@@ -99,8 +99,10 @@ clients; core retains their redirect/timeout/logging configuration and engines.
   and surrounding whitespace and treats null/blank as unknown; unknown matches
   unknown, while known/unknown drift is refused. These checks supplement byte
   validators and do not prove unchanged labels, whole-cohort order or semantic
-  identity when an index and codec remain the same. Subtitle membership is
-  unchanged; missing and negative Audio indexes stay outside membership sets.
+  identity when an index and codec remain the same. Original transport keeps
+  only nonnegative Subtitle indexes in embedded, supported-external and
+  unsupported-external membership sets; missing and negative Audio indexes
+  also stay outside membership. This establishes no global Subtitle uniqueness.
 - The authenticated descriptor drives offline backend selection. Audio codec
   can influence Apple Auto selection; admission then compares video codec,
   dimensions and frame rate with that backend's probed finite video bounds.
@@ -294,7 +296,8 @@ identity, artifact, and progress rules live in
   be validated, resumed, and localized. Adaptive/custom packages and general HLS
   parsing would make artifact identity and completeness ambiguous.
   A missing subtitle sidecar contributes zero bytes to a package checkpoint;
-  it must never reset already downloaded main-file bytes.
+  it must never reset already downloaded main-file bytes. Negative wire Subtitle
+  indexes are not selectable membership identities.
 - **Audio identity and position serve different purposes.** Inventing an index
   or choosing the first duplicate can select different metadata and audio.
   Keeping unselectable embedded slots preserves physical order; resolving the

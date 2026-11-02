@@ -26,6 +26,13 @@ class OriginalDownloadTransportTest {
             val transferRequests = mutableListOf<CapturedTransferRequest>()
             var policyRequests = 0
             var sourceRequests = 0
+            // Negative Subtitle indexes are not identity; each membership keeps only its nonnegative entries.
+            val subtitleStreamsJson =
+                """[{"Type":"Subtitle","Index":0},{"Type":"Subtitle","Index":-1,"IsExternal":false},""" +
+                    """{"Type":"Subtitle","Index":20,"Codec":"srt","IsExternal":true},""" +
+                    """{"Type":"Subtitle","Index":-2,"Codec":"srt","IsExternal":true},""" +
+                    """{"Type":"Subtitle","Index":30,"Codec":"pgssub","IsExternal":true},""" +
+                    """{"Type":"Subtitle","Index":-3,"Codec":"pgssub","IsExternal":true}]"""
             val engine =
                 MockEngine { request ->
                     when (request.url.encodedPath) {
@@ -39,7 +46,7 @@ class OriginalDownloadTransportTest {
                             sourceRequests += 1
                             assertEquals("user-1", request.url.parameters["userId"])
                             assertEquals(AUTHORIZATION, request.headers[HttpHeaders.Authorization])
-                            respondJson(itemJson(size = 4L))
+                            respondJson(itemJson(size = 4L, mediaStreamsJson = subtitleStreamsJson))
                         }
 
                         "/Videos/item-1/stream" -> {
@@ -80,6 +87,9 @@ class OriginalDownloadTransportTest {
                         totalBytes = 4L,
                         lastModified = LAST_MODIFIED,
                         backendSource = BackendSourceDescriptor(null, null, null, false),
+                        embeddedSubtitleStreamIndices = setOf(0),
+                        externalSubtitleStreamIndices = setOf(20),
+                        unsupportedExternalSubtitleStreamIndices = setOf(30),
                     ),
                     preflight.source,
                 )
@@ -342,7 +352,10 @@ private fun MockRequestHandleScope.respondPartial(
 private fun itemJson(
     size: Long,
     sourceId: String = "source-1",
-): String = """{"Id":"item-1","Type":"Movie","IsLive":false,"MediaSources":[{"Id":"$sourceId","Size":$size,"IsInfiniteStream":false}]}"""
+    mediaStreamsJson: String = "[]",
+): String =
+    """{"Id":"item-1","Type":"Movie","IsLive":false,"MediaSources":[""" +
+        """{"Id":"$sourceId","Size":$size,"IsInfiniteStream":false,"MediaStreams":$mediaStreamsJson}]}"""
 
 private const val AUTHORIZATION = "MediaBrowser Token=\"token-1\""
 private const val LAST_MODIFIED = "Wed, 21 Oct 2015 07:28:00 GMT"
