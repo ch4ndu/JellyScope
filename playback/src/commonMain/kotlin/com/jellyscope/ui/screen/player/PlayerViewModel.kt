@@ -1402,9 +1402,22 @@ class PlayerViewModel(
                     }
                 }
                 // Fallback can replan, so it waits until the switch outcome is reported.
+                // The inline Main collector can miss a Failed published under the install guard; refreshing the current
+                // value after the handoff avoids waiting for an equal StateFlow emission and replaces a queued handler.
                 val switchedPlan = installedPlan
                 if (prepared && isCurrentBackendSwitch(switch) && switchedPlan != null) {
-                    maybeStartInstalledActivationFallback(playerController, switchedPlan)
+                    val switchedController = playerController
+                    maybeStartInstalledActivationFallback(switchedController, switchedPlan)
+                    if (
+                        isCurrentBackendSwitch(switch) &&
+                        playerController === switchedController &&
+                        installedPlan === switchedPlan &&
+                        admitsPlaybackSessionRecovery() &&
+                        switchedController.playbackState.value.status == PlaybackStatus.Failed &&
+                        lastStatus != PlaybackStatus.Failed
+                    ) {
+                        restartPlaybackStateObservation()
+                    }
                 }
             }
         return true

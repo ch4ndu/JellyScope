@@ -599,12 +599,13 @@ suppresses interactive recovery until it is safe to show the consequence.
   plan, selection generation and replan request before health binding and again
   before its handoff; a newer owner wins. A still-current synchronous Failed
   clears installed authority and restarts the existing state collector, or
-  starts one when absent, for ordinary failure handling. A replan can instead
-  publish Failed from a later command after an accepted prepare. Once its lease
-  releases, the existing planned activation handoff runs first. If the request,
-  controller and prepared-plan identity still own playback, admission is open,
-  and the current Failed has not already been handled, the replan refreshes
-  observation to deliver it through ordinary recovery. This later failure keeps
+  starts one when absent, for ordinary failure handling. A replan or accepted
+  backend switch can instead publish Failed from a later command after prepare.
+  Once its lease releases, the existing planned activation handoff runs first.
+  If the request or switch, actual installed controller and prepared-plan
+  identity still own playback, admission is open, and the current Failed has
+  not already been handled, observation refreshes to deliver it through ordinary
+  recovery. This later failure keeps
   prepared authority; it does not use the immediate-prepare revocation path.
   An owned fast Retry
   can restore missing installed authority from the controller's `retainedPlan`
@@ -1128,7 +1129,9 @@ server/user IDs, titles, paths, or raw native errors.
   Installation admission must precede switch invalidation: a rejected recovery
   must not abandon paused or partly replaced playback. Installed activation
   recovery follows release of that ownership and software-switch reporting,
-  because its replan invalidates switch authority. Combining installed audio
+  because its replan invalidates switch authority. A successful switch checks
+  late native failure only after that handoff, while the actual installed
+  controller and plan still prove ownership. Combining installed audio
   and subtitle facts prevents two helper calls from spending both allowances
   and letting the second replan cancel the first.
 
@@ -1243,7 +1246,8 @@ server/user IDs, titles, paths, or raw native errors.
   Compose waits for installation release and rechecks request, controller and
   prepared-plan ownership because a lock waiter or callback can replace them.
   A late Failed can likewise be suppressed while installation is guarded. The
-  replan refreshes only its current failure after the planned activation handoff,
+  replan or accepted backend switch refreshes only its current failure after the
+  planned activation handoff,
   preserving Audio/Subtitle-first precedence. Restarting observation replaces a
   queued or dropped delivery instead of racing a second direct handler call;
   healthy state handling stays unchanged.
