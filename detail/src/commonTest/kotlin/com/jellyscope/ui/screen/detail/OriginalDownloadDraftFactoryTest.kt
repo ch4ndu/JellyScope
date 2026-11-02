@@ -48,7 +48,10 @@ class OriginalDownloadDraftFactoryTest {
                         PlaybackMediaStream(0, "Video", null, null, null, "h264", null, null, 1080, null, false, null, null),
                         PlaybackMediaStream(null, "Audio", "English", null, "en", "aac", null, null, null, true, false, null, null),
                         PlaybackMediaStream(0, "Audio", "French", null, "fr", "ac3", null, null, null, false, false, null, null),
+                        // The excluded external entry still occupies cohort position 0.
+                        PlaybackMediaStream(5, "Subtitle", "Forced", null, "en", "srt", null, null, null, false, true, "External", "/sub"),
                         PlaybackMediaStream(null, "Subtitle", "English", null, "en", "srt", null, null, null, true, false, "Embed", null),
+                        PlaybackMediaStream(-1, "Subtitle", "Broken", null, "en", "srt", null, null, null, false, false, "Embed", null),
                     ),
                 trackSelection =
                     DetailTrackSelectionUi(
@@ -61,7 +64,7 @@ class OriginalDownloadDraftFactoryTest {
             buildOriginalDownloadDraft(
                 detail = detailFor(version),
                 selectedAudioStreamIndex = 0,
-                subtitleSelection = SubtitleSelectionIntent.Track(0),
+                subtitleSelection = SubtitleSelectionIntent.Track(1),
                 accountIdentity = AccountIdentity("server", "user"),
                 downloadId = DownloadId("download-ordinal"),
                 artifactKey = DownloadArtifactKey("artifact-ordinal"),
@@ -69,6 +72,33 @@ class OriginalDownloadDraftFactoryTest {
             )
 
         val draft = assertIs<OriginalDownloadDraftBuildResult.Ready>(result).draft
+        assertEquals(DownloadSubtitleSelection.Embedded(1), draft.subtitleSelection)
+        assertEquals(1, draft.snapshot.selectedSubtitleTrack?.streamIndex)
+        // Every embedded physical slot is retained; the negative one carries no identity.
+        assertEquals(
+            listOf(1, null),
+            draft.snapshot.embeddedTracks
+                .filter { track -> track.kind == OfflineTrackKind.Subtitle }
+                .map { track -> track.streamIndex },
+        )
+        // An actual index equal to the fallback makes both ambiguous; the exact choice is refused.
+        val colliding =
+            version.copy(
+                mediaStreams =
+                    version.mediaStreams +
+                        PlaybackMediaStream(1, "Subtitle", "Spanish", null, "es", "srt", null, null, null, false, false, "Embed", null),
+            )
+        assertIs<OriginalDownloadDraftBuildResult.Unsupported>(
+            buildOriginalDownloadDraft(
+                detail = detailFor(colliding),
+                selectedAudioStreamIndex = 0,
+                subtitleSelection = SubtitleSelectionIntent.Track(1),
+                accountIdentity = AccountIdentity("server", "user"),
+                downloadId = DownloadId("download-colliding"),
+                artifactKey = DownloadArtifactKey("artifact-colliding"),
+                createdAtEpochMs = 1L,
+            ),
+        )
         assertEquals(0, draft.selectedAudioStreamIndex)
         assertEquals(0, draft.snapshot.selectedAudioTrack?.streamIndex)
         assertEquals("ac3", draft.snapshot.selectedAudioTrack?.codec)

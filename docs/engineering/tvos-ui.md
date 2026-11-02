@@ -98,7 +98,10 @@ Next-up offers identity/artwork, Play Now and Dismiss; completion countdown and
 still-watching semantics are owned by
 [native tvOS playback](apple-playback.md#tvos-native-player). Modal precedence is
 action/error, still-watching, a user-opened panel, then next-up. Back closes the
-topmost panel and returns focus to its invoker; unobscured Back closes playback.
+topmost panel and returns focus to its invoker. When a passive playback notice
+is actually visible, Back dismisses it before closing playback; otherwise
+unobscured Back closes playback. Passive notices do not alter modal precedence
+or player mounting and remain available after a higher surface is dismissed.
 The top-right launcher ends with a minute-updating wall clock while the
 device-wide Player Clock setting (read at playback start) is on.
 Progress updates do not steal focus or rebuild AVKit menus. Controls expose
@@ -123,6 +126,10 @@ explains Apple TV's reclaimable storage and app-active transfer limit. The
 [download contract](downloads.md#downloads-and-offline) owns those rules.
 
 ## Why
+
+- A visible passive notice consumes Back before navigation so dismissal does
+  not unexpectedly close continuing playback. Hidden notices do not steal Back
+  from panels or other modal surfaces.
 
 - Native tvOS keeps SwiftUI adapters/focus with feature views and business state
   in Kotlin presenters. Qualified routes, settlement refresh, and paired

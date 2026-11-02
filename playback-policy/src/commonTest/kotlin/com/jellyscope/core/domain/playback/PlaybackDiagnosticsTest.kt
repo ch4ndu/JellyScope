@@ -56,6 +56,16 @@ class PlaybackDiagnosticsTest {
             ),
         )
         assertEquals(
+            "stage=planner event=ended reason=ProposalStale",
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.Planner,
+                    event = PlaybackDiagnosticEvent.Ended,
+                    reason = PlaybackTransitionReason.ProposalStale,
+                ),
+            ),
+        )
+        assertEquals(
             "stage=repository event=failed operation=getItemDetail",
             formatPlaybackDiagnostic(
                 PlaybackDiagnostic(

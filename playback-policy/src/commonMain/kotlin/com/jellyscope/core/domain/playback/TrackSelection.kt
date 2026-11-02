@@ -255,20 +255,63 @@ fun PlaybackMediaStream.toPlannedEmbeddedTrack(
         label = title.normalizedTrackMetadata(),
     )
 
+/**
+ * One physical Subtitle entry. [originalPosition] is relative to every Subtitle stream;
+ * [selectableIndex] is null when the entry has no usable identity.
+ */
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+data class SubtitleStreamIdentity(
+    val originalPosition: Int,
+    val stream: PlaybackMediaStream,
+    val selectableIndex: Int?,
+)
+
+/**
+ * Every Subtitle stream, embedded and external, in response order. A candidate identity is the
+ * actual index when nonnegative, the original position when the index is missing, and none for a
+ * negative index. A candidate shared by more than one entry — including an actual index colliding
+ * with a position fallback — is ambiguous and unselectable. Entries are never dropped, so physical
+ * slots stay countable; option consumers omit entries without a [SubtitleStreamIdentity.selectableIndex].
+ */
+@OptIn(ExperimentalObjCRefinement::class)
+@HiddenFromObjC
+fun subtitleStreamIdentities(streams: List<PlaybackMediaStream>): List<SubtitleStreamIdentity> {
+    val subtitles = streams.filter { stream -> stream.type.equals("Subtitle", ignoreCase = true) }
+    val candidates =
+        subtitles.mapIndexed { position, stream ->
+            val index = stream.index
+            when {
+                index == null -> position
+                index >= 0 -> index
+                else -> null
+            }
+        }
+    val counts = candidates.filterNotNull().groupingBy { candidate -> candidate }.eachCount()
+    return subtitles.mapIndexed { position, stream ->
+        SubtitleStreamIdentity(
+            originalPosition = position,
+            stream = stream,
+            selectableIndex = candidates[position]?.takeIf { candidate -> counts[candidate] == 1 },
+        )
+    }
+}
+
+/** Rows only for selectable identities; ordinals stay relative to every Subtitle stream. */
 fun subtitleOptions(streams: List<PlaybackMediaStream>): List<SubtitleTrackOption> =
-    streams
-        .filter { stream -> stream.type.equals("Subtitle", ignoreCase = true) }
-        .mapIndexed { ordinal, stream ->
-            val isExternal = stream.isExternalSubtitle()
+    subtitleStreamIdentities(streams).mapNotNull { identity ->
+        val stream = identity.stream
+        identity.selectableIndex?.let { streamIndex ->
             SubtitleTrackOption(
-                streamIndex = stream.index ?: ordinal,
-                ordinal = ordinal,
+                streamIndex = streamIndex,
+                ordinal = identity.originalPosition,
                 displayName = stream.readableLabel(),
                 language = stream.language?.takeIf { language -> language.isNotBlank() },
                 isDefault = stream.isDefault == true,
-                isExternal = isExternal,
+                isExternal = stream.isExternalSubtitle(),
             )
         }
+    }
 
 fun List<SubtitleTrackOption>.hasSelectableSubtitleChoice(): Boolean = isNotEmpty()
 

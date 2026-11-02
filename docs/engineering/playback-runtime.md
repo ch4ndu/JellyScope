@@ -664,8 +664,7 @@ suppresses interactive recovery until it is safe to show the consequence.
   one audio-first policy decision. The handoff requires the exact installed
   plan, current item, controller and selected source, with startup admission
   open; recovery checks admission before spending an allowance. It uses the
-  plan's start position because paused VLCKit preparation can report native
-  time zero. Selected external audio and ambiguous response Audio identities
+  installed plan's start position; this does not confirm native seek arrival. Selected external audio and ambiguous response Audio identities
   lack an embedded descriptor; this fallback establishes no native codec
   incompatibility. Retry resets the
   policy allowance; paused AVPlayer Retry can resume through Loading.
@@ -675,39 +674,46 @@ suppresses interactive recovery until it is safe to show the consequence.
   even though each Audio fallback now captures its own request target.
   Failed retains its first cause, including a missing native cause, across
   later failure and state projections while other native fields keep updating.
-  Accepted start/item/replan Loading clears it; replacement installation also
-  clears a failure that arrived after planning began. Existing early replan
-  Loading can clear an earlier failure even if planning never installs.
-  AVPlayer may remain Audio-gated; VLCKit may continue unconfirmed default
-  audio with Pending activation. No native Stop is implied.
+  Accepted start/item or recovery Loading clears it; a still-owned replacement
+  installation can also clear a failure that arrived after planning began.
+  User proposals do not publish Loading while planning. AVPlayer may remain
+  Audio-gated, and no native Stop is implied by failure presentation.
 
-  A failed or pending user-requested quality, track or local-subtitle change,
-  or an out-of-window seek, can leave Failed over the continuing previous stream.
-  Same-plan Error Retry cancels the earlier replan and invalidates its pending
-  subtitle fallback before resetting recovery allowances and reporting. A late
-  result or error from that cancelled job cannot replace the Retry attempt.
-  The cancelled replan's change is abandoned, but its selected menu value and
-  already-saved track choice remain. A local-subtitle check not yet replanning
-  can still finish and submit its choice after Retry. Retry reloads the installed plan from its own start
-  position, possibly rewinding, and starts a new reporting session; Close/Back exits. Remote
-  Play/Pause can still control the hidden stream. tvOS retains Retry for
-  UnsupportedMedia. It has a dismissible automatic-recovery prompt, which can
-  appear above Failed, but lacks Compose's dismissible change-rejection
-  notice. Preserving healthy playback after a rejected change remains open.
-  Failed can block completion auto-close while autoplay still advances.
+  A healthy, current user quality, Audio, Subtitle, local-subtitle or
+  out-of-window seek proposal commits requested fields and persistence only
+  when its replacement is accepted. A planner exception keeps installed playback
+  and shows a typed passive rejection notice only if the proposal displaced no
+  admitted recovery, and only while outgoing reporting has not been stopped for
+  a replacement. If a prior proposal queued Stop before supersession, a later
+  planner or local-read failure retains fatal-with-Retry behavior rather than
+  claiming intact playback. Displacement is inherited by replacement proposals, so
+  rapid choices cannot hide an unresolved activation gap behind a still-Playing
+  native status. An accepted immediate native change settles only the exact
+  recovery it retires; exact current-plan Audio confirmation also settles the
+  matching Audio provenance. Unrelated recovery history remains.
+  Native preparation failure and recovery-displacing planner failure remain fatal.
 
-  App-local subtitle activation failure, deletion or a missing picked file
-  remains nonfatal: the producer disables the file, saves Off and sets its
-  passive notice. Its replan failure or rejected DirectPlay result republishes
-  actual native state rather than manufacturing Failed; a real native Failed
-  remains visible. Both planner failure catches check cancellation after their
-  diagnostic and before any publication, so a cancelled exceptional result
-  cannot acquire a newer attempt's Failed state. The local-file branch reads
-  the controller only after that check. It never requests ForceEncode.
-  This request can subsume pending quality/track choices or spent Audio
-  recovery; it adds no recovery arbitration. Completion during that request
-  can project Loading, and a restored native Failed lacks the full terminal
-  diagnostic. Native/manual acceptance remains outstanding.
+  Same-plan Error Retry cancels pending planning and any pre-planning local
+  asset read before resetting recovery allowances and reporting. Cancelled
+  results cannot replace that attempt, and uncommitted choices were never saved.
+  Retry still reloads the installed plan from its own start position and can
+  rewind. It starts a new reporting session; Close/Back exits, and remote
+  Play/Pause may control a stream beneath a fatal surface. UnsupportedMedia
+  retains Retry. Successful owned installation resetting an earlier failure is
+  an existing boundary, not a claim that every request is isolated from it.
+
+  Installed-local-subtitle activation failure or deletion remains nonfatal.
+  If a user proposal or exact Audio recovery owns planning, a qualified repair
+  fact waits for that owner to settle instead of absorbing its pending inputs.
+  Repair uses installed choices, turns subtitles Off, persists that intent and
+  shows the unavailable notice; a repair failure republishes current native
+  state without manufacturing Failed. A requested local asset that cannot be
+  read is different: a healthy non-displacing proposal is rejected without
+  mutating installed intent. Exceptional reads settle at the same current-owner
+  boundary with sanitized diagnostics, and cancellation or stale ownership
+  cannot publish a newer attempt's outcome. No local-file path requests
+  ForceEncode. Completion during repair can still project Loading, and native
+  ordering and output remain unqualified.
 
   The Audio fallback request disables DirectPlay. Any later
   DirectPlay replan is rejected while its Audio recovery target remains
@@ -728,10 +734,17 @@ suppresses interactive recovery until it is safe to show the consequence.
   leaves native playback continuing but progress, pause/unpause and final
   disposal Stop unreported until another install, explicit Retry or item change.
   Resume can remain at the fallback's captured position. Reporting restart is
-  not part of this handoff. Collector recovery can preempt the fallback, and an
-  Original failure prompt can coexist with its replacement; this handoff does
-  not serialize those paths. Retry cancels pending replans, while broader
-  recovery arbitration and native callback ownership remain separate.
+  not part of this handoff. A proposal dropped after Stop, such as a plan-epoch
+  change, or an immediate native change cancelling it can retain the same
+  stopped-reporting boundary until install, Retry or item change. Neither the
+  proposal drop nor the immediate native change restarts reporting. A Failed
+  sample for the exact installed Audio
+  target is deferred while its launched recovery request owns the slot; it
+  cannot start competing network/automatic recovery or an Original prompt.
+  A silent exit releases that ownership and reconsiders current failure once
+  when no replacement owns it. Other health/recovery triggers and native
+  callback ownership retain their separate policies; this is not general
+  serialization of recovery. Retry cancels pending replans.
 - **[all]** Policy-gated decoder, unsupported-media, health, and recovery
   behavior is owned by [quality policy](playback-policy.md#quality-semantics).
   A backend-qualified replacement re-plans from its own capability facts and
@@ -1028,6 +1041,24 @@ its reporting coordinator only after concrete installation and uses that
 installed controller flow for the session. Both shells retain their general
 previous-status, completion, queue, navigation, and native-command semantics.
 
+For Compose same-item VLCKit Retry, reporting temporarily retains the accepted
+plan start position and intended play/pause state. The transition belongs to
+one reporting installation and its prior native prepare epoch. A new known
+epoch's Buffering or Playing sample, or an explicit user seek/play/pause,
+settles it. Transitional Paused does not report a Pause edge when play was
+intended. Failed and Completed retain the target until Stop, stopNow or dispose
+reports and consumes it; installation resets it. Real zero positions after
+settlement remain valid. This is a reporting contract, not evidence of native
+seek arrival. Online tvOS uses AVPlayer and does not arm this transition.
+
+An exact pending Audio fallback defers a later Failed sample from the same
+installed target before network or automatic recovery. The pure policy returns
+`Deferred`, distinct from terminal `NoAction`, without spending another budget.
+Each shell supplies the target only while its exact launched job or request
+generation owns the replan slot. A silent exit releases that ownership and
+reconsiders the still-owned native failure once when no replacement owns it.
+A retained unresolved target alone is not pending-request authority.
+
 Diagnostics are allowlisted and backend-qualified. They state policy,
 constraint/client limiter, wire representation, capability result/reason,
 effective transcode cap, configured VLC default state, recovery intent/result, and
@@ -1070,6 +1101,15 @@ server/user IDs, titles, paths, or raw native errors.
     server.
 
 ## Why
+
+- **Pending recovery and terminal failure have different owners.** Deferring
+  the failure already being replaced prevents a second recovery from cancelling
+  the first or overlaying its playback. Exact request ownership and exit
+  reconciliation prevent a cancelled request from suppressing later failure.
+- **Retry preparation is not a confirmed reporting position.** VLCKit can
+  expose paused raw zero while retaining a nonzero Retry target. Qualifying
+  reports until settlement, including terminal Stop, protects the accepted
+  resume position without changing genuine zero playback or native controls.
 
 - **Desktop Audio mapping needs the original cohort.** Omitting descriptors
   does not remove their native ordinal slots, so saved offline Audio counts must

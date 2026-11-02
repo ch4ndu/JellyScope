@@ -37,6 +37,7 @@ import com.jellyscope.core.domain.playback.PlaybackQualityPolicyOrigin
 import com.jellyscope.core.domain.playback.PlaybackRecoveryDecision
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackTerminalOutcome
+import com.jellyscope.core.domain.playback.PlaybackTransitionReason
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerOperation
 import com.jellyscope.core.domain.playback.SoftwarePlaybackProgressEvidence
@@ -297,6 +298,29 @@ internal class PlayerDiagnosticsRecorder {
                     requestCapBitrateBps = context.requestCapBitrateBps,
                     effectiveTranscodeCapBitrateBps = context.effectiveTranscodeCapBitrateBps,
                     trackKind = facts.trackKind,
+                ),
+            )
+        }
+    }
+
+    /** One identity-free record when a recovery or Retry reporting transition settles or is refused. */
+    fun recordTransition(
+        context: PlayerDiagnosticContext,
+        stage: PlaybackDiagnosticStage,
+        event: PlaybackDiagnosticEvent,
+        reason: PlaybackTransitionReason,
+    ) {
+        playerViewModelLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = stage,
+                    event = event,
+                    platform = PlaybackDiagnosticPlatform.Shared,
+                    backend = context.backend,
+                    prepareSequence = context.prepareSequence,
+                    sessionSequence = context.sessionSequence,
+                    streamMode = context.streamMode,
+                    reason = reason,
                 ),
             )
         }

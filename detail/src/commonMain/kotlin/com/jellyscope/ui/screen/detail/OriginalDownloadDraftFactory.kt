@@ -19,6 +19,7 @@ import com.jellyscope.core.domain.playback.SubtitleKind
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.core.domain.playback.isExternalSubtitle
 import com.jellyscope.core.domain.playback.subtitleKind
+import com.jellyscope.core.domain.playback.subtitleStreamIdentities
 import com.jellyscope.core.domain.playback.unambiguousAudioStreamIndexes
 
 internal sealed interface OriginalSubtitleDraftResolution {
@@ -133,18 +134,13 @@ internal fun MediaVersionUi.resolveOriginalSubtitleSelection(requested: Subtitle
                 DownloadSubtitleSelection.ExternalTextSidecar(effective.assetId),
             )
         is SubtitleSelectionIntent.Track -> {
-            val indexed =
-                mediaStreams
-                    .filter { stream -> stream.type.equals("Subtitle", ignoreCase = true) }
-                    .withIndex()
-                    .firstOrNull { (ordinal, stream) ->
-                        (
-                            stream.index == effective.streamIndex ||
-                                (stream.index == null && ordinal == effective.streamIndex)
-                        )
-                    } ?: return OriginalSubtitleDraftResolution.Invalid
-            val stream = indexed.value
-            val canonicalIndex = stream.index ?: indexed.index
+            // Only an exact selectable identity; an invalid choice never substitutes Off or another track.
+            val identity =
+                subtitleStreamIdentities(mediaStreams)
+                    .firstOrNull { candidate -> candidate.selectableIndex == effective.streamIndex }
+                    ?: return OriginalSubtitleDraftResolution.Invalid
+            val stream = identity.stream
+            val canonicalIndex = effective.streamIndex
             if (stream.isExternalSubtitle()) {
                 if (subtitleKind(stream.codec) == SubtitleKind.Bitmap) {
                     OriginalSubtitleDraftResolution.ExternalBitmap(canonicalIndex)
@@ -237,11 +233,12 @@ private fun MediaVersionUi.toOfflineMediaSnapshot(
                     }.map { stream ->
                         streamSnapshot(stream, OfflineTrackKind.Audio, stream.eligibleAudioIndex(eligibleAudioIndexes))
                     } +
-                    streams
-                        .filter { stream ->
-                            stream.type.equals("Subtitle", ignoreCase = true) && !stream.isExternalSubtitle()
-                        }.mapIndexed { ordinal, stream ->
-                            streamSnapshot(stream, OfflineTrackKind.Subtitle, stream.index ?: ordinal)
+                    // Identities are numbered over the whole Subtitle cohort before external entries
+                    // are excluded; every embedded slot stays physical, unselectable ones with a null index.
+                    subtitleStreamIdentities(streams)
+                        .filterNot { identity -> identity.stream.isExternalSubtitle() }
+                        .map { identity ->
+                            streamSnapshot(identity.stream, OfflineTrackKind.Subtitle, identity.selectableIndex)
                         },
             selectedAudioTrack = audio?.let { stream -> streamSnapshot(stream, OfflineTrackKind.Audio, stream.index) },
             selectedSubtitleTrack = selectedSubtitle,

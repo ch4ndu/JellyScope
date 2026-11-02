@@ -32,6 +32,7 @@ import com.jellyscope.core.domain.playback.SubtitleKind
 import com.jellyscope.core.domain.playback.isExternalSubtitle
 import com.jellyscope.core.domain.playback.qualityRungs
 import com.jellyscope.core.domain.playback.subtitleKind
+import com.jellyscope.core.domain.playback.subtitleStreamIdentities
 import com.jellyscope.core.domain.playback.ticksToMilliseconds
 import com.jellyscope.core.domain.playback.unambiguousAudioStreamIndexes
 
@@ -211,7 +212,6 @@ internal fun TvLoadedDownloadRequest.summary(selection: TvDetailPlaybackSelectio
             TvPlaybackSubtitleMode.Track ->
                 selection.subtitleStreamIndex
                     ?.let(version::subtitleStreamAt)
-                    ?.stream
                     ?.trackLabel()
         }
     return TvDownloadRequestSummary(
@@ -247,7 +247,7 @@ internal fun TvLoadedDownloadRequest.fixedSubtitleRequirement(selection: TvDetai
         -> TvFixedSubtitleRequirement.None
         TvPlaybackSubtitleMode.LocalAsset -> TvFixedSubtitleRequirement.OffRequired
         TvPlaybackSubtitleMode.Track -> {
-            val stream = selection.subtitleStreamIndex?.let(version::subtitleStreamAt)?.stream
+            val stream = selection.subtitleStreamIndex?.let(version::subtitleStreamAt)
             if (stream == null ||
                 stream.isExternalSubtitle() ||
                 stream.codec.fixedTextSubtitleCodec() == null ||
@@ -378,19 +378,19 @@ private fun TvLoadedDownloadRequest.resolveOriginalSubtitle(selection: TvDetailP
             TvOriginalSubtitleResolution.Ready(DownloadSubtitleSelection.ExternalTextSidecar(asset.id), null)
         }
         TvPlaybackSubtitleMode.Track -> {
-            val indexed = selection.subtitleStreamIndex?.let(version::subtitleStreamAt) ?: return TvOriginalSubtitleResolution.Invalid
-            val stream = indexed.stream
+            val streamIndex = selection.subtitleStreamIndex ?: return TvOriginalSubtitleResolution.Invalid
+            val stream = version.subtitleStreamAt(streamIndex) ?: return TvOriginalSubtitleResolution.Invalid
             if (stream.isExternalSubtitle()) {
                 if (subtitleKind(stream.codec) == SubtitleKind.Bitmap) {
                     TvOriginalSubtitleResolution.ExternalBitmap(stream.trackLabel())
                 } else {
                     TvOriginalSubtitleResolution.Ready(
-                        DownloadSubtitleSelection.ExternalServerTextSidecar(indexed.canonicalIndex),
+                        DownloadSubtitleSelection.ExternalServerTextSidecar(streamIndex),
                         stream,
                     )
                 }
             } else {
-                TvOriginalSubtitleResolution.Ready(DownloadSubtitleSelection.Embedded(indexed.canonicalIndex), stream)
+                TvOriginalSubtitleResolution.Ready(DownloadSubtitleSelection.Embedded(streamIndex), stream)
             }
         }
     }
@@ -453,15 +453,9 @@ private fun TvLoadedDownloadRequest.buildSnapshot(subtitle: TvOriginalSubtitleRe
                             stream.toOfflineTrack(OfflineTrackKind.Audio, stream.eligibleAudioIndex(eligibleAudioIndexes))
                         }
                     } +
-                    version.mediaStreams
-                        .filter { stream -> stream.type.equals("Subtitle", ignoreCase = true) }
-                        .mapIndexedNotNull { ordinal, stream ->
-                            if (stream.isExternalSubtitle()) {
-                                null
-                            } else {
-                                stream.toOfflineTrack(OfflineTrackKind.Subtitle, stream.index ?: ordinal)
-                            }
-                        },
+                    subtitleStreamIdentities(version.mediaStreams)
+                        .filterNot { identity -> identity.stream.isExternalSubtitle() }
+                        .map { identity -> identity.stream.toOfflineTrack(OfflineTrackKind.Subtitle, identity.selectableIndex) },
             selectedAudioTrack = audio?.toOfflineTrack(OfflineTrackKind.Audio, audio.index),
             selectedSubtitleTrack = selectedSubtitle,
             backendSource =
@@ -496,14 +490,6 @@ private sealed interface TvOriginalSubtitleResolution {
     data object Invalid : TvOriginalSubtitleResolution
 }
 
-private data class TvIndexedStream(
-    val ordinal: Int,
-    val stream: PlaybackMediaStream,
-) {
-    val canonicalIndex: Int
-        get() = stream.index ?: ordinal
-}
-
 /** Exact lookup of an unambiguous actual Audio index; missing, negative, repeated or ordinal input finds nothing. */
 private fun MediaVersion.audioStreamAt(
     index: Int,
@@ -516,12 +502,11 @@ private fun MediaVersion.audioStreamAt(
 private fun PlaybackMediaStream.eligibleAudioIndex(eligibleIndexes: Set<Int>): Int? =
     index?.takeIf { candidate -> candidate in eligibleIndexes }
 
-private fun MediaVersion.subtitleStreamAt(index: Int): TvIndexedStream? =
-    mediaStreams
-        .filter { stream -> stream.type.equals("Subtitle", ignoreCase = true) }
-        .withIndex()
-        .firstOrNull { (ordinal, stream) -> stream.index == index || (stream.index == null && ordinal == index) }
-        ?.let { indexed -> TvIndexedStream(indexed.index, indexed.value) }
+/** Exact lookup of a selectable Subtitle identity; invalid or ambiguous entries find nothing. */
+private fun MediaVersion.subtitleStreamAt(index: Int): PlaybackMediaStream? =
+    subtitleStreamIdentities(mediaStreams)
+        .firstOrNull { identity -> identity.selectableIndex == index }
+        ?.stream
 
 /** A valid requested identity, else the first eligible raw default, else the first eligible Audio stream. */
 internal fun MediaVersion.resolvedAudioStreamIndex(requested: Int?): Int? {

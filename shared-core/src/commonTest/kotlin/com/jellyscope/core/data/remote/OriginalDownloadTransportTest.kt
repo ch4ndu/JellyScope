@@ -26,13 +26,16 @@ class OriginalDownloadTransportTest {
             val transferRequests = mutableListOf<CapturedTransferRequest>()
             var policyRequests = 0
             var sourceRequests = 0
-            // Negative Subtitle indexes are not identity; each membership keeps only its nonnegative entries.
+            // Only a unique actual nonnegative Subtitle index is identity: negative, missing (no wire
+            // position fallback) and repeated indexes, across embedded and external, enter no membership.
             val subtitleStreamsJson =
                 """[{"Type":"Subtitle","Index":0},{"Type":"Subtitle","Index":-1,"IsExternal":false},""" +
                     """{"Type":"Subtitle","Index":20,"Codec":"srt","IsExternal":true},""" +
                     """{"Type":"Subtitle","Index":-2,"Codec":"srt","IsExternal":true},""" +
                     """{"Type":"Subtitle","Index":30,"Codec":"pgssub","IsExternal":true},""" +
-                    """{"Type":"Subtitle","Index":-3,"Codec":"pgssub","IsExternal":true}]"""
+                    """{"Type":"Subtitle","Index":-3,"Codec":"pgssub","IsExternal":true},""" +
+                    """{"Type":"Subtitle"},{"Type":"Subtitle","Index":40},""" +
+                    """{"Type":"Subtitle","Index":40,"Codec":"srt","IsExternal":true}]"""
             val engine =
                 MockEngine { request ->
                     when (request.url.encodedPath) {

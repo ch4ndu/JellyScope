@@ -1207,6 +1207,64 @@ class TvPlaybackSessionPresenterTest {
                     .last()
                     .subtitleStreamIndex,
             )
+            // The choice persists when its accepted plan commits, not when it is requested.
+            assertEquals(
+                SubtitleSelectionIntent.Track(2),
+                fixture.subtitleStore.savedSelections
+                    .last()
+                    .second,
+            )
+            assertEquals(2, fixture.controller.preparedPlans.size)
+            fixture.presenter.close()
+        }
+
+    @Test
+    fun healthyRejectedQualityChangeKeepsPlaybackAndInstalledIntentWithPassiveNotice() =
+        runTest {
+            val selectionStore = FakeTvPlaybackSelectionStore()
+            val fixture =
+                fixture(
+                    playbackInfos =
+                        listOf(
+                            Result.success(directPlayInfo()),
+                            Result.failure(
+                                com.jellyscope.core.domain.playback.PlaybackPlanningException.RemoteRequestFailed(
+                                    isNetworkFailure = true,
+                                    sourceExceptionType = "IOException",
+                                ),
+                            ),
+                        ),
+                    selectionStore = selectionStore,
+                )
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
+            runCurrent()
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Paused, positionMs = 5_000L)
+            runCurrent()
+            val savedSubtitlesBefore = fixture.subtitleStore.savedSelections.size
+
+            fixture.presenter.accept(TvPlaybackSessionIntent.SelectQualityPolicy(PlaybackQualityPolicy.fixed(4_000_000L)))
+            runCurrent()
+
+            val state = fixture.presenter.state.value
+            assertEquals(TvPlaybackPhase.Active, state.phase)
+            assertEquals(PlaybackStatus.Paused, state.status)
+            assertNull(state.error)
+            val notice = assertNotNull(state.subtitleNotice)
+            assertEquals(TvPlaybackNoticeKind.ChangeRejected, notice.kind)
+            assertEquals(TvPlaybackChangeOperation.Quality, notice.operation)
+            assertEquals(PlaybackError.Network, notice.error)
+            // Nothing installed, commanded, reported, persisted or selected changed.
+            assertEquals(1, fixture.controller.preparedPlans.size)
+            assertEquals(1, fixture.controller.playCount)
+            assertEquals(0, fixture.controller.pauseCount)
+            assertTrue(fixture.reporter.reports.none { report -> report is TvReport.Stopped })
+            assertTrue(state.qualityChoices.single { choice -> choice.inheritsPlaybackDefault }.selected)
+            assertTrue(selectionStore.values.isEmpty())
+            assertEquals(savedSubtitlesBefore, fixture.subtitleStore.savedSelections.size)
+
+            fixture.presenter.accept(TvPlaybackSessionIntent.DismissSubtitleNotice)
+            runCurrent()
+            assertNull(fixture.presenter.state.value.subtitleNotice)
             fixture.presenter.close()
         }
 

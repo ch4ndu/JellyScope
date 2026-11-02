@@ -65,11 +65,13 @@ internal fun reduceTvPlaybackSession(
             with(change) {
                 current.copy(playbackGuidance = guidance)
             }
+        // Retry and item start own playback; a passive notice never outlives them.
         TvPlaybackSessionChange.StartLoading ->
             run {
                 current.copy(
                     phase = TvPlaybackPhase.Loading,
                     error = null,
+                    subtitleNotice = null,
                 )
             }
         is TvPlaybackSessionChange.Installed ->
@@ -117,6 +119,7 @@ internal fun reduceTvPlaybackSession(
                     localSubtitleSelected = false,
                     qualityChoices = emptyList(),
                     chapters = emptyList(),
+                    subtitleNotice = null,
                 )
             }
         is TvPlaybackSessionChange.QueueChanged ->

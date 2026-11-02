@@ -12,6 +12,7 @@ import com.jellyscope.core.domain.playback.PlaybackMediaStream
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -94,6 +95,42 @@ class FixedDownloadDraftFactoryTest {
                 burnInConfirmed = true,
             )
         assertIs<FixedDownloadDraftBuildResult.Ready>(ready)
+
+        // A separate projection numbered over the whole Subtitle cohort: the missing index keeps
+        // position 2 after a negative and an excluded external entry, a unique actual 0 stays
+        // selectable, and negative and repeated indexes count as unsupported and are refused.
+        val base = version()
+        val subtitle = base.mediaStreams.last()
+        val malformed =
+            base.copy(
+                mediaStreams =
+                    base.mediaStreams.dropLast(1) +
+                        listOf(
+                            subtitle.copy(index = -1),
+                            subtitle.copy(index = 50, isExternal = true, deliveryMethod = "External"),
+                            subtitle.copy(index = null),
+                            subtitle.copy(index = 0),
+                            subtitle.copy(index = 7),
+                            subtitle.copy(index = 4),
+                            subtitle.copy(index = 4),
+                        ),
+            )
+        assertEquals(listOf(2, 0, 7), malformed.fixedSubtitleOptions().map { choice -> choice.streamIndex })
+        assertTrue(malformed.hasUnsupportedFixedSubtitle())
+        assertFalse(base.hasUnsupportedFixedSubtitle())
+        assertIs<FixedDownloadDraftBuildResult.UnsupportedSubtitle>(
+            buildFixedDownloadDraft(
+                detail = detailFor(malformed),
+                quality = DownloadQuality.Fixed(4_000_000L),
+                selectedAudioStreamIndex = 1,
+                subtitleSelection = SubtitleSelectionIntent.Track(4),
+                accountIdentity = AccountIdentity("server", "user"),
+                downloadId = DownloadId("download-ambiguous"),
+                artifactKey = DownloadArtifactKey("artifact-ambiguous"),
+                createdAtEpochMs = 1L,
+                burnInConfirmed = true,
+            ),
+        )
     }
 
     @Test

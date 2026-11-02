@@ -17,10 +17,19 @@ data class PlaybackSessionRecoveryInput(
     val plan: PlaybackPlan?,
     val playbackState: PlaybackState,
     val state: PlaybackSessionRecoveryState,
+    /** Target of the Audio recovery request the shell currently has in flight, if any. */
+    val pendingAudioRecovery: AudioActivationTarget? = null,
 )
 
 sealed interface PlaybackSessionRecoveryDecision {
     data object NoAction : PlaybackSessionRecoveryDecision
+
+    /**
+     * The failure belongs to the plan an in-flight Audio recovery is already replacing. Not
+     * terminal: the shell publishes nothing and re-evaluates if that request exits without
+     * installing or failing.
+     */
+    data object Deferred : PlaybackSessionRecoveryDecision
 
     data class NetworkRetry(
         val requestPolicy: PlaybackInfoRequestPolicy =
@@ -80,6 +89,16 @@ class PlaybackSessionRecoveryPolicy {
 
         if (input.playbackState.status != PlaybackStatus.Failed) {
             return noAction(state)
+        }
+
+        val pendingAudio = input.pendingAudioRecovery
+        if (
+            pendingAudio != null &&
+            pendingAudio == plan.audioActivationTarget &&
+            pendingAudio.itemId == input.itemId &&
+            pendingAudio == state.lastAudioRecoveryTarget
+        ) {
+            return PlaybackSessionRecoveryResult(PlaybackSessionRecoveryDecision.Deferred, state)
         }
 
         input.playbackState.error.toPlaybackSessionRecoveryTrigger()?.let { trigger ->

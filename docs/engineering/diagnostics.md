@@ -112,6 +112,15 @@ change collection consent, privacy, retention or delivery behavior.
   persisted, off-by-default preference that re-installs the writer at runtime;
   there is no adb-side substitute.
 
+The consolidated playback transition vocabulary adds closed reasons for stale
+or preempted proposals, pending-Audio deferral, and Retry reporting settlement
+or refusal. tvOS change rejection uses existing operation and
+`CurrentPlaybackKept` fields. These records use existing recorder boundaries;
+pure option/draft projections do not log during rendering, and Original
+membership refusals retain their typed admission/transfer results. No new field
+names, raw identities or metadata are permitted. This coverage does not close
+unrelated native timing, PiP or admission-observability follow-ups.
+
 ## Platform logging
 
 - Because Fire OS runtimes have been observed to omit Debug/Verbose-priority
@@ -436,6 +445,11 @@ mapper tests do not prove native property availability or physical HDR output.
   replans can be checked for accidental restart.
 
 ## Why
+
+- **Closed transition reasons preserve privacy and causal ownership.** Existing
+  structured fields distinguish deferral, rejection and settlement without
+  logging the account, media, selection or timing key behind the decision.
+  Keeping pure projections silent also avoids per-render diagnostic noise.
 
 ### Diagnostic privacy rationale
 

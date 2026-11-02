@@ -32,6 +32,7 @@ class PlaybackReportingCoordinator(
     private var stopResult: Deferred<Boolean>? = null
     private var periodicProgressJob: Job? = null
     private var disposed = false
+    private var retryTransition: RetryReportingTransition? = null
 
     /** The owner must settle the outgoing Stop before installing a new session. */
     fun install(
@@ -52,19 +53,68 @@ class PlaybackReportingCoordinator(
         started = false
         stopRequested = false
         stopResult = null
+        retryTransition = null
     }
 
+    /**
+     * Arms a same-item Retry of the installed session whose native samples start transitionally
+     * (VLCKit re-prepares paused at raw zero). Until settled, every report uses [targetPositionMs]
+     * and a Pause edge is suppressed while [playIntended]. The first Buffering or Playing sample of
+     * a prepare epoch other than [priorPrepareEpoch], or [settleRetryTransition], settles it; Failed
+     * and Completed keep the target for the next stop. Returns false when nothing is installed.
+     */
+    fun beginRetryTransition(
+        targetPositionMs: Long,
+        playIntended: Boolean,
+        priorPrepareEpoch: Long?,
+    ): Boolean {
+        val session = installedSession
+        if (disposed || session == null) return false
+        retryTransition =
+            RetryReportingTransition(
+                generation = session.generation,
+                targetPositionMs = targetPositionMs.coerceAtLeast(0L),
+                playIntended = playIntended,
+                priorPrepareEpoch = priorPrepareEpoch,
+            )
+        return true
+    }
+
+    /** Settles an armed Retry target before an explicit user command; returns whether one was armed. */
+    fun settleRetryTransition(): Boolean {
+        val armed = currentRetryTransition() != null
+        retryTransition = null
+        return armed
+    }
+
+    /**
+     * [prepareEpoch] is the native prepare epoch that produced [current]; null is unknown and
+     * never settles a Retry transition. Returns true when this sample settled one.
+     */
     fun onPlaybackState(
         current: PlaybackState,
         previousStatus: PlaybackStatus,
-    ) {
+        prepareEpoch: Long? = null,
+    ): Boolean {
+        val transition = currentRetryTransition()
+        val settled =
+            transition != null &&
+                prepareEpoch != null &&
+                prepareEpoch != transition.priorPrepareEpoch &&
+                (current.status == PlaybackStatus.Buffering || current.status == PlaybackStatus.Playing)
+        if (settled) retryTransition = null
         if (disposed || stopRequested) {
             cancelPeriodicProgress()
-            return
+            return settled
         }
-        maybeStart(current)
-        reportStatusEdge(current, previousStatus)
+        val reported = currentRetryTransition()?.let { armed -> current.copy(positionMs = armed.targetPositionMs) } ?: current
+        maybeStart(reported)
+        val syntheticPause = currentRetryTransition()?.playIntended == true && current.status == PlaybackStatus.Paused
+        if (!syntheticPause) {
+            reportStatusEdge(reported, previousStatus)
+        }
         updatePeriodicProgress(current.status)
+        return settled
     }
 
     fun progress(
@@ -76,7 +126,7 @@ class PlaybackReportingCoordinator(
         if (disposed || stopRequested || (!started && !startPending)) return
         queue.enqueueProgress(
             reportingSession = session,
-            positionMs = positionMs,
+            positionMs = reportedPosition(positionMs),
             isPaused = isPaused,
             eventName = eventName,
         )
@@ -86,13 +136,14 @@ class PlaybackReportingCoordinator(
         positionMs: Long,
         completed: Boolean = false,
     ) {
+        val reportedPositionMs = consumeReportedStopPosition(positionMs)
         val session = sessionEligibleForStop() ?: return
         stopRequested = true
         cancelPeriodicProgress()
         stopResult =
             queue.enqueueStop(
                 reportingSession = session,
-                positionMs = positionMs,
+                positionMs = reportedPositionMs,
                 completed = completed,
             )
     }
@@ -101,6 +152,7 @@ class PlaybackReportingCoordinator(
         positionMs: Long,
         completed: Boolean = false,
     ) {
+        val reportedPositionMs = consumeReportedStopPosition(positionMs)
         stopResult?.let { result ->
             result.await()
             return
@@ -111,7 +163,7 @@ class PlaybackReportingCoordinator(
         val result =
             queue.enqueueStop(
                 reportingSession = session,
-                positionMs = positionMs,
+                positionMs = reportedPositionMs,
                 completed = completed,
             )
         stopResult = result
@@ -207,4 +259,24 @@ class PlaybackReportingCoordinator(
         periodicProgressJob?.cancel()
         periodicProgressJob = null
     }
+
+    private fun currentRetryTransition(): RetryReportingTransition? =
+        retryTransition?.takeIf { transition -> transition.generation == installedSession?.generation }
+
+    private fun reportedPosition(positionMs: Long): Long = currentRetryTransition()?.targetPositionMs ?: positionMs
+
+    /** A stop is the only terminal consumer of an armed Retry target. */
+    private fun consumeReportedStopPosition(positionMs: Long): Long {
+        val reportedPositionMs = reportedPosition(positionMs)
+        retryTransition = null
+        return reportedPositionMs
+    }
 }
+
+/** A Retry target owned by one reporting installation. */
+private data class RetryReportingTransition(
+    val generation: Long,
+    val targetPositionMs: Long,
+    val playIntended: Boolean,
+    val priorPrepareEpoch: Long?,
+)

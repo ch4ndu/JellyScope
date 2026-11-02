@@ -94,7 +94,12 @@ internal fun projectOfflinePlayback(input: OfflinePlaybackProjectionInput): Offl
             ),
         chapters = offlinePlan.chapters,
         sourceContainer = offlinePlan.container,
-        mediaStreams = snapshot.embeddedTracks.map(OfflineTrackSnapshot::toPlaybackMediaStream),
+        // Metadata-only Subtitle slots have no identity and get no row; the plan keeps every
+        // physical slot for native ordinals, so a missing-index fallback never invents a choice.
+        mediaStreams =
+            snapshot.embeddedTracks
+                .filterNot { track -> track.kind == OfflineTrackKind.Subtitle && track.streamIndex == null }
+                .map(OfflineTrackSnapshot::toPlaybackMediaStream),
         selectedAudioStreamIndex = offlinePlan.selectedAudioStreamIndex,
         selectedSubtitleStreamIndex = selectedSubtitleStreamIndex,
         selectedSubtitleSelection =

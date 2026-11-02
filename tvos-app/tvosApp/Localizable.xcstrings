@@ -1231,6 +1231,46 @@
         }
       }
     },
+    "Could not change audio. %@ Current playback was kept.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not change audio. %@ Current playback was kept."
+          }
+        }
+      }
+    },
+    "Could not change quality. %@ Current playback was kept.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not change quality. %@ Current playback was kept."
+          }
+        }
+      }
+    },
+    "Could not change subtitles. %@ Current playback was kept.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not change subtitles. %@ Current playback was kept."
+          }
+        }
+      }
+    },
+    "Could not change the local subtitle. %@ Current playback was kept.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not change the local subtitle. %@ Current playback was kept."
+          }
+        }
+      }
+    },
     "Could not load %@.": {
       "localizations": {
         "en": {
@@ -1377,6 +1417,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Could not refresh this row."
+          }
+        }
+      }
+    },
+    "Could not seek. %@ Current playback was kept.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not seek. %@ Current playback was kept."
           }
         }
       }
@@ -5061,6 +5111,26 @@
         }
       }
     },
+    "The requested option could not be prepared.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The requested option could not be prepared."
+          }
+        }
+      }
+    },
+    "The requested option is not supported for this item.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The requested option is not supported for this item."
+          }
+        }
+      }
+    },
     "The result preference could not be loaded.": {
       "localizations": {
         "en": {
@@ -5101,6 +5171,16 @@
         }
       }
     },
+    "The selected local subtitle is unavailable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected local subtitle is unavailable."
+          }
+        }
+      }
+    },
     "The selected local subtitle is unavailable. Subtitles were turned off.": {
       "localizations": {
         "en": {
@@ -5137,6 +5217,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "The selected subtitle must be permanently burned into Fixed quality video."
+          }
+        }
+      }
+    },
+    "The server could not be reached.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server could not be reached."
           }
         }
       }

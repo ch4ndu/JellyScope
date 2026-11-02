@@ -1613,6 +1613,15 @@ class KtorJellyfinApi(
                     audioStreams.singleOrNull { stream -> stream.index == selectedAudioStreamIndex }
                         ?: return OriginalSourceValidation.Rejected(OriginalDownloadFailure.SourceChanged)
             }
+        // Every Subtitle entry counts before classification; only a unique actual nonnegative
+        // index is a download identity. No position fallback comes from the wire.
+        val subtitleStreams = source.mediaStreams.filter { stream -> stream.type.equals("Subtitle", ignoreCase = true) }
+        val subtitleIndexCounts = subtitleStreams.mapNotNull { stream -> stream.index }.groupingBy { index -> index }.eachCount()
+        val identifiedSubtitles =
+            subtitleStreams.filter { stream ->
+                val index = stream.index
+                index != null && index >= 0 && subtitleIndexCounts[index] == 1
+            }
         return OriginalSourceValidation.Ready(
             declaredBytes = source.size?.takeIf { size -> size > 0L },
             backendSource = source.toBackendSourceDescriptor(selectedAudio),
@@ -1621,28 +1630,19 @@ class KtorJellyfinApi(
                     .mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
                     .toSet(),
             embeddedSubtitleStreamIndices =
-                source.mediaStreams
-                    .filter { stream ->
-                        stream.type.equals("Subtitle", ignoreCase = true) && stream.isExternal != true
-                    }.mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
+                identifiedSubtitles
+                    .filter { stream -> stream.isExternal != true }
+                    .mapNotNull { stream -> stream.index }
                     .toSet(),
             externalSubtitleStreamIndices =
-                source.mediaStreams
-                    .filter { stream ->
-                        stream.type.equals("Subtitle", ignoreCase = true) &&
-                            stream.isExternal == true &&
-                            stream.index != null &&
-                            stream.isOriginalDownloadTextSubtitle()
-                    }.mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
+                identifiedSubtitles
+                    .filter { stream -> stream.isExternal == true && stream.isOriginalDownloadTextSubtitle() }
+                    .mapNotNull { stream -> stream.index }
                     .toSet(),
             unsupportedExternalSubtitleStreamIndices =
-                source.mediaStreams
-                    .filter { stream ->
-                        stream.type.equals("Subtitle", ignoreCase = true) &&
-                            stream.isExternal == true &&
-                            stream.index != null &&
-                            !stream.isOriginalDownloadTextSubtitle()
-                    }.mapNotNull { stream -> stream.index?.takeIf { index -> index >= 0 } }
+                identifiedSubtitles
+                    .filter { stream -> stream.isExternal == true && !stream.isOriginalDownloadTextSubtitle() }
+                    .mapNotNull { stream -> stream.index }
                     .toSet(),
         )
     }

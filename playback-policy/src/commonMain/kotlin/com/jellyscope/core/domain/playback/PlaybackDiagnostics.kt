@@ -93,6 +93,24 @@ enum class Media3AudioDecoderReason : DiagnosticReason {
     Unknown,
 }
 
+/** Why a user change, recovery request or Retry reporting transition settled without its own outcome. */
+enum class PlaybackTransitionReason : DiagnosticReason {
+    /** A user change lost its captured controller, plan, item or source before it could commit. */
+    ProposalStale,
+
+    /** An admitted recovery replaced a pending user change. */
+    ProposalPreempted,
+
+    /** A failure of the plan an in-flight Audio recovery is already replacing waits for that request. */
+    PendingAudioDeferred,
+
+    /** A Retry reporting target settled on a new native sample or an explicit user command. */
+    RetryReportingSettled,
+
+    /** A Retry reporting transition was not armed because its installation was no longer current. */
+    RetryReportingRefused,
+}
+
 enum class RepositoryOperation(
     val diagnosticOperation: DiagnosticOperation,
 ) : PlaybackDiagnosticOperation {
@@ -1247,6 +1265,7 @@ private fun DiagnosticReason.diagnosticName(): String =
         is Media3AudioDecoderReason -> name
         is PlaybackCompletionReadinessReason -> name
         is PlaybackPreflightReason -> name
+        is PlaybackTransitionReason -> name
         is SourceVideoCopyRejectionReason -> name
         is SubtitleActivationFailureReason -> diagnosticValue
         is UnusableVideoCodecReason -> name

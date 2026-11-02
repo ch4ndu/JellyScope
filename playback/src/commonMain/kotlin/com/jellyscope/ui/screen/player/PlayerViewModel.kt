@@ -92,6 +92,7 @@ import com.jellyscope.core.domain.playback.PlaybackSessionRecoveryState
 import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlaybackTerminalOutcome
+import com.jellyscope.core.domain.playback.PlaybackTransitionReason
 import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerBackendPlatform
 import com.jellyscope.core.domain.playback.PlayerController
@@ -334,6 +335,10 @@ class PlayerViewModel(
     private var installedAudioStreamIndex: Int? = null
     private var audioActivationRequestId = 0L
     private var audioRecoveryTarget: AudioActivationTarget? = null
+
+    // The replan request generation and target of the Audio recovery request that actually launched.
+    private var audioRecoveryRequestGeneration: Long? = null
+    private var audioRecoveryRequestTarget: AudioActivationTarget? = null
     private var desiredPlayWhenReady = true
     private var playbackIntentRevision = 0L
     private var requestedSubtitleStreamIndex: Int? = null
@@ -588,6 +593,7 @@ class PlayerViewModel(
         if (offlineReprepareGeneration != null) return
         excludeSoftwarePlaybackProgress()
         restartPlaybackHealthEvidence()
+        settleRetryReporting()
         playerController.play()
     }
 
@@ -600,6 +606,7 @@ class PlayerViewModel(
         if (offlineReprepareGeneration != null) return
         excludeSoftwarePlaybackProgress()
         restartPlaybackHealthEvidence()
+        settleRetryReporting()
         playerController.pause()
     }
 
@@ -659,6 +666,7 @@ class PlayerViewModel(
         val target = positionMs.coerceAtLeast(0L)
         excludeSoftwarePlaybackProgress()
         restartPlaybackHealthEvidence(PlaybackHealthExclusionReason.Seek)
+        settleRetryReporting()
         val currentPlan = plan
         if (
             playerController.transcodeSeekRestartsStream &&
@@ -754,16 +762,29 @@ class PlayerViewModel(
             return
         }
         if (sameItemFastRetry) {
+            val retryController = playerController
+            val prepareEpochBeforeRetry = retryController.runtimeDiagnostics.value.prepareEpoch
             plan?.let { currentPlan ->
                 playbackReportingCoordinator.install(
                     session = session,
                     plan = currentPlan,
                     playSessionId = currentPlan.effectivePlaySessionId(),
                 )
+                // VLCKit re-prepares paused at raw zero; report this plan's start and play intent until
+                // a new prepare epoch's first Buffering/Playing sample or an explicit user command.
+                if (
+                    backend == PlayerBackend.VlcKit &&
+                    !playbackReportingCoordinator.beginRetryTransition(
+                        targetPositionMs = currentPlan.startPositionMs,
+                        playIntended = desiredPlayWhenReady,
+                        priorPrepareEpoch = prepareEpochBeforeRetry,
+                    )
+                ) {
+                    recordRetryReportingTransition(PlaybackTransitionReason.RetryReportingRefused)
+                }
             }
             playbackLaunchMarker = null
             val retryPlan = plan
-            val retryController = playerController
             var expectedRetryInstalledPlan = installedPlan
             val retrySelectionGeneration = selectedPlaybackGeneration
             val retryReplanGeneration = replanRequestGeneration
@@ -776,7 +797,6 @@ class PlayerViewModel(
                     playerController === retryController &&
                     installedPlan === expectedRetryInstalledPlan &&
                     plan === retryPlan
-            val prepareEpochBeforeRetry = retryController.runtimeDiagnostics.value.prepareEpoch
             startupPrepareGeneration = retryGeneration
             try {
                 retryController.retry()
@@ -3508,6 +3528,33 @@ class PlayerViewModel(
         observePlaybackState()
     }
 
+    /** Every collector report carries the sample's native prepare epoch so a Retry transition can settle. */
+    private fun reportPlaybackState(playbackState: PlaybackState) {
+        val settled =
+            playbackReportingCoordinator.onPlaybackState(
+                current = playbackState,
+                previousStatus = lastStatus,
+                prepareEpoch = playerController.runtimeDiagnostics.value.prepareEpoch,
+            )
+        if (settled) recordRetryReportingTransition(PlaybackTransitionReason.RetryReportingSettled)
+    }
+
+    /** An explicit user command owns the reported position from here on. */
+    private fun settleRetryReporting() {
+        if (playbackReportingCoordinator.settleRetryTransition()) {
+            recordRetryReportingTransition(PlaybackTransitionReason.RetryReportingSettled)
+        }
+    }
+
+    private fun recordRetryReportingTransition(reason: PlaybackTransitionReason) {
+        playerDiagnosticsRecorder.recordTransition(
+            context = playerDiagnosticContext(),
+            stage = PlaybackDiagnosticStage.Reporting,
+            event = PlaybackDiagnosticEvent.Reporting,
+            reason = reason,
+        )
+    }
+
     private suspend fun resolveBackendForSession(
         selectedVersion: MediaVersion,
         launchAudioStreamIndex: Int?,
@@ -4506,7 +4553,7 @@ class PlayerViewModel(
                 return
             }
             publishContent(playbackState = enrichedPlaybackState)
-            playbackReportingCoordinator.onPlaybackState(enrichedPlaybackState, lastStatus)
+            reportPlaybackState(enrichedPlaybackState)
             lastStatus = enrichedPlaybackState.status
             return
         }
@@ -4528,7 +4575,7 @@ class PlayerViewModel(
         val completed = enrichedPlaybackState.status == PlaybackStatus.Completed
         val hasNextQueueItem = currentQueueIndex < queueIds.lastIndex
         if (completed && hasNextQueueItem) {
-            playbackReportingCoordinator.onPlaybackState(enrichedPlaybackState, lastStatus)
+            reportPlaybackState(enrichedPlaybackState)
             if (lastStatus != PlaybackStatus.Completed) {
                 playbackReportingCoordinator.stop(enrichedPlaybackState.positionMs, completed = true)
             }
@@ -4594,7 +4641,7 @@ class PlayerViewModel(
             publishContent(playbackState = enrichedPlaybackState)
         }
 
-        playbackReportingCoordinator.onPlaybackState(enrichedPlaybackState, lastStatus)
+        reportPlaybackState(enrichedPlaybackState)
         // Report Start before an auto-skip TimeUpdate.
         maybeAutoSkipSegment(enrichedPlaybackState)
 
@@ -4997,6 +5044,15 @@ class PlayerViewModel(
             executePlaybackSessionRecovery(decision, playbackState)
             return PlaybackTerminalRecovery(outcome = null)
         }
+        if (decision is PlaybackSessionRecoveryDecision.Deferred) {
+            playerDiagnosticsRecorder.recordTransition(
+                context = playerDiagnosticContext(),
+                stage = PlaybackDiagnosticStage.NativePlayer,
+                event = PlaybackDiagnosticEvent.RecoveryDecision,
+                reason = PlaybackTransitionReason.PendingAudioDeferred,
+            )
+            return PlaybackTerminalRecovery(outcome = null)
+        }
         return PlaybackTerminalRecovery(PlaybackTerminalOutcome.RetryScheduled).takeIf {
             executePlaybackSessionRecovery(decision, playbackState)
         }
@@ -5049,11 +5105,25 @@ class PlayerViewModel(
                     plan = plan,
                     playbackState = playbackState,
                     state = playbackSessionRecoveryState,
+                    pendingAudioRecovery = pendingAudioRecoveryTarget(),
                 ),
             )
         playbackSessionRecoveryState = result.state
         return result.decision
     }
+
+    private fun clearAudioRecoveryRequest() {
+        audioRecoveryRequestGeneration = null
+        audioRecoveryRequestTarget = null
+    }
+
+    /** Only the exact launched Audio recovery request that still owns the replan slot defers a failure. */
+    private fun pendingAudioRecoveryTarget(): AudioActivationTarget? =
+        audioRecoveryTarget?.takeIf { target ->
+            target == audioRecoveryRequestTarget &&
+                audioRecoveryRequestGeneration == replanRequestGeneration &&
+                replanJob?.isActive == true
+        }
 
     private fun executePlaybackSessionRecovery(
         decision: PlaybackSessionRecoveryDecision,
@@ -5064,6 +5134,9 @@ class PlayerViewModel(
             PlaybackSessionRecoveryDecision.NoAction,
             is PlaybackSessionRecoveryDecision.AutomaticRecovery,
             -> false
+
+            // The in-flight Audio recovery already owns this failure.
+            PlaybackSessionRecoveryDecision.Deferred -> true
 
             is PlaybackSessionRecoveryDecision.NetworkRetry -> {
                 playerDiagnosticsRecorder.recordDiagnostic(
@@ -5290,6 +5363,9 @@ class PlayerViewModel(
         val mediaSource = selectedMediaSourceId ?: return
         val qualitySessionForRequest = proposedQualitySessionState ?: qualitySession
         val requestGeneration = ++replanRequestGeneration
+        // Every launched request takes the slot; only an Audio recovery records pending ownership.
+        audioRecoveryRequestGeneration = requestGeneration.takeIf { audioRecovery != null }
+        audioRecoveryRequestTarget = audioRecovery
         val controllerAtRequest = playerController
         val installedPlanAtRequest = installedPlan
         val playbackWasPausedAtRequest =
@@ -5338,6 +5414,21 @@ class PlayerViewModel(
         replanJob?.cancel()
         replanJob =
             viewModelScope.launch {
+                // An Audio request that exits without installing or publishing a failure releases its
+                // ownership, then lets the collector re-evaluate a failure it deferred, once and only
+                // while no newer request owns the slot.
+                fun releaseSilentAudioRecovery() {
+                    if (audioRecovery == null || audioRecoveryRequestGeneration != requestGeneration) return
+                    clearAudioRecoveryRequest()
+                    if (
+                        isCurrentReplan(requestGeneration, replanGeneration, replanItemId) &&
+                        admitsPlaybackSessionRecovery() &&
+                        playerController === controllerAtRequest &&
+                        playerController.playbackState.value.status == PlaybackStatus.Failed
+                    ) {
+                        restartPlaybackStateObservation()
+                    }
+                }
                 if (controllerInstallInFlight) return@launch
                 if (forcePlay) {
                     reduce(PlayerChange.Loading)
@@ -5414,6 +5505,8 @@ class PlayerViewModel(
                         } else if (!qualityFailurePreserved && audioRecovery != null) {
                             if (audioRecoveryTarget == audioRecovery) {
                                 reduce(PlayerChange.Failed(PlayerUiState.Error(error = PlaybackError.UnsupportedMedia)))
+                            } else {
+                                releaseSilentAudioRecovery()
                             }
                         } else if (!qualityFailurePreserved) {
                             reduce(PlayerChange.Failed(startupPlanningError(exception)))
@@ -5472,6 +5565,7 @@ class PlayerViewModel(
                 }
                 if (audioRecovery != null) {
                     if (audioRecoveryTarget != audioRecovery || plan?.audioActivationTarget != audioRecovery) {
+                        releaseSilentAudioRecovery()
                         return@launch
                     }
                     if (playbackPlan.streamMode == StreamMode.DirectPlay) {
@@ -5594,6 +5688,8 @@ class PlayerViewModel(
                                     preserveRecoveryBudget = preserveRecoveryBudgetOnQualityCommit,
                                 )
                             }
+                            // An accepted install settles any pending Audio ownership.
+                            clearAudioRecoveryRequest()
                             installPlan(playbackPlanWithMetadata, resetReporting = true, stabilizesQueueSwitch = false)
                             reduce(PlayerChange.SeekUnavailable)
                             if (nonFatalSubtitleFallback != null) {

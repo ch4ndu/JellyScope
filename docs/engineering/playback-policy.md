@@ -99,6 +99,17 @@ This preservation applies only while the same installed session remains active;
 startup, terminal recovery, and native prepare failures retain their normal
 failure semantics. A new relevant action or explicit dismissal clears the notice.
 
+On tvOS, remote quality, Audio, Subtitle, local-subtitle and out-of-window seek
+changes are proposals. Planner exceptions over the same healthy installed
+session keep playback and show a passive rejection notice. Requested fields,
+persistence, recovery resets and local-asset observation commit only after
+outgoing reporting settles and the request still owns installation. Immediate
+native switches commit directly. A proposal that displaces admitted recovery,
+or replaces another proposal in that chain, retains fatal failure behavior;
+a healthy native status alone does not prove that the displaced recovery was
+unnecessary. Native preparation failures remain fatal. The
+[Apple player contract](apple-playback.md#tvos-native-player) owns presentation.
+
 `Original` decoder/health recovery is a single prompt contract. Every trigger below returns
 `OriginalPlaybackFailed` with exactly `AcceptAuto`, `OpenPlaybackSettings`,
 `Dismiss`, and `Close`; it creates no replan, recovery budget use, or runtime
@@ -486,6 +497,12 @@ Apple devices, the hardware AV1 check applies to AVPlayer. VLCKit declares AV1
 without that hardware gate and does not claim HDR support.
 
 ## Why
+
+- **Rejected changes need an intact installed session.** tvOS defers mutation
+  until proposal commit so rejected planning cannot leave menus, persistence
+  or recovery credit describing a stream that was never installed. Recovery
+  displacement survives replacement proposals because a still-Playing native
+  state can hide an unresolved Audio or Subtitle activation gap.
 
 ### Server contract and capability modeling
 

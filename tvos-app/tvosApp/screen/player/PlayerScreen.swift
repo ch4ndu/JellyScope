@@ -157,9 +157,9 @@ struct PlayerScreen: View {
                     onOpenPlaybackSettings: openPlaybackSettings
                 )
                 .padding(48)
-            } else if model.subtitleNotice != nil {
+            } else if let notice = model.subtitleNotice {
                 HStack {
-                    Text("The selected local subtitle is unavailable. Subtitles were turned off.")
+                    Text(notice.localizedMessage)
                     Button("Dismiss", action: model.dismissSubtitleNotice)
                 }
                 .padding(18)
@@ -350,7 +350,18 @@ struct PlayerScreen: View {
             model.dismissNextUp()
             return
         }
+        if passiveNoticeVisible {
+            model.dismissSubtitleNotice()
+            return
+        }
         closePlayer()
+    }
+
+    /// Mirrors `passiveOverlays` once `handleBack` has passed every higher surface.
+    private var passiveNoticeVisible: Bool {
+        model.subtitleNotice != nil &&
+            model.vlcSurface == nil &&
+            model.playbackGuidance == nil
     }
 
     private func closePlayer() {

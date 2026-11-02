@@ -76,6 +76,53 @@ class PlaybackSessionRecoveryPolicyTest {
     }
 
     @Test
+    fun failureOfThePlanAPendingAudioRecoveryReplacesIsDeferredWithoutSpendingBudget() {
+        val target = audioTarget(requestId = 1L, streamIndex = 2)
+        val admitted =
+            decide(
+                plan = plan(audioTarget = target),
+                playbackState = state(audioActivation = AudioActivationState.Unavailable(target)),
+            )
+        val failed = state(status = PlaybackStatus.Failed, error = PlaybackError.Network)
+
+        val deferred =
+            decide(
+                plan = plan(audioTarget = target),
+                playbackState = failed,
+                recoveryState = admitted.state,
+                pendingAudioRecovery = target,
+            )
+
+        assertIs<PlaybackSessionRecoveryDecision.Deferred>(deferred.decision)
+        // No allowance is spent and the recorded target is retained.
+        assertEquals(admitted.state, deferred.state)
+        // A different request target, plan target or unrecorded target is ordinary recovery.
+        assertIs<PlaybackSessionRecoveryDecision.NetworkRetry>(
+            decide(
+                plan = plan(audioTarget = target),
+                playbackState = failed,
+                recoveryState = admitted.state,
+                pendingAudioRecovery = target.copy(requestId = 2L),
+            ).decision,
+        )
+        assertIs<PlaybackSessionRecoveryDecision.NetworkRetry>(
+            decide(
+                plan = plan(),
+                playbackState = failed,
+                recoveryState = admitted.state,
+                pendingAudioRecovery = target,
+            ).decision,
+        )
+        assertIs<PlaybackSessionRecoveryDecision.NetworkRetry>(
+            decide(
+                plan = plan(audioTarget = target),
+                playbackState = failed,
+                pendingAudioRecovery = target,
+            ).decision,
+        )
+    }
+
+    @Test
     fun jellyfinSubtitleFailureRequestsExactEncodeWithTypedCause() {
         val target = subtitleTarget(requestId = 4L, streamIndex = 7)
         val result =
@@ -270,6 +317,7 @@ class PlaybackSessionRecoveryPolicyTest {
         plan: PlaybackPlan?,
         playbackState: PlaybackState,
         recoveryState: PlaybackSessionRecoveryState = PlaybackSessionRecoveryState(),
+        pendingAudioRecovery: AudioActivationTarget? = null,
     ): PlaybackSessionRecoveryResult =
         policy.decide(
             PlaybackSessionRecoveryInput(
@@ -278,6 +326,7 @@ class PlaybackSessionRecoveryPolicyTest {
                 plan = plan,
                 playbackState = playbackState,
                 state = recoveryState,
+                pendingAudioRecovery = pendingAudioRecovery,
             ),
         )
 

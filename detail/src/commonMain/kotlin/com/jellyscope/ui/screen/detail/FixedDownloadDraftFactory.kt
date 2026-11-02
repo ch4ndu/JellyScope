@@ -18,6 +18,7 @@ import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.core.domain.playback.isExternalSubtitle
 import com.jellyscope.core.domain.playback.qualityRungs
 import com.jellyscope.core.domain.playback.subtitleKind
+import com.jellyscope.core.domain.playback.subtitleStreamIdentities
 
 /** A fixed rung that is safe to display before the server admission estimate exists. */
 internal data class FixedDownloadQualityChoice(
@@ -59,30 +60,21 @@ internal fun MediaVersionUi.videoStream(): PlaybackMediaStream? =
 internal fun MediaVersionUi.fixedSupportedSubtitle(streamIndex: Int): PlaybackMediaStream? =
     fixedSubtitleOptions().firstOrNull { choice -> choice.streamIndex == streamIndex }?.stream
 
+/** True when any Subtitle entry, including one without a valid identity, has no Fixed choice. */
 internal fun MediaVersionUi.hasUnsupportedFixedSubtitle(): Boolean =
-    mediaStreams.any { stream ->
-        stream.type.equals("Subtitle", ignoreCase = true) &&
-            (
+    fixedSubtitleOptions().size < subtitleStreamIdentities(mediaStreams).size
+
+/** Numbered over the whole Subtitle cohort before external, unrecognized and bitmap entries are excluded. */
+internal fun MediaVersionUi.fixedSubtitleOptions(): List<FixedSubtitleChoice> =
+    subtitleStreamIdentities(mediaStreams).mapNotNull { identity ->
+        val stream = identity.stream
+        identity.selectableIndex
+            ?.takeUnless {
                 stream.isExternalSubtitle() ||
                     stream.codec.normalizedFixedSubtitleCodec() == null ||
-                    subtitleKind(stream.codec) == SubtitleKind.Bitmap
-            )
+                    subtitleKind(stream.codec) != SubtitleKind.Text
+            }?.let { streamIndex -> FixedSubtitleChoice(streamIndex, stream) }
     }
-
-internal fun MediaVersionUi.fixedSubtitleOptions(): List<FixedSubtitleChoice> =
-    mediaStreams
-        .filter { stream -> stream.type.equals("Subtitle", ignoreCase = true) }
-        .withIndex()
-        .mapNotNull { (ordinal, stream) ->
-            if (stream.isExternalSubtitle() ||
-                stream.codec.normalizedFixedSubtitleCodec() == null ||
-                subtitleKind(stream.codec) != SubtitleKind.Text
-            ) {
-                null
-            } else {
-                FixedSubtitleChoice(stream.index ?: ordinal, stream)
-            }
-        }
 
 internal fun buildFixedDownloadDraft(
     detail: DetailUi,

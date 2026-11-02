@@ -40,6 +40,34 @@ class TrackSelectionTest {
         assertEquals(listOf(0, 1), subtitleOptions(streams).map { it.ordinal })
         assertEquals(listOf(2, 4), subtitleOptions(streams).map { it.streamIndex })
         assertTrue(subtitleOptions(streams).hasSelectableSubtitleChoice())
+
+        // The whole Subtitle cohort is numbered before any omission: a missing index falls back to its
+        // position, a negative index has no identity, and any shared candidate (actual 0 against
+        // fallback 0, or a repeated external index) is ambiguous. Every physical slot stays.
+        val malformed =
+            listOf(
+                stream(index = null, type = "Subtitle", codec = "srt"),
+                stream(index = -1, type = "Subtitle", codec = "srt"),
+                stream(index = 0, type = "Subtitle", codec = "srt"),
+                stream(index = 7, type = "Subtitle", codec = "srt", isExternal = true),
+                stream(index = 7, type = "Subtitle", codec = "pgssub"),
+                stream(index = null, type = "Subtitle", codec = "ass"),
+                stream(index = 9, type = "Subtitle", codec = "vtt", isExternal = true),
+            )
+        assertEquals(
+            listOf(null, null, null, null, null, 5, 9),
+            subtitleStreamIdentities(malformed).map { identity -> identity.selectableIndex },
+        )
+        assertEquals(listOf(5, 9), subtitleOptions(malformed).map { it.streamIndex })
+        assertEquals(listOf(5, 6), subtitleOptions(malformed).map { it.ordinal })
+
+        // Without a colliding fallback, a unique actual 0 keeps its identity and cohort ordinal.
+        val uniqueZero =
+            subtitleOptions(
+                listOf(stream(index = -1, type = "Subtitle", codec = "srt"), stream(index = 0, type = "Subtitle", codec = "srt")),
+            )
+        assertEquals(listOf(0), uniqueZero.map { it.streamIndex })
+        assertEquals(listOf(1), uniqueZero.map { it.ordinal })
     }
 
     @Test

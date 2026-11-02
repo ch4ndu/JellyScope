@@ -30,6 +30,29 @@ extension Optional where Wrapped == PlaybackError {
     }
 }
 
+extension TvPlaybackNotice {
+    var localizedMessage: String {
+        guard kind == .changerejected, let operation = operation else {
+            return String(localized: "The selected local subtitle is unavailable. Subtitles were turned off.")
+        }
+        let reason = changeRejectionReason(operation)
+        switch operation {
+        case .quality: return String(localized: "Could not change quality. \(reason) Current playback was kept.")
+        case .audio: return String(localized: "Could not change audio. \(reason) Current playback was kept.")
+        case .subtitle: return String(localized: "Could not change subtitles. \(reason) Current playback was kept.")
+        case .localsubtitle: return String(localized: "Could not change the local subtitle. \(reason) Current playback was kept.")
+        default: return String(localized: "Could not seek. \(reason) Current playback was kept.")
+        }
+    }
+
+    private func changeRejectionReason(_ operation: TvPlaybackChangeOperation) -> String {
+        if error is PlaybackErrorNetwork { return String(localized: "The server could not be reached.") }
+        if error is PlaybackErrorUnsupportedMedia { return String(localized: "The requested option is not supported for this item.") }
+        if error == nil && operation == .localsubtitle { return String(localized: "The selected local subtitle is unavailable.") }
+        return String(localized: "The requested option could not be prepared.")
+    }
+}
+
 extension PlayerVideoSizing {
     var localizedTitle: String {
         switch self {

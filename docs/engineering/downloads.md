@@ -99,10 +99,19 @@ clients; core retains their redirect/timeout/logging configuration and engines.
   and surrounding whitespace and treats null/blank as unknown; unknown matches
   unknown, while known/unknown drift is refused. These checks supplement byte
   validators and do not prove unchanged labels, whole-cohort order or semantic
-  identity when an index and codec remain the same. Original transport keeps
-  only nonnegative Subtitle indexes in embedded, supported-external and
-  unsupported-external membership sets; missing and negative Audio indexes
-  also stay outside membership. This establishes no global Subtitle uniqueness.
+  identity when an index and codec remain the same. Original transport counts
+  all Subtitle entries before classifying delivery or format. Only unique actual nonnegative indexes enter embedded,
+  supported-external and unsupported-external membership sets. Missing,
+  negative or repeated identities cannot create a supported/unsupported overlap.
+  A selected identity that becomes ambiguous is refused as `SourceChanged`.
+  Missing and negative Audio indexes also stay outside membership.
+- New snapshots retain unselectable embedded Subtitle metadata with a null
+  identity, preserving physical slots for native descriptors. Compose offline
+  pickers omit those metadata-only rows. Snapshot builders number the complete
+  Subtitle list before excluding external entries; older Compose snapshots
+  with embedded-only fallback positions are not migrated. A queued request
+  whose selected actual identity is now ambiguous fails as `SourceChanged`;
+  retrying does not replace its saved choice.
 - The authenticated descriptor drives offline backend selection. Audio codec
   can influence Apple Auto selection; admission then compares video codec,
   dimensions and frame rate with that backend's probed finite video bounds.
@@ -297,7 +306,10 @@ identity, artifact, and progress rules live in
   parsing would make artifact identity and completeness ambiguous.
   A missing subtitle sidecar contributes zero bytes to a package checkpoint;
   it must never reset already downloaded main-file bytes. Negative wire Subtitle
-  indexes are not selectable membership identities.
+  indexes are not selectable membership identities. Counting identities before
+  classification prevents an ambiguous stream from acquiring contradictory
+  supported and unsupported memberships. Metadata-only embedded slots preserve
+  physical order without making malformed identities selectable offline.
 - **Audio identity and position serve different purposes.** Inventing an index
   or choosing the first duplicate can select different metadata and audio.
   Keeping unselectable embedded slots preserves physical order; resolving the

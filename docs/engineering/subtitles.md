@@ -147,6 +147,18 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 
 ## Selection and delivery
 
+- Selectable Subtitle identities are resolved over the complete Subtitle list,
+  including external and unsupported entries. A nonnegative actual index is
+  used directly; a missing index falls back to its original position in that
+  list. Negative indexes and repeated resolved identities produce no choice,
+  including an actual index colliding with another entry's position fallback.
+  Omission never shifts later positions or rewrites raw metadata. Detail,
+  startup and queue defaults, in-player pickers, and download draft resolvers
+  use this projection. Off and local assets remain separate intents.
+- A position fallback is a client/playback identity, not an authenticated
+  download identity. Original and Fixed admission require a unique actual
+  index; a missing-index choice can still be refused as `SourceChanged`.
+
 - Subtitle launch intent has four states: omitted `Unspecified`, explicit `Off`
   (`SubtitleStreamIndex=-1`), `Track(index)`, and `LocalAsset(assetId)`. Startup
   resolves explicit intent first, then the durable selection keyed by
@@ -408,6 +420,12 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   external configuration id before reporting active.
 
 ## Why
+
+- **Identity omission preserves physical position.** `Track` requires a
+  nonnegative identity, while request value `-1` means Off. Nulling malformed
+  raw indexes would invent position identities; filtering before enumeration
+  would move later tracks. One complete-cohort projection keeps client
+  lookups and draft resolution consistent without claiming wire authority.
 
 - Timing providers must read the mutable installed controller, not the initial
   constructor placeholder. Storage reads can outlive their track or controller,

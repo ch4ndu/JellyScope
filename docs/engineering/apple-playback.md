@@ -231,6 +231,13 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   rebuild only on a menu-configuration key (plan epoch + track lists + confirmed selections +
   bitrate), never per position tick. Settings and the in-player menu share the
   same quality ladder so defaults always match a rung.
+- Healthy remote changes use the proposal contract in
+  [playback policy](playback-policy.md#quality-semantics), retaining
+  installed playback on eligible planner rejection. A passive typed notice
+  explains the rejected operation and stays until dismissed or superseded.
+  It does not block interaction or unmount AVPlayer, and waits behind higher
+  priority surfaces. Retry, item start and close clear it; a local-subtitle
+  unavailable notice created by startup or repair survives its own install.
 - Chapters render as `AVNavigationMarkersGroup` on the player item; segment
   skipping honors the per-type `SegmentSkipPolicy` (`contextualActions` for Ask,
   presenter-driven once-per-item auto-skip while Playing, ordered after the
@@ -345,6 +352,10 @@ resolves artifact paths. Queue/countdown and native panel behavior are owned by
 - **Apple route loss revokes play intent.** Output removal is a pause event, not
   permission to resume on newly connected hardware; only a matching interruption
   end may consume a captured one-shot resume intent.
+
+- **A rejected tvOS change is not a failed player.** A passive notice preserves
+  the installed host and remote controls; sticky fatal state remains reserved
+  for failures that cannot preserve healthy playback.
 
 - **Native tvOS uses AVKit online and shares VLC offline.** Cause-qualified native
   transport preserves pause/readiness. AVKit owns online menus/chapters; VLC

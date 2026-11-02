@@ -21,11 +21,26 @@ enum class TvPlaybackPhase {
 
 enum class TvPlaybackNoticeKind {
     LocalSubtitleUnavailable,
+
+    /** A user change could not be prepared; current playback was kept. */
+    ChangeRejected,
 }
 
+/** The user change a [TvPlaybackNoticeKind.ChangeRejected] notice reports. */
+enum class TvPlaybackChangeOperation {
+    Quality,
+    Audio,
+    Subtitle,
+    LocalSubtitle,
+    Seek,
+}
+
+/** Passive player notice; [operation] and [error] are present only for a rejected change. */
 data class TvPlaybackNotice(
     val token: Long,
     val kind: TvPlaybackNoticeKind,
+    val operation: TvPlaybackChangeOperation? = null,
+    val error: PlaybackError? = null,
 )
 
 data class TvPlaybackUiState(

@@ -34,6 +34,7 @@ import com.jellyscope.core.domain.playback.PlaybackAction
 import com.jellyscope.core.domain.playback.PlaybackActionNotice
 import com.jellyscope.core.domain.playback.PlaybackActionNoticeReason
 import com.jellyscope.core.domain.playback.PlaybackBitrateConstraint
+import com.jellyscope.core.domain.playback.PlaybackChangeResult
 import com.jellyscope.core.domain.playback.PlaybackDiagnostic
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticEvent
 import com.jellyscope.core.domain.playback.PlaybackDiagnosticPlatform
@@ -66,7 +67,9 @@ import com.jellyscope.core.domain.playback.PlaybackSessionRecoveryState
 import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlaybackTerminalOutcome
+import com.jellyscope.core.domain.playback.PlaybackTransitionReason
 import com.jellyscope.core.domain.playback.PlayerController
+import com.jellyscope.core.domain.playback.PlayerOperation
 import com.jellyscope.core.domain.playback.PlayerStillWatchingAutomaticAdvance
 import com.jellyscope.core.domain.playback.PlayerStillWatchingState
 import com.jellyscope.core.domain.playback.StreamMode
@@ -216,8 +219,42 @@ class TvPlaybackSessionPresenter(
     private var audioActivationRequestId = 0L
     private var subtitleActivationRequestId = 0L
     private var audioRecoveryTarget: AudioActivationTarget? = null
+
+    /** The replan job of the Audio recovery request that launched for [audioRecoveryTarget]. */
+    private var audioRecoveryJob: Job? = null
     private var subtitleFallbackTarget: SubtitleActivationTarget? = null
     private var subtitleFallbackGeneration = 0L
+
+    /** The one pending user change; its fields commit only immediately before its plan installs. */
+    private var pendingProposal: TvChangeProposal? = null
+    private var proposalRequestIdentity = 0L
+
+    /**
+     * A user change displaced an admitted recovery and every replacement change inherits that. Ends at
+     * a commit, a published failure, an admitted recovery, Retry, item change or close, or when the
+     * exact displaced Audio or SubtitleEncode root below resolves; cancellation alone never ends it.
+     */
+    private var proposalDisplacedRecovery = false
+
+    /**
+     * The exact Audio recovery target, or SubtitleEncode fallback target, whose request started the
+     * current displacing lineage, if that is what it displaced; a network or Auto recovery records
+     * neither. Recorded only while [proposalDisplacedRecovery].
+     */
+    private var proposalDisplacedAudioRecovery: AudioActivationTarget? = null
+    private var proposalDisplacedSubtitleRecovery: SubtitleActivationTarget? = null
+
+    /** Whether [replanJob] belongs to an admitted Audio, SubtitleEncode, network or Auto recovery. */
+    private var replanIsRecovery = false
+
+    /**
+     * A replan queued Stop for the installed reporting session, which then stays stopped until reporting
+     * is installed again; cancelling or dropping that replan never ends this.
+     */
+    private var installedReportingMayBeStopped = false
+
+    /** An installed local subtitle went missing while another request owned the replan slot. */
+    private var localSubtitleRepair: TvLocalSubtitleRepair? = null
 
     private var playSessionId: String = deviceInfoProvider.newDeviceId()
     private var lastStatus: PlaybackStatus = PlaybackStatus.Idle
@@ -394,6 +431,7 @@ class TvPlaybackSessionPresenter(
                                     scope = scope,
                                     playbackState = installed.playbackState,
                                 )
+                            installedReportingMayBeStopped = false
                             observeControllerOutput()
                             reduce { TvPlaybackSessionChange.Installed(playerIdentity, installed.activeBackend) }
                         } catch (exception: Throwable) {
@@ -467,7 +505,6 @@ class TvPlaybackSessionPresenter(
         if (startInFlight) return
         val controller = installedPlayerController ?: return
         val target = positionMs.coerceAtLeast(0L)
-        playbackHealthCoordinator.restartEvidenceWindow(PlaybackHealthExclusionReason.Seek)
         val currentPlan = plan
         if (
             controller.transcodeSeekRestartsStream &&
@@ -476,9 +513,10 @@ class TvPlaybackSessionPresenter(
         ) {
             // Out-of-window transcode seeks wedge AVPlayer; restart the
             // transcode at the target instead (same contract as PlayerViewModel).
-            replanAtPosition(target)
+            proposeChange(TvPlaybackChangeOperation.Seek, controller, targetPositionMs = target)
             return
         }
+        playbackHealthCoordinator.restartEvidenceWindow(PlaybackHealthExclusionReason.Seek)
         controller.seekTo(target)
         installedPlaybackReportingCoordinator?.progress(
             positionMs = target,
@@ -557,6 +595,7 @@ class TvPlaybackSessionPresenter(
         val controller = installedPlayerController ?: return
         cancelAutoplaySurface()
         cancelAndInvalidateSubtitleFallback()
+        localSubtitleRepair = null
         playbackHealthCoordinator.end()
         installedPlaybackReportingCoordinator?.stop(controller.playbackState.value.positionMs)
         controller.stop()
@@ -727,64 +766,64 @@ class TvPlaybackSessionPresenter(
         if (startInFlight) return
         val controller = installedPlayerController ?: return
         audioOptions(mediaStreams).firstOrNull { track -> track.streamIndex == streamIndex } ?: return
+        val currentPlan = plan
+        if (currentPlan != null && currentPlan.streamMode != StreamMode.DirectPlay) {
+            proposeChange(TvPlaybackChangeOperation.Audio, controller) {
+                copy(audioStreamIndex = streamIndex, explicitAudioStreamIndex = streamIndex)
+            }
+            return
+        }
+        // A DirectPlay switch is an immediate native change: it commits now and cancels a pending change.
+        cancelPendingProposal()
         cancelAndInvalidateSubtitleFallback()
+        // Accepting this Audio retires the unresolved Audio recovery, so a lineage that displaced exactly
+        // that recovery ends here; one that displaced any other recovery still holds. A root already
+        // retired by its exact native Active ended its lineage then.
+        if (audioRecoveryTarget != null && audioRecoveryTarget == proposalDisplacedAudioRecovery) {
+            clearDisplacedRecovery()
+        }
         audioRecoveryTarget = null
         requestedAudioStreamIndex = streamIndex
         explicitAudioStreamIndex = streamIndex
         saveAudioSelection()
 
-        val currentPlan = plan ?: return
-        if (currentPlan.streamMode == StreamMode.DirectPlay) {
-            val descriptor =
-                currentPlan.embeddedAudioTracks.firstOrNull { track -> track.jellyfinStreamIndex == streamIndex }
-            val target = newAudioActivationTarget(streamIndex)
-            plan =
-                currentPlan.copy(
-                    selectedAudioStreamIndex = streamIndex,
-                    audioActivationTarget = target,
-                )
-            // Matches the shared player: an inadmissible codec would select
-            // natively and then play silently, so it takes the same recovery.
-            if (descriptor == null || !descriptor.directPlayAdmissible) {
-                maybeHandlePlaybackSessionRecovery(
-                    controller.playbackState.value.copy(
-                        audioActivation = AudioActivationState.Unavailable(target),
-                    ),
-                )
-            } else {
-                controller.selectEmbeddedAudio(
-                    EmbeddedAudioSelection(target = target, descriptor = descriptor),
-                )
-            }
-            publish(controller.playbackState.value)
+        currentPlan ?: return
+        val descriptor =
+            currentPlan.embeddedAudioTracks.firstOrNull { track -> track.jellyfinStreamIndex == streamIndex }
+        val target = newAudioActivationTarget(streamIndex)
+        plan =
+            currentPlan.copy(
+                selectedAudioStreamIndex = streamIndex,
+                audioActivationTarget = target,
+            )
+        // Matches the shared player: an inadmissible codec would select
+        // natively and then play silently, so it takes the same recovery.
+        if (descriptor == null || !descriptor.directPlayAdmissible) {
+            maybeHandlePlaybackSessionRecovery(
+                controller.playbackState.value.copy(
+                    audioActivation = AudioActivationState.Unavailable(target),
+                ),
+            )
         } else {
-            replanAtPosition(controller.playbackState.value.positionMs)
+            controller.selectEmbeddedAudio(
+                EmbeddedAudioSelection(target = target, descriptor = descriptor),
+            )
         }
+        publish(controller.playbackState.value)
+        reconsiderLocalSubtitleRepair()
     }
 
     private fun selectSubtitle(streamIndex: Int?) {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
-        localSubtitleSelectionJob?.cancel()
-        localSubtitleSelectionJob = null
         val option =
             streamIndex?.let { selectedIndex ->
                 subtitleOptions(mediaStreams).firstOrNull { track -> track.streamIndex == selectedIndex }
                     ?: return
             }
-        replanJob?.cancel()
-        replanJob = null
-        invalidateSubtitleFallback()
-        requestedSubtitleStreamIndex = streamIndex
-        requestedLocalSubtitleAsset = null
-        subtitleNotice = null
-        requestedSubtitleSelection =
-            streamIndex?.let(SubtitleSelectionIntent::Track) ?: SubtitleSelectionIntent.Off
-        reduce { TvPlaybackSessionChange.LocalSubtitleChanged(false) }
-        persistSubtitleSelection(requestedSubtitleSelection)
-
-        val currentPlan = plan ?: return
-        val installedTrack = currentPlan.plannedSubtitle as? PlannedSubtitle.Track
+        val intent = streamIndex?.let(SubtitleSelectionIntent::Track) ?: SubtitleSelectionIntent.Off
+        val currentPlan = plan
+        val installedTrack = currentPlan?.plannedSubtitle as? PlannedSubtitle.Track
         val canSwitchInPlayer =
             (option == null && installedTrack?.deliveryMethod in localEmbeddedDeliveryMethods) ||
                 (
@@ -792,41 +831,62 @@ class TvPlaybackSessionPresenter(
                         installedTrack?.streamIndex == option.streamIndex &&
                         installedTrack.deliveryMethod in localEmbeddedDeliveryMethods
                 )
-        if (canSwitchInPlayer) {
-            val target =
-                option?.let { track ->
-                    newSubtitleActivationTarget(
-                        streamIndex = track.streamIndex,
-                        kind = installedTrack?.localKind() ?: LocalSubtitleKind.EmbeddedText,
-                    )
-                }
-            val selection =
-                option?.let {
-                    EmbeddedSubtitleSelection(
-                        target = requireNotNull(target),
-                        descriptor = installedTrack?.embeddedTrack ?: return,
-                    )
-                }
-            plan =
-                currentPlan.copy(
-                    selectedSubtitleStreamIndex = streamIndex,
-                    subtitleAsset = null,
-                    subtitleActivationTarget = target,
-                    plannedSubtitle =
-                        if (option == null) {
-                            PlannedSubtitle.Off
-                        } else {
-                            installedTrack?.copy(activationTarget = target) ?: PlannedSubtitle.Off
-                        },
-                )
-            controller.selectEmbeddedSubtitle(selection)
-            publish(controller.playbackState.value)
-        } else {
-            if (option == null) {
-                controller.selectEmbeddedSubtitle(null)
+        if (currentPlan != null && !canSwitchInPlayer) {
+            // The accepted new plan applies Off natively; nothing changes before it commits.
+            proposeChange(TvPlaybackChangeOperation.Subtitle, controller) {
+                copy(subtitleSelection = intent, subtitleStreamIndex = streamIndex, localSubtitleAsset = null)
             }
-            replanAtPosition(controller.playbackState.value.positionMs)
+            return
         }
+        // An in-player embedded switch or Off is an immediate native change: it commits now and
+        // cancels a pending change.
+        cancelPendingProposal()
+        replanJob?.cancel()
+        replanJob = null
+        invalidateSubtitleFallback()
+        requestedSubtitleStreamIndex = streamIndex
+        requestedLocalSubtitleAsset = null
+        subtitleNotice = null
+        requestedSubtitleSelection = intent
+        reduce { TvPlaybackSessionChange.LocalSubtitleChanged(false) }
+        persistSubtitleSelection(intent)
+
+        currentPlan ?: return
+        val target =
+            option?.let { track ->
+                newSubtitleActivationTarget(
+                    streamIndex = track.streamIndex,
+                    kind = installedTrack?.localKind() ?: LocalSubtitleKind.EmbeddedText,
+                )
+            }
+        val embeddedSelection =
+            option?.let {
+                EmbeddedSubtitleSelection(
+                    target = requireNotNull(target),
+                    descriptor = installedTrack?.embeddedTrack ?: return,
+                )
+            }
+        // This native Off or switch replaces the installed target's demand, so a lineage that displaced
+        // exactly that target's SubtitleEncode fallback ends here; one that displaced any other holds.
+        val replacedTarget = currentPlan.subtitleActivationTarget
+        if (replacedTarget != null && replacedTarget == proposalDisplacedSubtitleRecovery) {
+            clearDisplacedRecovery()
+        }
+        plan =
+            currentPlan.copy(
+                selectedSubtitleStreamIndex = streamIndex,
+                subtitleAsset = null,
+                subtitleActivationTarget = target,
+                plannedSubtitle =
+                    if (option == null) {
+                        PlannedSubtitle.Off
+                    } else {
+                        installedTrack?.copy(activationTarget = target) ?: PlannedSubtitle.Off
+                    },
+            )
+        controller.selectEmbeddedSubtitle(embeddedSelection)
+        publish(controller.playbackState.value)
+        reconsiderLocalSubtitleRepair()
     }
 
     private fun selectLocalSubtitle(assetId: String?) {
@@ -836,74 +896,88 @@ class TvPlaybackSessionPresenter(
         }
         if (startInFlight) return
         val controller = installedPlayerController ?: return
-        val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return
-        val selectionGeneration = playbackHealthGeneration
-        val itemId = currentItemId
-        val context = LocalSubtitleContext(session.serverId, session.userId, itemId, sourceId)
-        localSubtitleSelectionJob?.cancel()
+        val proposal =
+            openProposal(TvPlaybackChangeOperation.LocalSubtitle, controller) {
+                copy(
+                    subtitleSelection = SubtitleSelectionIntent.LocalAsset(assetId),
+                    subtitleStreamIndex = null,
+                    localSubtitleAsset = null,
+                )
+            } ?: return
+        val context = LocalSubtitleContext(session.serverId, session.userId, proposal.itemId, proposal.mediaSourceId)
         localSubtitleSelectionJob =
             scope.launch {
+                val readJob = currentCoroutineContext()[Job]
                 val asset =
-                    withContext(dispatchers.work) {
-                        getLocalSubtitleAsset?.invoke(assetId, context)
+                    try {
+                        withContext(dispatchers.work) {
+                            getLocalSubtitleAsset?.invoke(assetId, context)
+                        }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (exception: Throwable) {
+                        // The exception class only: never its message, the asset identity or a path.
+                        logTvDiagnostic(
+                            stage = PlaybackDiagnosticStage.Persistence,
+                            event = PlaybackDiagnosticEvent.Failed,
+                            exception = exception,
+                        )
+                        // An ordinary Throwable resume can win over cancellation; a cancelled read settles nothing.
+                        currentCoroutineContext().ensureActive()
+                        if (localSubtitleSelectionJob === readJob) localSubtitleSelectionJob = null
+                        if (isCurrentProposal(proposal)) {
+                            settleFailedLocalSubtitleRead(proposal, planningPlaybackError(exception))
+                        } else {
+                            dropProposal(proposal, PlaybackTransitionReason.ProposalStale)
+                        }
+                        return@launch
                     }
-                if (
-                    closed ||
-                    selectionGeneration != playbackHealthGeneration ||
-                    itemId != currentItemId ||
-                    sourceId != selectedMediaSourceId ||
-                    installedPlayerController !== controller
-                ) {
+                // Retry, a newer choice, item change or close invalidates the captured change.
+                if (!isCurrentProposal(proposal)) {
+                    dropProposal(proposal, PlaybackTransitionReason.ProposalStale)
                     return@launch
                 }
+                localSubtitleSelectionJob = null
                 if (asset == null) {
-                    markLocalSubtitleUnavailable()
+                    settleUnreadableLocalSubtitle(proposal)
                     return@launch
                 }
-                invalidateSubtitleFallback()
-                replanJob?.cancel()
-                requestedSubtitleStreamIndex = null
-                requestedLocalSubtitleAsset = asset
-                requestedSubtitleSelection = SubtitleSelectionIntent.LocalAsset(asset.id)
-                reduce { TvPlaybackSessionChange.LocalSubtitleChanged(true) }
-                subtitleNotice = null
-                persistSubtitleSelection(requestedSubtitleSelection)
-                controller.selectEmbeddedSubtitle(null)
-                observeSelectedLocalSubtitle(context)
-                replanAtPosition(controller.playbackState.value.positionMs)
+                // The same change, now with its asset, keeps its identity into planning.
+                val readProposal = proposal.copy(localSubtitleAsset = asset)
+                pendingProposal = readProposal
+                replanAtPosition(readProposal.targetPositionMs, proposal = readProposal)
             }
     }
 
     private fun selectQuality(maxBitrateBps: Long?) {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
-        pendingRecoveredAutoQualityBps = null
-        selectedQualityPolicy =
-            maxBitrateBps
-                ?.let { bitrate -> PlaybackQualityPolicy.fixed(bitrate) }
-                ?: PlaybackQualityPolicy.Auto
-        selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
-        selectedQualityCapOrigin = maxBitrateBps?.let { PlaybackQualityCapOrigin.ExplicitSessionChoice }
-        qualityInitialized = true
-        qualityOverrideExplicit = true
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, controller.activeBackend)
-        replanAtPosition(controller.playbackState.value.positionMs)
+        val policy = maxBitrateBps?.let(PlaybackQualityPolicy::fixed) ?: PlaybackQualityPolicy.Auto
+        proposeChange(TvPlaybackChangeOperation.Quality, controller) {
+            copy(
+                qualityPolicy = policy,
+                qualityMaxBitrate = policy.maxBitrateBps,
+                qualityCapOrigin = maxBitrateBps?.let { PlaybackQualityCapOrigin.ExplicitSessionChoice },
+                qualityOverrideExplicit = true,
+                qualityRecovery = TvQualityRecoveryEffect.Reset,
+            )
+        }
     }
 
     private fun selectQuality(policy: PlaybackQualityPolicy) {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
-        pendingRecoveredAutoQualityBps = null
         val normalized = policy.normalized()
-        selectedQualityPolicy = normalized
-        selectedQualityMaxBitrate = normalized.maxBitrateBps
-        selectedQualityCapOrigin =
-            PlaybackQualityCapOrigin.ExplicitSessionChoice.takeIf { normalized.mode == PlaybackQualityMode.Fixed }
-        qualityInitialized = true
-        qualityOverrideExplicit = true
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, controller.activeBackend)
-        playbackActionNotice = null
-        replanAtPosition(controller.playbackState.value.positionMs)
+        proposeChange(TvPlaybackChangeOperation.Quality, controller) {
+            copy(
+                qualityPolicy = normalized,
+                qualityMaxBitrate = normalized.maxBitrateBps,
+                qualityCapOrigin =
+                    PlaybackQualityCapOrigin.ExplicitSessionChoice.takeIf { normalized.mode == PlaybackQualityMode.Fixed },
+                qualityOverrideExplicit = true,
+                qualityRecovery = TvQualityRecoveryEffect.Reset,
+            )
+        }
     }
 
     private fun selectQualityChoice(
@@ -978,6 +1052,14 @@ class TvPlaybackSessionPresenter(
 
     private fun retryPlayback() {
         if (closed || startInFlight) return
+        // An accepted Retry owns playback in all three branches: a pending change and its local read
+        // are invalidated, and the passive notice and any repair fact belong to the outgoing attempt.
+        localSubtitleSelectionJob?.cancel()
+        localSubtitleSelectionJob = null
+        pendingProposal = null
+        clearDisplacedRecovery()
+        localSubtitleRepair = null
+        subtitleNotice = null
         reduce(TvPlaybackSessionChange.StartLoading)
         val controller = installedPlayerController
         if (controller == null) {
@@ -1029,6 +1111,7 @@ class TvPlaybackSessionPresenter(
             plan = currentPlan,
             playSessionId = currentPlan.playSessionId ?: playSessionId,
         )
+        installedReportingMayBeStopped = false
         // Native retry can replace an uncollected exact Active with Pending.
         retireResolvedAudioFallback(controller.playbackState.value)
         controller.retry()
@@ -1038,30 +1121,239 @@ class TvPlaybackSessionPresenter(
     private fun clearQualityOverride() {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
-        pendingRecoveredAutoQualityBps = null
-        selectedQualityPolicy = preferences.effectiveDefaultQualityPolicy(controller.activeBackend)
-        selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
-        selectedQualityCapOrigin =
-            PlaybackQualityCapOrigin.SettingsDefault.takeIf { selectedQualityPolicy.mode == PlaybackQualityMode.Fixed }
-        qualityInitialized = true
-        qualityOverrideExplicit = false
-        playbackActionNotice = null
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, controller.activeBackend)
-        replanAtPosition(controller.playbackState.value.positionMs)
+        val inherited = preferences.effectiveDefaultQualityPolicy(controller.activeBackend)
+        proposeChange(TvPlaybackChangeOperation.Quality, controller) {
+            copy(
+                qualityPolicy = inherited,
+                qualityMaxBitrate = inherited.maxBitrateBps,
+                qualityCapOrigin = PlaybackQualityCapOrigin.SettingsDefault.takeIf { inherited.mode == PlaybackQualityMode.Fixed },
+                qualityOverrideExplicit = false,
+                qualityRecovery = TvQualityRecoveryEffect.Reset,
+            )
+        }
     }
 
     private fun tryHigherQuality() {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
-        pendingRecoveredAutoQualityBps = null
-        selectedQualityPolicy = PlaybackQualityPolicy.Auto
-        selectedQualityMaxBitrate = null
-        selectedQualityCapOrigin = null
-        qualityInitialized = true
-        qualityOverrideExplicit = true
+        proposeChange(TvPlaybackChangeOperation.Quality, controller) {
+            copy(
+                qualityPolicy = PlaybackQualityPolicy.Auto,
+                qualityMaxBitrate = null,
+                qualityCapOrigin = null,
+                qualityOverrideExplicit = true,
+                qualityRecovery = TvQualityRecoveryEffect.ClearRuntimeCap,
+            )
+        }
+    }
+
+    /** Opens a user change and plans it; see [openProposal]. */
+    private fun proposeChange(
+        operation: TvPlaybackChangeOperation,
+        controller: PlayerController,
+        targetPositionMs: Long = controller.playbackState.value.positionMs,
+        change: TvChangeProposal.() -> TvChangeProposal = { this },
+    ) {
+        val proposal = openProposal(operation, controller, targetPositionMs, change) ?: return
+        replanAtPosition(proposal.targetPositionMs, proposal = proposal)
+    }
+
+    /**
+     * Makes the one pending user change from the installed inputs plus [change]. Nothing installed,
+     * persisted, native, health, credit or recovery-owned changes here: the older change, its local
+     * read and the replan slot are cancelled (invalidating a superseded Subtitle fallback token), the
+     * stored notices clear, and the record captures its authority and any recovery it displaces.
+     */
+    private fun openProposal(
+        operation: TvPlaybackChangeOperation,
+        controller: PlayerController,
+        targetPositionMs: Long = controller.playbackState.value.positionMs,
+        change: TvChangeProposal.() -> TvChangeProposal = { this },
+    ): TvChangeProposal? {
+        val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return null
+        // A replacement inherits its lineage's provenance; only a fresh lineage records which recovery it
+        // displaces, before the cancellation below invalidates the SubtitleEncode fallback's token.
+        if (!proposalDisplacedRecovery) {
+            proposalDisplacedAudioRecovery = pendingAudioRecoveryTarget()
+            proposalDisplacedSubtitleRecovery = pendingSubtitleFallbackTarget()
+        }
+        val displacesRecovery = proposalDisplacedRecovery || (replanIsRecovery && replanJob?.isActive == true)
+        localSubtitleSelectionJob?.cancel()
+        localSubtitleSelectionJob = null
+        cancelAndInvalidateSubtitleFallback()
+        proposalDisplacedRecovery = displacesRecovery
+        val noticeCleared = subtitleNotice != null || playbackActionNotice != null
+        subtitleNotice = null
         playbackActionNotice = null
-        autoRecoveryState = autoRecoveryCoordinator.clearRuntimeQualityCap(autoRecoveryState)
-        replanAtPosition(controller.playbackState.value.positionMs)
+        val proposal =
+            TvChangeProposal(
+                operation = operation,
+                requestIdentity = ++proposalRequestIdentity,
+                controller = controller,
+                planEpoch = planEpoch,
+                itemId = currentItemId,
+                mediaSourceId = sourceId,
+                targetPositionMs = targetPositionMs.coerceAtLeast(0L),
+                audioStreamIndex = requestedAudioStreamIndex,
+                explicitAudioStreamIndex = explicitAudioStreamIndex,
+                subtitleSelection = requestedSubtitleSelection,
+                subtitleStreamIndex = requestedSubtitleStreamIndex,
+                localSubtitleAsset = requestedLocalSubtitleAsset,
+                qualityPolicy = selectedQualityPolicy,
+                qualityMaxBitrate = selectedQualityMaxBitrate,
+                qualityCapOrigin = selectedQualityCapOrigin,
+                qualityOverrideExplicit = qualityOverrideExplicit,
+                qualityRecovery = TvQualityRecoveryEffect.Retain,
+            ).change()
+        pendingProposal = proposal
+        if (noticeCleared) publish(controller.playbackState.value)
+        return proposal
+    }
+
+    /** The change is still pending and its captured controller, plan epoch, item and source still hold. */
+    private fun isCurrentProposal(proposal: TvChangeProposal): Boolean =
+        !closed &&
+            !startInFlight &&
+            pendingProposal?.requestIdentity == proposal.requestIdentity &&
+            installedPlayerController === proposal.controller &&
+            planEpoch == proposal.planEpoch &&
+            currentItemId == proposal.itemId &&
+            selectedMediaSourceId == proposal.mediaSourceId
+
+    /**
+     * Only a current change whose lineage holds no unresolved displaced recovery, over healthy content
+     * that has not failed and whose installed reporting session is intact, keeps playback with a passive
+     * notice; every other planning failure stays fatal. A current change's lineage is
+     * [proposalDisplacedRecovery], so a displaced root that resolved while it was pending counts.
+     */
+    private fun canRejectHealthily(proposal: TvChangeProposal): Boolean =
+        isCurrentProposal(proposal) &&
+            !proposalDisplacedRecovery &&
+            !installedReportingMayBeStopped &&
+            _state.value.phase != TvPlaybackPhase.Failed &&
+            proposal.controller.playbackState.value.status in healthyChangeStatuses
+
+    /** Keeps the installed playback and every installed input; only the passive notice is new. */
+    private fun rejectProposal(
+        proposal: TvChangeProposal,
+        error: PlaybackError?,
+        settledJob: Job? = null,
+    ) {
+        pendingProposal = null
+        subtitleNotice =
+            TvPlaybackNotice(
+                token = ++subtitleNoticeToken,
+                kind = TvPlaybackNoticeKind.ChangeRejected,
+                operation = proposal.operation,
+                error = error,
+            )
+        logTvChangeRejected(proposal.operation, error)
+        publish(proposal.controller.playbackState.value)
+        reconsiderLocalSubtitleRepair(settledJob)
+    }
+
+    /** A cancelled or stale change settles silently; it never shows a rejection or overwrites a failure. */
+    private fun dropProposal(
+        proposal: TvChangeProposal,
+        reason: PlaybackTransitionReason,
+        settledJob: Job? = null,
+    ) {
+        if (pendingProposal?.requestIdentity != proposal.requestIdentity) return
+        pendingProposal = null
+        logTvTransition(reason)
+        reconsiderLocalSubtitleRepair(settledJob)
+    }
+
+    /** An immediate native change commits now; the pending change it overrides is cancelled. */
+    private fun cancelPendingProposal() {
+        localSubtitleSelectionJob?.cancel()
+        localSubtitleSelectionJob = null
+        if (pendingProposal == null) return
+        pendingProposal = null
+        cancelAndInvalidateSubtitleFallback()
+    }
+
+    /**
+     * A requested local asset could not be read. A healthy current change that displaced no recovery
+     * is rejected and writes nothing. When the installed reporting session may be stopped, the change is
+     * fatal: an unavailable repair whose planning fails could not restart reporting. Otherwise the
+     * existing unavailable path turns subtitles off.
+     */
+    private fun settleUnreadableLocalSubtitle(proposal: TvChangeProposal) {
+        if (canRejectHealthily(proposal)) {
+            rejectProposal(proposal, error = null)
+            return
+        }
+        if (installedReportingMayBeStopped) {
+            settleFailedLocalSubtitleRead(proposal, PlaybackError.UnsupportedMedia)
+            return
+        }
+        pendingProposal = null
+        markLocalSubtitleUnavailable()
+    }
+
+    /**
+     * Reading the requested local asset threw. A healthy current change that displaced no recovery is
+     * rejected and writes nothing; otherwise the failure is fatal, as for a planning failure.
+     */
+    private fun settleFailedLocalSubtitleRead(
+        proposal: TvChangeProposal,
+        error: PlaybackError,
+    ) {
+        if (canRejectHealthily(proposal)) {
+            rejectProposal(proposal, error)
+            return
+        }
+        pendingProposal = null
+        publishFailure(error)
+    }
+
+    /**
+     * Applies every accepted write of [proposal] without suspension, immediately before its plan
+     * installs. The new plan applies native subtitle Off itself.
+     */
+    private fun commitProposal(proposal: TvChangeProposal) {
+        pendingProposal = null
+        clearDisplacedRecovery()
+        requestedAudioStreamIndex = proposal.audioStreamIndex
+        explicitAudioStreamIndex = proposal.explicitAudioStreamIndex
+        requestedSubtitleSelection = proposal.subtitleSelection
+        requestedSubtitleStreamIndex = proposal.subtitleStreamIndex
+        requestedLocalSubtitleAsset = proposal.localSubtitleAsset
+        selectedQualityPolicy = proposal.qualityPolicy
+        selectedQualityMaxBitrate = proposal.qualityMaxBitrate
+        selectedQualityCapOrigin = proposal.qualityCapOrigin
+        qualityOverrideExplicit = proposal.qualityOverrideExplicit
+        autoRecoveryState =
+            when (proposal.qualityRecovery) {
+                TvQualityRecoveryEffect.Retain -> autoRecoveryState
+                TvQualityRecoveryEffect.Reset ->
+                    autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, proposal.controller.activeBackend)
+                TvQualityRecoveryEffect.ClearRuntimeCap -> autoRecoveryCoordinator.clearRuntimeQualityCap(autoRecoveryState)
+            }
+        when (proposal.operation) {
+            TvPlaybackChangeOperation.Audio -> {
+                audioRecoveryTarget = null
+                saveAudioSelection()
+            }
+            TvPlaybackChangeOperation.Subtitle,
+            TvPlaybackChangeOperation.LocalSubtitle,
+            -> {
+                reduce { TvPlaybackSessionChange.LocalSubtitleChanged(proposal.localSubtitleAsset != null) }
+                persistSubtitleSelection(proposal.subtitleSelection)
+                observeSelectedLocalSubtitle(
+                    LocalSubtitleContext(session.serverId, session.userId, proposal.itemId, proposal.mediaSourceId),
+                )
+            }
+            TvPlaybackChangeOperation.Quality -> Unit
+            TvPlaybackChangeOperation.Seek ->
+                playbackHealthCoordinator.restartEvidenceWindow(PlaybackHealthExclusionReason.Seek)
+        }
+        subtitleNotice = null
+        playbackHealthCoordinator.markExclusion(PlaybackHealthExclusionReason.Replan)
+        invalidateSubtitleFallback()
+        pendingRecoveredPlaybackGuidance = false
+        pendingRecoveredAutoQualityBps = null
     }
 
     private fun saveAudioSelection() {
@@ -1099,6 +1391,13 @@ class TvPlaybackSessionPresenter(
         val controller = installedPlayerController
         installedPlayerController = null
         cancelAndInvalidateSubtitleFallback()
+        audioRecoveryJob = null
+        replanIsRecovery = false
+        installedReportingMayBeStopped = false
+        pendingProposal = null
+        clearDisplacedRecovery()
+        localSubtitleRepair = null
+        subtitleNotice = null
         observeJob?.cancel()
         observeJob = null
         videoOutputJob?.cancel()
@@ -1166,6 +1465,13 @@ class TvPlaybackSessionPresenter(
         completedWithNext = false
         autoSkippedSegmentKeys.clear()
         audioRecoveryTarget = null
+        // Item start owns playback; this clear precedes any startup unavailable notice.
+        localSubtitleSelectionJob?.cancel()
+        localSubtitleSelectionJob = null
+        pendingProposal = null
+        clearDisplacedRecovery()
+        localSubtitleRepair = null
+        subtitleNotice = null
         pendingRecoveredPlaybackGuidance = false
         pendingRecoveredAutoQualityBps = null
         queueLoadPending = false
@@ -1716,6 +2022,7 @@ class TvPlaybackSessionPresenter(
                     plan = plan,
                     playbackState = playbackState,
                     state = playbackSessionRecoveryState,
+                    pendingAudioRecovery = pendingAudioRecoveryTarget(),
                 ),
             )
         playbackSessionRecoveryState = result.state
@@ -1727,6 +2034,9 @@ class TvPlaybackSessionPresenter(
         }
         return when (val decision = result.decision) {
             PlaybackSessionRecoveryDecision.NoAction -> TvSessionRecoveryResult.NotHandled
+
+            // The in-flight Audio recovery owns this failure; its silent exit re-evaluates it.
+            PlaybackSessionRecoveryDecision.Deferred -> TvSessionRecoveryResult.NonTerminal
 
             is PlaybackSessionRecoveryDecision.AutomaticRecovery -> {
                 if (handleAutomaticRecoveryTrigger(decision.trigger)) {
@@ -1770,7 +2080,7 @@ class TvPlaybackSessionPresenter(
 
             is PlaybackSessionRecoveryDecision.SubtitleUnavailable -> {
                 if (plan?.plannedSubtitle is PlannedSubtitle.LocalAsset) {
-                    markLocalSubtitleUnavailable()
+                    repairMissingLocalSubtitle()
                 } else {
                     markSubtitleFallbackUnavailable(decision.target)
                 }
@@ -1875,24 +2185,52 @@ class TvPlaybackSessionPresenter(
         subtitleFallbackGeneration: Long? = null,
         nonFatalLocalSubtitleFailure: Boolean = false,
         audioRecovery: AudioActivationTarget? = null,
+        proposal: TvChangeProposal? = null,
     ) {
         if (startInFlight) return
         val mediaSource = selectedMediaSourceId ?: return
         val target = targetPositionMs.coerceAtLeast(0L)
-        playbackHealthCoordinator.markExclusion(PlaybackHealthExclusionReason.Replan)
         val replanItemId = currentItemId
-        if (nonFatalSubtitleFallback == null) {
-            invalidateSubtitleFallback()
-            // A superseding request must not inherit the installed recovery's
-            // unconsumed credit; an Encode continuation keeps that stream's credit.
-            pendingRecoveredPlaybackGuidance = false
-            pendingRecoveredAutoQualityBps = null
+        val admittedRecovery = proposal == null && !nonFatalLocalSubtitleFailure
+        if (proposal == null) {
+            // A recovery or repair takes the slot from a pending user change without a notice and
+            // plans from installed inputs; a user change marks health and credit only at commit.
+            // This request's own settlement reconsiders a waiting repair fact.
+            if (pendingProposal != null) {
+                pendingProposal = null
+                logTvTransition(PlaybackTransitionReason.ProposalPreempted)
+            }
+            localSubtitleSelectionJob?.cancel()
+            localSubtitleSelectionJob = null
+            playbackHealthCoordinator.markExclusion(PlaybackHealthExclusionReason.Replan)
+            if (nonFatalSubtitleFallback == null) {
+                invalidateSubtitleFallback()
+                // A superseding request must not inherit the installed recovery's
+                // unconsumed credit; an Encode continuation keeps that stream's credit.
+                pendingRecoveredPlaybackGuidance = false
+                pendingRecoveredAutoQualityBps = null
+            }
         }
+        if (admittedRecovery) clearDisplacedRecovery()
+        replanIsRecovery = admittedRecovery
+        val subtitleStreamIndex = if (proposal != null) proposal.subtitleStreamIndex else requestedSubtitleStreamIndex
+        val qualityPolicy = proposal?.qualityPolicy ?: selectedQualityPolicy
+        val bitrateConstraint =
+            requestPolicy.bitrateConstraint.takeUnless { constraint ->
+                constraint == PlaybackBitrateConstraint.NoClientLimit
+            } ?: activePlaybackBitrateConstraint(
+                policy = qualityPolicy,
+                runtimeQualityCapBps =
+                    autoRecoveryState.runtimeQualityCapBps.takeIf {
+                        proposal == null || proposal.qualityRecovery == TvQualityRecoveryEffect.Retain
+                    },
+            )
         replanJob?.cancel()
-        replanJob =
+        val launchedJob =
             scope.launch {
-                val wasPaused = playerController.playbackState.value.status == PlaybackStatus.Paused
-                reduce(TvPlaybackSessionChange.Loading)
+                val requestJob = currentCoroutineContext()[Job]
+                // A user change keeps current content on screen while it plans.
+                if (proposal == null) reduce(TvPlaybackSessionChange.Loading)
                 val playbackPlan =
                     try {
                         withContext(dispatchers.work) {
@@ -1901,21 +2239,20 @@ class TvPlaybackSessionPresenter(
                                 itemId = replanItemId,
                                 mediaSourceId = mediaSource,
                                 startPositionTicks = millisecondsToTicks(target),
-                                audioStreamIndex = requestedAudioStreamIndex,
+                                audioStreamIndex = if (proposal != null) proposal.audioStreamIndex else requestedAudioStreamIndex,
                                 detailMediaStreams = mediaStreams,
-                                subtitleSelection = requestedSubtitleSelection,
-                                localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset(),
-                                maxStreamingBitrate = selectedQualityMaxBitrate,
-                                qualityPolicy = selectedQualityPolicy,
-                                qualityCapOrigin = selectedQualityCapOrigin,
+                                subtitleSelection = proposal?.subtitleSelection ?: requestedSubtitleSelection,
+                                localSubtitleAsset =
+                                    (if (proposal != null) proposal.localSubtitleAsset else requestedLocalSubtitleAsset)
+                                        ?.toPlaybackAsset(),
+                                maxStreamingBitrate = if (proposal != null) proposal.qualityMaxBitrate else selectedQualityMaxBitrate,
+                                qualityPolicy = qualityPolicy,
+                                qualityCapOrigin = if (proposal != null) proposal.qualityCapOrigin else selectedQualityCapOrigin,
                                 sourceContainer = selectedSourceContainer,
                                 requestPolicy =
                                     requestPolicy.copy(
                                         diagnosticSessionSequence = diagnosticSession,
-                                        bitrateConstraint =
-                                            requestPolicy.bitrateConstraint.takeUnless { constraint ->
-                                                constraint == PlaybackBitrateConstraint.NoClientLimit
-                                            } ?: activePlaybackBitrateConstraint(),
+                                        bitrateConstraint = bitrateConstraint,
                                     ),
                             )
                         }
@@ -1930,7 +2267,21 @@ class TvPlaybackSessionPresenter(
                         // An ordinary Throwable resume can win over cancellation;
                         // reject stale catch publication before any branch.
                         currentCoroutineContext().ensureActive()
+                        if (proposal != null) {
+                            when {
+                                !isCurrentProposal(proposal) ->
+                                    dropProposal(proposal, PlaybackTransitionReason.ProposalStale, requestJob)
+                                canRejectHealthily(proposal) ->
+                                    rejectProposal(proposal, planningPlaybackError(exception), requestJob)
+                                else -> {
+                                    pendingProposal = null
+                                    publishFailure(planningPlaybackError(exception))
+                                }
+                            }
+                            return@launch
+                        }
                         if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
+                            releaseSilentAudioRecovery(requestJob)
                             return@launch
                         }
                         if (nonFatalLocalSubtitleFailure) {
@@ -1969,12 +2320,22 @@ class TvPlaybackSessionPresenter(
                     }
                 }
                 if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
+                    releaseSilentAudioRecovery(requestJob)
                     return@launch
                 }
-                if (audioRecoveryTarget != null && playbackPlan.streamMode == StreamMode.DirectPlay) {
+                if (proposal != null && !isCurrentProposal(proposal)) {
+                    dropProposal(proposal, PlaybackTransitionReason.ProposalStale, requestJob)
+                    return@launch
+                }
+                // A new Audio choice retires the unresolved fallback when it commits; any other request
+                // keeps the global refusal of DirectPlay while that fallback is unresolved.
+                val unresolvedAudioRecovery =
+                    audioRecoveryTarget.takeUnless { proposal?.operation == TvPlaybackChangeOperation.Audio }
+                if (unresolvedAudioRecovery != null && playbackPlan.streamMode == StreamMode.DirectPlay) {
                     if (nonFatalLocalSubtitleFailure) {
                         publish(playerController.playbackState.value)
                     } else {
+                        if (proposal != null) pendingProposal = null
                         publishFailure(PlaybackError.UnsupportedMedia)
                     }
                     return@launch
@@ -1985,7 +2346,7 @@ class TvPlaybackSessionPresenter(
                         .withAudioActivationTarget()
                         .withSubtitleActivationTarget(
                             requestId = nextSubtitleActivationRequestId(),
-                            selectedSubtitle = selectedSubtitleMediaStream(),
+                            selectedSubtitle = selectedSubtitleMediaStream(subtitleStreamIndex),
                         ).copy(
                             chapters = currentPlanState?.chapters.orEmpty(),
                             mediaSegments = currentPlanState?.mediaSegments.orEmpty(),
@@ -2003,8 +2364,11 @@ class TvPlaybackSessionPresenter(
                     return@launch
                 }
                 if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
+                    releaseSilentAudioRecovery(requestJob)
                     return@launch
                 }
+                // Cancellation can land during the await, after Stop was queued.
+                installedReportingMayBeStopped = true
                 playbackReportingCoordinator.stopNow(target)
                 currentCoroutineContext().ensureActive()
                 if (
@@ -2019,8 +2383,17 @@ class TvPlaybackSessionPresenter(
                 }
                 // Accepted limit: a drop here follows the queued Stop, so reporting stays stopped.
                 if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
+                    releaseSilentAudioRecovery(requestJob)
                     return@launch
                 }
+                if (proposal != null && !isCurrentProposal(proposal)) {
+                    dropProposal(proposal, PlaybackTransitionReason.ProposalStale, requestJob)
+                    return@launch
+                }
+                // The controller's current play/pause intent, including AVKit's recorded transport intent.
+                val pausedAtCommit = playerController.playbackState.value.status == PlaybackStatus.Paused
+                proposal?.let(::commitProposal)
+                audioRecoveryJob = null
                 installPlan(enrichedPlan, resetReporting = true)
                 if (nonFatalSubtitleFallback != null) {
                     subtitleFallbackTarget = null
@@ -2037,7 +2410,7 @@ class TvPlaybackSessionPresenter(
                     event = PlaybackDiagnosticEvent.PrepareDispatched,
                 )
                 applyInitialEmbeddedSelections(enrichedPlan)
-                if (forcePlay || !wasPaused) {
+                if (forcePlay || !pausedAtCommit) {
                     playerController.play()
                 } else {
                     playerController.pause()
@@ -2052,11 +2425,95 @@ class TvPlaybackSessionPresenter(
                     PlaybackRecoveryIntent.Initial -> Unit
                 }
                 if (audioRecoveryTarget != null && enrichedPlan.streamMode != StreamMode.DirectPlay) {
+                    // Only a repair install still carries a lineage here; this install resolves its root.
+                    if (audioRecoveryTarget == proposalDisplacedAudioRecovery) clearDisplacedRecovery()
                     audioRecoveryTarget = null
                 }
                 publish(playerController.playbackState.value)
                 maybeStartInstalledUnavailableFallback(enrichedPlan)
+                reconsiderLocalSubtitleRepair(requestJob)
             }
+        replanJob = launchedJob
+        audioRecoveryJob = launchedJob.takeIf { audioRecovery != null }
+    }
+
+    /**
+     * Pending only while the exact Audio recovery request that launched still owns the replan slot;
+     * a retained [audioRecoveryTarget] alone is not ownership.
+     */
+    private fun pendingAudioRecoveryTarget(): AudioActivationTarget? =
+        audioRecoveryTarget?.takeIf {
+            val job = audioRecoveryJob
+            job != null && job === replanJob && job.isActive
+        }
+
+    /**
+     * The current plan's SubtitleEncode fallback target while its admitted request still owns the replan
+     * slot; any other request invalidates the token first.
+     */
+    private fun pendingSubtitleFallbackTarget(): SubtitleActivationTarget? =
+        subtitleFallbackTarget?.takeIf { target ->
+            replanIsRecovery &&
+                replanJob?.isActive == true &&
+                plan?.subtitleActivationTarget == target &&
+                target.itemId == currentItemId
+        }
+
+    /** Ends the recovery-displacing lineage together with its recorded exact roots. */
+    private fun clearDisplacedRecovery() {
+        proposalDisplacedRecovery = false
+        proposalDisplacedAudioRecovery = null
+        proposalDisplacedSubtitleRecovery = null
+    }
+
+    /**
+     * An Audio recovery that exits without installing or publishing a failure releases its
+     * ownership. While no newer request owns the slot, the current native state is re-evaluated
+     * once through the ordinary handler, so a failure it deferred is never resurrected later.
+     */
+    private fun releaseSilentAudioRecovery(requestJob: Job?) {
+        if (requestJob == null || audioRecoveryJob !== requestJob) return
+        audioRecoveryJob = null
+        if (replanJob !== requestJob || !canHandlePlaybackSessionRecovery()) return
+        val current = playerController.playbackState.value
+        if (current.status == PlaybackStatus.Failed) {
+            onPlaybackState(current)
+        } else {
+            reconsiderLocalSubtitleRepair(requestJob)
+        }
+    }
+
+    /**
+     * The installed local asset went missing. With no pending change or Audio request this repairs once
+     * from installed inputs; otherwise a fact qualified to that asset waits for the owner to settle.
+     */
+    private fun repairMissingLocalSubtitle() {
+        val assetId = requestedLocalSubtitleAsset?.id
+        val sourceId = selectedMediaSourceId
+        if (assetId != null && sourceId != null && (pendingProposal != null || pendingAudioRecoveryTarget() != null)) {
+            localSubtitleRepair = TvLocalSubtitleRepair(assetId, currentItemId, sourceId)
+            return
+        }
+        localSubtitleRepair = null
+        markLocalSubtitleUnavailable()
+    }
+
+    /**
+     * One reconsideration when the change or Audio request a repair fact waited for settles. A
+     * replacement that no longer uses the asset clears the fact; a newer owner keeps it waiting.
+     */
+    private fun reconsiderLocalSubtitleRepair(settledJob: Job? = null) {
+        val repair = localSubtitleRepair ?: return
+        val audioPending = pendingAudioRecoveryTarget() != null && audioRecoveryJob !== settledJob
+        if (pendingProposal != null || audioPending) return
+        localSubtitleRepair = null
+        if (
+            repair.itemId == currentItemId &&
+            repair.mediaSourceId == selectedMediaSourceId &&
+            requestedLocalSubtitleAsset?.id == repair.assetId
+        ) {
+            markLocalSubtitleUnavailable()
+        }
     }
 
     private fun installPlan(
@@ -2088,6 +2545,7 @@ class TvPlaybackSessionPresenter(
             plan = playbackPlan,
             playSessionId = playbackPlan.playSessionId ?: playSessionId,
         )
+        installedReportingMayBeStopped = false
     }
 
     private fun playbackHealthSessionContext(): PlaybackHealthSessionContext =
@@ -2206,13 +2664,16 @@ class TvPlaybackSessionPresenter(
             AutoPlaybackQualityRecoveryAuthorization.NotAuthorized
         }
 
-    private fun activePlaybackBitrateConstraint(): PlaybackBitrateConstraint =
-        if (selectedQualityPolicy.mode == PlaybackQualityMode.Auto) {
-            autoRecoveryState.runtimeQualityCapBps
+    private fun activePlaybackBitrateConstraint(
+        policy: PlaybackQualityPolicy = selectedQualityPolicy,
+        runtimeQualityCapBps: Long? = autoRecoveryState.runtimeQualityCapBps,
+    ): PlaybackBitrateConstraint =
+        if (policy.mode == PlaybackQualityMode.Auto) {
+            runtimeQualityCapBps
                 ?.let(PlaybackBitrateConstraint.AutoSessionLimit::of)
                 ?: PlaybackBitrateConstraint.NoClientLimit
         } else {
-            selectedQualityPolicy.toBitrateConstraint()
+            policy.toBitrateConstraint()
         }
 
     private fun applyInitialEmbeddedSelections(playbackPlan: PlaybackPlan) {
@@ -2342,7 +2803,7 @@ class TvPlaybackSessionPresenter(
                             requestedLocalSubtitleAsset?.id == selectedAssetId &&
                             assets.none { asset -> asset.id == selectedAssetId }
                         ) {
-                            markLocalSubtitleUnavailable()
+                            repairMissingLocalSubtitle()
                         }
                     }
             }
@@ -2393,8 +2854,8 @@ class TvPlaybackSessionPresenter(
             language = language,
         )
 
-    private fun selectedSubtitleMediaStream(): PlaybackMediaStream? {
-        val streamIndex = requestedSubtitleStreamIndex ?: return null
+    private fun selectedSubtitleMediaStream(subtitleStreamIndex: Int? = requestedSubtitleStreamIndex): PlaybackMediaStream? {
+        val streamIndex = subtitleStreamIndex ?: return null
         val option =
             subtitleOptions(mediaStreams).firstOrNull { track -> track.streamIndex == streamIndex } ?: return null
         val stream =
@@ -2443,6 +2904,7 @@ class TvPlaybackSessionPresenter(
     /**
      * Native exact Active resolves the recorded Audio fallback for the current plan and item. Retry also
      * samples the installed controller before native retry so an uncollected Active is not lost to Pending.
+     * A lineage that displaced exactly this recovery ends with it, including while its change is pending.
      * Shared recovery budgets, selection and persistence are untouched.
      */
     private fun retireResolvedAudioFallback(playbackState: PlaybackState) {
@@ -2454,6 +2916,7 @@ class TvPlaybackSessionPresenter(
             target.itemId == currentItemId &&
             currentPlan.itemId == currentItemId
         ) {
+            if (target == proposalDisplacedAudioRecovery) clearDisplacedRecovery()
             audioRecoveryTarget = null
         }
     }
@@ -2637,6 +3100,7 @@ class TvPlaybackSessionPresenter(
                 is PlaybackSessionRecoveryDecision.AudioActivationRecovery -> decision.requestPolicy
                 is PlaybackSessionRecoveryDecision.SubtitleEncodeRecovery -> decision.requestPolicy
                 PlaybackSessionRecoveryDecision.NoAction,
+                PlaybackSessionRecoveryDecision.Deferred,
                 is PlaybackSessionRecoveryDecision.AutomaticRecovery,
                 is PlaybackSessionRecoveryDecision.SubtitleUnavailable,
                 -> null
@@ -2654,9 +3118,56 @@ class TvPlaybackSessionPresenter(
                     requestPolicy = requestPolicy?.diagnosticClass(),
                     clientTrigger = requestPolicy?.clientTrigger,
                     recoveryIntent = requestPolicy?.recoveryIntent,
+                    reason =
+                        PlaybackTransitionReason.PendingAudioDeferred.takeIf {
+                            decision == PlaybackSessionRecoveryDecision.Deferred
+                        },
                 ),
             ),
         )
+    }
+
+    /** A rejected user change: closed operation and error category only. */
+    private fun logTvChangeRejected(
+        operation: TvPlaybackChangeOperation,
+        error: PlaybackError?,
+    ) {
+        val controller = installedPlayerController ?: return
+        tvPlaybackDiagnosticLogger.w {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.Planner,
+                    event = PlaybackDiagnosticEvent.Rejected,
+                    platform = PlaybackDiagnosticPlatform.TvOs,
+                    backend = controller.activeBackend,
+                    prepareSequence = controller.runtimeDiagnostics.value.prepareEpoch,
+                    sessionSequence = diagnosticSession,
+                    streamMode = plan?.streamMode,
+                    errorCategory = error,
+                    operation = operation.diagnosticOperation(),
+                    playbackChangeResult = PlaybackChangeResult.CurrentPlaybackKept,
+                ),
+            )
+        }
+    }
+
+    /** A user change that settled silently at its owning transition. */
+    private fun logTvTransition(reason: PlaybackTransitionReason) {
+        val controller = installedPlayerController ?: return
+        tvPlaybackDiagnosticLogger.i {
+            formatPlaybackDiagnostic(
+                PlaybackDiagnostic(
+                    stage = PlaybackDiagnosticStage.Planner,
+                    event = PlaybackDiagnosticEvent.Ended,
+                    platform = PlaybackDiagnosticPlatform.TvOs,
+                    backend = controller.activeBackend,
+                    prepareSequence = controller.runtimeDiagnostics.value.prepareEpoch,
+                    sessionSequence = diagnosticSession,
+                    streamMode = plan?.streamMode,
+                    reason = reason,
+                ),
+            )
+        }
     }
 
     private fun logTvAutomaticRecoveryDecision(
@@ -3080,6 +3591,8 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun publishFailure(error: PlaybackError) {
+        // A published failure ends any recovery-displacing change chain.
+        clearDisplacedRecovery()
         logTvDiagnostic(
             stage = PlaybackDiagnosticStage.NativePlayer,
             event = PlaybackDiagnosticEvent.TerminalError,
@@ -3182,6 +3695,52 @@ private enum class TvSessionRecoveryResult {
     Failed,
     NonTerminal,
 }
+
+/** An immutable user change: its proposed inputs and the authority it must still hold to commit. */
+private data class TvChangeProposal(
+    val operation: TvPlaybackChangeOperation,
+    val requestIdentity: Long,
+    val controller: PlayerController,
+    val planEpoch: Long,
+    val itemId: String,
+    val mediaSourceId: String,
+    val targetPositionMs: Long,
+    val audioStreamIndex: Int?,
+    val explicitAudioStreamIndex: Int?,
+    val subtitleSelection: SubtitleSelectionIntent,
+    val subtitleStreamIndex: Int?,
+    val localSubtitleAsset: LocalSubtitleAsset?,
+    val qualityPolicy: PlaybackQualityPolicy,
+    val qualityMaxBitrate: Long?,
+    val qualityCapOrigin: PlaybackQualityCapOrigin?,
+    val qualityOverrideExplicit: Boolean,
+    val qualityRecovery: TvQualityRecoveryEffect,
+)
+
+/** What a committed quality change does to the session's Auto recovery state. */
+private enum class TvQualityRecoveryEffect {
+    Retain,
+    Reset,
+    ClearRuntimeCap,
+}
+
+/** The installed local asset a deferred repair is qualified to. */
+private data class TvLocalSubtitleRepair(
+    val assetId: String,
+    val itemId: String,
+    val mediaSourceId: String,
+)
+
+private val healthyChangeStatuses = setOf(PlaybackStatus.Playing, PlaybackStatus.Paused, PlaybackStatus.Buffering)
+
+private fun TvPlaybackChangeOperation.diagnosticOperation(): PlayerOperation =
+    when (this) {
+        TvPlaybackChangeOperation.Quality -> PlayerOperation.QualityChange
+        TvPlaybackChangeOperation.Audio -> PlayerOperation.SelectEmbeddedAudio
+        TvPlaybackChangeOperation.Subtitle -> PlayerOperation.SelectEmbeddedSubtitle
+        TvPlaybackChangeOperation.LocalSubtitle -> PlayerOperation.SubtitleActivation
+        TvPlaybackChangeOperation.Seek -> PlayerOperation.SeekTo
+    }
 
 private fun Int?.toDiagnosticTrackState(): PlaybackDiagnosticTrackState =
     if (this == null) PlaybackDiagnosticTrackState.Off else PlaybackDiagnosticTrackState.Selected

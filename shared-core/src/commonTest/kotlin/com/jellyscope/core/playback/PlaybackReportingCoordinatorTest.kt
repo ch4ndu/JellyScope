@@ -18,6 +18,8 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PlaybackReportingCoordinatorTest {
     @Test
@@ -129,6 +131,60 @@ class PlaybackReportingCoordinatorTest {
             )
             fixture.coordinator.dispose(950L)
             runCurrent()
+        }
+
+    @Test
+    fun retryTransitionReportsTargetAndIntentUntilNewEpochOrExplicitSettlement() =
+        runTest {
+            val reporter = CoordinatorReporter()
+            val fixture = coordinatorFixture(reporter)
+
+            // Play intended: the transitional paused raw-zero sample reports the target without a Pause
+            // edge; the same epoch never settles, and a new epoch's Playing adopts native position.
+            fixture.coordinator.install(testSession, testPlan("item-1"), playSessionId = "play")
+            assertTrue(fixture.coordinator.beginRetryTransition(30_000L, playIntended = true, priorPrepareEpoch = 4L))
+            assertFalse(fixture.coordinator.onPlaybackState(playbackState(PlaybackStatus.Paused, 0L), PlaybackStatus.Loading, 4L))
+            runCurrent()
+            assertFalse(fixture.coordinator.onPlaybackState(playbackState(PlaybackStatus.Buffering, 0L), PlaybackStatus.Paused, 4L))
+            val settled = playbackState(PlaybackStatus.Playing, 31_000L)
+            fixture.state.value = settled
+            assertTrue(fixture.coordinator.onPlaybackState(settled, PlaybackStatus.Buffering, 5L))
+            assertFalse(fixture.coordinator.settleRetryTransition())
+            fixture.coordinator.stop(32_000L)
+            runCurrent()
+
+            // Paused intent: the Pause edge reports the target, and Failed retains it for the next Stop.
+            fixture.coordinator.install(testSession, testPlan("item-1"), playSessionId = "paused")
+            assertTrue(fixture.coordinator.beginRetryTransition(12_000L, playIntended = false, priorPrepareEpoch = 7L))
+            fixture.coordinator.onPlaybackState(playbackState(PlaybackStatus.Paused, 0L), PlaybackStatus.Loading, 8L)
+            runCurrent()
+            fixture.coordinator.onPlaybackState(playbackState(PlaybackStatus.Failed, 0L), PlaybackStatus.Paused, 8L)
+            fixture.coordinator.stop(0L)
+            runCurrent()
+            assertFalse(fixture.coordinator.settleRetryTransition())
+
+            // An explicit user command settles first; a real zero afterwards is reported as-is.
+            fixture.coordinator.install(testSession, testPlan("item-1"), playSessionId = "command")
+            assertTrue(fixture.coordinator.beginRetryTransition(5_000L, playIntended = true, priorPrepareEpoch = 1L))
+            assertTrue(fixture.coordinator.settleRetryTransition())
+            fixture.coordinator.onPlaybackState(playbackState(PlaybackStatus.Paused, 0L), PlaybackStatus.Loading, 1L)
+            runCurrent()
+            fixture.coordinator.dispose(0L)
+            runCurrent()
+
+            assertEquals(
+                listOf(
+                    "start:play:30000",
+                    "stop:play:32000",
+                    "start:paused:12000",
+                    "progress:paused:Pause:12000",
+                    "stop:paused:12000",
+                    "start:command:0",
+                    "progress:command:Pause:0",
+                    "stop:command:0",
+                ),
+                reporter.events,
+            )
         }
 
     @Test
