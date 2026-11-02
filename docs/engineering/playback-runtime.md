@@ -607,6 +607,13 @@ suppresses interactive recovery until it is safe to show the consequence.
   not already been handled, observation refreshes to deliver it through ordinary
   recovery. This later failure keeps
   prepared authority; it does not use the immediate-prepare revocation path.
+  A switch that rejects preparation after transferring its replacement instead
+  retains that controller with a null installed plan. After software-switch
+  outcome reporting, current switch/reporting ownership, replacement logical
+  item/source and concrete controller ownership qualify an unhandled Failed
+  observation refresh. Prepared authority remains revoked. Retained outgoing,
+  aborted, stale, already-handled and already-published Error cases keep their
+  existing paths.
   An owned fast Retry
   can restore missing installed authority from the controller's `retainedPlan`
   only after a changed non-null prepare epoch, a non-Failed snapshot, and a
@@ -1131,7 +1138,11 @@ server/user IDs, titles, paths, or raw native errors.
   recovery follows release of that ownership and software-switch reporting,
   because its replan invalidates switch authority. A successful switch checks
   late native failure only after that handoff, while the actual installed
-  controller and plan still prove ownership. Combining installed audio
+  controller and plan still prove ownership. Rejected preparation needs a
+  different proof: the transferred replacement's logical item/source and current
+  reporting authority remain owned, while its installed plan stays null.
+  Observation resumes after outcome reporting without inventing prepared truth.
+  Combining installed audio
   and subtitle facts prevents two helper calls from spending both allowances
   and letting the second replan cancel the first.
 

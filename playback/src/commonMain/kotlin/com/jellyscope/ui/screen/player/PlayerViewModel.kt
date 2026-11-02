@@ -1418,6 +1418,24 @@ class PlayerViewModel(
                     ) {
                         restartPlaybackStateObservation()
                     }
+                } else if (!prepared && isCurrentBackendSwitch(switch) && admitsPlaybackSessionRecovery()) {
+                    // A rejected prepare keeps the transferred controller without prepared authority; recollect a current
+                    // Failed the guarded inline or queued delivery may have dropped so the ordinary handler can own it.
+                    val rejectedController = playerController
+                    val logicalPlan = plan
+                    if (
+                        rejectedController !== switch.activeController &&
+                        logicalPlan != null &&
+                        logicalPlan !== switch.activePlan &&
+                        logicalPlan.itemId == switch.itemId &&
+                        logicalPlan.mediaSourceId == switch.mediaSourceId &&
+                        installedPlan == null &&
+                        rejectedController.playbackState.value.status == PlaybackStatus.Failed &&
+                        lastStatus != PlaybackStatus.Failed &&
+                        _state.value !is PlayerUiState.Error
+                    ) {
+                        restartPlaybackStateObservation()
+                    }
                 }
             }
         return true
