@@ -799,6 +799,22 @@ suppresses interactive recovery until it is safe to show the consequence.
   higher quality**, **Choose lower quality**, and **Dismiss**. Neither notice
   routes to Playback Settings. Any chosen row is current-playback only and a
   fresh playback resolves its defaults again.
+- **[Compose]** Automatic Compatibility, quality and Android alternate-backend
+  recovery credit is armed only after a replacement is prepared and installation
+  ownership is released. The request, controller and installed plan must still
+  be current, recovery admission open, and native state non-Failed. Quality
+  credit uses the installed Auto session limit; controller replacement alone
+  grants no credit. A current Playing snapshot can complete that request's
+  presentation credit after the activation handoff, without replaying playback
+  failure, reporting or completion handling. Native output remains unverified.
+  Credit is not cleared at ordinary replan entry: a rejected user quality
+  proposal preserves the installed recovery, and credit can survive later
+  ordinary installs or activation continuations. Accepted quality commit,
+  same-item Retry, full start and Stop clear pending credit. PromptUser clears
+  already-armed quality credit but does not cancel an in-flight LowerTo request;
+  a later successful install and Playing can replace that prompt with an applied
+  notice. A retained Auto cap in a Compatibility request grants Compatibility
+  credit only, without a quality-applied notice.
 - **[tvOS]** Compatibility credit and the automatic quality recovery notice are
   armed only after the recovery request installs and prepares its replacement,
   then consumed by a later Playing observation. The request's original recovery
@@ -1215,7 +1231,19 @@ server/user IDs, titles, paths, or raw native errors.
   the previous stream can keep emitting Playing while replacement planning
   fails. Original request intent prevents a planner's internal fallback from
   taking credit for an ordinary change. Subtitle encode continuation and native
-  Retry keep the installed recovery's credit; a superseding request clears it.
+  Retry keep the installed recovery's credit on tvOS; a superseding request
+  clears it there.
+  Compose waits for installation release and rechecks request, controller and
+  prepared-plan ownership because a lock waiter or callback can replace them.
+  Its immediate state collector can drop Playing during installation; consuming
+  presentation credit from a current Playing snapshot avoids waiting forever
+  for another distinct emission. On an accepted prepare, all seven real
+  controllers synchronously publish Loading; the test fake can retain its prior status,
+  so fake Playing is not native readiness evidence. How often native Playing
+  arrives inside installation remains unmeasured. Compose preserves credit at
+  failed quality-proposal entry, while accepted commit and same-item Retry clear
+  it. A prompt during recovery planning does not cancel the request, whose later
+  accepted install can legitimately arm new credit.
   Local-file subtitle replans carry invocation-local nonfatal provenance so
   durable fatal publication does not turn an unavailable file into a blocking
   failure. Both planner catches reject cancelled work before publication,

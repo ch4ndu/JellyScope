@@ -362,6 +362,41 @@ class PlayerViewModelRecoveryTest {
         }
 
     @Test
+    fun oldPlayingWhileRecoveryPlanningIsHeldDoesNotCreditRecovery() =
+        runTest {
+            val mainDispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(mainDispatcher)
+            val workDispatcher = StandardTestDispatcher(TestCoroutineScheduler())
+
+            var fixtureRef: PlayerFixture? = null
+            try {
+                val fixture =
+                    playerFixture(
+                        workDispatcher = workDispatcher,
+                        playbackPreferencesStore = warningsEnabledPreferencesStore(),
+                        guidancePolicy = TestGuidancePolicy.Advisory,
+                    ).also { fixtureRef = it }
+                drainPlayerViewModelSchedulers(workDispatcher)
+                assertEquals(1, fixture.controller.prepareCount)
+
+                // Only main runs: the forced Compatibility replan stays held in planning.
+                fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Failed, error = PlaybackError.Decoder)
+                runCurrent()
+                assertEquals(PlayerUiState.Loading, fixture.viewModel.state.value)
+
+                fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing)
+                runCurrent()
+
+                assertNull(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).passiveGuidance)
+                assertEquals(1, fixture.controller.prepareCount)
+            } finally {
+                fixtureRef?.viewModel?.dispose()
+                drainPlayerViewModelSchedulers(workDispatcher)
+                Dispatchers.resetMain()
+            }
+        }
+
+    @Test
     fun advisoryRecoverySurvivesReplacementWithAnotherController() =
         runPlayerViewModelTest {
             try {

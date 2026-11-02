@@ -1281,6 +1281,7 @@ class PlayerViewModel(
         emitPlaybackHealthSummary()
         endPlaybackHealthSession()
         pendingRecoveredPlaybackGuidanceItemId = null
+        pendingRecoveredAutoQualityBps = null
         if (_state.value is PlayerUiState.Content) {
             publishContent()
         }
@@ -4837,7 +4838,6 @@ class PlayerViewModel(
             AutoPlaybackRecoveryDecision.NoAction -> return false
             is AutoPlaybackRecoveryDecision.CompatibilityReplan -> {
                 playbackHealthCoordinator.dismissGuidance()
-                pendingRecoveredPlaybackGuidanceItemId = currentItemId
                 replanAtPosition(
                     targetPositionMs = playerController.playbackState.value.positionMs,
                     requestPolicy =
@@ -4856,7 +4856,6 @@ class PlayerViewModel(
             is AutoPlaybackRecoveryDecision.LowerTo -> {
                 playbackHealthCoordinator.dismissGuidance()
                 qualitySession = qualitySession.recoverWithAutoCap(decision.maxBitrateBps)
-                pendingRecoveredAutoQualityBps = decision.maxBitrateBps
                 replanAtPosition(
                     targetPositionMs = playerController.playbackState.value.positionMs,
                     requestPolicy =
@@ -4871,7 +4870,7 @@ class PlayerViewModel(
             }
             is AutoPlaybackRecoveryDecision.PromptUser -> {
                 playbackHealthCoordinator.dismissGuidance()
-                // Recovery exhaustion invalidates the lower-quality replan.
+                // Clears unconsumed credit from an installed quality recovery; an in-flight replan stays current.
                 pendingRecoveredAutoQualityBps = null
                 setPlaybackActionNotice(
                     PlaybackActionNotice(
@@ -4949,9 +4948,6 @@ class PlayerViewModel(
                 !alternateBackendFallbackAttempted
             ) {
                 val recovered = fallbackFromAndroidAlternateBackend(playbackState.positionMs)
-                if (recovered) {
-                    pendingRecoveredPlaybackGuidanceItemId = currentItemId
-                }
                 return PlaybackTerminalRecovery(PlaybackTerminalOutcome.RetryScheduled).takeIf { recovered }
             }
             val automaticRecovery = handleAutomaticRecoveryTrigger(decision.trigger)
@@ -5622,8 +5618,45 @@ class PlayerViewModel(
                         }
                     }
                 if (replacementInstalled) {
+                    // The released lease can admit a waiter, Stop, queue switch or replacement controller,
+                    // so recovery credit needs this request to still own its accepted install.
+                    fun ownsInstalledReplacement(): Boolean =
+                        isCurrentReplan(requestGeneration, replanGeneration, replanItemId) &&
+                            playerController === controllerAtRequest &&
+                            installedPlan === playbackPlanWithMetadata &&
+                            admitsPlaybackSessionRecovery() &&
+                            playerController.playbackState.value.status != PlaybackStatus.Failed
+                    var recoveryCreditArmed = false
+                    if (ownsInstalledReplacement()) {
+                        // Credit follows the caller's intent. A forced planner retry relabels only its internal
+                        // server request as Compatibility; the installed plan keeps the caller's intent.
+                        if (
+                            requestPolicy.recoveryIntent == com.jellyscope.core.domain.playback.PlaybackRecoveryIntent.Compatibility ||
+                            requestPolicy.clientTrigger == PlaybackClientTrigger.BackendFallback
+                        ) {
+                            pendingRecoveredPlaybackGuidanceItemId = replanItemId
+                            recoveryCreditArmed = true
+                        } else if (requestPolicy.recoveryIntent == com.jellyscope.core.domain.playback.PlaybackRecoveryIntent.Quality) {
+                            val installedLimit =
+                                playbackPlanWithMetadata.bitrateConstraint as? PlaybackBitrateConstraint.AutoSessionLimit
+                            if (installedLimit != null) {
+                                pendingRecoveredAutoQualityBps = installedLimit.bitrateBps
+                                recoveryCreditArmed = true
+                            }
+                        }
+                    }
                     if (isCurrentReplan(requestGeneration, replanGeneration, replanItemId)) {
                         maybeStartInstalledActivationFallback(controllerAtRequest, playbackPlanWithMetadata)
+                    }
+                    // The install guard may have dropped this install's only Playing emission. Real controllers
+                    // publish Loading inside prepare, so a current Playing is newer than this install.
+                    if (
+                        recoveryCreditArmed &&
+                        ownsInstalledReplacement() &&
+                        _softwarePlaybackRecovery.value == null &&
+                        playerController.playbackState.value.status == PlaybackStatus.Playing
+                    ) {
+                        maybeCompleteRecoveredPlaybackGuidance()
                     }
                 } else if (prepareFailedSynchronously) {
                     // The install guard intentionally suppresses controller
