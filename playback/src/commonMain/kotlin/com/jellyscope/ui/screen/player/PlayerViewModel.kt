@@ -5624,10 +5624,12 @@ class PlayerViewModel(
                         isCurrentReplan(requestGeneration, replanGeneration, replanItemId) &&
                             playerController === controllerAtRequest &&
                             installedPlan === playbackPlanWithMetadata &&
-                            admitsPlaybackSessionRecovery() &&
-                            playerController.playbackState.value.status != PlaybackStatus.Failed
+                            admitsPlaybackSessionRecovery()
                     var recoveryCreditArmed = false
-                    if (ownsInstalledReplacement()) {
+                    if (
+                        ownsInstalledReplacement() &&
+                        playerController.playbackState.value.status != PlaybackStatus.Failed
+                    ) {
                         // Credit follows the caller's intent. A forced planner retry relabels only its internal
                         // server request as Compatibility; the installed plan keeps the caller's intent.
                         if (
@@ -5647,6 +5649,17 @@ class PlayerViewModel(
                     }
                     if (isCurrentReplan(requestGeneration, replanGeneration, replanItemId)) {
                         maybeStartInstalledActivationFallback(controllerAtRequest, playbackPlanWithMetadata)
+                    }
+                    // A Failed published after prepare's check (e.g. by play) was dropped by the install guard.
+                    // The planned activation handoff keeps priority; if this request still owns the install,
+                    // restart observation so StateFlow redelivers the failure through ordinary recovery.
+                    if (
+                        ownsInstalledReplacement() &&
+                        playerController.playbackState.value.status == PlaybackStatus.Failed &&
+                        lastStatus != PlaybackStatus.Failed
+                    ) {
+                        restartPlaybackStateObservation()
+                        return@launch
                     }
                     // The install guard may have dropped this install's only Playing emission. Real controllers
                     // publish Loading inside prepare, so a current Playing is newer than this install.

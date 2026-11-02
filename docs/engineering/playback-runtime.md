@@ -599,7 +599,14 @@ suppresses interactive recovery until it is safe to show the consequence.
   plan, selection generation and replan request before health binding and again
   before its handoff; a newer owner wins. A still-current synchronous Failed
   clears installed authority and restarts the existing state collector, or
-  starts one when absent, for ordinary failure handling. An owned fast Retry
+  starts one when absent, for ordinary failure handling. A replan can instead
+  publish Failed from a later command after an accepted prepare. Once its lease
+  releases, the existing planned activation handoff runs first. If the request,
+  controller and prepared-plan identity still own playback, admission is open,
+  and the current Failed has not already been handled, the replan refreshes
+  observation to deliver it through ordinary recovery. This later failure keeps
+  prepared authority; it does not use the immediate-prepare revocation path.
+  An owned fast Retry
   can restore missing installed authority from the controller's `retainedPlan`
   only after a changed non-null prepare epoch, a non-Failed snapshot, and a
   matching item and nonblank source. The actual controller snapshot, rather
@@ -1235,6 +1242,11 @@ server/user IDs, titles, paths, or raw native errors.
   clears it there.
   Compose waits for installation release and rechecks request, controller and
   prepared-plan ownership because a lock waiter or callback can replace them.
+  A late Failed can likewise be suppressed while installation is guarded. The
+  replan refreshes only its current failure after the planned activation handoff,
+  preserving Audio/Subtitle-first precedence. Restarting observation replaces a
+  queued or dropped delivery instead of racing a second direct handler call;
+  healthy state handling stays unchanged.
   Its immediate state collector can drop Playing during installation; consuming
   presentation credit from a current Playing snapshot avoids waiting forever
   for another distinct emission. On an accepted prepare, all seven real
