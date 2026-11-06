@@ -49,7 +49,8 @@ meta_all = values(manifest)
 meta = {k:v for k,v in meta_all.items() if metal or not k.startswith(METAL_KEY)}
 selected = 'desktop-mpv,desktop-mpv-metal,vlc' if metal else 'desktop-mpv,vlc'
 MPVKIT_PATCH = 'Sources/BuildScripts/patch/libmpv/0001-player-add-moltenvk-context.patch'
-cache = pathlib.Path(os.environ.get('JELLYSCOPE_MACOS_SOURCE_CACHE_ROOT',str(repo/'.local/native/macos-sources')))
+data_root = pathlib.Path(os.environ.get('JELLYSCOPE_DATA_ROOT',str(pathlib.Path.home()/'Private/JellyScopeData')))
+cache = pathlib.Path(os.environ.get('JELLYSCOPE_MACOS_SOURCE_CACHE_ROOT',str(data_root/'caches/macos-sources')))
 safe(cache); cache.mkdir(parents=True,exist_ok=True)
 need(not any(p.is_symlink() for p in cache.rglob('*')), 'Symlink in source cache')
 work = pathlib.Path(tempfile.mkdtemp(prefix='.source-inputs-',dir=cache))
@@ -70,8 +71,8 @@ try:
     mpv_notice, metal_notice = repo/'scripts/desktop-mpv-bundle', repo/'scripts/desktop-mpv-metal'
     mpv_rows = rows(mpv_notice/'sources-macos-arm64.tsv')
     vlc_rows = rows(repo/'scripts/vlc-bundle/sources-3.0.24.tsv')
-    mpv_cache = pathlib.Path(os.environ.get('JELLYSCOPE_MPV_RUNTIME_CACHE_ROOT',str(repo/'.local/native/desktop-mpv')))/'archives'
-    metal_cache = pathlib.Path(os.environ.get('JELLYSCOPE_MPV_METAL_RUNTIME_CACHE_ROOT',str(repo/'.local/native/desktop-mpv-metal')))/'archives'
+    mpv_cache = pathlib.Path(os.environ.get('JELLYSCOPE_MPV_RUNTIME_CACHE_ROOT',str(data_root/'caches/desktop-mpv')))/'archives'
+    metal_cache = pathlib.Path(os.environ.get('JELLYSCOPE_MPV_METAL_RUNTIME_CACHE_ROOT',str(data_root/'caches/desktop-mpv-metal')))/'archives'
     families = [('mpv',[(r,mpv_notice) for r in mpv_rows]),('vlc-contrib',[(r,repo/'scripts/vlc-bundle') for r in vlc_rows])]
     if metal:
         # The same merge as build-desktop-mpv-runtime.sh --metal: overlay rows replace same-named base rows.

@@ -292,6 +292,17 @@ val prepareDesktopMpvBundle =
     tasks.register<Exec>("prepareDesktopMpvBundle") {
         group = "build"
         description = "Builds, verifies, and prepares the pinned macOS 15 arm64 libmpv runtime."
+        environment(
+            "JELLYSCOPE_MPV_RUNTIME_CACHE_ROOT",
+            providers
+                .environmentVariable("JELLYSCOPE_MPV_RUNTIME_CACHE_ROOT")
+                .orElse(
+                    providers
+                        .environmentVariable("JELLYSCOPE_DATA_ROOT")
+                        .orElse("${System.getProperty("user.home")}/Private/JellyScopeData")
+                        .map { "$it/caches/desktop-mpv" },
+                ).get(),
+        )
         dependsOn(prepareDesktopAppResources)
         inputs.files(
             rootProject.layout.projectDirectory.file("scripts/build-desktop-mpv-runtime.sh"),

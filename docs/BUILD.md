@@ -65,6 +65,10 @@ or logged.
 
 ## Android mobile
 
+Install CMake **4.1.2** through the Android SDK Manager. The native module declares
+that version and resolves it from the SDK selected by `sdk.dir`; avoid a
+checkout-specific `cmake.dir` override or a duplicate toolchain under `.local/`.
+
 ```bash
 ./gradlew :android-app:assembleDebug
 ./gradlew :android-app:assembleRelease
@@ -133,14 +137,30 @@ GNU libtool before the first build. The recipe supplies its pinned Meson version
 it does not install tools. Package managers may supply build tools, but runtime
 libraries must come from the isolated source build.
 
-Gradle prepares the runtime when needed, or build it explicitly:
+Shared reference repositories and native source/build caches live under
+`~/Private/JellyScopeData/`. Keep each worktree's
+`.local/` limited to current task records and temporary output. Reference checkouts
+may be linked at `.local/reference-repos`; native cache paths must be real paths.
+Do not copy the main checkout's entire `.local/` when creating a worktree.
+Retained historical records belong under `task-archives/`, immutable shared
+inputs under `inputs/`, and original release/source/notice sets under `releases/`
+in the shared data root. Old checkout paths may link to these records for reading;
+restore a task-owned copy before resuming an archived workflow.
+
+Gradle prepares the runtime using `~/Private/JellyScopeData/caches/desktop-mpv`
+unless `JELLYSCOPE_MPV_RUNTIME_CACHE_ROOT` overrides it. For direct native builds,
+load the local shared environment first:
 
 ```bash
+source "$HOME/Private/JellyScopeData/env.sh"
 bash scripts/build-desktop-mpv-runtime.sh
 ```
 
 The first build downloads and compiles the native graph for arm64 and macOS 15.
-It retains sources and the completed runtime in `.local/native/desktop-mpv/`.
+The configured cache retains sources and the completed runtime. An unconfigured
+standalone builder falls back to `.local/native/desktop-mpv/`; loading the shared
+environment avoids populating that fallback in each worktree. The pinned builder
+recipe is unchanged, preserving the existing cache's recipe identity.
 `JELLYSCOPE_MPV_RUNTIME_CACHE_ROOT` may select a dedicated absolute cache path
 without symlinks or whitespace. A matching recipe, manifests and toolchain allow
 reuse after the complete runtime passes validation; a valid warm cache works
@@ -150,7 +170,7 @@ loads an installed Homebrew, MacPorts, `/usr/local`, or system `libmpv`.
 
 macOS packaging also bundles pinned VLC **3.0.24 (arm64)**.
 `scripts/fetch-desktop-vlc-runtime.sh` caches it under
-`~/Library/Caches/JellyScope/vlc-runtime/`; first use needs network unless
+`~/Private/JellyScopeData/caches/vlc-runtime/`; first use needs network unless
 `JELLYSCOPE_VLC_APP` explicitly supplies that version. The stager verifies the
 selected files against `scripts/vlc-bundle/manifest-3.0.24-arm64.txt` and checks
 their architecture, dependency closure and signatures.
@@ -184,8 +204,11 @@ metal_runtime="$(bash scripts/build-desktop-mpv-runtime.sh --metal)"
   "-Djellyscope.desktop.mpvMetalRuntimeDir=$metal_runtime"
 ```
 
-The Metal cache defaults to `.local/native/desktop-mpv-metal`; set
-`JELLYSCOPE_MPV_METAL_RUNTIME_CACHE_ROOT` to select another dedicated cache.
+The shared environment selects `~/Private/JellyScopeData/caches/desktop-mpv-metal`;
+`JELLYSCOPE_MPV_METAL_RUNTIME_CACHE_ROOT` may select another dedicated cache.
+`JELLYSCOPE_DATA_ROOT` changes the shared data root used by Gradle, VLC, source
+retention, and the older experiment helper. Direct source builds require the
+matching Standard/Metal cache environment variables.
 The builder downloads only declared source archives and retains matching source,
 license, patch, configuration and native graph records. Standard and Metal caches
 have separate ownership markers and cannot substitute for each other.
@@ -196,6 +219,8 @@ The older `prepare-desktop-mpv-metal-experiment.py` remains a local investigatio
 recipe for retained MPVKit binary candidates. Those candidates are not accepted
 by the source-built packaging validator. See the
 [recipe notes](../scripts/desktop-mpv-metal/METAL-EXPERIMENT.md).
+Its output remains task-local; read-only inputs may also come from the shared
+data root. Input and output path checks continue rejecting symlink traversal.
 
 Both properties are required and also work with `:desktop-app:hotRun`. Select
 mpv and do not combine them with `jellyscope.desktop.forceMpvOpenGlSurface`.

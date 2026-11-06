@@ -20,7 +20,7 @@ vlc_arch="arm64"
 dmg_name="vlc-${vlc_version}-${vlc_arch}.dmg"
 dmg_url="https://download.videolan.org/pub/videolan/vlc/${vlc_version}/macosx/${dmg_name}"
 
-cache_root="${HOME}/Library/Caches/JellyScope/vlc-runtime/${vlc_version}-${vlc_arch}"
+cache_root="${JELLYSCOPE_DATA_ROOT:-${HOME}/Private/JellyScopeData}/caches/vlc-runtime/${vlc_version}-${vlc_arch}"
 cached_app="${cache_root}/VLC.app"
 
 die() {
