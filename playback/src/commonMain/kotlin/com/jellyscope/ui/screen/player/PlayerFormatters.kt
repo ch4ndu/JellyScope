@@ -271,7 +271,7 @@ internal fun handlePlayerShortcutKey(
         -> holdSeek.onSeekKeyUp()
         Key.Spacebar -> {
             holdSeek.commitBeforeAction()
-            if (playbackState.status == PlaybackStatus.Playing) {
+            if (content?.pendingSeekPlayWhenReady ?: (playbackState.status == PlaybackStatus.Playing)) {
                 onPause()
             } else if (content != null) {
                 onPlay()

@@ -152,6 +152,9 @@ object TvosEntry {
     fun offlinePlaybackSurface(presenter: TvOfflinePlaybackPresenter): UIView? =
         (presenter.surfaceController as? ApplePlaybackSurfaceProvider)?.createSurfaceView()
 
+    fun playbackSurface(presenter: TvPlaybackSessionPresenter): UIView? =
+        (presenter.surfaceController as? ApplePlaybackSurfaceProvider)?.createSurfaceView()
+
     fun homePresenter(session: Session): TvHomePresenter = koin().get { parametersOf(session) }
 
     fun homeViewAllPresenter(

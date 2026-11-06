@@ -541,6 +541,7 @@ internal fun KidsWatchContent(
                             state = miniPlayerState,
                             playbackStateFlow = playbackStateFlow,
                             showPlaybackControl = content != null,
+                            pendingSeekPlayWhenReady = content?.pendingSeekPlayWhenReady,
                             onRestore = onRestore,
                             onClose = ::closePlayer,
                             onPlay = onPlay,
@@ -567,6 +568,7 @@ internal fun KidsWatchContent(
                         KidsPlayPauseControl(
                             playbackStateFlow = playbackStateFlow,
                             controlsVisible = controlsVisible,
+                            pendingSeekPlayWhenReady = content.pendingSeekPlayWhenReady,
                             onPlay = onPlay,
                             onPause = onPause,
                             onReplay = onReplay,
@@ -919,53 +921,69 @@ internal fun KidsPlayPauseControl(
     onReplay: () -> Unit,
     modifier: Modifier = Modifier,
     primary: Boolean = true,
+    pendingSeekPlayWhenReady: Boolean? = null,
 ) {
     val statusFlow = remember(playbackStateFlow) { playbackStateFlow.map { it.status }.distinctUntilChanged() }
     val status by statusFlow.collectAsStateWithLifecycle(playbackStateFlow.value.status)
     val replay = status == PlaybackStatus.Completed
-    val playing = status == PlaybackStatus.Playing
+    val playing = pendingSeekPlayWhenReady ?: (status == PlaybackStatus.Playing)
     Box(modifier = modifier) {
-        when (status) {
-            PlaybackStatus.Idle,
-            PlaybackStatus.Loading,
-            PlaybackStatus.Buffering,
-            -> BufferingIndicator(compact = true)
-            PlaybackStatus.Playing,
-            PlaybackStatus.Paused,
-            PlaybackStatus.Completed,
-            ->
-                if (controlsVisible) {
-                    KidsControlButton(
-                        icon =
-                            if (replay) {
-                                Icons.Filled.Replay
-                            } else if (playing) {
-                                Icons.Filled.Pause
-                            } else {
-                                Icons.Filled.PlayArrow
-                            },
-                        description =
-                            stringResource(
+        if (pendingSeekPlayWhenReady != null) {
+            if (controlsVisible) {
+                KidsControlButton(
+                    icon = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    description = stringResource(if (playing) Res.string.player_pause_cd else Res.string.player_play_cd),
+                    onClick = if (playing) onPause else onPlay,
+                    primary = primary,
+                )
+            }
+            CircularProgressIndicator(
+                modifier = Modifier.size(if (primary) Dimensions.playerPrimaryControlSize else Dimensions.minTouchTarget),
+                strokeWidth = Dimensions.progressIndicatorStroke,
+            )
+        } else {
+            when (status) {
+                PlaybackStatus.Idle,
+                PlaybackStatus.Loading,
+                PlaybackStatus.Buffering,
+                -> BufferingIndicator(compact = true)
+                PlaybackStatus.Playing,
+                PlaybackStatus.Paused,
+                PlaybackStatus.Completed,
+                ->
+                    if (controlsVisible) {
+                        KidsControlButton(
+                            icon =
                                 if (replay) {
-                                    Res.string.kids_replay
+                                    Icons.Filled.Replay
                                 } else if (playing) {
-                                    Res.string.player_pause_cd
+                                    Icons.Filled.Pause
                                 } else {
-                                    Res.string.player_play_cd
+                                    Icons.Filled.PlayArrow
                                 },
-                            ),
-                        onClick =
-                            if (replay) {
-                                onReplay
-                            } else if (playing) {
-                                onPause
-                            } else {
-                                onPlay
-                            },
-                        primary = primary,
-                    )
-                }
-            PlaybackStatus.Failed -> Unit
+                            description =
+                                stringResource(
+                                    if (replay) {
+                                        Res.string.kids_replay
+                                    } else if (playing) {
+                                        Res.string.player_pause_cd
+                                    } else {
+                                        Res.string.player_play_cd
+                                    },
+                                ),
+                            onClick =
+                                if (replay) {
+                                    onReplay
+                                } else if (playing) {
+                                    onPause
+                                } else {
+                                    onPlay
+                                },
+                            primary = primary,
+                        )
+                    }
+                PlaybackStatus.Failed -> Unit
+            }
         }
     }
 }

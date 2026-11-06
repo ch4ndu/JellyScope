@@ -115,6 +115,7 @@ class Media3PlayerController(
     private var recoveringFromAudioOutputFailure = false
     private var pendingEmbeddedAudioSelection: EmbeddedAudioSelection? = null
     private var pendingEmbeddedSubtitleSelection: EmbeddedSubtitleSelection? = null
+    private var localSubtitleSelectionWasSet = false
     private var expectedSubtitleTarget: SubtitleActivationTarget? = null
     private var playIntent = false
     private var playbackFocusAdmitted = audioFocusCoordinator == null
@@ -610,7 +611,7 @@ class Media3PlayerController(
         when (event) {
             AndroidAudioFocusEvent.Gained -> {
                 exoPlayer.volume = 1f
-                if (resumeAfterTransientFocusLoss && playIntent) {
+                if (resumeAfterTransientFocusLoss && playIntent && !initialAudioGate) {
                     resumeAfterTransientFocusLoss = false
                     exoPlayer.play()
                     updateState()
@@ -688,6 +689,7 @@ class Media3PlayerController(
         exoPlayer.pause()
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
+        localSubtitleSelectionWasSet = false
         expectedSubtitleTarget = plan.subtitleActivationTarget
         val initialAudioActivation = initialAudioActivationFor(plan)
         initialAudioGate = initialAudioActivation is InitialAudioActivation.AwaitNativeMapping
@@ -781,7 +783,7 @@ class Media3PlayerController(
                 exoPlayer.setMediaItem(livePlan.toMediaItem(liveSubtitleAsset))
                 exoPlayer.seekTo(resumeMs)
                 exoPlayer.prepare()
-                if (playIntent && playbackFocusAdmitted) exoPlayer.play()
+                if (playIntent && playbackFocusAdmitted && !initialAudioGate) exoPlayer.play()
             }
     }
 
@@ -798,6 +800,7 @@ class Media3PlayerController(
 
     override fun selectEmbeddedSubtitle(selection: EmbeddedSubtitleSelection?) {
         if (released) return warnReleased(PlayerOperation.SelectEmbeddedSubtitle)
+        localSubtitleSelectionWasSet = true
         pendingEmbeddedSubtitleSelection = selection
         if (selection == null) {
             expectedSubtitleTarget = null
@@ -813,26 +816,10 @@ class Media3PlayerController(
         updateSubtitleActivation()
     }
 
-    /**
-     * Keeps the controller's authoritative plan aligned with an in-player
-     * subtitle switch.
-     *
-     * `PlayerViewModel` updates only its own plan copy, so without this
-     * `lastPlan` keeps the target the session was prepared with and every
-     * controller-internal re-prepare — timing reconfigure, audio-track-init
-     * retry, video-only degrade — rebuilds the `MediaItem` from that stale
-     * intent, silently reverting the user's choice. The sidecar asset belongs to
-     * an external target only: any other switch, including Off, drops it so a
-     * re-prepare cannot re-arm a dead target.
-     */
+    /** Internal re-prepares follow admitted local intent and its exact external asset identity. */
     private fun syncPlanSubtitleTarget(target: SubtitleActivationTarget?) {
         val plan = lastPlan ?: return
-        if (plan.subtitleActivationTarget == target) return
-        lastPlan =
-            plan.copy(
-                subtitleActivationTarget = target,
-                subtitleAsset = plan.subtitleAsset.takeIf { target?.kind == LocalSubtitleKind.ExternalText },
-            )
+        lastPlan = plan.withLocalSubtitleTarget(target)
     }
 
     override fun setPlaybackSpeed(speed: Float) {
@@ -849,7 +836,7 @@ class Media3PlayerController(
     override fun play() {
         if (released) return warnReleased(PlayerOperation.Play)
         playIntent = true
-        if (initialAudioGate && _playbackState.value.audioActivation is AudioActivationState.Pending) {
+        if (initialAudioGate) {
             updateState()
             return
         }
@@ -908,6 +895,7 @@ class Media3PlayerController(
         initialAudioGate = false
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
+        localSubtitleSelectionWasSet = false
         expectedSubtitleTarget = null
         audioActivationConfirmation.clear()
         subtitleActivationConfirmation.clear()
@@ -925,14 +913,16 @@ class Media3PlayerController(
         val embeddedSelection = pendingEmbeddedSubtitleSelection
         val audioSelection = pendingEmbeddedAudioSelection
         val shouldPlay = playIntent
-        lastPlan?.let { plan ->
+        lastPlan?.snapshotForRetry(_playbackState.value)?.let { plan ->
             val selectionDecision =
                 retrySelectionDecision(
                     audioSelection = audioSelection,
                     subtitleIntent =
-                        embeddedSelection
-                            ?.let(RetrySubtitleIntent::Selection)
-                            ?: RetrySubtitleIntent.Unspecified,
+                        when {
+                            !localSubtitleSelectionWasSet -> RetrySubtitleIntent.Unspecified
+                            embeddedSelection == null -> RetrySubtitleIntent.ExplicitOff
+                            else -> RetrySubtitleIntent.Selection(embeddedSelection)
+                        },
                     planSubtitleTarget = plan.subtitleActivationTarget,
                 )
             prepare(
@@ -960,6 +950,7 @@ class Media3PlayerController(
         playbackFocusAdmitted = false
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
+        localSubtitleSelectionWasSet = false
         expectedSubtitleTarget = null
         audioActivationConfirmation.clear()
         subtitleActivationConfirmation.clear()
@@ -1432,7 +1423,7 @@ class Media3PlayerController(
                 exoPlayer.setMediaItem(plan.toMediaItem(plan.subtitleAsset))
                 exoPlayer.seekTo(resumeMs)
                 exoPlayer.prepare()
-                if (playIntent && playbackFocusAdmitted) exoPlayer.play()
+                if (playIntent && playbackFocusAdmitted && !initialAudioGate) exoPlayer.play()
             }
         return true
     }

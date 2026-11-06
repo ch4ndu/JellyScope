@@ -5,15 +5,28 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 
 ## iOS recovery
 
-- After seek, AVPlayer disables automatic wait-to-minimize-stalling, uses a
-  small tolerance, and coalesces rapid seeks. `prepare()` restores
-  wait-to-minimize-stalling to true, so the post-seek relaxation never leaks
-  into the next prepared item, replan, or queue advance (retry()/replans reset
-  it via prepare — intended semantics).
-- `playWhenReady` reasserts play after seek/re-plan when a Ready item has rate
-  0 only after the held initial audio gate permits native playback. Shared
-  Play/Pause toggle uses durable intent during Loading/Buffering; Playing pauses,
-  and Idle/Paused/Failed/Completed plays. iOS Now Playing uses that same callback.
+- AVPlayer dispatches the first ready-item seek immediately and retains only
+  the newest queued target while one native seek is active. Targets clamp to
+  a known positive duration; iOS Now Playing clamps before its ViewModel
+  callback so immediate progress reporting uses the same bounded target.
+  Explicit seeks disable automatic wait-to-minimize-stalling and use a small
+  tolerance; `prepare()` restores the native waiting default.
+- Initial and explicit seek work belongs to the installed prepare generation.
+  Completion, interruption, or a ten-second dispatch deadline releases the
+  target hold to the native clock; the existing state poll observes the
+  monotonic deadline, so scheduling latency still applies. Sidecar loading
+  does not consume that deadline. Replacement, stop, release, and terminal
+  handling invalidate queued and active work before native cancellation.
+- Play, audio activation, polling, and seek completion share one native
+  playback-release guard: current play intent, matching ready item, open audio
+  gate, and no unresolved initial, queued, or active seek. Pause keeps the
+  latest seek target but prevents resume. Paused seeks publish `Paused`,
+  including their immediate progress report. Native `Playing` takes precedence
+  over predictive buffer flags and stale stall notifications; native waiting
+  or stalled zero-rate playback under play intent remains buffering/recovery.
+  Shared Play/Pause toggle uses durable intent during Loading/Buffering;
+  Playing pauses, and Idle/Paused/Failed/Completed plays. iOS Now Playing uses
+  that same callback.
 - The iOS player keeps `UIApplication.idleTimerDisabled = true` while player
   content is composed (parity with Android's `keepScreenOn`), restoring it on
   dispose. Without it the device auto-locks mid-playback, which backgrounds the
@@ -62,19 +75,19 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   dispatcher; the generation bump, delegate detach, and field clearing stay
   synchronous so late callbacks from the old session are already rejected. This
   matches the Android LibVLC controller's teardown policy.
-- The VLCKit controller publishes the **requested target** through prepare,
-  deferred resume, and seek transitions. For video with play intent, it keeps
-  `Buffering` until the native clock arrives near an explicit seek target, or a
-  fresh-session resume is first observed at or beyond its target, then later
-  advances and the displayed-picture counter proves two fresh advances; paused
-  and audio-only transitions settle without video evidence. The strict hold is
-  bounded: a timeout remains an explicit diagnostic outcome but releases
-  `Buffering`, follows later native clock samples, and no longer excludes those
-  samples from terminal progress evidence. The remaining picture wait follows
-  the [shared health status contract](playback-runtime.md#playback-health-and-guidance).
-  Releasing the bounded hold prevents an unavailable VLCKit
-  picture counter from pinning the timeline or turning a genuine natural end
-  into `Paused` for the rest of the session. Each transition has a generation-
+- VLCKit publishes the requested target until transport settles: arrival near
+  an explicit target (or at/beyond a fresh-session resume target), then a later
+  clock advance under play intent; paused seeks settle on arrival. The
+  synthetic buffering hold then ends and the timeline follows native time,
+  even when displayed-picture statistics are unavailable. Genuine native
+  buffering remains authoritative. Arrival itself never proves playback
+  progress for natural-end classification; later native progression can.
+  Transport settlement also occurs on the existing twenty-second timeout and
+  survives Pause without re-pinning the old target.
+  Presentation readiness remains separate: `Ready`/`Presented` requires the
+  existing clock and picture evidence, and the bounded picture timeout retains
+  its diagnostic and PiP-admission rules. Transport settlement alone never
+  claims a displayed frame. Each transition has a generation-
   local sequence and one timeout observation, so stale callbacks cannot clear a
   newer hold or trigger its recovery. Without the pending hold the next native
   time callback republishes the pre-seek clock and the bar travels target → old
@@ -199,22 +212,26 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   unexposed fields from the latest observed settings; the shared store's
   asynchronous startup/default-state semantics remain unchanged. These controls
   do not modify offline VLC's saved plan or an already prepared player.
-- Online tvOS playback reuses the Apple-family AVPlayer controller
-  (`AppleAVPlayerController`, `appleMain`) behind the shared `PlayerController`
+- Online tvOS playback resolves AVPlayer or VLCKit through the shared backend
+  policy and uses the Apple-family controller behind `PlayerController`
   contract; `TvPlaybackSessionPresenter` (shared-tvos) owns plan -> prepare ->
   play, executes `PlaybackSessionRecoveryPolicy` decisions (including the
   one-shot runtime network retry and typed activation fallbacks), owns
   transcode-seek restart, and retains the [ordered reporting contract](playback-runtime.md#progress-reporting).
-- `TvPlaybackSessionPresenter.state` retains every raw internal position and
-  buffer update for reporting, segment/up-next decisions, and other Kotlin
-  consumers. Its Swift watch projection suppresses only changes limited to
-  those two clock fields. Any semantic boundary still emits the complete
-  current state, including the latest position and buffer values.
-- Online playback uses `AVPlayerViewController`. Its transport drives AVPlayer
+- `TvPlaybackSessionPresenter` keeps native position and buffer samples for
+  reporting and recovery. Its outward state displays the requested position
+  during a replacement-seek hold. The Swift watch projection suppresses changes
+  limited to clock fields; semantic boundaries emit the complete current state.
+- AVPlayer playback uses `AVPlayerViewController`. Its transport drives AVPlayer
   directly. The native host forwards explicit rate-change notifications through
-  the current player/item/plan identity to update controller play intent without
+  the current player/item/plan identity and a captured transport epoch to update
+  controller play intent without
   repeating the native command. System interruption/background reasons are
-  excluded; unchanged intent is a no-op. An explicit pause publishes `Paused`
+  excluded; unchanged intent is a no-op. Internal transport changes advance the
+  epoch before native commands, rejecting queued notifications from the old
+  observer. During replacement-seek loading, AVKit interaction is blocked while
+  the retained host and spinner remain visible; the physical Play/Pause command
+  updates durable intent, which also drives the transport label. An explicit pause publishes `Paused`
   and preserves it through startup or stalls until play is requested again.
   The controller retains readiness/stall recovery for active play intent and
   pause-qualified seek completion. Free scrubbing remains disabled
@@ -287,7 +304,11 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   play/pause, seek, progress and supported controls over the retained drawable.
 - Advanced controls expose confirmed speed, supported text subtitle style,
   AVKit surface sizing, and sanitized diagnostics. Timing and VLC surface sizing
-  are unavailable. VLC keeps `appliesSubtitleStyle=false`, so live styling is unavailable there. Local
+  are unavailable. Apple VLC timing and sizing are unimplemented adapter
+  integrations: VLCKit exposes native delay and sizing APIs, so these are not
+  native API limitations. Its live font-scale API alone does not establish the
+  full shared text-style contract; `appliesSubtitleStyle=false` remains truthful.
+  Local
   subtitle selection carries asset identity through detail and online playback;
   missing/purged files fail nonfatally without remote Encode fallback.
 - Custom trickplay scrubber thumbnails remain deferred; online transcodes retain
@@ -322,8 +343,12 @@ tvOS uses native SwiftUI player hosts over shared Kotlin presenters.
 `TvPlaybackSessionPresenter` resolves the same typed policy, keeps player
 choices session-only, and consumes the same session-recovery and Auto-recovery
 kernels as the Compose player. The
-AVPlayerViewController host passes a
-ready-for-display observation through the narrow controller bridge. SwiftUI
+AVPlayerViewController host qualifies layer availability and ready-for-display
+observations against player, item, plan and native prepare identity before
+changing observer state. An observed layer enables reliable first-output health
+evidence; availability alone does not mean a frame was presented. Missing or
+retired layers remain unavailable. The transport callback epoch is separate.
+SwiftUI
 renders persistent dismissible actions above the AVKit controls without
 rebuilding transport menus on playback ticks or stealing Siri Remote focus;
 the presenter controls any replan. Simulator success is not Apple TV hardware
@@ -337,12 +362,18 @@ reports nothing and leaves any late candidate to startup ownership for one
 release; a close after installation retains final reporting settlement and one
 native release.
 
-Online sessions remain AVPlayer-only. `TvOfflinePlaybackPresenter` loads the
+Online sessions resolve the intended audio and source before concrete backend
+selection, then use that backend for default quality and every planning request.
+Playback Controls exposes a session-only Player menu for available AVPlayer/VLC
+choices. Switching retains the old owner through candidate/planning validation,
+then transfers native host, reporting and health ownership under the installation
+guard; see [backend switching](playback-policy.md).
+`TvOfflinePlaybackPresenter` loads the
 account-qualified local download and shared `buildOfflinePlaybackPlan`, requires
 VLC, and updates local progress without online planning or reporting. The
 MainActor native model watches exactly one presenter and mounts the host for its
-installed backend: AVKit online, or a controller-owned VLC drawable with native
-transport offline. The Apple engine owns leases and native teardown; Swift never
+installed backend: AVKit for AVPlayer, or a controller-owned VLC drawable with
+native transport for online and offline VLC. The Apple engine owns leases and native teardown; Swift never
 resolves artifact paths. Queue/countdown and native panel behavior are owned by
 [native tvOS playback](#tvos-native-player) and
 [ui.md](tvos-ui.md#native-tvos-screens).
@@ -357,15 +388,16 @@ resolves artifact paths. Queue/countdown and native panel behavior are owned by
   the installed host and remote controls; sticky fatal state remains reserved
   for failures that cannot preserve healthy playback.
 
-- **Native tvOS uses AVKit online and shares VLC offline.** Cause-qualified native
-  transport preserves pause/readiness. AVKit owns online menus/chapters; VLC
-  consumes trusted iOS-format offline packages through a retained drawable.
-  Timing and VLC sizing remain unavailable, and simulator builds prove no native
-  notification, decoding, focus, or presentation behavior.
+- **Native tvOS shares policy while retaining engine-specific hosts.** Qualified
+  transport preserves pause/readiness. AVKit owns its native transport, while
+  VLC uses the retained drawable and project controls for online streams and
+  trusted offline packages. Both use the shared speed choices, including 0.75×.
+  Timing and VLC sizing remain open adapter gaps; simulator builds prove no
+  native notification, decoding, focus, or presentation behavior.
 
 - **iOS transition and PiP evidence stays native and identity-bound.** Target
-  arrival alone cannot prove fresh video, so bounded transition evidence also
-  requires later clock and displayed-picture progress and rejects stale
-  generations. VLCKit's public PiP protocols retain engine ownership; private
+  arrival alone cannot prove fresh video. Transport settlement releases the UI
+  hold independently, while presentation evidence still requires later clock
+  and displayed-picture progress and rejects stale generations. VLCKit's public PiP protocols retain engine ownership; private
   traversal or a parallel controller would duplicate it. The cumulative native
   loss total cannot establish an output-only loss count.

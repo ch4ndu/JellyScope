@@ -28,6 +28,7 @@ enum class TvPlaybackNoticeKind {
 
 /** The user change a [TvPlaybackNoticeKind.ChangeRejected] notice reports. */
 enum class TvPlaybackChangeOperation {
+    Backend,
     Quality,
     Audio,
     Subtitle,
@@ -46,7 +47,12 @@ data class TvPlaybackNotice(
 data class TvPlaybackUiState(
     val playerInstalled: Boolean = false,
     val playerIdentity: Long = 0L,
+    val hostTransportEpoch: Long = 0L,
+    val pendingReplacementSeek: Boolean = false,
+    val desiredPlayWhenReady: Boolean = true,
     val backend: PlayerBackend = PlayerBackend.Auto,
+    val backendChoices: List<PlayerBackend> = emptyList(),
+    val backendSwitchPending: Boolean = false,
     val phase: TvPlaybackPhase = TvPlaybackPhase.Loading,
     val status: PlaybackStatus = PlaybackStatus.Idle,
     val positionMs: Long = 0L,

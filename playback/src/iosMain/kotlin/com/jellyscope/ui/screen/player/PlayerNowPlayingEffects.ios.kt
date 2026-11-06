@@ -47,6 +47,7 @@ actual fun PlayerNowPlayingEffects(
         remember(controller) {
             IosNowPlayingManager(
                 currentPositionMs = { controller.playbackState.value.positionMs },
+                currentDurationMs = { controller.playbackState.value.durationMs },
                 onPlay = { currentOnPlay.value() },
                 onPause = { currentOnPause.value() },
                 onToggle = { currentOnToggle.value() },
@@ -81,6 +82,7 @@ actual fun PlayerNowPlayingEffects(
  */
 private class IosNowPlayingManager(
     private val currentPositionMs: () -> Long,
+    private val currentDurationMs: () -> Long?,
     private val onPlay: () -> Unit,
     private val onPause: () -> Unit,
     private val onToggle: () -> Unit,
@@ -113,23 +115,29 @@ private class IosNowPlayingManager(
             listOf(NSNumber.numberWithDouble(NOW_PLAYING_SKIP_INTERVAL_SECONDS))
         registerCommandWithEvent(commandCenter.skipForwardCommand) { event ->
             val intervalMs = event.skipIntervalMs() ?: (NOW_PLAYING_SKIP_INTERVAL_SECONDS * MS_PER_SECOND).toLong()
-            onSeekTo(currentPositionMs() + intervalMs)
+            seekToBounded(currentPositionMs() + intervalMs)
             MPRemoteCommandHandlerStatusSuccess
         }
         commandCenter.skipBackwardCommand.preferredIntervals =
             listOf(NSNumber.numberWithDouble(NOW_PLAYING_SKIP_INTERVAL_SECONDS))
         registerCommandWithEvent(commandCenter.skipBackwardCommand) { event ->
             val intervalMs = event.skipIntervalMs() ?: (NOW_PLAYING_SKIP_INTERVAL_SECONDS * MS_PER_SECOND).toLong()
-            onSeekTo((currentPositionMs() - intervalMs).coerceAtLeast(0L))
+            seekToBounded(currentPositionMs() - intervalMs)
             MPRemoteCommandHandlerStatusSuccess
         }
         registerCommandWithEvent(commandCenter.changePlaybackPositionCommand) { event ->
             val positionEvent = event as? MPChangePlaybackPositionCommandEvent
             if (positionEvent != null) {
-                onSeekTo((positionEvent.positionTime * MS_PER_SECOND).toLong().coerceAtLeast(0L))
+                seekToBounded((positionEvent.positionTime * MS_PER_SECOND).toLong())
             }
             MPRemoteCommandHandlerStatusSuccess
         }
+    }
+
+    private fun seekToBounded(positionMs: Long) {
+        val target = positionMs.coerceAtLeast(0L)
+        val duration = currentDurationMs()?.takeIf { it > 0L }
+        onSeekTo(duration?.let { target.coerceAtMost(it) } ?: target)
     }
 
     fun update(

@@ -4,10 +4,14 @@ package com.jellyscope.core.playback
 
 import com.jellyscope.core.domain.playback.EmbeddedAudioSelection
 import com.jellyscope.core.domain.playback.EmbeddedSubtitleSelection
+import com.jellyscope.core.domain.playback.LocalSubtitleKind
+import com.jellyscope.core.domain.playback.PlaybackPlan
+import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
+import com.jellyscope.core.domain.playback.positionForRetry
 
 internal sealed interface RetrySubtitleIntent {
-    /** No distinct Off state exists; preparing the plan owns subtitle restoration. */
+    /** No local selection was requested; preparing the plan owns restoration. */
     data object Unspecified : RetrySubtitleIntent
 
     /** The controller already distinguishes an explicit in-player Off request. */
@@ -51,3 +55,21 @@ internal fun retrySelectionDecision(
                 RetrySelectionDecision.RestorePlan(audioSelection)
             }
     }
+
+/** Published position is absolute, including when the retained plan uses a transcode offset. */
+internal fun PlaybackPlan.snapshotForRetry(state: PlaybackState): PlaybackPlan =
+    copy(
+        startPositionMs = state.positionForRetry(),
+        playbackSpeed = state.playbackSpeed,
+        subtitleStyle = state.subtitleStyle,
+    )
+
+/** Local native intent does not change the server's subtitle delivery policy. */
+internal fun PlaybackPlan.withLocalSubtitleTarget(target: SubtitleActivationTarget?): PlaybackPlan =
+    copy(
+        subtitleActivationTarget = target,
+        subtitleAsset =
+            subtitleAsset.takeIf {
+                subtitleActivationTarget == target && target?.kind == LocalSubtitleKind.ExternalText
+            },
+    )

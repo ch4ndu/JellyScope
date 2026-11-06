@@ -304,9 +304,9 @@ val tvosPresentationModule =
                 initialSubtitleAssetId = request.subtitleAssetId,
                 getLocalSubtitleAsset = get(),
                 observeLocalSubtitleAssets = get(),
-                playerControllerFactory = {
+                playerControllerFactory = { backend ->
                     get<PlayerController> {
-                        parametersOf(request.session, PlayerBackend.AVPlayer, false)
+                        parametersOf(request.session, backend, false)
                     }
                 },
                 playbackInfoPlanner = get(),
@@ -327,7 +327,7 @@ val tvosPresentationModule =
                 dispatchers = get(),
                 playbackDiagnosticsContext = get<PlaybackDiagnosticsContext>(),
                 deviceProfileProvider = get<DeviceProfileProvider>(),
-                playbackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Advisory,
+                playbackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Actionable,
             )
         }
     }

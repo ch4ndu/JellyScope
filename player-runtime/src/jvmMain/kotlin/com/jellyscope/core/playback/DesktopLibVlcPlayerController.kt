@@ -11,6 +11,7 @@ import com.jellyscope.core.domain.playback.DroppedFrameMeasurement
 import com.jellyscope.core.domain.playback.EmbeddedAudioSelection
 import com.jellyscope.core.domain.playback.EmbeddedSubtitleSelection
 import com.jellyscope.core.domain.playback.EmbeddedTrackKind
+import com.jellyscope.core.domain.playback.LocalSubtitleKind
 import com.jellyscope.core.domain.playback.NativeTrackCandidate
 import com.jellyscope.core.domain.playback.NativeTrackMappingReason
 import com.jellyscope.core.domain.playback.NativeTrackMappingResult
@@ -160,8 +161,8 @@ class DesktopLibVlcPlayerController private constructor(
     override val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
     private val _runtimeDiagnostics = MutableStateFlow(PlaybackRuntimeDiagnostics.EMPTY)
     override val runtimeDiagnostics: StateFlow<PlaybackRuntimeDiagnostics> = _runtimeDiagnostics.asStateFlow()
-    private val _videoPresentationReady = MutableStateFlow(false)
-    override val videoPresentationReady: StateFlow<Boolean> = _videoPresentationReady.asStateFlow()
+    private val _videoSurfaceVisible = MutableStateFlow(false)
+    override val videoSurfaceVisible: StateFlow<Boolean> = _videoSurfaceVisible.asStateFlow()
     private val _volumeState = MutableStateFlow(volumeStore?.restoredState ?: PlayerVolumeState())
     override val volumeState: StateFlow<PlayerVolumeState> = _volumeState.asStateFlow()
     override val platformPlayer: Any?
@@ -241,6 +242,11 @@ class DesktopLibVlcPlayerController private constructor(
     private var pendingStartPositionMs: Long? = null
 
     @Volatile
+    private var startupAdmissionRevision = 0L
+    private var startupPlayingSinceNanos: Long? = null
+    private var startupTargetArrived = false
+    private var startupPreviousClockMs: Long? = null
+    private var firstPresentationPublished = false
     private var startupTargetPositionMs = 0L
 
     @Volatile
@@ -365,10 +371,15 @@ class DesktopLibVlcPlayerController private constructor(
         nativePlayingGeneration = null
         pendingStartPositionMs = plan.resumeSeekPositionMs()
         startupTargetPositionMs = plan.clampedStartPositionMs()
+        startupAdmissionRevision += 1L
+        startupPlayingSinceNanos = null
+        startupTargetArrived = false
+        startupPreviousClockMs = null
+        firstPresentationPublished = false
         startupDisplayedPicturesBaseline = null
         displayedPictureCounterUnavailable = false
         startupAudioSuppressed = true
-        _videoPresentationReady.value = false
+        _videoSurfaceVisible.value = false
         pendingUserSeekPositionMs = null
         preparedGeneration = null
         pendingAudioSelection = null
@@ -449,6 +460,12 @@ class DesktopLibVlcPlayerController private constructor(
 
     override fun selectEmbeddedSubtitle(selection: EmbeddedSubtitleSelection?) {
         if (released.get()) return
+        lastPlan?.let { plan ->
+            if (plan.subtitleActivationTarget != selection?.target || selection?.target?.kind != LocalSubtitleKind.ExternalText) {
+                lastSubtitleAsset = null
+            }
+            lastPlan = plan.withLocalSubtitleTarget(selection?.target)
+        }
         lastRequestedSubtitleSelection = selection
         lastRequestedSubtitleSelectionWasSet = true
         pendingSubtitleSelection = selection
@@ -485,7 +502,12 @@ class DesktopLibVlcPlayerController private constructor(
         val next = _volumeState.value.copy(muted = muted)
         _volumeState.value = next
         volumeStore?.submit(next)
-        nativeScope.launch { engine?.setMuted(muted || startupAudioSuppressed) }
+        val expectedGeneration = generation
+        nativeScope.launch {
+            if (isCurrent(expectedGeneration) && _playbackState.value.status !in TERMINAL_STATUSES) {
+                engine?.setMuted(_volumeState.value.muted || startupAudioSuppressed)
+            }
+        }
     }
 
     override fun play() {
@@ -522,6 +544,14 @@ class DesktopLibVlcPlayerController private constructor(
         startSeekJob?.cancel()
         startSeekJob = null
         pendingStartPositionMs = null
+        if (!_videoSurfaceVisible.value) {
+            startupAdmissionRevision += 1L
+            startupTargetPositionMs = target
+            startupTargetArrived = false
+            startupPreviousClockMs = null
+            startupPlayingSinceNanos = null
+            startupDisplayedPicturesBaseline = null
+        }
         pendingUserSeekPositionMs = target
         userSeekTimeoutJob?.cancel()
         userSeekTimeoutJob =
@@ -552,10 +582,15 @@ class DesktopLibVlcPlayerController private constructor(
         nativePlayingGeneration = null
         pendingStartPositionMs = null
         startupTargetPositionMs = 0L
+        startupAdmissionRevision += 1L
+        startupPlayingSinceNanos = null
+        startupTargetArrived = false
+        startupPreviousClockMs = null
+        firstPresentationPublished = false
         startupDisplayedPicturesBaseline = null
         displayedPictureCounterUnavailable = false
         startupAudioSuppressed = false
-        _videoPresentationReady.value = false
+        _videoSurfaceVisible.value = false
         pendingUserSeekPositionMs = null
         pollJob?.cancel()
         startSeekJob?.cancel()
@@ -585,7 +620,7 @@ class DesktopLibVlcPlayerController private constructor(
 
     override fun retry() {
         if (released.get()) return
-        val plan = lastPlan ?: return
+        val plan = lastPlan?.snapshotForRetry(_playbackState.value) ?: return
         val audioSelection = lastRequestedAudioSelection
         val subtitleSelection = lastRequestedSubtitleSelection
         val subtitleSelectionWasSet = lastRequestedSubtitleSelectionWasSet
@@ -635,10 +670,15 @@ class DesktopLibVlcPlayerController private constructor(
         trackSelectionJob = null
         pendingStartPositionMs = null
         startupTargetPositionMs = 0L
+        startupAdmissionRevision += 1L
+        startupPlayingSinceNanos = null
+        startupTargetArrived = false
+        startupPreviousClockMs = null
+        firstPresentationPublished = false
         startupDisplayedPicturesBaseline = null
         displayedPictureCounterUnavailable = false
         startupAudioSuppressed = false
-        _videoPresentationReady.value = false
+        _videoSurfaceVisible.value = false
         pendingUserSeekPositionMs = null
         userSeekTimeoutJob?.cancel()
         userSeekTimeoutJob = null
@@ -920,11 +960,17 @@ class DesktopLibVlcPlayerController private constructor(
             expectedSurface = surface ?: return
         }
         nativeScope.launch {
-            if (!isCurrent(expectedGeneration) || surface !== expectedSurface) {
-                playIssued = false
+            if (
+                !isCurrent(expectedGeneration) ||
+                surface !== expectedSurface ||
+                !playIntent ||
+                _playbackState.value.status in TERMINAL_STATUSES
+            ) {
+                if (isCurrent(expectedGeneration) && surface === expectedSurface) playIssued = false
                 return@launch
             }
             val accepted = engine?.play() == true
+            if (!isCurrent(expectedGeneration) || surface !== expectedSurface) return@launch
             if (!accepted) {
                 playIssued = false
                 failPlayback(
@@ -954,6 +1000,7 @@ class DesktopLibVlcPlayerController private constructor(
                     ) {
                         return@launch
                     }
+                    val admissionRevision = startupAdmissionRevision
                     val result =
                         withContext(nativeDispatcher) {
                             val active = engine ?: return@withContext StartPositionAttempt.notReady()
@@ -975,8 +1022,18 @@ class DesktopLibVlcPlayerController private constructor(
                                 )
                             }
                         }
+                    if (!isCurrent(expectedGeneration) || admissionRevision != startupAdmissionRevision) return@launch
                     if (result.result != StartPositionResult.NotReady) {
-                        startupDisplayedPicturesBaseline = result.snapshot?.displayedPictures
+                        if (!isCurrent(expectedGeneration)) return@launch
+                        if (result.result == StartPositionResult.FallbackSeekApplied) {
+                            startupAdmissionRevision += 1L
+                            startupTargetArrived = false
+                            startupPreviousClockMs = null
+                            startupPlayingSinceNanos = null
+                            startupDisplayedPicturesBaseline = null
+                        } else {
+                            startupDisplayedPicturesBaseline = result.snapshot?.displayedPictures
+                        }
                         pendingStartPositionMs = null
                         startSeekJob = null
                         endOfStream.ignoreNextSample()
@@ -988,7 +1045,7 @@ class DesktopLibVlcPlayerController private constructor(
                                 positionMs = target,
                             ),
                         )
-                        result.snapshot?.let { snapshot ->
+                        result.snapshot?.takeIf { result.result == StartPositionResult.Confirmed }?.let { snapshot ->
                             publishVideoPresentationIfReady(expectedGeneration, snapshot)
                         }
                         return@launch
@@ -1234,7 +1291,7 @@ class DesktopLibVlcPlayerController private constructor(
                     is DesktopVlcPublication.Native ->
                         handleEvent(publication.expectedGeneration, publication.event)
                     is DesktopVlcPublication.Poll ->
-                        publishSnapshot(publication.expectedGeneration, publication.snapshot)
+                        publishSnapshot(publication.expectedGeneration, publication.snapshot, publication.admissionRevision)
                 }
             }
         }
@@ -1246,6 +1303,7 @@ class DesktopLibVlcPlayerController private constructor(
             stateScope.launch {
                 while (isCurrent(expectedGeneration)) {
                     delay(POLL_INTERVAL_MS)
+                    val admissionRevision = startupAdmissionRevision
                     val snapshot =
                         try {
                             withContext(nativeDispatcher) { engine?.snapshot() }
@@ -1258,7 +1316,7 @@ class DesktopLibVlcPlayerController private constructor(
                         resetDroppedFrameBaseline()
                         continue
                     }
-                    publications.trySend(DesktopVlcPublication.Poll(expectedGeneration, snapshot))
+                    publications.trySend(DesktopVlcPublication.Poll(expectedGeneration, snapshot, admissionRevision))
                 }
             }
     }
@@ -1266,8 +1324,10 @@ class DesktopLibVlcPlayerController private constructor(
     private fun publishSnapshot(
         expectedGeneration: Long,
         snapshot: DesktopVlcSnapshot,
+        admissionRevision: Long,
     ) {
-        if (!isCurrent(expectedGeneration)) return
+        if (!isCurrent(expectedGeneration) || _playbackState.value.status in TERMINAL_STATUSES) return
+        if (admissionRevision != startupAdmissionRevision) return
         publishNativeState(expectedGeneration, snapshot.nativeState)
         publishVideoPresentationIfReady(expectedGeneration, snapshot)
         val currentStatus = _playbackState.value.status
@@ -1346,6 +1406,7 @@ class DesktopLibVlcPlayerController private constructor(
         expectedGeneration: Long,
         state: DesktopVlcNativeState,
     ) {
+        if (state != DesktopVlcNativeState.Playing) startupPreviousClockMs = null
         when (state) {
             DesktopVlcNativeState.Opening -> {
                 if (playIntent) publishStatus(PlaybackStatus.Loading)
@@ -1358,7 +1419,7 @@ class DesktopLibVlcPlayerController private constructor(
                 val firstPlayingSample = nativePlayingGeneration != expectedGeneration
                 nativePlayingGeneration = expectedGeneration
                 publishStatus(
-                    if (_videoPresentationReady.value) {
+                    if (_videoSurfaceVisible.value) {
                         PlaybackStatus.Playing
                     } else {
                         PlaybackStatus.Buffering
@@ -1399,7 +1460,7 @@ class DesktopLibVlcPlayerController private constructor(
                 if (!playIntent) return
                 nativePlayingGeneration = expectedGeneration
                 publishStatus(
-                    if (_videoPresentationReady.value) {
+                    if (_videoSurfaceVisible.value) {
                         PlaybackStatus.Playing
                     } else {
                         PlaybackStatus.Buffering
@@ -1481,45 +1542,77 @@ class DesktopLibVlcPlayerController private constructor(
         expectedGeneration: Long,
         snapshot: DesktopVlcSnapshot,
     ) {
-        if (!isCurrent(expectedGeneration) || _videoPresentationReady.value) return
-        val atStartupTarget =
+        if (!isCurrent(expectedGeneration) || _playbackState.value.status in TERMINAL_STATUSES) return
+        val nativePlaying = snapshot.nativeState == DesktopVlcNativeState.Playing
+        val previousClock = startupPreviousClockMs
+        startupPreviousClockMs = if (nativePlaying) snapshot.positionMs else null
+        if (nativePlaying && startupPlayingSinceNanos == null) startupPlayingSinceNanos = monotonicTimeNanos()
+        if (
             startupTargetPositionMs == 0L ||
-                abs(snapshot.positionMs - startupTargetPositionMs) <=
-                START_POSITION_CONFIRM_TOLERANCE_MS
+            abs(snapshot.positionMs - startupTargetPositionMs) <= START_POSITION_CONFIRM_TOLERANCE_MS
+        ) {
+            startupTargetArrived = true
+        }
         val displayedPictures = snapshot.displayedPictures
-        if (displayedPictures == null) {
-            displayedPictureCounterUnavailable = true
-            return
-        }
+        if (displayedPictures == null) displayedPictureCounterUnavailable = true
         val baseline = startupDisplayedPicturesBaseline
-        if (baseline == null || displayedPictures < baseline) {
+        if (displayedPictures != null && (baseline == null || displayedPictures < baseline)) {
             startupDisplayedPicturesBaseline = displayedPictures
+        }
+        val pictureConfirmed =
+            startupTargetArrived &&
+                displayedPictures != null &&
+                baseline != null &&
+                displayedPictures - baseline >= MIN_STARTUP_DISPLAYED_PICTURE_ADVANCE
+        if (pictureConfirmed && !firstPresentationPublished) {
+            firstPresentationPublished = true
+            videoOutputObservationsChannel.trySend(
+                VideoOutputObservation(
+                    generation = expectedGeneration,
+                    presented = true,
+                    observedAtMs = monotonicTimeNanos() / 1_000_000L,
+                ),
+            )
+            emitDesktopVlcProbe(
+                DesktopVlcProbeRecord(
+                    action = DesktopVlcProbeAction.PRESENTATION_READY,
+                    positionMs = snapshot.positionMs,
+                    count = displayedPictures.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+                ),
+            )
+        }
+        if (_videoSurfaceVisible.value) return
+        val deadlineExpired =
+            startupPlayingSinceNanos?.let {
+                monotonicTimeNanos() - it >= STARTUP_ADMISSION_TIMEOUT_NANOS
+            } == true
+        if (deadlineExpired && nativePlaying && !startupTargetArrived) {
+            _playbackState.update { current -> current.copy(positionMs = startupTargetPositionMs) }
+            failPlayback(expectedGeneration, PlaybackError.Unknown, DesktopVlcFailureStage.StartupAdmission)
+            nativeScope.launch {
+                if (isCurrent(expectedGeneration)) engine?.pause()
+            }
             return
         }
-        val hasFreshDisplayedPicture =
-            displayedPictures - baseline >= MIN_STARTUP_DISPLAYED_PICTURE_ADVANCE
-        if (!atStartupTarget || !hasFreshDisplayedPicture) return
-
-        _videoPresentationReady.value = true
-        videoOutputObservationsChannel.trySend(
-            VideoOutputObservation(
-                generation = expectedGeneration,
-                presented = true,
-                observedAtMs = System.nanoTime() / 1_000_000L,
-            ),
-        )
+        val transportAdmitted =
+            deadlineExpired &&
+                nativePlaying &&
+                startupTargetArrived &&
+                previousClock != null &&
+                snapshot.positionMs > previousClock
+        if (!pictureConfirmed && !transportAdmitted) return
+        _videoSurfaceVisible.value = true
         startupAudioSuppressed = false
-        if (playIntent) publishStatus(PlaybackStatus.Playing)
+        if (playIntent && nativePlaying) publishStatus(PlaybackStatus.Playing)
         nativeScope.launch {
-            engine?.setMuted(_volumeState.value.muted)
+            if (
+                isCurrent(expectedGeneration) &&
+                !startupAudioSuppressed &&
+                _playbackState.value.status !in TERMINAL_STATUSES
+            ) {
+                engine?.setMuted(_volumeState.value.muted)
+            }
         }
-        emitDesktopVlcProbe(
-            DesktopVlcProbeRecord(
-                action = DesktopVlcProbeAction.PRESENTATION_READY,
-                positionMs = snapshot.positionMs,
-                count = displayedPictures.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
-            ),
-        )
     }
 
     private fun publishSubtitleUnavailable(
@@ -1644,6 +1737,7 @@ private sealed interface DesktopVlcPublication {
     data class Poll(
         val expectedGeneration: Long,
         val snapshot: DesktopVlcSnapshot,
+        val admissionRevision: Long,
     ) : DesktopVlcPublication
 }
 
@@ -1653,6 +1747,7 @@ private enum class DesktopVlcFailureStage {
     Authorization,
     Prepare,
     PlayRejected,
+    StartupAdmission,
     NativeEvent,
     NativeState,
 }
@@ -1662,6 +1757,7 @@ private const val START_SEEK_RETRY_MS = 250L
 private const val START_SEEK_ATTEMPTS = 8
 private const val START_POSITION_CONFIRM_TOLERANCE_MS = 1_500L
 private const val MIN_STARTUP_DISPLAYED_PICTURE_ADVANCE = 2L
+private const val STARTUP_ADMISSION_TIMEOUT_NANOS = 20_000_000_000L
 
 private enum class StartPositionResult {
     NotReady,

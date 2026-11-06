@@ -60,9 +60,9 @@ general settings default + active VLC default + current-playback choice
    any item override are known, constructs only the resolved backend on work
    before Main installation; direct/test injection is concrete unless explicitly
    marked pending. Compose retains release-first replacement and its existing
-   ExoPlayer fallback; tvOS performs one delayed AVPlayer
-   construction/installation after `start()` on work and before reporting,
-   observation, planning, or readiness publication. An arriving current Compose
+   ExoPlayer fallback. tvOS resolves launch preferences, source and intended
+   audio through the same backend policy, then constructs the concrete Apple
+   backend on work before Main installation, reporting and planning. An arriving current Compose
    launch waits for an earlier installer, then rechecks generation and item
    authority before it can release or construct. A VLC-family
    default is a normal Fixed policy and therefore applies to the first request.
@@ -98,15 +98,15 @@ Controllers own native verbs and event wiring; they do **not** own the state
 decisions those verbs implement. Where a decision is identical across backends it
 lives in one tested `commonMain` kernel and every controller renders that one value.
 
-`RetrySelectionPolicy` follows that boundary for same-plan Retry. Each controller
-classifies only the state it already owns as subtitle unspecified, explicit Off, or
-a concrete selection before its existing prepare path. The policy retains audio,
-accepts a concrete subtitle only when its complete activation target still matches
-the plan, and returns a tagged restore-plan, reassert-Off, or select decision. Only
-Android mpv, Android LibVLC, and desktop LibVLC classify explicit Off; Media3,
-AVPlayer, VLCKit, and desktop mpv keep ambiguous null as unspecified. Controllers
-still own subtitle assets, position/timing/speed retention, play intent, engine
-reinitialization, released checks, native command ordering, and diagnostics.
+`RetrySelectionPolicy` owns the same-session Retry snapshot: current absolute
+position, speed, and subtitle style, with position bounded by a known positive
+duration. Every adapter records admitted local subtitle intent at its setter,
+including explicit Off, and retains a remote asset only for the same complete
+external target. This local intent does not rewrite server subtitle delivery.
+The selection decision retains audio and validates the complete subtitle target
+before restoration. Controllers own play intent, native restart and timing
+application, offline leases, lifecycle guards, and diagnostics; the
+[runtime contract](playback-runtime.md#error-and-audio-recovery) describes their execution.
 
 The initial audio-activation gate is the canonical example. `initialAudioActivationFor(plan)`
 returns the whole table: no audio target is `None`; `DirectPlay` awaits native track
@@ -126,8 +126,8 @@ Two renderings of that one decision exist, and the difference is deliberate:
   also guarded on having no pending user audio selection, so a choice made before the
   transition wins over the plan's gate.
 
-AVPlayer's existing held gate guards every native resume entry: public Play,
-poll recovery and seek completion. Pending or Unavailable activation cannot
+The existing held gates in AVPlayer, Media3, and desktop mpv guard native resume
+entries, including explicit Play and each backend's recovery callbacks. Pending or Unavailable activation cannot
 clear it; the matching activation callback releases it, while shared recovery
 or explicit failure resolves unavailable audio. VLCKit's start-before-discovery
 behavior is unchanged.

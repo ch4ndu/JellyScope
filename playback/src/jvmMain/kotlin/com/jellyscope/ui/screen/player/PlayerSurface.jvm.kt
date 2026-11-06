@@ -169,7 +169,7 @@ private fun NativeLibVlcPlayerSurface(
     output: DesktopVlcVideoOutput,
     modifier: Modifier,
 ) {
-    val videoPresentationReady by output.videoPresentationReady.collectAsState()
+    val videoSurfaceVisible by output.videoSurfaceVisible.collectAsState()
     val host =
         remember(output) {
             MacLibVlcNativeHost(
@@ -179,8 +179,8 @@ private fun NativeLibVlcPlayerSurface(
                 requestDetach = output::detachVideoSurface,
             )
         }
-    LaunchedEffect(host, videoPresentationReady) {
-        host.setVideoVisible(videoPresentationReady)
+    LaunchedEffect(host, videoSurfaceVisible) {
+        host.setVideoVisible(videoSurfaceVisible)
     }
     NativeSurfaceAnchor(modifier = modifier) { widthPt, heightPt ->
         SwingPanel(

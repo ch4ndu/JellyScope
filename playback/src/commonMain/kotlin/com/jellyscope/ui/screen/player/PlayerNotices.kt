@@ -68,11 +68,14 @@ import com.jellyscope.ui.generated.resources.player_action_try_higher
 import com.jellyscope.ui.generated.resources.player_action_try_original
 import com.jellyscope.ui.generated.resources.player_audio_unavailable
 import com.jellyscope.ui.generated.resources.player_backend_fallback
+import com.jellyscope.ui.generated.resources.player_change_audio_rejected
 import com.jellyscope.ui.generated.resources.player_change_backend_rejected
 import com.jellyscope.ui.generated.resources.player_change_quality_rejected
 import com.jellyscope.ui.generated.resources.player_change_reason_network
 import com.jellyscope.ui.generated.resources.player_change_reason_unknown
 import com.jellyscope.ui.generated.resources.player_change_reason_unsupported
+import com.jellyscope.ui.generated.resources.player_change_seek_rejected
+import com.jellyscope.ui.generated.resources.player_change_subtitle_rejected
 import com.jellyscope.ui.generated.resources.player_debug_overlay
 import com.jellyscope.ui.generated.resources.player_dismiss
 import com.jellyscope.ui.generated.resources.player_error
@@ -312,6 +315,9 @@ private fun playbackChangeMessage(notice: PlayerPlaybackChangeNotice): String {
         when (notice.operation) {
             PlayerPlaybackChangeOperation.Quality -> Res.string.player_change_quality_rejected
             PlayerPlaybackChangeOperation.Backend -> Res.string.player_change_backend_rejected
+            PlayerPlaybackChangeOperation.Audio -> Res.string.player_change_audio_rejected
+            PlayerPlaybackChangeOperation.Subtitle -> Res.string.player_change_subtitle_rejected
+            PlayerPlaybackChangeOperation.Seek -> Res.string.player_change_seek_rejected
         },
         reason,
     )

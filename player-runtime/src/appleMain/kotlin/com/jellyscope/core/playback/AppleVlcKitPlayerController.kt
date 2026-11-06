@@ -243,6 +243,7 @@ internal class AppleVlcKitPlayerController(
         private set
     private var pendingEmbeddedAudioSelection: EmbeddedAudioSelection? = null
     private var pendingEmbeddedSubtitleSelection: EmbeddedSubtitleSelection? = null
+    private var localSubtitleSelectionWasSet = false
     private var expectedSubtitleTarget: SubtitleActivationTarget? = null
     private var subtitleSelectionSequence = 0L
     private var externalSubtitleTrackIds = emptySet<String>()
@@ -329,6 +330,7 @@ internal class AppleVlcKitPlayerController(
         endOfStream.onPrepare(startPositionMs)
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
+        localSubtitleSelectionWasSet = false
         expectedSubtitleTarget = plan.subtitleActivationTarget
         subtitleSelectionSequence += 1L
         externalSubtitleTrackIds = emptySet()
@@ -457,6 +459,10 @@ internal class AppleVlcKitPlayerController(
     override fun selectEmbeddedSubtitle(selection: EmbeddedSubtitleSelection?) {
         if (released) return warnReleased(PlayerOperation.SelectEmbeddedSubtitle)
         subtitleSelectionSequence += 1L
+        localSubtitleSelectionWasSet = true
+        lastPlan?.let { plan ->
+            lastPlan = plan.withLocalSubtitleTarget(selection?.target)
+        }
         pendingEmbeddedSubtitleSelection = selection
         if (selection == null) {
             expectedSubtitleTarget = null
@@ -820,6 +826,7 @@ internal class AppleVlcKitPlayerController(
         endOfStream.onStop()
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
+        localSubtitleSelectionWasSet = false
         expectedSubtitleTarget = null
         audioActivationConfirmation.clear()
         subtitleActivationConfirmation.clear()
@@ -844,16 +851,18 @@ internal class AppleVlcKitPlayerController(
 
     override fun retry() {
         if (released) return warnReleased(PlayerOperation.Retry)
-        val plan = lastPlan ?: return
+        val plan = lastPlan?.snapshotForRetry(_playbackState.value) ?: return
         val audioSelection = pendingEmbeddedAudioSelection
         val subtitleSelection = pendingEmbeddedSubtitleSelection
         val selectionDecision =
             retrySelectionDecision(
                 audioSelection = audioSelection,
                 subtitleIntent =
-                    subtitleSelection
-                        ?.let(RetrySubtitleIntent::Selection)
-                        ?: RetrySubtitleIntent.Unspecified,
+                    when {
+                        !localSubtitleSelectionWasSet -> RetrySubtitleIntent.Unspecified
+                        subtitleSelection == null -> RetrySubtitleIntent.ExplicitOff
+                        else -> RetrySubtitleIntent.Selection(subtitleSelection)
+                    },
                 planSubtitleTarget = plan.subtitleActivationTarget,
             )
         val shouldPlay = playWhenReady
@@ -896,6 +905,7 @@ internal class AppleVlcKitPlayerController(
         interruptionIntent.reset()
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
+        localSubtitleSelectionWasSet = false
         expectedSubtitleTarget = null
         audioActivationConfirmation.clear()
         subtitleActivationConfirmation.clear()
@@ -1080,6 +1090,13 @@ internal class AppleVlcKitPlayerController(
     }
 
     private fun tryActivateSubtitle() {
+        if (localSubtitleSelectionWasSet && pendingEmbeddedSubtitleSelection == null && expectedSubtitleTarget == null) {
+            val nativePlayer = player ?: return
+            if (nativeTextTracks(nativePlayer).any { track -> track.selected }) {
+                nativePlayer.deselectAllTextTracks()
+            }
+            return
+        }
         val target = expectedSubtitleTarget ?: return
         if (!parsed) return
         val nativePlayer = player ?: return
@@ -1255,10 +1272,7 @@ internal class AppleVlcKitPlayerController(
             positionMs = nativePositionMs,
             playing = nativePlayer.playing,
             seekInFlight =
-                (
-                    activeTransitionDecision?.state == VlcKitPlaybackTransitionState.Pending
-                ) ||
-                    pendingInitialSeekMs != null,
+                activeTransitionDecision?.transportPending == true || pendingInitialSeekMs != null,
         )
         if (!playbackProgressedBeforeSample && endOfStream.playbackEverProgressed) {
             logPlaybackTransitionEvent("playback-progress-proven", nativePlayer)
@@ -1370,25 +1384,6 @@ internal class AppleVlcKitPlayerController(
                         nativeState = nativeState,
                     )
             }
-        // Health-only: once the clock has advanced at the target, a still-held public
-        // Buffering no longer hides native transport from playback health. Before that
-        // advance (seek, PiP dispatch, cold start) health keeps the held Buffering.
-        val healthStatusOverride =
-            if (
-                terminalDecision == null &&
-                status == PlaybackStatus.Buffering &&
-                activeTransitionDecision?.forceBuffering == true &&
-                playbackTransition.snapshot(currentGeneration)?.clockAdvanced == true
-            ) {
-                nativePlayer.resolvePlaybackStatus(
-                    previous = previousStatus,
-                    buffering = buffering,
-                    playIntent = playWhenReady,
-                    nativeState = nativeState,
-                )
-            } else {
-                null
-            }
         pictureInPictureSeekable.store(if (nativePlayer.seekable) 1L else 0L)
         val resolvedPosition =
             when {
@@ -1416,7 +1411,7 @@ internal class AppleVlcKitPlayerController(
                         else -> null
                     },
                 audioUnavailable = false,
-                healthStatusOverride = healthStatusOverride,
+                healthStatusOverride = null,
             )
         }
         surfaceOwner.invalidatePlaybackState()

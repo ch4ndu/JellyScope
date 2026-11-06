@@ -175,6 +175,7 @@ internal fun String.containsAny(vararg needles: String): Boolean = needles.any {
 internal const val POSITION_OBSERVER_INTERVAL_SECONDS = 0.5
 internal const val SEEK_TOLERANCE_SECONDS = 1.0
 internal const val SEEK_SETTLE_TOLERANCE_MS = 1_500L
+internal const val SEEK_TIMEOUT_MS = 10_000L
 internal const val STATE_POLL_INTERVAL_MS = 300L
 internal const val IDLE_STATE_POLL_INTERVAL_MS = 1_000L
 

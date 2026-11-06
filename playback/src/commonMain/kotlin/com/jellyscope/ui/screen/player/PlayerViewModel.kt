@@ -105,6 +105,7 @@ import com.jellyscope.core.domain.playback.SoftwarePlaybackProgressOutcome
 import com.jellyscope.core.domain.playback.SoftwarePlaybackRecoveryDecision
 import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.core.domain.playback.SubtitleActivationIdentity
+import com.jellyscope.core.domain.playback.SubtitleActivationState
 import com.jellyscope.core.domain.playback.SubtitleActivationTarget
 import com.jellyscope.core.domain.playback.SubtitleAsset
 import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
@@ -116,11 +117,13 @@ import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.core.domain.playback.SubtitleTrackOption
 import com.jellyscope.core.domain.playback.TrickplayInfo
 import com.jellyscope.core.domain.playback.audioOptions
+import com.jellyscope.core.domain.playback.canRejectPlaybackChange
 import com.jellyscope.core.domain.playback.currentSegment
 import com.jellyscope.core.domain.playback.defaultSubtitleStreamIndex
 import com.jellyscope.core.domain.playback.millisecondsToTicks
 import com.jellyscope.core.domain.playback.offlineControllerFallbackAllowed
 import com.jellyscope.core.domain.playback.playerQualityOptions
+import com.jellyscope.core.domain.playback.positionForRetry
 import com.jellyscope.core.domain.playback.preferredAudioStreamIndex
 import com.jellyscope.core.domain.playback.preferredSubtitleStreamIndex
 import com.jellyscope.core.domain.playback.qualityOptions
@@ -132,6 +135,7 @@ import com.jellyscope.core.domain.playback.subtitleOptions
 import com.jellyscope.core.domain.playback.thresholdClass
 import com.jellyscope.core.domain.playback.toBitrateConstraint
 import com.jellyscope.core.domain.playback.unambiguousAudioStreamIndexes
+import com.jellyscope.core.domain.playback.withReplacementSeekTarget
 import com.jellyscope.core.domain.usecase.GetChronologicalEpisodeQueueUseCase
 import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
 import com.jellyscope.core.domain.usecase.GetItemsByIdsUseCase
@@ -339,6 +343,22 @@ class PlayerViewModel(
     // The replan request generation and target of the Audio recovery request that actually launched.
     private var audioRecoveryRequestGeneration: Long? = null
     private var audioRecoveryRequestTarget: AudioActivationTarget? = null
+    private var replacementSeekTarget: Long? = null
+    private var queuedSeekTarget: Long? = null
+    private var replacementSeekStopPosition: Long? = null
+    private var userChangeDisplacedRecovery = false
+    private var displacedAudioRecovery: AudioActivationTarget? = null
+    private var displacedSubtitleRecovery: SubtitleActivationTarget? = null
+    private var installedReportingStopped = false
+
+    private data class TrackChangeProposal(
+        val operation: PlayerPlaybackChangeOperation,
+        val audioStreamIndex: Int?,
+        val subtitleStreamIndex: Int?,
+        val subtitleSelection: SubtitleSelectionIntent,
+        val localAsset: LocalSubtitleAsset?,
+    )
+
     private var desiredPlayWhenReady = true
     private var playbackIntentRevision = 0L
     private var requestedSubtitleStreamIndex: Int? = null
@@ -581,10 +601,24 @@ class PlayerViewModel(
 
     private fun reduce(change: PlayerChange) {
         _state.update { current -> reducePlayer(current, change) }
+        val failure = _state.value as? PlayerUiState.Error
+        if (failure != null && replacementSeekTarget != null) {
+            _playbackState.value =
+                playerController.playbackState.value
+                    .copy(status = PlaybackStatus.Failed, error = failure.error)
+                    .withReplacementSeekTarget(replacementSeekTarget)
+            playbackHealthCoordinator.resumeAfterInstallation(null)
+        }
     }
 
     private fun play() {
         if (_softwarePlaybackRecovery.value != null) return
+        if (replacementSeekTarget != null) {
+            desiredPlayWhenReady = true
+            playbackIntentRevision += 1L
+            publishContent()
+            return
+        }
         if (!canAcceptPlaybackStart()) return
         recoveryClosedByStop = false
         invalidateBackendSwitch()
@@ -599,6 +633,12 @@ class PlayerViewModel(
 
     private fun pause() {
         if (_softwarePlaybackRecovery.value != null) return
+        if (replacementSeekTarget != null) {
+            desiredPlayWhenReady = false
+            playbackIntentRevision += 1L
+            publishContent()
+            return
+        }
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         desiredPlayWhenReady = false
@@ -661,9 +701,23 @@ class PlayerViewModel(
 
     private fun seekTo(positionMs: Long) {
         if (_softwarePlaybackRecovery.value != null) return
-        if (controllerInstallInFlight || queueSwitchInFlight) return
-        invalidateBackendSwitch()
         val target = positionMs.coerceAtLeast(0L)
+        if (controllerInstallInFlight) {
+            if (replacementSeekTarget != null) {
+                queuedSeekTarget = target
+                replacementSeekTarget = target
+                publishContent()
+            }
+            return
+        }
+        if (queueSwitchInFlight) return
+        val wasHeld = replacementSeekTarget != null
+        if (wasHeld) {
+            replanJob?.cancel()
+            replanJob = null
+            replanRequestGeneration += 1L
+        }
+        invalidateBackendSwitch()
         excludeSoftwarePlaybackProgress()
         restartPlaybackHealthEvidence(PlaybackHealthExclusionReason.Seek)
         settleRetryReporting()
@@ -674,10 +728,20 @@ class PlayerViewModel(
             !isWithinTranscodedWindow(target, currentPlan)
         ) {
             // Restart when the target lies outside the server-produced HLS window.
-            replanAtPosition(target)
+            if (!wasHeld) replacementSeekStopPosition = playerController.playbackState.value.positionMs
+            replacementSeekTarget = target
+            playbackHealthCoordinator.suspendForInstallation()
+            playerController.pause()
+            publishContent()
+            replanAtPosition(target, userSeek = true)
             return
         }
+        replacementSeekTarget = null
+        replacementSeekStopPosition = null
         playerController.seekTo(target)
+        if (wasHeld && desiredPlayWhenReady) playerController.play()
+        if (wasHeld) playbackHealthCoordinator.resumeAfterInstallation(playerController.playbackState.value)
+        publishContent()
         playbackReportingCoordinator.progress(
             positionMs = target,
             isPaused = playerController.playbackState.value.status == PlaybackStatus.Paused,
@@ -698,6 +762,11 @@ class PlayerViewModel(
         if (disposed) return
         if (_softwarePlaybackRecovery.value != null) return
         if (controllerInstallInFlight) return
+        replacementSeekTarget?.let { target ->
+            queuedSeekTarget = null
+            replanAtPosition(target)
+            return
+        }
         if (isKidsSingleAsset) {
             retryCurrentPlayback()
             return
@@ -764,18 +833,19 @@ class PlayerViewModel(
         if (sameItemFastRetry) {
             val retryController = playerController
             val prepareEpochBeforeRetry = retryController.runtimeDiagnostics.value.prepareEpoch
+            val capturedRetryPositionMs = retryController.playbackState.value.positionForRetry()
             plan?.let { currentPlan ->
                 playbackReportingCoordinator.install(
                     session = session,
                     plan = currentPlan,
                     playSessionId = currentPlan.effectivePlaySessionId(),
                 )
-                // VLCKit re-prepares paused at raw zero; report this plan's start and play intent until
+                // VLCKit re-prepares paused at raw zero; report the captured target and play intent until
                 // a new prepare epoch's first Buffering/Playing sample or an explicit user command.
                 if (
                     backend == PlayerBackend.VlcKit &&
                     !playbackReportingCoordinator.beginRetryTransition(
-                        targetPositionMs = currentPlan.startPositionMs,
+                        targetPositionMs = capturedRetryPositionMs,
                         playIntended = desiredPlayWhenReady,
                         priorPrepareEpoch = prepareEpochBeforeRetry,
                     )
@@ -804,6 +874,22 @@ class PlayerViewModel(
                 if (startupPrepareGeneration == retryGeneration) startupPrepareGeneration = null
             }
             if (!ownsRetry() || rejectSynchronouslyFailedPrepare(refreshObservation = true)) return
+            val retryPrepareEpoch = retryController.runtimeDiagnostics.value.prepareEpoch
+            val qualifiedRetainedRetryPlan =
+                if (
+                    retryPlan != null &&
+                    retryPrepareEpoch != null &&
+                    retryPrepareEpoch != prepareEpochBeforeRetry &&
+                    retryController.playbackState.value.status != PlaybackStatus.Failed
+                ) {
+                    retryController.retainedPlan?.takeIf { retainedPlan ->
+                        retainedPlan.itemId == retryItemId &&
+                            retainedPlan.mediaSourceId.isNotBlank() &&
+                            retainedPlan.mediaSourceId == retryPlan.mediaSourceId
+                    }
+                } else {
+                    null
+                }
             retryController.runtimeDiagnostics.value.prepareEpoch
                 ?.let(playbackHealthCoordinator::expectVideoOutput)
             armSoftwarePlaybackRecovery()
@@ -812,37 +898,23 @@ class PlayerViewModel(
             // ViewModel plan copies alone do not become prepared authority. Only a newly admitted native
             // prepare restores a missing slot, using the controller's own retained snapshot, which
             // may differ from the logical plan; admission is not readiness or output proof.
-            if (expectedRetryInstalledPlan == null) {
-                val retryPrepareEpoch = retryController.runtimeDiagnostics.value.prepareEpoch
-                if (
-                    retryPrepareEpoch != null &&
-                    retryPrepareEpoch != prepareEpochBeforeRetry &&
-                    retryController.playbackState.value.status != PlaybackStatus.Failed
-                ) {
-                    val retainedPlan = retryController.retainedPlan
-                    if (
-                        retainedPlan != null &&
-                        retainedPlan.itemId == retryItemId &&
-                        retainedPlan.mediaSourceId.isNotBlank() &&
-                        retainedPlan.mediaSourceId == retryPlan.mediaSourceId
-                    ) {
-                        installedPlan = retainedPlan
-                        expectedRetryInstalledPlan = retainedPlan
-                        // A paused native retry may publish nothing further; refresh seek and backend UI now.
-                        publishContent()
-                        if (!ownsRetry()) return
-                    }
-                }
+            if (expectedRetryInstalledPlan == null && qualifiedRetainedRetryPlan != null) {
+                installedPlan = qualifiedRetainedRetryPlan
+                expectedRetryInstalledPlan = qualifiedRetainedRetryPlan
+                // A paused native retry may publish nothing further; refresh seek and backend UI now.
+                publishContent()
+                if (!ownsRetry()) return
             }
             // Native Retry keeps matching selections but cannot recreate a missing activation descriptor.
-            // VLCKit reprepares this plan's start paused at raw zero before its deferred play.
+            // VLCKit's raw zero cannot replace the admitted retained target or the pre-Retry capture.
             val vlcKitRetry = backend == PlayerBackend.VlcKit
             maybeStartInstalledActivationFallback(
                 expectedController = retryController,
                 expectedPlan = retryPlan,
                 reconcileNativeState = true,
                 expectedInstalledPlan = expectedRetryInstalledPlan,
-                recoveryPositionOverrideMs = retryPlan.startPositionMs.takeIf { vlcKitRetry },
+                recoveryPositionOverrideMs =
+                    (qualifiedRetainedRetryPlan?.startPositionMs ?: capturedRetryPositionMs).takeIf { vlcKitRetry },
                 pausedAtRequestOverride = (!desiredPlayWhenReady).takeIf { vlcKitRetry },
                 includeInadmissibleAudio = true,
             )
@@ -930,6 +1002,10 @@ class PlayerViewModel(
         allowCurrentTargetRetry: Boolean,
         launchOptions: PlayerLaunchOptions?,
     ): Boolean {
+        replacementSeekTarget = null
+        replacementSeekStopPosition = null
+        queuedSeekTarget = null
+
         if (!isKidsSingleAsset || !canAcceptPlaybackStart()) {
             return false
         }
@@ -1288,6 +1364,10 @@ class PlayerViewModel(
     }
 
     private fun performStop(stopController: Boolean) {
+        replacementSeekTarget = null
+        replacementSeekStopPosition = null
+        queuedSeekTarget = null
+
         recoveryClosedByStop = true
         clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Stopped)
         selectedPlaybackGeneration += 1L
@@ -1348,8 +1428,20 @@ class PlayerViewModel(
             return false
         }
 
+        val wasActiveAtRequest = canKeepInstalledPlayback()
+        if (replacementSeekTarget != null && !wasActiveAtRequest) return false
+        val wasPaused =
+            if (replacementSeekTarget != null) {
+                !desiredPlayWhenReady
+            } else {
+                playerController.playbackState.value.status == PlaybackStatus.Paused || !desiredPlayWhenReady
+            }
         replanJob?.cancel()
         replanJob = null
+        if (replacementSeekTarget != null) {
+            settleCancelledSeekHold(restorePlayback = wasActiveAtRequest)
+            publishContent()
+        }
 
         val switch =
             BackendSwitchSnapshot(
@@ -1360,7 +1452,7 @@ class PlayerViewModel(
                 mediaSourceId = currentPlan.mediaSourceId,
                 activePlan = currentPlan,
                 activeController = playerController,
-                wasActiveAtRequest = playbackState.value.status in playbackChangeActiveStatuses,
+                wasActiveAtRequest = wasActiveAtRequest,
                 explicitAudioStreamIndex = explicitAudioStreamIndex,
                 requestedAudioStreamIndex = requestedAudioStreamIndex,
                 requestedSubtitleSelection = requestedSubtitleSelection,
@@ -1372,7 +1464,7 @@ class PlayerViewModel(
                         activePlaybackPreferences.effectiveDefaultQualityPolicy(targetBackend)
                     },
                 qualityExplicit = qualitySession.isExplicitSessionChoice,
-                wasPaused = playbackState.value.status == PlaybackStatus.Paused || !desiredPlayWhenReady,
+                wasPaused = wasPaused,
                 playbackSpeed = playbackSpeed,
                 subtitleStyle = subtitleStyle,
                 resizeMode = resizeMode,
@@ -1471,6 +1563,20 @@ class PlayerViewModel(
         val currentPlan = plan ?: return
         if (currentPlan.streamMode == StreamMode.Offline) {
             selectOfflineAudio(currentPlan, streamIndex)
+            return
+        }
+        if (currentPlan.streamMode != StreamMode.DirectPlay) {
+            replanAtCurrentPosition(
+                trackProposal =
+                    TrackChangeProposal(
+                        PlayerPlaybackChangeOperation.Audio,
+                        streamIndex,
+                        requestedSubtitleStreamIndex,
+                        requestedSubtitleSelection,
+                        requestedLocalSubtitleAsset,
+                    ),
+            )
+            publishContent(pickerVisible = PlayerPicker.None)
             return
         }
         cancelAndInvalidateSubtitleFallback()
@@ -1704,16 +1810,10 @@ class PlayerViewModel(
             selectOfflineSubtitle(currentPlan, option)
             return
         }
+        captureUserChangeRecovery()
         invalidateSubtitleFallback()
         replanJob?.cancel()
         replanJob = null
-        requestedSubtitleStreamIndex = streamIndex
-        requestedLocalSubtitleAsset = null
-        requestedSubtitleSelection = streamIndex.toSubtitleSelectionIntent()
-        updateKidsTrackIntent(subtitleSelection = requestedSubtitleSelection)
-        persistSubtitleSelection(requestedSubtitleSelection)
-        rememberSelection(persistDurable = false)
-
         val installedTrack = currentPlan.plannedSubtitle as? PlannedSubtitle.Track
         val retainedEmbeddedDescriptor =
             option
@@ -1738,6 +1838,20 @@ class PlayerViewModel(
                 ) ||
                 canSwitchApprovedEmbeddedSubtitle
         if (canSwitchInPlayer) {
+            if (replacementSeekTarget != null) {
+                if (!canKeepInstalledPlayback()) {
+                    reduce(PlayerChange.Failed(PlayerUiState.Error(error = PlaybackError.Unknown)))
+                    return
+                }
+                settleCancelledSeekHold()
+            }
+            requestedSubtitleStreamIndex = streamIndex
+            requestedLocalSubtitleAsset = null
+            requestedSubtitleSelection = streamIndex.toSubtitleSelectionIntent()
+            updateKidsTrackIntent(subtitleSelection = requestedSubtitleSelection)
+            persistSubtitleSelection(requestedSubtitleSelection)
+            rememberSelection(persistDurable = false)
+
             val target =
                 option?.let { track ->
                     // The retained descriptor guard admits text tracks only.
@@ -1784,11 +1898,17 @@ class PlayerViewModel(
             reloadTimingForCurrentTracks()
             publishContent(pickerVisible = PlayerPicker.None)
         } else {
-            if (option == null || currentPlan.plannedSubtitle is PlannedSubtitle.LocalAsset) {
-                playerController.selectEmbeddedSubtitle(null)
-            }
             publishContent(pickerVisible = PlayerPicker.None)
-            replanAtCurrentPosition()
+            replanAtCurrentPosition(
+                trackProposal =
+                    TrackChangeProposal(
+                        PlayerPlaybackChangeOperation.Subtitle,
+                        requestedAudioStreamIndex,
+                        streamIndex,
+                        streamIndex.toSubtitleSelectionIntent(),
+                        null,
+                    ),
+            )
         }
     }
 
@@ -1798,36 +1918,112 @@ class PlayerViewModel(
         if (plan?.streamMode == StreamMode.Offline) return
         val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return
         val context = LocalSubtitleContext(session.serverId, session.userId, currentItemId, sourceId)
+        val controller = playerController
+        val launch = playbackLaunchGeneration
+        val item = currentItemId
+        val installed = installedPlan
+        val request = ++replanRequestGeneration
+        captureUserChangeRecovery()
         invalidateSubtitleFallback()
         replanJob?.cancel()
         replanJob =
             viewModelScope.launch {
-                val asset = withContext(workDispatcher) { getLocalSubtitleAssetUseCase?.invoke(assetId, context) }
-                if (controllerInstallInFlight || queueSwitchInFlight) return@launch
+                val asset =
+                    try {
+                        withContext(workDispatcher) { getLocalSubtitleAssetUseCase?.invoke(assetId, context) }
+                    } catch (exception: CancellationException) {
+                        throw exception
+                    } catch (exception: Throwable) {
+                        currentCoroutineContext().ensureActive()
+                        settleLocalSubtitleReadFailure(
+                            request = request,
+                            launch = launch,
+                            item = item,
+                            controller = controller,
+                            installed = installed,
+                            sourceId = sourceId,
+                            error = planningPlaybackError(exception),
+                        )
+                        return@launch
+                    }
+                currentCoroutineContext().ensureActive()
+                if (!isCurrentReplan(request, launch, item) ||
+                    playerController !== controller ||
+                    installedPlan !== installed ||
+                    selectedMediaSourceId != sourceId ||
+                    controllerInstallInFlight
+                ) {
+                    return@launch
+                }
                 if (asset == null) {
-                    playerDiagnosticsRecorder.recordDiagnostic(
-                        context = playerDiagnosticContext(),
-                        facts =
-                            PlayerDiagnosticFacts(
-                                stage = PlaybackDiagnosticStage.Mapping,
-                                event = PlaybackDiagnosticEvent.Failed,
-                                trackKind = PlaybackDiagnosticTrackKind.Subtitle,
-                            ),
+                    settleLocalSubtitleReadFailure(
+                        request = request,
+                        launch = launch,
+                        item = item,
+                        controller = controller,
+                        installed = installed,
+                        sourceId = sourceId,
+                        error = PlaybackError.Unknown,
                     )
                     return@launch
                 }
-                requestedSubtitleStreamIndex = null
-                requestedLocalSubtitleAsset = asset
-                requestedSubtitleSelection = SubtitleSelectionIntent.LocalAsset(asset.id)
-                updateKidsTrackIntent(subtitleSelection = requestedSubtitleSelection)
-                persistSubtitleSelection(requestedSubtitleSelection)
-                playerController.selectEmbeddedSubtitle(null)
-                reloadTimingForCurrentTracks()
-                publishContent(pickerVisible = PlayerPicker.None)
-                // Clear the shared job slot before the replan replaces it.
                 replanJob = null
-                replanAtCurrentPosition()
+                replanAtCurrentPosition(
+                    trackProposal =
+                        TrackChangeProposal(
+                            PlayerPlaybackChangeOperation.Subtitle,
+                            requestedAudioStreamIndex,
+                            null,
+                            SubtitleSelectionIntent.LocalAsset(asset.id),
+                            asset,
+                        ),
+                )
             }
+    }
+
+    private fun canKeepInstalledPlayback(): Boolean =
+        canRejectPlaybackChange(
+            playerControllerFieldOwned && installedPlan != null && !controllerInstallInFlight,
+            !installedReportingStopped,
+            userChangeDisplacedRecovery,
+            _state.value is PlayerUiState.Error,
+            playerController.playbackState.value.status,
+        )
+
+    private fun settleCancelledSeekHold(restorePlayback: Boolean = true) {
+        replacementSeekTarget = null
+        replacementSeekStopPosition = null
+        queuedSeekTarget = null
+        if (!restorePlayback) return
+        if (desiredPlayWhenReady) playerController.play() else playerController.pause()
+        playbackHealthCoordinator.resumeAfterInstallation(playerController.playbackState.value)
+    }
+
+    private fun settleLocalSubtitleReadFailure(
+        request: Long,
+        launch: Long,
+        item: String,
+        controller: PlayerController,
+        installed: PlaybackPlan?,
+        sourceId: String,
+        error: PlaybackError,
+    ) {
+        if (
+            !isCurrentReplan(request, launch, item) ||
+            playerController !== controller ||
+            installedPlan !== installed ||
+            selectedMediaSourceId != sourceId ||
+            controllerInstallInFlight
+        ) {
+            return
+        }
+        replanJob = null
+        if (canKeepInstalledPlayback()) {
+            if (replacementSeekTarget != null) settleCancelledSeekHold()
+            publishPlaybackChangeRejection(PlayerPlaybackChangeOperation.Subtitle, error)
+        } else {
+            reduce(PlayerChange.Failed(PlayerUiState.Error(error = error)))
+        }
     }
 
     private fun selectQuality(maxBitrateBps: Long?) {
@@ -1884,15 +2080,20 @@ class PlayerViewModel(
         )
     }
 
+    private fun captureUserChangeRecovery() {
+        if (!userChangeDisplacedRecovery) {
+            displacedAudioRecovery = audioRecoveryTarget
+            displacedSubtitleRecovery = subtitleFallbackTarget
+        }
+        userChangeDisplacedRecovery = userChangeDisplacedRecovery ||
+            displacedAudioRecovery != null ||
+            (displacedSubtitleRecovery != null && replanJob?.isActive == true)
+    }
+
     private fun requestQualityChange(
         proposedQualitySessionState: PlayerQualitySessionState,
         preserveRecoveryBudgetOnCommit: Boolean = false,
     ) {
-        val clearedPreviousRejection = playbackChangeNotice != null
-        playbackChangeNotice = null
-        if (clearedPreviousRejection) {
-            publishContent()
-        }
         replanAtCurrentPosition(
             proposedQualitySessionState = proposedQualitySessionState,
             preserveRecoveryBudgetOnQualityCommit = preserveRecoveryBudgetOnCommit,
@@ -2044,6 +2245,10 @@ class PlayerViewModel(
     }
 
     fun dispose() {
+        replacementSeekTarget = null
+        replacementSeekStopPosition = null
+        queuedSeekTarget = null
+
         recoveryClosedByStop = true
         externalLaunchEpoch += 1L
         externalLaunchesClosed = true
@@ -2119,6 +2324,11 @@ class PlayerViewModel(
         retainedOfflineSidecarIdentity: SubtitleActivationIdentity.OfflineSidecar? = null,
         retainedKidsSelection: RetainedKidsPlaybackSelection? = null,
     ): Boolean {
+        desiredPlayWhenReady = true
+        replacementSeekTarget = null
+        queuedSeekTarget = null
+        replacementSeekStopPosition = null
+        userChangeDisplacedRecovery = false
         if (!isKidsSingleAsset && currentOfflineDownloadId == null) {
             launchIntentTarget = PlayerPlaybackTarget(itemId, null)
             launchIntent =
@@ -2557,8 +2767,7 @@ class PlayerViewModel(
         playerDiagnosticsRecorder.recordPrepareDispatched(playerDiagnosticContext())
         bindPlaybackLaunchToPrepare(launchGeneration, playerController)
         applyInitialEmbeddedSelections(playbackPlanWithMetadata)
-        desiredPlayWhenReady = true
-        playerController.play()
+        if (desiredPlayWhenReady) playerController.play() else playerController.pause()
         publishContent()
         if (
             replanRequestGeneration == replanGenerationAtInstall &&
@@ -2802,7 +3011,6 @@ class PlayerViewModel(
                         },
                 ),
         )
-        desiredPlayWhenReady = true
         return prepareOfflinePlayback(
             playbackPlan = offlinePlan,
             selectionGeneration = null,
@@ -4536,8 +4744,37 @@ class PlayerViewModel(
         val launchGenerationAtState = playbackLaunchGeneration
         val selectionGenerationAtState = selectedPlaybackGeneration
         val installedPlanAtState = installedPlan
-        val enrichedPlaybackState = playbackState.withPlaybackMetadata()
+        val terminalStopPosition =
+            if (replacementSeekTarget != null) {
+                replacementSeekStopPosition ?: playbackState.positionMs
+            } else {
+                playbackState.positionMs
+            }
+        val visiblePlaybackState =
+            if (replacementSeekTarget != null && _state.value is PlayerUiState.Error) {
+                playbackState.copy(status = PlaybackStatus.Failed)
+            } else {
+                playbackState
+            }
+        val enrichedPlaybackState = visiblePlaybackState.withPlaybackMetadata().withReplacementSeekTarget(replacementSeekTarget)
         _playbackState.value = enrichedPlaybackState
+        if (userChangeDisplacedRecovery) {
+            val audioResolved =
+                displacedAudioRecovery == null ||
+                    (playbackState.audioActivation as? AudioActivationState.Active)?.target == displacedAudioRecovery
+            val subtitleResolved =
+                displacedSubtitleRecovery == null ||
+                    (playbackState.subtitleActivation as? SubtitleActivationState.Active)?.target == displacedSubtitleRecovery
+            if (audioResolved && subtitleResolved) {
+                userChangeDisplacedRecovery = false
+                displacedAudioRecovery = null
+                displacedSubtitleRecovery = null
+            }
+        }
+        if (replacementSeekTarget != null && playbackState.status != PlaybackStatus.Failed) {
+            publishContent(playbackState)
+            return
+        }
         val installedAudioChanged = updateInstalledAudio(enrichedPlaybackState)
         recordTrackDiagnostics(enrichedPlaybackState)
         if (observeSoftwarePlaybackRecovery(enrichedPlaybackState)) {
@@ -4662,7 +4899,7 @@ class PlayerViewModel(
                         recoveryDecision = null,
                     ),
             )
-            playbackReportingCoordinator.stop(enrichedPlaybackState.positionMs)
+            playbackReportingCoordinator.stop(terminalStopPosition)
         }
 
         lastStatus = enrichedPlaybackState.status
@@ -5022,6 +5259,7 @@ class PlayerViewModel(
         val decision = nextPlaybackSessionRecoveryDecision(playbackState)
         if (decision is PlaybackSessionRecoveryDecision.AutomaticRecovery) {
             if (
+                deviceProfileProvider?.backendPolicy?.platform == PlayerBackendPlatform.Android &&
                 (backend == PlayerBackend.LibVlc || backend == PlayerBackend.Mpv) &&
                 !alternateBackendFallbackAttempted
             ) {
@@ -5336,11 +5574,13 @@ class PlayerViewModel(
     private fun replanAtCurrentPosition(
         proposedQualitySessionState: PlayerQualitySessionState? = null,
         preserveRecoveryBudgetOnQualityCommit: Boolean = false,
+        trackProposal: TrackChangeProposal? = null,
     ) {
         replanAtPosition(
-            targetPositionMs = playerController.playbackState.value.positionMs,
+            targetPositionMs = replacementSeekTarget ?: playerController.playbackState.value.positionMs,
             proposedQualitySessionState = proposedQualitySessionState,
             preserveRecoveryBudgetOnQualityCommit = preserveRecoveryBudgetOnQualityCommit,
+            trackProposal = trackProposal,
         )
     }
 
@@ -5355,12 +5595,16 @@ class PlayerViewModel(
         proposedQualitySessionState: PlayerQualitySessionState? = null,
         preserveRecoveryBudgetOnQualityCommit: Boolean = false,
         pausedAtRequestOverride: Boolean? = null,
+        trackProposal: TrackChangeProposal? = null,
+        userSeek: Boolean = false,
     ) {
         if (controllerInstallInFlight) return
         invalidateBackendSwitch()
         // Offline plans never enter the remote replan path.
         if (plan?.streamMode == StreamMode.Offline) return
         val mediaSource = selectedMediaSourceId ?: return
+        val userChange = proposedQualitySessionState != null || trackProposal != null || userSeek
+        if (userChange) captureUserChangeRecovery()
         val qualitySessionForRequest = proposedQualitySessionState ?: qualitySession
         val requestGeneration = ++replanRequestGeneration
         // Every launched request takes the slot; only an Audio recovery records pending ownership.
@@ -5368,11 +5612,14 @@ class PlayerViewModel(
         audioRecoveryRequestTarget = audioRecovery
         val controllerAtRequest = playerController
         val installedPlanAtRequest = installedPlan
-        val playbackWasPausedAtRequest =
-            pausedAtRequestOverride ?: (controllerAtRequest.playbackState.value.status == PlaybackStatus.Paused)
+        val nativePausedAtRequest =
+            replacementSeekTarget == null && controllerAtRequest.playbackState.value.status == PlaybackStatus.Paused
+        val playbackShouldPlayAtRequest =
+            desiredPlayWhenReady &&
+                !(pausedAtRequestOverride ?: (nativePausedAtRequest && !forcePlay))
         val playbackIntentRevisionAtRequest = playbackIntentRevision
         val proposalWasActiveAtRequest =
-            proposedQualitySessionState != null &&
+            userChange &&
                 installedPlanAtRequest != null &&
                 controllerAtRequest.playbackState.value.status in playbackChangeActiveStatuses
         val target = targetPositionMs.coerceAtLeast(0L)
@@ -5387,17 +5634,24 @@ class PlayerViewModel(
                         ?.toBitrateConstraint()
                         ?: activePlaybackBitrateConstraint(),
             )
-        val selectedSubtitle = selectedSubtitleMediaStream()
-        val selectedAudioStreamIndex = requestedAudioStreamIndex
-        val subtitleSelection = requestedSubtitleSelection
-        val localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset()
+        val selectedSubtitle =
+            if (trackProposal != null) {
+                mediaStreams.firstOrNull {
+                    it.index == trackProposal.subtitleStreamIndex
+                }
+            } else {
+                selectedSubtitleMediaStream()
+            }
+        val selectedAudioStreamIndex = if (trackProposal != null) trackProposal.audioStreamIndex else requestedAudioStreamIndex
+        val subtitleSelection = trackProposal?.subtitleSelection ?: requestedSubtitleSelection
+        val localSubtitleAsset = (if (trackProposal != null) trackProposal.localAsset else requestedLocalSubtitleAsset)?.toPlaybackAsset()
         val detailMediaStreams = mediaStreams
         val sourceContainer = selectedSourceContainer
         val replanItemId = currentItemId
         val replanGeneration = playbackLaunchGeneration
         val replanDiagnosticSession = playbackDiagnosticSession
         val diagnosticContext = playerDiagnosticContext()
-        if (proposedQualitySessionState == null) {
+        if (!userChange) {
             autoplayGeneration += 1
             excludeSoftwarePlaybackProgress()
             markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Replan)
@@ -5406,7 +5660,7 @@ class PlayerViewModel(
             }
         }
         val activationRequestId =
-            if (proposedQualitySessionState == null) {
+            if (!userChange) {
                 nextSubtitleActivationRequestId()
             } else {
                 null
@@ -5476,8 +5730,15 @@ class PlayerViewModel(
                         )
                         val planningError = planningPlaybackError(exception)
                         val canPreserveQualityFailure =
-                            proposedQualitySessionState != null &&
+                            userChange &&
                                 proposalWasActiveAtRequest &&
+                                canRejectPlaybackChange(
+                                    true,
+                                    !installedReportingStopped,
+                                    userChangeDisplacedRecovery,
+                                    _state.value is PlayerUiState.Error,
+                                    controllerAtRequest.playbackState.value.status,
+                                ) &&
                                 preservesPlaybackForQualityFailure(
                                     requestGeneration = requestGeneration,
                                     launchGeneration = replanGeneration,
@@ -5485,10 +5746,18 @@ class PlayerViewModel(
                                     controller = controllerAtRequest,
                                     installedPlan = installedPlanAtRequest,
                                 )
+                        if (canPreserveQualityFailure && replacementSeekTarget != null) {
+                            replacementSeekTarget = null
+                            replacementSeekStopPosition = null
+                            if (desiredPlayWhenReady) controllerAtRequest.play()
+                            playbackHealthCoordinator.resumeAfterInstallation(controllerAtRequest.playbackState.value)
+                        }
                         val qualityFailurePreserved =
                             canPreserveQualityFailure &&
                                 publishPlaybackChangeRejection(
-                                    operation = PlayerPlaybackChangeOperation.Quality,
+                                    operation =
+                                        trackProposal?.operation
+                                            ?: if (userSeek) PlayerPlaybackChangeOperation.Seek else PlayerPlaybackChangeOperation.Quality,
                                     error = planningError,
                                     context = diagnosticContext,
                                 )
@@ -5575,7 +5844,7 @@ class PlayerViewModel(
                 }
 
                 if (
-                    proposedQualitySessionState != null &&
+                    userChange &&
                     !ownsCurrentQualityProposal(
                         requestGeneration = requestGeneration,
                         launchGeneration = replanGeneration,
@@ -5621,7 +5890,7 @@ class PlayerViewModel(
                     return@launch
                 }
                 if (
-                    proposedQualitySessionState != null &&
+                    userChange &&
                     !ownsCurrentQualityProposal(
                         requestGeneration = requestGeneration,
                         launchGeneration = replanGeneration,
@@ -5651,7 +5920,7 @@ class PlayerViewModel(
                             return@withLock false
                         }
                         if (
-                            proposedQualitySessionState != null &&
+                            userChange &&
                             !ownsCurrentQualityProposal(
                                 requestGeneration = requestGeneration,
                                 launchGeneration = replanGeneration,
@@ -5666,7 +5935,11 @@ class PlayerViewModel(
                         controllerInstallInFlight = true
                         playbackHealthCoordinator.suspendForInstallation()
                         try {
-                            playbackReportingCoordinator.stopNow(positionMs = target)
+                            installedReportingStopped = true
+                            playbackReportingCoordinator.stopNow(
+                                positionMs =
+                                    replacementSeekStopPosition ?: controllerAtRequest.playbackState.value.positionMs,
+                            )
                             currentCoroutineContext().ensureActive()
                             if (stopRequestedDuringControllerInstall) {
                                 drainStopRequestedDuringControllerInstall(stopController = true)
@@ -5688,6 +5961,27 @@ class PlayerViewModel(
                                     preserveRecoveryBudget = preserveRecoveryBudgetOnQualityCommit,
                                 )
                             }
+                            trackProposal?.let { proposal ->
+                                requestedAudioStreamIndex = proposal.audioStreamIndex
+                                if (proposal.operation == PlayerPlaybackChangeOperation.Audio) {
+                                    explicitAudioStreamIndex = proposal.audioStreamIndex
+                                }
+                                requestedSubtitleStreamIndex = proposal.subtitleStreamIndex
+                                requestedSubtitleSelection = proposal.subtitleSelection
+                                requestedLocalSubtitleAsset = proposal.localAsset
+                                if (proposal.operation == PlayerPlaybackChangeOperation.Audio) {
+                                    updateKidsTrackIntent(audioStreamIndex = proposal.audioStreamIndex)
+                                } else {
+                                    updateKidsTrackIntent(subtitleSelection = proposal.subtitleSelection)
+                                }
+                                if (proposal.operation == PlayerPlaybackChangeOperation.Subtitle) {
+                                    persistSubtitleSelection(proposal.subtitleSelection)
+                                    playerController.selectEmbeddedSubtitle(null)
+                                }
+                                rememberSelection(persistDurable = proposal.operation == PlayerPlaybackChangeOperation.Audio)
+                            }
+                            playbackChangeNotice = null
+                            userChangeDisplacedRecovery = false
                             // An accepted install settles any pending Audio ownership.
                             clearAudioRecoveryRequest()
                             installPlan(playbackPlanWithMetadata, resetReporting = true, stabilizesQueueSwitch = false)
@@ -5723,15 +6017,17 @@ class PlayerViewModel(
                                 drainStopRequestedDuringControllerInstall(stopController = true)
                                 return@withLock false
                             }
-                            if (forcePlay) {
+                            if (playbackIntentRevision == playbackIntentRevisionAtRequest) {
+                                desiredPlayWhenReady = playbackShouldPlayAtRequest
+                            }
+                            if (desiredPlayWhenReady && queuedSeekTarget == null) {
                                 playerController.play()
-                            } else if (
-                                !desiredPlayWhenReady ||
-                                (playbackIntentRevision == playbackIntentRevisionAtRequest && playbackWasPausedAtRequest)
-                            ) {
-                                playerController.pause()
                             } else {
-                                playerController.play()
+                                playerController.pause()
+                            }
+                            if (queuedSeekTarget == null) {
+                                replacementSeekTarget = null
+                                replacementSeekStopPosition = null
                             }
                             publishContent(pickerVisible = PlayerPicker.None)
                             if (stopRequestedDuringControllerInstall) {
@@ -5744,6 +6040,14 @@ class PlayerViewModel(
                             finishControllerInstallation(replanGeneration)
                         }
                     }
+                if (replacementInstalled && queuedSeekTarget != null) {
+                    val newest = queuedSeekTarget
+                    queuedSeekTarget = null
+                    replacementSeekStopPosition = playerController.playbackState.value.positionMs
+                    replanJob = null
+                    newest?.let(::seekTo)
+                    return@launch
+                }
                 if (replacementInstalled) {
                     // The released lease can admit a waiter, Stop, queue switch or replacement controller,
                     // so recovery credit needs this request to still own its accepted install.
@@ -5932,6 +6236,7 @@ class PlayerViewModel(
         resetReporting: Boolean,
         stabilizesQueueSwitch: Boolean,
     ) {
+        installedReportingStopped = false
         installedPlan = null
         plan = playbackPlan
         selectedMediaSourceId = playbackPlan.mediaSourceId
@@ -5987,7 +6292,13 @@ class PlayerViewModel(
         playbackState: PlaybackState = playerController.playbackState.value,
         pickerVisible: PlayerPicker = currentPicker(),
     ) {
-        val enrichedPlaybackState = playbackState.withPlaybackMetadata()
+        val visiblePlaybackState =
+            if (replacementSeekTarget != null && _state.value is PlayerUiState.Error) {
+                playbackState.copy(status = PlaybackStatus.Failed)
+            } else {
+                playbackState
+            }
+        val enrichedPlaybackState = visiblePlaybackState.withPlaybackMetadata().withReplacementSeekTarget(replacementSeekTarget)
         val subtitleRenderInfo = currentSubtitleRenderInfo(enrichedPlaybackState)
         val subtitleStyleable = subtitleRenderInfo.styleable && playerController.appliesSubtitleStyle
         val upNext = if (isKidsSingleAsset) null else upNextFor(enrichedPlaybackState)
@@ -5996,6 +6307,7 @@ class PlayerViewModel(
         val content =
             PlayerUiState.Content(
                 playbackState = enrichedPlaybackState,
+                pendingSeekPlayWhenReady = desiredPlayWhenReady.takeIf { replacementSeekTarget != null },
                 volumeControl = volumeControl,
                 audioUnavailable = enrichedPlaybackState.audioUnavailable,
                 metadata = metadata,
@@ -6455,6 +6767,10 @@ class PlayerViewModel(
         stopPositionMs: Long,
         explicitPlaybackAction: Boolean,
     ) {
+        replacementSeekTarget = null
+        replacementSeekStopPosition = null
+        queuedSeekTarget = null
+
         if (queueIds.size <= 1 || index !in queueIds.indices) {
             return
         }

@@ -96,6 +96,7 @@ import platform.AVFoundation.CMTimeRangeValue
 import platform.AVFoundation.accessLog
 import platform.AVFoundation.addPeriodicTimeObserverForInterval
 import platform.AVFoundation.asset
+import platform.AVFoundation.cancelPendingSeeks
 import platform.AVFoundation.commonKey
 import platform.AVFoundation.commonMetadata
 import platform.AVFoundation.currentItem
@@ -137,6 +138,7 @@ import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 import kotlin.concurrent.atomics.AtomicLong
 import kotlin.math.abs
+import kotlin.time.TimeSource
 
 /**
  * AVPlayer-backed [PlayerController] for the Apple family (iOS/tvOS). Playback
@@ -229,13 +231,13 @@ class AppleAVPlayerController(
     private var waitingStateEmitCount = 0
     private var pauseGeneration = 0L
 
-    // Atomic: read on the main queue (async load completions) and Default (state
-    // poll), bumped on the caller thread — same cross-thread rationale as `sequence`.
+    // Native callbacks retain this epoch and return to Main before mutating state.
     private val prepareGeneration = AtomicLong(0L)
     private var installedItemPrepareGeneration: Long? = null
     private var firstVideoOutputObservedGeneration: Long? = null
     private var pendingEmbeddedAudioSelection: EmbeddedAudioSelection? = null
     private var pendingEmbeddedSubtitleSelection: EmbeddedSubtitleSelection? = null
+    private var localSubtitleSelectionWasSet = false
     private var selectedAudioOption: AVMediaSelectionOption? = null
     private var selectedSubtitleOption: AVMediaSelectionOption? = null
     private var expectedSubtitleTarget: com.jellyscope.core.domain.playback.SubtitleActivationTarget? = null
@@ -291,11 +293,25 @@ class AppleAVPlayerController(
         ) : GroupLoad
     }
 
-    // While a seek / re-prepare is landing, the raw player time briefly reads 0
-    // (fresh item) or the old position; report this target until the player
-    // actually reaches it so the seek bar doesn't flash to 0/end.
+    // Main-confined: one native attempt and only the newest explicit request.
+    // Initial position intent survives asynchronous sidecar loading separately.
+    private var pendingInitialSeek: SeekRequest? = null
     private var pendingSeekTargetMs: Long? = null
-    private val sequence = AtomicLong(0L)
+    private var queuedSeek: SeekRequest? = null
+    private var activeSeek: SeekAttempt? = null
+    private var seekSequence = 0L
+
+    private data class SeekRequest(
+        val generation: Long,
+        val sequence: Long,
+        val targetMs: Long,
+    )
+
+    private data class SeekAttempt(
+        val request: SeekRequest,
+        val pauseGeneration: Long,
+        val dispatchedAt: TimeSource.Monotonic.ValueTimeMark,
+    )
 
     init {
         installPeriodicTimeObserver()
@@ -369,6 +385,7 @@ class AppleAVPlayerController(
         if (plan.streamMode != com.jellyscope.core.domain.playback.StreamMode.Offline) {
             deferOfflineLeaseRelease(offlineLeaseHolder.detach())
         }
+        invalidateSeekWork()
         val currentPrepareEpoch = prepareGeneration.addAndFetch(1L)
         audioGroupLoad = GroupLoad.NotLoaded
         subtitleGroupLoad = GroupLoad.NotLoaded
@@ -384,6 +401,9 @@ class AppleAVPlayerController(
         installedItemPrepareGeneration = null
         playWhenReady = false
         interruptionIntent.reset()
+        seekSequence += 1L
+        pendingInitialSeek = SeekRequest(currentPrepareEpoch, seekSequence, plan.clampedStartPositionMs())
+        pendingSeekTargetMs = pendingInitialSeek?.targetMs
         player.pause()
         // seekTo() disables wait-to-minimize-stalling to favor fast post-seek
         // recovery; that must not leak into the next prepared item (the AVPlayer
@@ -391,6 +411,7 @@ class AppleAVPlayerController(
         player.setAutomaticallyWaitsToMinimizeStalling(true)
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
+        localSubtitleSelectionWasSet = false
         selectedAudioOption = null
         selectedSubtitleOption = null
         expectedSubtitleTarget = plan.subtitleActivationTarget
@@ -399,7 +420,6 @@ class AppleAVPlayerController(
         audioActivationConfirmation.applyInitial(initialAudioActivation)
         externalSubtitleTrackInserted = false
         subtitleActivationConfirmation.beginForPlan(plan, subtitleAsset)
-        pendingSeekTargetMs = plan.resumeSeekPositionMs()
         requestedPlaybackSpeed = plan.playbackSpeed
         playbackStalled = false
         waitingStateEmitCount = 0
@@ -573,11 +593,9 @@ class AppleAVPlayerController(
             releaseDeferredOfflineLeasesIfIdle()
             loadVideoTracksIfNeeded()
             selectMediaOption(characteristic = AVMediaCharacteristicLegible, ordinal = null)
+            dispatchPendingSeekIfReady()
             updatePendingAudioActivation(item)
             updatePendingSubtitleActivation(item)
-            // pendingSeekTargetMs is prepare()'s start position, or a seek requested
-            // while the composition was loading (the player had no item to take it).
-            player.seekToTime((pendingSeekTargetMs ?: plan.clampedStartPositionMs()).toCMTime())
             updateStateFromPlayer()
         }.onFailure { throwable ->
             failPlayback("AVPlayer prepare failed while starting playback", throwable)
@@ -595,6 +613,10 @@ class AppleAVPlayerController(
 
     override fun selectEmbeddedSubtitle(selection: EmbeddedSubtitleSelection?) {
         if (released) return warnReleased(PlayerOperation.SelectEmbeddedSubtitle)
+        localSubtitleSelectionWasSet = true
+        lastPlan?.let { plan ->
+            lastPlan = plan.withLocalSubtitleTarget(selection?.target)
+        }
         pendingEmbeddedSubtitleSelection = selection
         if (selection == null) {
             expectedSubtitleTarget = null
@@ -648,52 +670,135 @@ class AppleAVPlayerController(
 
     override fun seekTo(positionMs: Long) {
         if (released) return warnReleased(PlayerOperation.SeekTo)
-        val seekSequence = sequence.addAndFetch(1L)
-        val targetPositionMs = positionMs.coerceAtLeast(0L)
+        if (
+            _playbackState.value.status == PlaybackStatus.Failed ||
+            lastPlan == null ||
+            (installedItemPrepareGeneration != prepareGeneration.load() && pendingInitialSeek == null && !awaitingSidecarComposition)
+        ) {
+            logDiagnostic(
+                PlaybackDiagnosticStage.NativePlayer,
+                PlaybackDiagnosticEvent.Rejected,
+                operation = PlayerOperation.SeekTo,
+            )
+            return
+        }
+        val targetPositionMs = clampSeekTarget(positionMs)
+        seekSequence += 1L
+        queuedSeek = SeekRequest(prepareGeneration.load(), seekSequence, targetPositionMs)
         pendingSeekTargetMs = targetPositionMs
-        val wasPlaying =
-            playWhenReady &&
-                (
-                    player.timeControlStatus == AVPlayerTimeControlStatusPlaying ||
-                        _playbackState.value.status == PlaybackStatus.Playing ||
-                        _playbackState.value.status == PlaybackStatus.Buffering
-                )
-        val pauseGenerationAtStart = pauseGeneration
-        val tolerance = SEEK_TOLERANCE_SECONDS.toCMTimeSeconds()
-
-        logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.SeekStarted)
-        // Keep startup defaults intact; after an explicit seek, favor faster recovery over a fuller buffer.
+        logDiagnostic(
+            PlaybackDiagnosticStage.NativePlayer,
+            PlaybackDiagnosticEvent.SeekStarted,
+            operation = PlayerOperation.SeekTo,
+        )
+        // Keep startup defaults intact; only explicit seeks relax native waiting.
         player.setAutomaticallyWaitsToMinimizeStalling(false)
         emitPlaybackState(reason = "seek-start") { current ->
             current.copy(
-                status = PlaybackStatus.Buffering,
+                status = if (playWhenReady) PlaybackStatus.Buffering else PlaybackStatus.Paused,
                 positionMs = targetPositionMs,
                 playbackSpeed = requestedPlaybackSpeed,
             )
         }
-        player.seekToTime(targetPositionMs.toCMTime(), tolerance, tolerance) { finished ->
-            if (!finished || released || sequence.load() != seekSequence) return@seekToTime
-            // AVFoundation delivers this completion on its own queue. Resume the
-            // player mutation and updateStateFromPlayer on main so the
-            // media-selection group-load state machine stays serialized with
-            // prepare()/stop()/release() (see startStatePolling). Both guards are
-            // re-checked after the hop: a newer seek, a pause, a prepare or a stop
-            // can land between the native completion and this block.
+        if (!dispatchPendingSeekIfReady()) {
+            logDiagnostic(
+                PlaybackDiagnosticStage.NativePlayer,
+                PlaybackDiagnosticEvent.SeekDeferred,
+                operation = PlayerOperation.SeekTo,
+            )
+        }
+    }
+
+    private fun clampSeekTarget(positionMs: Long): Long {
+        val target = positionMs.coerceAtLeast(0L)
+        val duration =
+            player.currentItem
+                ?.takeIf { installedItemPrepareGeneration == prepareGeneration.load() }
+                ?.safeDurationMs()
+                ?.takeIf { it > 0L }
+        return duration?.let { target.coerceAtMost(it) } ?: target
+    }
+
+    private fun dispatchPendingSeekIfReady(): Boolean {
+        if (released || activeSeek != null) return false
+        val generation = prepareGeneration.load()
+        val item = player.currentItem ?: return false
+        if (installedItemPrepareGeneration != generation || item.status != AVPlayerItemStatusReadyToPlay) return false
+        val request =
+            queuedSeek?.takeIf { it.generation == generation }
+                ?: pendingInitialSeek?.takeIf { it.generation == generation }
+                ?: return false
+        val boundedRequest = request.copy(targetMs = clampSeekTarget(request.targetMs))
+        queuedSeek = null
+        pendingInitialSeek = null
+        pendingSeekTargetMs = boundedRequest.targetMs
+        val attempt = SeekAttempt(boundedRequest, pauseGeneration, TimeSource.Monotonic.markNow())
+        activeSeek = attempt
+        val tolerance = SEEK_TOLERANCE_SECONDS.toCMTimeSeconds()
+        logDiagnostic(
+            PlaybackDiagnosticStage.NativePlayer,
+            PlaybackDiagnosticEvent.SeekDispatched,
+            operation = PlayerOperation.SeekTo,
+        )
+        player.seekToTime(boundedRequest.targetMs.toCMTime(), tolerance, tolerance) { finished ->
+            // AVFoundation may call back on any queue, including after replacement.
             dispatch_async(dispatch_get_main_queue()) {
-                if (released || sequence.load() != seekSequence) return@dispatch_async
-                // Only a finished, current, unreleased seek counts as completed.
-                logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.SeekCompleted)
-                if (wasPlaying && pauseGeneration == pauseGenerationAtStart) {
+                if (
+                    released ||
+                    prepareGeneration.load() != generation ||
+                    installedItemPrepareGeneration != generation ||
+                    activeSeek?.request?.sequence != boundedRequest.sequence
+                ) {
+                    return@dispatch_async
+                }
+                activeSeek = null
+                if (queuedSeek == null) {
+                    pendingSeekTargetMs = null
+                    val arrived = abs(player.safePositionMs() - boundedRequest.targetMs) <= SEEK_SETTLE_TOLERANCE_MS
+                    logDiagnostic(
+                        PlaybackDiagnosticStage.NativePlayer,
+                        if (finished && arrived) PlaybackDiagnosticEvent.SeekCompleted else PlaybackDiagnosticEvent.Rejected,
+                        operation = PlayerOperation.SeekTo,
+                    )
+                }
+                // Dispatch the newest request without publishing the old clock in between.
+                dispatchPendingSeekIfReady()
+                if (pauseGeneration == attempt.pauseGeneration && playWhenReady) {
                     resumeNativePlaybackIfAudioReady()
                 }
                 updateStateFromPlayer()
             }
         }
+        return true
+    }
+
+    private fun expireSeekIfNeeded() {
+        val attempt = activeSeek ?: return
+        if (attempt.dispatchedAt.elapsedNow().inWholeMilliseconds < SEEK_TIMEOUT_MS) return
+        // Invalidate first: cancellation can deliver the old completion immediately.
+        activeSeek = null
+        player.currentItem?.cancelPendingSeeks()
+        logDiagnostic(
+            PlaybackDiagnosticStage.NativePlayer,
+            PlaybackDiagnosticEvent.Timeout,
+            operation = PlayerOperation.SeekTo,
+        )
+        if (queuedSeek == null) pendingSeekTargetMs = null
+        dispatchPendingSeekIfReady()
+    }
+
+    private fun invalidateSeekWork() {
+        activeSeek = null
+        queuedSeek = null
+        pendingInitialSeek = null
+        pendingSeekTargetMs = null
+        player.currentItem?.cancelPendingSeeks()
     }
 
     override fun stop() {
         if (released) return warnReleased(PlayerOperation.Stop)
         val hadPendingSidecarLoad = pendingSidecarLoads > 0
+        invalidateSeekWork()
         prepareGeneration.addAndFetch(1L)
         installedItemPrepareGeneration = null
         firstVideoOutputObservedGeneration = null
@@ -702,6 +807,7 @@ class AppleAVPlayerController(
         initialAudioGate = false
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
+        localSubtitleSelectionWasSet = false
         selectedAudioOption = null
         selectedSubtitleOption = null
         expectedSubtitleTarget = null
@@ -735,14 +841,16 @@ class AppleAVPlayerController(
         val embeddedSelection = pendingEmbeddedSubtitleSelection
         val audioSelection = pendingEmbeddedAudioSelection
         val shouldPlay = playWhenReady
-        lastPlan?.let { plan ->
+        lastPlan?.snapshotForRetry(_playbackState.value)?.let { plan ->
             val selectionDecision =
                 retrySelectionDecision(
                     audioSelection = audioSelection,
                     subtitleIntent =
-                        embeddedSelection
-                            ?.let(RetrySubtitleIntent::Selection)
-                            ?: RetrySubtitleIntent.Unspecified,
+                        when {
+                            !localSubtitleSelectionWasSet -> RetrySubtitleIntent.Unspecified
+                            embeddedSelection == null -> RetrySubtitleIntent.ExplicitOff
+                            else -> RetrySubtitleIntent.Selection(embeddedSelection)
+                        },
                     planSubtitleTarget = plan.subtitleActivationTarget,
                 )
             prepare(
@@ -764,6 +872,7 @@ class AppleAVPlayerController(
     override fun release() {
         if (released) return
         val hadPendingSidecarLoad = pendingSidecarLoads > 0
+        invalidateSeekWork()
         prepareGeneration.addAndFetch(1L)
         installedItemPrepareGeneration = null
         firstVideoOutputObservedGeneration = null
@@ -773,6 +882,7 @@ class AppleAVPlayerController(
         initialAudioGate = false
         pendingEmbeddedAudioSelection = null
         pendingEmbeddedSubtitleSelection = null
+        localSubtitleSelectionWasSet = false
         selectedAudioOption = null
         selectedSubtitleOption = null
         expectedSubtitleTarget = null
@@ -834,6 +944,7 @@ class AppleAVPlayerController(
         val error = classifyPlaybackError(message = message, throwable = throwable)
         logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed, throwable, error = error)
         logPlayerDiagnostics(reason = "fail-playback")
+        invalidateSeekWork()
         installedItemPrepareGeneration = null
         player.replaceCurrentItemWithPlayerItem(null)
         awaitingSidecarComposition = false
@@ -848,12 +959,18 @@ class AppleAVPlayerController(
     }
 
     private fun observeItemNotifications(item: AVPlayerItem) {
+        val generation = prepareGeneration.load()
         notificationObservers +=
             notificationCenter.addObserverForName(
                 name = AVPlayerItemDidPlayToEndTimeNotification,
                 `object` = item,
                 queue = NSOperationQueue.mainQueue,
             ) {
+                if (
+                    released || prepareGeneration.load() != generation || installedItemPrepareGeneration != generation
+                ) {
+                    return@addObserverForName
+                }
                 logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Ended)
                 updateStateFromPlayer(statusOverride = PlaybackStatus.Completed)
             }
@@ -863,6 +980,11 @@ class AppleAVPlayerController(
                 `object` = item,
                 queue = NSOperationQueue.mainQueue,
             ) {
+                if (
+                    released || prepareGeneration.load() != generation || installedItemPrepareGeneration != generation
+                ) {
+                    return@addObserverForName
+                }
                 val error = classifyPlaybackError(message = "AVPlayerItem failed while playing to end", item = item)
                 logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Failed, error = error)
                 logPlayerDiagnostics(reason = "failed-to-end-notification")
@@ -877,6 +999,11 @@ class AppleAVPlayerController(
                 `object` = item,
                 queue = NSOperationQueue.mainQueue,
             ) {
+                if (
+                    released || prepareGeneration.load() != generation || installedItemPrepareGeneration != generation
+                ) {
+                    return@addObserverForName
+                }
                 playbackStalled = true
                 logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.Stalled)
                 logPlayerDiagnostics(reason = "stall-notification")
@@ -884,7 +1011,7 @@ class AppleAVPlayerController(
                     if (item.status == AVPlayerItemStatusFailed) {
                         PlaybackStatus.Failed
                     } else {
-                        PlaybackStatus.Buffering
+                        null
                     }
                 updateStateFromPlayer(
                     statusOverride = statusOverride,
@@ -902,6 +1029,11 @@ class AppleAVPlayerController(
                 `object` = item,
                 queue = NSOperationQueue.mainQueue,
             ) {
+                if (
+                    released || prepareGeneration.load() != generation || installedItemPrepareGeneration != generation
+                ) {
+                    return@addObserverForName
+                }
                 logDiagnostic(PlaybackDiagnosticStage.NativePlayer, PlaybackDiagnosticEvent.ErrorLog)
                 logPlayerDiagnostics(reason = "new-error-log-entry")
                 updateStateFromPlayer()
@@ -912,6 +1044,11 @@ class AppleAVPlayerController(
                 `object` = item,
                 queue = NSOperationQueue.mainQueue,
             ) {
+                if (
+                    released || prepareGeneration.load() != generation || installedItemPrepareGeneration != generation
+                ) {
+                    return@addObserverForName
+                }
                 updateRuntimeDiagnostics(item)
             }
     }
@@ -993,32 +1130,62 @@ class AppleAVPlayerController(
         // prepare() deliberately leaves the player without an item while the sidecar
         // composition loads: there is nothing to read, and a poll landing in that
         // window must not demote prepare()'s Loading publish to Idle.
-        if (awaitingSidecarComposition) return
+        if (awaitingSidecarComposition) {
+            emitPlaybackState(reason = "sidecar-loading") { current ->
+                current.copy(
+                    status =
+                        when {
+                            statusOverride != null -> statusOverride
+                            !playWhenReady && current.status == PlaybackStatus.Paused -> PlaybackStatus.Paused
+                            queuedSeek != null -> if (playWhenReady) PlaybackStatus.Buffering else PlaybackStatus.Paused
+                            else -> PlaybackStatus.Loading
+                        },
+                )
+            }
+            return
+        }
         val item = player.currentItem
         val previous = _playbackState.value
         val durationMs = item?.safeDurationMs()
         val rawPositionMs = player.safePositionMs()
-        // Hold the reported position at the seek target until the player actually
-        // lands there (a fresh re-prepared item reads 0 for a moment), so the seek
-        // bar doesn't flash to 0/end during a seek. Clear once within tolerance.
-        val pendingTarget = pendingSeekTargetMs
-        if (pendingTarget != null && abs(rawPositionMs - pendingTarget) <= SEEK_SETTLE_TOLERANCE_MS) {
-            pendingSeekTargetMs = null
+        val terminalStatus =
+            when {
+                statusOverride == PlaybackStatus.Completed || statusOverride == PlaybackStatus.Failed -> statusOverride
+                item?.status == AVPlayerItemStatusFailed -> PlaybackStatus.Failed
+                previous.status == PlaybackStatus.Completed || previous.status == PlaybackStatus.Failed -> previous.status
+                else -> null
+            }
+        if (terminalStatus != null) {
+            if (terminalStatus == PlaybackStatus.Completed) playWhenReady = false
+            if (previous.status != terminalStatus || pendingSeekTargetMs != null) {
+                invalidateSeekWork()
+                player.pause()
+            }
+        } else {
+            expireSeekIfNeeded()
+            pendingInitialSeek = pendingInitialSeek?.let { it.copy(targetMs = clampSeekTarget(it.targetMs)) }
+            queuedSeek = queuedSeek?.let { it.copy(targetMs = clampSeekTarget(it.targetMs)) }
+            pendingSeekTargetMs = pendingSeekTargetMs?.let(::clampSeekTarget)
+            dispatchPendingSeekIfReady()
         }
+        val pendingTarget = pendingSeekTargetMs
         val positionMs =
             when {
                 statusOverride == PlaybackStatus.Completed && durationMs != null -> durationMs
                 pendingSeekTargetMs != null -> pendingTarget ?: rawPositionMs
                 else -> rawPositionMs
             }
-        if (item?.playbackLikelyToKeepUp == true && !item.playbackBufferEmpty) {
+        if (
+            player.timeControlStatus == AVPlayerTimeControlStatusPlaying ||
+            (item?.playbackLikelyToKeepUp == true && !item.playbackBufferEmpty)
+        ) {
             playbackStalled = false
         }
-        if (item?.status == AVPlayerItemStatusReadyToPlay) {
+        if (terminalStatus == null && item?.status == AVPlayerItemStatusReadyToPlay) {
             updatePendingAudioActivation(item)
             updatePendingSubtitleActivation(item)
         }
-        if (statusOverride == null) {
+        if (statusOverride == null && terminalStatus == null) {
             resumePlayWhenReadyIfNeeded(
                 item = item,
                 positionMs = positionMs,
@@ -1075,7 +1242,9 @@ class AppleAVPlayerController(
         logDiagnostic(PlaybackDiagnosticStage.Mapping, PlaybackDiagnosticEvent.Waiting)
         item.asset.loadMediaSelectionGroupForMediaCharacteristic(characteristic) { group, error ->
             dispatch_async(dispatch_get_main_queue()) {
-                if (released || prepareGeneration.load() != generation) return@dispatch_async
+                if (released || prepareGeneration.load() != generation) {
+                    return@dispatch_async
+                }
                 setMediaSelectionGroupLoad(
                     characteristic,
                     GroupLoad.Loaded(group = if (error == null) group else null),
@@ -1223,7 +1392,20 @@ class AppleAVPlayerController(
     }
 
     private fun resumeNativePlaybackIfAudioReady(): Boolean {
-        if (initialAudioGate) return false
+        if (
+            released ||
+            !playWhenReady ||
+            initialAudioGate ||
+            installedItemPrepareGeneration != prepareGeneration.load() ||
+            player.currentItem?.status != AVPlayerItemStatusReadyToPlay ||
+            pendingInitialSeek != null ||
+            queuedSeek != null ||
+            activeSeek != null ||
+            _playbackState.value.status == PlaybackStatus.Completed ||
+            _playbackState.value.status == PlaybackStatus.Failed
+        ) {
+            return false
+        }
         player.play()
         if (requestedPlaybackSpeed != DEFAULT_PLAYBACK_SPEED) {
             player.setRate(requestedPlaybackSpeed)
@@ -1244,26 +1426,22 @@ class AppleAVPlayerController(
         previousStatus: PlaybackStatus,
         statusOverride: PlaybackStatus?,
     ): PlaybackStatus {
+        if (statusOverride == PlaybackStatus.Failed || item?.status == AVPlayerItemStatusFailed) return PlaybackStatus.Failed
+        if (previousStatus == PlaybackStatus.Failed) return PlaybackStatus.Failed
+        if (statusOverride == PlaybackStatus.Completed || previousStatus == PlaybackStatus.Completed) return PlaybackStatus.Completed
         statusOverride?.let { return it }
         if (item == null) return PlaybackStatus.Idle
-        if (item.status == AVPlayerItemStatusFailed) return PlaybackStatus.Failed
-        if (!playWhenReady && previousStatus == PlaybackStatus.Paused) return PlaybackStatus.Paused
         if (item.status != AVPlayerItemStatusReadyToPlay) return PlaybackStatus.Loading
-        if (previousStatus == PlaybackStatus.Completed) return PlaybackStatus.Completed
-        if (
-            playbackStalled ||
-            item.playbackBufferEmpty ||
-            (!item.playbackLikelyToKeepUp && previousStatus != PlaybackStatus.Paused)
-        ) {
+        if (!playWhenReady) return PlaybackStatus.Paused
+        if (pendingInitialSeek != null || queuedSeek != null || activeSeek != null || initialAudioGate) {
             return PlaybackStatus.Buffering
         }
-
-        return when (player.timeControlStatus) {
-            AVPlayerTimeControlStatusPlaying -> PlaybackStatus.Playing
-            AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate -> PlaybackStatus.Buffering
-            AVPlayerTimeControlStatusPaused -> PlaybackStatus.Paused
-            else -> previousStatus
-        }
+        val nativeStatus = player.timeControlStatus
+        if (nativeStatus == AVPlayerTimeControlStatusPlaying) return PlaybackStatus.Playing
+        if (nativeStatus == AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate) return PlaybackStatus.Buffering
+        if (playbackStalled || item.playbackBufferEmpty || !item.playbackLikelyToKeepUp) return PlaybackStatus.Buffering
+        // With automatic waiting disabled, rate zero can be stall recovery.
+        return if (nativeStatus == AVPlayerTimeControlStatusPaused) PlaybackStatus.Buffering else previousStatus
     }
 
     private fun selectMediaOption(

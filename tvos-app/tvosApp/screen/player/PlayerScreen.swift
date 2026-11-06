@@ -136,7 +136,7 @@ struct PlayerScreen: View {
             passiveOverlays
         }
 
-        if model.phase == .loading {
+        if model.phase == .loading || (model.pendingReplacementSeek && model.phase != .failed) {
             ProgressView()
                 .controlSize(.large)
         }
@@ -146,11 +146,7 @@ struct PlayerScreen: View {
     private var passiveOverlays: some View {
         VStack {
             Spacer()
-            if model.vlcSurface != nil {
-                PlayerTransportView(model: model)
-                    .padding(.horizontal, 56)
-                    .padding(.bottom, 42)
-            } else if let guidance = model.playbackGuidance {
+            if let guidance = model.playbackGuidance {
                 PlaybackHealthAdvisory(
                     guidance: guidance,
                     model: model,
@@ -165,6 +161,11 @@ struct PlayerScreen: View {
                 .padding(18)
                 .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 12))
                 .padding(48)
+            }
+            if model.vlcSurface != nil {
+                PlayerTransportView(model: model)
+                    .padding(.horizontal, 56)
+                    .padding(.bottom, 42)
             }
         }
     }
@@ -279,7 +280,8 @@ struct PlayerScreen: View {
     }
 
     private var blocksPlayerInteraction: Bool {
-        model.playbackActionNotice != nil ||
+        model.pendingReplacementSeek ||
+            model.playbackActionNotice != nil ||
             model.phase == .failed ||
             model.stillWatchingVisible ||
             panel != nil ||

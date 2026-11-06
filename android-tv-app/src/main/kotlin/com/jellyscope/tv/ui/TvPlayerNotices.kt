@@ -357,6 +357,9 @@ private fun tvPlaybackChangeMessage(notice: PlayerPlaybackChangeNotice): String 
         when (notice.operation) {
             PlayerPlaybackChangeOperation.Quality -> R.string.tv_player_change_quality_rejected
             PlayerPlaybackChangeOperation.Backend -> R.string.tv_player_change_backend_rejected
+            PlayerPlaybackChangeOperation.Audio -> R.string.tv_player_change_audio_rejected
+            PlayerPlaybackChangeOperation.Subtitle -> R.string.tv_player_change_subtitle_rejected
+            PlayerPlaybackChangeOperation.Seek -> R.string.tv_player_change_seek_rejected
         },
         reason,
     )

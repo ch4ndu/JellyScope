@@ -149,20 +149,46 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   after audio output fails. Its optional `healthStatusOverride` supplies health
   status only while the public status is `Buffering`; null uses the public
   status. UI, reporting, failure and terminal handling retain the public status.
-- The AVPlayer controller derives buffered position from
-  `AVPlayerItem.loadedTimeRanges` by reporting the end of the loaded range
-  covering the current playhead. It derives `Buffering` from AVFoundation's
-  stall notification, buffer-empty and likely-to-keep-up flags, and
-  waiting-to-play time-control status.
-- The VLCKit controller publishes `bufferedPositionMs` equal to its published
-  position, so its buffer-ahead is unavailable, not a measured empty buffer.
-  Its `Buffering` combines native buffering progress under play intent with the
-  prepare/resume/seek transition hold owned by
-  [iOS recovery](apple-playback.md#ios-recovery). Once the transition clock has
-  reached the target and advanced, health uses the ordinary native status
-  mapping during the remaining picture-readiness hold. The spinner and pinned
-  target remain unchanged. Before that clock advance, health uses public
-  `Buffering`; genuine native buffering after the advance remains measurable.
+- An accepted seek requiring a replacement server stream immediately pauses
+  old playback and displays Loading at the requested absolute position. Both
+  shells retain Play/Pause intent separately from this internal pause; a newer
+  Pause wins over automatic resume. Native progress and outgoing Stopped reports
+  retain the actual played position, and the hold suspends health evaluation.
+  Before outgoing reporting Stop, a newer seek can cancel planning and return
+  to the old stream window. After Stop admission, the installer completes while
+  retaining only the newest requested target; intermediate playback stays paused
+  until that target is handled against the installed plan. Fatal failure remains
+  visible with the requested target retained. Stop, close and owner replacement
+  revoke the hold. Shared controls, desktop shortcuts, Kids controls and TV
+  transport labels use the retained intent while loading, so Pause remains
+  available. A failed local subtitle lookup, immediate subtitle Off or accepted
+  backend switch settles the abandoned seek only while the installed owner is
+  still healthy; otherwise the requested target remains available for Retry.
+  Terminal reporting captures the actual outgoing position before asynchronous
+  diagnostics. Server preparation and native seek arrival can still take time.
+- Lifecycle outcomes are shared: explicit Pause revokes automatic resume;
+  Stop/close settles reporting and releases ownership; retired callbacks cannot
+  restart playback. Android Activity Stop, iOS background/PiP admission, and
+  tvOS scene background reach those outcomes through their native lifecycle
+  owners. Desktop window deactivation retains playback for multitasking and is
+  not a mobile background-close event. iOS keeps the screen awake for the
+  player-screen lifetime because auto-lock previously interrupted playback;
+  desktop holds display sleep only during Playing/Buffering. Revisit the iOS
+  exception only with paused/playing/background/PiP device evidence that avoids
+  that failure; host compilation does not qualify a replacement policy.
+- AVPlayer derives buffered position from the loaded range covering its native
+  playhead. Ready-item state preserves explicit pause intent and native Playing
+  ahead of predictive buffer flags or stale stall notifications. Waiting,
+  unresolved seeks/audio activation, and genuine zero-rate stall recovery under
+  play intent remain Buffering. Seek lifecycle and deadlines are owned by
+  [iOS recovery](apple-playback.md#ios-recovery).
+- VLCKit publishes `bufferedPositionMs` equal to its published position, so
+  buffer-ahead is unavailable, not a measured empty buffer. Its Buffering
+  combines native buffering progress under play intent with the transport hold
+  owned by [iOS recovery](apple-playback.md#ios-recovery). Once target arrival
+  and clock advancement settle transport, UI and health use ordinary native
+  status and the timeline follows native time while best-effort picture
+  readiness may remain pending. Native buffering still takes precedence.
 - `PlaybackProgressReporter` owns Jellyfin progress reporting actions for start,
   pause, seek, stop, completion, and failure.
 - Direct-play planning uses `/Videos/{itemId}/stream?static=true` with
@@ -261,9 +287,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 The pure shared `PlaybackHealthEvaluator` receives native controller facts but
 owns the meaning of those facts. Slow startup is eligible after 10 seconds
 before the first `Playing` and clears at the first `Playing`; it has a separate
-message-only startup budget. VLCKit's health status can end that accounting
-before picture readiness: it represents native transport plus an earlier clock
-advance at the target, not first-video-output proof. Post-start guidance uses one
+message-only startup budget. VLCKit's public transport status can end that
+accounting before picture readiness: it represents native transport plus an
+earlier clock advance at the target, not first-video-output proof. Post-start guidance uses one
 shared budget and the first admissible signal wins: one buffering interval of at
 least 5 seconds,
 10 seconds of buffering in a rolling 60-second window, three post-start
@@ -632,12 +658,13 @@ suppresses interactive recovery until it is safe to show the consequence.
   native unavailability alongside planned gaps, after binding the returned
   prepare epoch and arming health observation. Matching native selections are
   retained by the backend; Retry does not replay every selection.
-  Only VLCKit's Retry handoff substitutes the logical plan's start position for
-  its temporary paused native zero and follows ViewModel play intent rather
-  than that transitional pause. Later ViewModel pause/play revisions still win;
+  VLCKit's Retry reporting handoff captures the bounded current position before
+  native preparation publishes its temporary paused zero. Immediate activation
+  recovery uses the newly admitted controller-retained target when qualified,
+  otherwise that captured position, and follows ViewModel play intent rather
+  than the transitional pause. Later ViewModel pause/play revisions still win;
   a prior pause made only through native PiP, an interruption or route loss is
-  not preserved by this recovery replacement. Other backends retain their
-  existing snapshot behavior, including Android mpv's current retry position.
+  not preserved by this recovery replacement. All backends use the common current-position Retry snapshot.
   Ordinary VLCKit Start/Pause reports at zero and post-replan zero snapshots
   remain separate from this handoff's corrected Stopped position.
   A shown Error retains its first cause across later native failures and
@@ -664,10 +691,14 @@ suppresses interactive recovery until it is safe to show the consequence.
   one audio-first policy decision. The handoff requires the exact installed
   plan, current item, controller and selected source, with startup admission
   open; recovery checks admission before spending an allowance. It uses the
-  installed plan's start position; this does not confirm native seek arrival. Selected external audio and ambiguous response Audio identities
+  installed plan's start position for startup/replan; same-plan Retry instead
+  captures the bounded current position before native retry. A changed native
+  prepare epoch and current owner qualify any retained Retry target. This does
+  not confirm native seek arrival. Selected external audio and ambiguous response Audio identities
   lack an embedded descriptor; this fallback establishes no native codec
   incompatibility. Retry resets the
-  policy allowance; paused AVPlayer Retry can resume through Loading.
+  policy allowance; Retry fallback carries captured pause intent through both
+  audio and subtitle replans, while a newer explicit command wins.
   Startup and replan failures use a private copy of Compose's planner-error
   classifier; check both helpers when changing its immediate-cause mapping.
   Unlike Compose's Audio-fallback catch, tvOS preserves typed classification
@@ -676,8 +707,9 @@ suppresses interactive recovery until it is safe to show the consequence.
   later failure and state projections while other native fields keep updating.
   Accepted start/item or recovery Loading clears it; a still-owned replacement
   installation can also clear a failure that arrived after planning began.
-  User proposals do not publish Loading while planning. AVPlayer may remain
-  Audio-gated, and no native Stop is implied by failure presentation.
+  Track and quality proposals keep the installed presentation while planning;
+  replacement seeks use the shared pause/Loading contract above. AVPlayer may
+  remain Audio-gated, and failure presentation alone implies no native Stop.
 
   A healthy, current user quality, Audio, Subtitle, local-subtitle or
   out-of-window seek proposal commits requested fields and persistence only
@@ -696,8 +728,8 @@ suppresses interactive recovery until it is safe to show the consequence.
   Same-plan Error Retry cancels pending planning and any pre-planning local
   asset read before resetting recovery allowances and reporting. Cancelled
   results cannot replace that attempt, and uncommitted choices were never saved.
-  Retry still reloads the installed plan from its own start position and can
-  rewind. It starts a new reporting session; Close/Back exits, and remote
+  Retry reloads a snapshot of the current absolute position, speed and style,
+  retaining admitted track intent. It starts a new reporting session; Close/Back exits, and remote
   Play/Pause may control a stream beneath a fatal surface. UnsupportedMedia
   retains Retry. Successful owned installation resetting an earlier failure is
   an existing boundary, not a claim that every request is isolated from it.
@@ -750,17 +782,21 @@ suppresses interactive recovery until it is safe to show the consequence.
   A backend-qualified replacement re-plans from its own capability facts and
   keeps the selected policy; a same-plan network retry remains a separate
   one-shot retry.
-- **[all]** A same-plan `retry()` re-prepares the controller's `lastPlan` with
-  that plan's controller-specific retained subtitle asset, then consumes the
-  pure `RetrySelectionPolicy`: retained audio is re-applied, and a concrete
-  subtitle is re-applied only while its complete activation target still matches
-  the plan. Android mpv, Android LibVLC, and desktop LibVLC reassert their
-  already-distinct explicit Off state. Media3, AVPlayer, VLCKit, and desktop mpv
-  keep ambiguous null unspecified, so prepare restores the plan subtitle rather
-  than treating null as Off. Media3 deliberately keeps a live `lastPlan`
-  subtitle target, so its in-player subtitle changes survive retry. Each
-  controller retains its released checks, play intent, native preparation/order,
-  and backend-specific position, timing, asset, and engine behavior.
+- **[all]** Same-session explicit `retry()` snapshots the current absolute
+  position, speed and subtitle style before prepare. Position is nonnegative
+  and bounded by a known positive duration. Every adapter retains admitted
+  local subtitle intent, including explicit Off, and re-applies retained audio.
+  Concrete subtitle restoration still requires the complete activation target;
+  an obsolete remote asset is discarded without changing server delivery or
+  offline sidecar ownership. Native restart order and play/pause intent remain
+  controller-owned. Automatic network recovery uses its separate replan path.
+- **[Android LibVLC]** Retry retains timing offsets and applies them once at the
+  current generation's native Playing event, when an input thread exists.
+  A paused Retry waits for eventual playback. Timing commands are unavailable
+  during prepare or pending restoration and never write the outgoing player.
+  Failed native application clears only that channel's displayed offset;
+  replacement, Stop, release and failure invalidate pending restoration.
+  Other timing-capable adapters retain their existing timing application.
 - **[Compose]** Ordinary Retry refuses an active launch while queue identity is
   unsettled, before changing recovery admission, loading, generations, budgets
   or native playback. This includes repeated Retry during a full rebuild. A
@@ -1041,15 +1077,16 @@ its reporting coordinator only after concrete installation and uses that
 installed controller flow for the session. Both shells retain their general
 previous-status, completion, queue, navigation, and native-command semantics.
 
-For Compose same-item VLCKit Retry, reporting temporarily retains the accepted
-plan start position and intended play/pause state. The transition belongs to
+For Compose and tvOS same-item VLCKit Retry, reporting temporarily retains the bounded
+current position captured before Retry and the intended play/pause state. The transition belongs to
 one reporting installation and its prior native prepare epoch. A new known
 epoch's Buffering or Playing sample, or an explicit user seek/play/pause,
 settles it. Transitional Paused does not report a Pause edge when play was
 intended. Failed and Completed retain the target until Stop, stopNow or dispose
 reports and consumes it; installation resets it. Real zero positions after
 settlement remain valid. This is a reporting contract, not evidence of native
-seek arrival. Online tvOS uses AVPlayer and does not arm this transition.
+seek arrival. Both shells forward the installed controller's native prepare
+epoch on admitted reporting samples; a null or unchanged epoch cannot settle it.
 
 An exact pending Audio fallback defers a later Failed sample from the same
 installed target before network or automatic recovery. The pure policy returns
@@ -1068,6 +1105,19 @@ claim a native decoder module the backend API cannot expose. Disabled and
 no-cap states are rendered explicitly; a protocol sentinel is never presented
 as a user quality. Diagnostics never include stream URLs, headers, tokens,
 server/user IDs, titles, paths, or raw native errors.
+
+Native cache and decoder budgets remain execution policy, separate from stream
+quality and capability claims. Media3's time/byte load-control bounds and Android
+mpv's forward/backward cache bounds limit different native allocations; desktop
+mpv retains engine defaults. Their objective is bounded memory with usable
+startup/rebuffer behavior, not numerical equality. They remain configuration
+choices without fresh cross-engine performance acceptance. Android VLC's dav1d
+frame-thread bound addresses a recorded resource-failure candidate; Android TV
+mpv's GPU route addresses a recorded shader-link failure. Their owning
+[Android contracts](android-playback.md) retain
+the affected routes. Change or retire those exceptions only after the same
+route demonstrates memory, startup, rebuffer and output behavior without the
+original failure. A shared source plan alone is not that evidence.
 
 ## VLC terminal policy
 
@@ -1245,11 +1295,14 @@ server/user IDs, titles, paths, or raw native errors.
   paths, not native reproductions. Reusing the queue boundary rejects commands
   before these side effects without introducing another owner.
 
-- **Health policy is selected by the application surface.** Android TV uses the
-  shared Actionable policy, while desktop and tvOS remain Advisory; placing that
-  choice on `PlayerController` would conflate measurement support with
-  presentation behavior. Android LibVLC's one-frame dav1d delay bound is a
-  backend resource safeguard, not a source, quality, or device-profile rule.
+- **Health action authority is shared across application surfaces.** Android,
+  iOS, desktop and tvOS select the common Actionable policy. Reliable installed
+  evidence, explicit quality authority and recovery budgets still gate actions;
+  warning preferences affect presentation only. Controllers supply measurement
+  capabilities, not a platform exemption from shared recovery. tvOS qualifies
+  AVPlayer first-output reliability against the current observed native layer;
+  missing or retired hosts cannot create a no-output recovery signal. Android
+  LibVLC's dav1d bound remains a native resource safeguard, not a quality rule.
 
 - **Initial audio activation has one shared decision table.** DirectPlay waits
   for exact native mapping while other modes begin active, with two deliberate
@@ -1260,9 +1313,10 @@ server/user IDs, titles, paths, or raw native errors.
   gap to recovery. One combined decision preserves Audio-first precedence.
   Compose Retry separates logical activation facts from captured installed
   authority, since diagnostic copies are not new preparations. VLCKit's
-  synchronous Retry snapshot precedes deferred play; using its intended plan
-  position and ViewModel play intent avoids a new zero-position fallback and
-  false pause without changing Android mpv's current-position Retry. Native-only
+  synchronous Retry snapshot precedes deferred play. Reporting captures the
+  current target before preparation; activation fallback prefers the qualified
+  retained target. Both avoid transitional zero and false pause while every
+  adapter shares the current-position Retry rule. Native-only
   play intent remains separate. The Compose reducer retains terminal Error
   until an accepted attempt resets it, so unrelated native updates cannot
   remove Retry/Close. Resets at guarded install/prepare boundaries admit a new

@@ -2,6 +2,7 @@
 
 package com.jellyscope.ui.screen.player
 
+import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.domain.model.MediaItem
 import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.MediaVersion
@@ -31,6 +32,7 @@ import com.jellyscope.core.domain.playback.applePlayerBackendPolicy
 import com.jellyscope.core.domain.playback.resolvePlayerBackend
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -206,33 +208,53 @@ class PlayerViewModelBackendLifecycleTest {
                     playbackInfoResults =
                         ArrayDeque(
                             listOf(
-                                Result.success(directPlayPlaybackInfo),
+                                Result.success(transcodePlaybackInfo),
                                 Result.failure(IllegalStateException("target planning failed")),
                             ),
                         ),
                     playerControllerFactory = { error("target planning failure must not construct a controller") },
                 )
 
-            runCurrent()
-            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 12_000L)
-            runCurrent()
-            val healthyPlan = assertNotNull(fixture.controller.preparedPlan)
+            try {
+                runCurrent()
+                fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 12_000L)
+                runCurrent()
+                val healthyPlan = assertNotNull(fixture.controller.preparedPlan)
 
-            fixture.viewModel.accept(PlayerIntent.ShowPicker(PlayerPicker.Backend))
-            fixture.viewModel.accept(PlayerIntent.SelectBackend(PlayerBackend.VlcKit))
-            runCurrent()
+                fixture.controller.transcodeSeekRestartsStream = true
+                fixture.repository.ordinaryPlanGate = CompletableDeferred()
+                fixture.viewModel.accept(PlayerIntent.SeekTo(40_000L))
+                runCurrent()
+                fixture.viewModel.accept(PlayerIntent.SelectBackend(PlayerBackend.AVPlayer))
+                assertEquals(true, assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).pendingSeekPlayWhenReady)
+                fixture.repository.ordinaryPlanGate = null
+                fixture.viewModel.accept(PlayerIntent.ShowPicker(PlayerPicker.Backend))
+                val playCountBeforeRestoration = fixture.controller.playCount
+                fixture.viewModel.accept(PlayerIntent.SelectBackend(PlayerBackend.VlcKit))
+                runCurrent()
 
-            val content = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
-            assertSame(fixture.controller, fixture.viewModel.currentPlayerController)
-            assertSame(healthyPlan, fixture.controller.preparedPlan)
-            assertEquals(PlayerBackend.AVPlayer, content.activeBackend)
-            assertEquals("item-1", content.playbackItemId)
-            assertEquals(PlayerPicker.None, content.pickerVisible)
-            assertNotNull(content.playbackChangeNotice)
-            assertEquals(0, fixture.controller.releaseCount)
-            assertTrue(fixture.reporter.reports.none { report -> report is Report.Stopped })
+                assertEquals(playCountBeforeRestoration + 1, fixture.controller.playCount)
+                fixture.controller.playbackStateFlow.value =
+                    fixture.controller.playbackStateFlow.value
+                        .copy(status = PlaybackStatus.Playing)
+                runCurrent()
 
-            fixture.viewModel.dispose()
+                val content = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
+                assertSame(fixture.controller, fixture.viewModel.currentPlayerController)
+                assertSame(healthyPlan, fixture.controller.preparedPlan)
+                assertEquals(PlayerBackend.AVPlayer, content.activeBackend)
+                assertEquals("item-1", content.playbackItemId)
+                assertEquals(PlayerPicker.None, content.pickerVisible)
+                assertNotNull(content.playbackChangeNotice)
+                assertNull(content.pendingSeekPlayWhenReady)
+                assertEquals(PlaybackStatus.Playing, content.playbackState.status)
+                assertEquals(0, fixture.controller.releaseCount)
+                assertTrue(fixture.reporter.reports.none { report -> report is Report.Stopped })
+            } finally {
+                fixture.viewModel.dispose()
+                fixture.viewModel.viewModelScope.cancel()
+                runCurrent()
+            }
         }
 
     @Test
@@ -838,8 +860,10 @@ class PlayerViewModelBackendLifecycleTest {
                     override fun retry() {
                         super.retry()
                         val retained = preparedPlan ?: error("retry requires a prepared plan")
+                        val retryPositionMs = playbackStateFlow.value.positionMs
                         prepare(
                             retained.copy(
+                                startPositionMs = retryPositionMs,
                                 contentTimeline =
                                     PlaybackContentTimeline.BoundedVod(
                                         durationMs = 90.seconds.inWholeMilliseconds,
@@ -849,13 +873,14 @@ class PlayerViewModelBackendLifecycleTest {
                         )
                     }
                 }
-            controller.activeBackend = PlayerBackend.AVPlayer
-            controller.preparePublishedState = playbackState(PlaybackStatus.Failed)
+            controller.activeBackend = PlayerBackend.VlcKit
+            controller.preparePublishedState = playbackState(PlaybackStatus.Failed, positionMs = 20_000L)
             val fixture =
                 playerFixture(
                     detailItems = mapOf("item-1" to unboundedItem),
                     initialControllerIsPending = true,
                     deviceProfileProvider = appleOfflineProfileProvider(),
+                    playerBackendOverrideStore = FakePlayerBackendOverrideStore(PlayerBackend.VlcKit),
                     playerControllerFactory = { controller },
                 )
 
@@ -864,7 +889,8 @@ class PlayerViewModelBackendLifecycleTest {
             assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
             assertEquals(1, controller.prepareCount)
             assertEquals(PlaybackContentTimeline.UnknownOrUnbounded, controller.preparedPlan?.contentTimeline)
-            controller.preparePublishedState = null
+            assertEquals(1_000L, controller.preparedPlan?.startPositionMs)
+            controller.preparePublishedState = playbackState(PlaybackStatus.Paused)
 
             fixture.viewModel.accept(PlayerIntent.Retry)
             runCurrent()
@@ -872,9 +898,18 @@ class PlayerViewModelBackendLifecycleTest {
             assertSame(controller, fixture.viewModel.currentPlayerController)
             assertEquals(2, controller.prepareCount)
             assertEquals(1, controller.retryCount)
+            assertEquals(20_000L, controller.preparedPlan?.startPositionMs)
+            assertEquals(0L, controller.playbackState.value.positionMs)
             assertTrue(assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).isSeekable)
             fixture.viewModel.dispose()
             runCurrent()
+            assertEquals(
+                20_000L,
+                fixture.reporter.reports
+                    .filterIsInstance<Report.Stopped>()
+                    .single()
+                    .positionMs,
+            )
         }
 
     @Test

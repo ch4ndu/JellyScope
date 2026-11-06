@@ -18,6 +18,8 @@ import com.jellyscope.core.domain.model.SegmentSkipPolicy
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
 import com.jellyscope.core.domain.playback.AudioActivationState
+import com.jellyscope.core.domain.playback.DeviceDecodingCapabilities
+import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.DirectPlayPlanner
 import com.jellyscope.core.domain.playback.MediaSegment
 import com.jellyscope.core.domain.playback.MediaSegmentType
@@ -38,6 +40,7 @@ import com.jellyscope.core.domain.playback.PlaybackQualityMode
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
 import com.jellyscope.core.domain.playback.PlaybackRuntimeDiagnostics
 import com.jellyscope.core.domain.playback.PlaybackStatus
+import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.ProgressReportingPolicy
 import com.jellyscope.core.domain.playback.StreamMode
 import com.jellyscope.core.domain.playback.SubtitleActivationState
@@ -82,13 +85,17 @@ class TvPlaybackSessionPresenterTest {
     fun factoryIsDeferredUntilStartAndConstructsOnceOnWork() =
         runTest {
             val workDispatcher = TvRecordingDispatcher(StandardTestDispatcher(testScheduler))
-            val installedController = FakeTvPlayerController()
+            val installedController = FakeTvPlayerController().apply { activeBackend = PlayerBackend.VlcKit }
             var factoryCount = 0
             val fixture =
                 fixture(
                     workDispatcher = workDispatcher,
-                    playerControllerFactory = {
+                    preferences =
+                        com.jellyscope.core.domain.model
+                            .PlaybackPreferences(defaultPlayerBackend = PlayerBackend.Auto),
+                    playerControllerFactory = { backend ->
                         check(workDispatcher.running)
+                        assertEquals(PlayerBackend.VlcKit, backend)
                         factoryCount += 1
                         installedController
                     },
@@ -105,6 +112,12 @@ class TvPlaybackSessionPresenterTest {
             assertEquals(1, factoryCount)
             assertTrue(fixture.presenter.state.value.playerInstalled)
             assertEquals(1, installedController.preparedPlans.size)
+            assertEquals(
+                PlayerBackend.VlcKit,
+                fixture.repository.planRequests
+                    .single()
+                    .policy.backend,
+            )
             fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             assertEquals(1, factoryCount)
@@ -151,6 +164,10 @@ class TvPlaybackSessionPresenterTest {
 
             fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
+            repeat(3) {
+                workerScheduler.runCurrent()
+                runCurrent()
+            }
             workerScheduler.runCurrent()
             fixture.presenter.close()
             runCurrent()
@@ -879,8 +896,22 @@ class TvPlaybackSessionPresenterTest {
             runCurrent()
 
             // Buffered ahead only to 5s; seeking to 40s falls outside the window.
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            fixture.repository.ordinaryPlanGate = gate
+            val pauses = fixture.controller.pauseCount
+            val plays = fixture.controller.playCount
             fixture.presenter.accept(TvPlaybackSessionIntent.SeekTo(40_000L))
+            assertEquals(pauses + 1, fixture.controller.pauseCount)
+            assertEquals(40_000L, fixture.presenter.state.value.positionMs)
+            assertEquals(PlaybackStatus.Loading, fixture.presenter.state.value.status)
+            assertTrue(fixture.presenter.state.value.pendingReplacementSeek)
             runCurrent()
+            fixture.presenter.accept(TvPlaybackSessionIntent.Pause)
+            assertEquals(false, fixture.presenter.state.value.desiredPlayWhenReady)
+            gate.complete(Unit)
+            runCurrent()
+            assertEquals(plays, fixture.controller.playCount)
+            assertTrue(fixture.controller.pauseCount > pauses + 1)
             fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 40_000L)
             runCurrent()
 
@@ -897,11 +928,47 @@ class TvPlaybackSessionPresenterTest {
             assertEquals(
                 listOf<TvReport>(
                     TvReport.Start(5_000L, "psid-1"),
-                    TvReport.Stopped(40_000L, "psid-1"),
+                    TvReport.Stopped(5_000L, "psid-1"),
                     TvReport.Start(40_000L, "psid-2"),
                 ),
                 fixture.reporter.reports,
             )
+            fixture.presenter.close()
+        }
+
+    @Test
+    fun newerLocalSeekSupersedesPendingRemoteSeek() =
+        runTest {
+            val fixture = fixture(playbackInfos = listOf(Result.success(transcodeInfo())))
+            fixture.controller.transcodeSeekRestartsStream = true
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
+            runCurrent()
+            fixture.controller.playbackStateFlow.value =
+                playbackState(PlaybackStatus.Playing, positionMs = 5_000L).copy(bufferedPositionMs = 6_000L)
+            runCurrent()
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            fixture.repository.ordinaryPlanGate = gate
+            fixture.presenter.accept(TvPlaybackSessionIntent.SeekTo(40_000L))
+            runCurrent()
+            val oldEpoch = fixture.presenter.state.value.hostTransportEpoch
+            fixture.presenter.accept(TvPlaybackSessionIntent.Pause)
+            fixture.presenter.accept(TvPlaybackSessionIntent.SeekTo(4_000L))
+            val state = fixture.presenter.state.value
+            fixture.presenter.accept(
+                TvPlaybackSessionIntent.RecordNativePlaybackIntent(
+                    state.playerIdentity,
+                    state.planEpoch,
+                    state.itemId,
+                    true,
+                    oldEpoch,
+                ),
+            )
+            gate.complete(Unit)
+            runCurrent()
+            assertEquals(listOf(4_000L), fixture.controller.seekPositions)
+            assertEquals(1, fixture.controller.preparedPlans.size)
+            assertEquals(false, fixture.presenter.state.value.pendingReplacementSeek)
+            assertEquals(false, fixture.presenter.state.value.desiredPlayWhenReady)
             fixture.presenter.close()
         }
 
@@ -1159,18 +1226,28 @@ class TvPlaybackSessionPresenterTest {
             val fixture =
                 fixture(
                     playbackInfos =
-                        listOf(Result.success(directPlayInfo(streams = streams.withResponseSubtitleDelivery("Embed")))),
+                        listOf(Result.success(transcodeInfo(streams = streams.withResponseSubtitleDelivery("Embed")))),
                     storedSubtitle = SubtitleSelectionIntent.Track(2),
                     detail = Result.success(testDetail(streams = streams)),
                 )
             fixture.presenter.accept(TvPlaybackSessionIntent.Start)
             runCurrent()
             val plansBefore = fixture.repository.planRequests.size
+            fixture.controller.transcodeSeekRestartsStream = true
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
+            runCurrent()
+            fixture.repository.ordinaryPlanGate = kotlinx.coroutines.CompletableDeferred()
+            fixture.presenter.accept(TvPlaybackSessionIntent.SeekTo(40_000L))
+            runCurrent()
+            val heldEpoch = fixture.presenter.state.value.hostTransportEpoch
 
             fixture.presenter.accept(TvPlaybackSessionIntent.SelectSubtitle(null))
             runCurrent()
 
-            assertEquals(plansBefore, fixture.repository.planRequests.size)
+            assertFalse(fixture.presenter.state.value.pendingReplacementSeek)
+            assertEquals(heldEpoch + 1L, fixture.presenter.state.value.hostTransportEpoch)
+            assertEquals(PlaybackStatus.Playing, fixture.presenter.state.value.status)
+            assertEquals(plansBefore + 1, fixture.repository.planRequests.size)
             assertEquals(null, fixture.controller.embeddedSubtitleSelections.last())
             assertEquals(
                 SubtitleSelectionIntent.Off,
@@ -1798,6 +1875,153 @@ class TvPlaybackSessionPresenterTest {
             fixture.presenter.close()
         }
 
+    @Test
+    fun retryRetainsCurrentTargetUntilQualifiedPrepareEpochAdvances() =
+        runTest {
+            val controller = FakeTvPlayerController().apply { activeBackend = PlayerBackend.VlcKit }
+            val fixture =
+                fixture(
+                    startTicks = millisecondsToTicks(1_000L),
+                    preferences =
+                        com.jellyscope.core.domain.model
+                            .PlaybackPreferences(defaultPlayerBackend = PlayerBackend.VlcKit),
+                    playerControllerFactory = { controller },
+                )
+            fixture.presenter.accept(TvPlaybackSessionIntent.Start)
+            runCurrent()
+            controller.runtimeDiagnostics.value = PlaybackRuntimeDiagnostics.EMPTY.copy(prepareEpoch = 1L)
+            controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 7_000L)
+            runCurrent()
+            controller.onRetry = {
+                controller.retainedPlan = controller.preparedPlans.single().copy(startPositionMs = 7_000L)
+                controller.runtimeDiagnostics.value = PlaybackRuntimeDiagnostics.EMPTY.copy(prepareEpoch = 2L)
+                controller.playbackStateFlow.value = playbackState(PlaybackStatus.Paused, positionMs = 0L)
+            }
+            fixture.presenter.accept(TvPlaybackSessionIntent.HandlePlaybackAction(PlaybackAction.Retry))
+            runCurrent()
+            assertEquals(
+                7_000L,
+                fixture.reporter.reports
+                    .filterIsInstance<TvReport.Start>()
+                    .last()
+                    .positionMs,
+            )
+            assertTrue(fixture.reporter.reports.none { it is TvReport.Progress && it.eventName == PlaybackProgressEvent.Pause })
+            controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 8_000L)
+            runCurrent()
+            advanceTimeBy(
+                controller.preparedPlans
+                    .single()
+                    .progressReportingPolicy.reportIntervalMs,
+            )
+            runCurrent()
+            assertTrue(
+                fixture.reporter.reports.any {
+                    it is TvReport.Progress && it.eventName == PlaybackProgressEvent.TimeUpdate && it.positionMs == 8_000L
+                },
+            )
+            fixture.presenter.close()
+        }
+
+    @Test
+    fun backendSwitchStopRevokesResumeAndAdmittedInstallGuardsQueueOwner() =
+        runTest {
+            val outgoing = FakeTvPlayerController()
+            val rejected = FakeTvPlayerController().apply { activeBackend = PlayerBackend.VlcKit }
+            val stopped =
+                fixture(
+                    preferences =
+                        com.jellyscope.core.domain.model
+                            .PlaybackPreferences(defaultPlayerBackend = PlayerBackend.AVPlayer),
+                    playerControllerFactory = { backend -> if (backend == PlayerBackend.AVPlayer) outgoing else rejected },
+                )
+            stopped.presenter.accept(TvPlaybackSessionIntent.Start)
+            runCurrent()
+            outgoing.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
+            runCurrent()
+            val planGate = CompletableDeferred<Unit>()
+            stopped.repository.ordinaryPlanGate = planGate
+            val plays = outgoing.playCount
+            val pauses = outgoing.pauseCount
+            stopped.presenter.accept(TvPlaybackSessionIntent.SelectBackend(PlayerBackend.VlcKit))
+            runCurrent()
+            assertEquals(pauses + 1, outgoing.pauseCount)
+            assertTrue(stopped.presenter.state.value.backendSwitchPending)
+            stopped.presenter.accept(TvPlaybackSessionIntent.Stop)
+            runCurrent()
+            planGate.complete(Unit)
+            runCurrent()
+            assertEquals(plays, outgoing.playCount)
+            assertEquals(1, outgoing.stopCount)
+            assertEquals(1, rejected.releaseCount)
+            assertTrue(rejected.preparedPlans.isEmpty())
+            assertFalse(stopped.presenter.state.value.desiredPlayWhenReady)
+            assertFalse(stopped.presenter.state.value.backendSwitchPending)
+            stopped.presenter.close()
+            runCurrent()
+
+            val episode1 = mediaItem(id = "ep-1", kind = MediaKind.Episode, seriesId = "series-1", seasonId = "season-1", indexNumber = 1)
+            val episode2 = mediaItem(id = "ep-2", kind = MediaKind.Episode, seriesId = "series-1", seasonId = "season-1", indexNumber = 2)
+            val installed = FakeTvPlayerController()
+            val replacement = FakeTvPlayerController().apply { activeBackend = PlayerBackend.VlcKit }
+            val switching =
+                fixture(
+                    itemId = episode1.id,
+                    detail = Result.success(testDetail(item = episode1)),
+                    preferences =
+                        com.jellyscope.core.domain.model
+                            .PlaybackPreferences(defaultPlayerBackend = PlayerBackend.AVPlayer),
+                    playerControllerFactory = { backend -> if (backend == PlayerBackend.AVPlayer) installed else replacement },
+                )
+            switching.repository.detailsById =
+                mapOf(
+                    episode1.id to Result.success(testDetail(item = episode1)),
+                    episode2.id to Result.success(testDetail(item = episode2)),
+                )
+            switching.repository.seasons = Result.success(listOf(mediaItem(id = "season-1", name = "Season 1")))
+            switching.repository.episodesBySeasonId = mapOf("season-1" to listOf(episode1, episode2))
+            switching.presenter.accept(TvPlaybackSessionIntent.Start)
+            runCurrent()
+            installed.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
+            runCurrent()
+            assertEquals(
+                episode2.id,
+                switching.presenter.state.value.nextEpisode
+                    ?.id,
+            )
+            assertEquals(1, switching.reporter.startAttempts)
+            val stopGate = CompletableDeferred<Unit>()
+            switching.reporter.stopGate = stopGate
+            val owner = switching.presenter.state.value.playerIdentity
+            switching.presenter.accept(TvPlaybackSessionIntent.SelectBackend(PlayerBackend.VlcKit))
+            runCurrent()
+            assertTrue(switching.presenter.state.value.backendSwitchPending)
+            assertTrue(replacement.preparedPlans.isEmpty())
+            val requests = switching.repository.planRequests.size
+            switching.presenter.accept(TvPlaybackSessionIntent.PlayNextEpisode)
+            switching.presenter.accept(TvPlaybackSessionIntent.SelectQueueItem(1))
+            runCurrent()
+            assertEquals(episode1.id, switching.presenter.state.value.itemId)
+            assertEquals(owner, switching.presenter.state.value.playerIdentity)
+            assertEquals(requests, switching.repository.planRequests.size)
+            assertEquals(0, installed.stopCount)
+            assertEquals(0, installed.releaseCount)
+            assertTrue(replacement.preparedPlans.isEmpty())
+            stopGate.complete(Unit)
+            runCurrent()
+            assertEquals(episode1.id, switching.presenter.state.value.itemId)
+            assertEquals(owner + 1, switching.presenter.state.value.playerIdentity)
+            assertEquals(PlayerBackend.VlcKit, switching.presenter.state.value.backend)
+            assertEquals(episode1.id, replacement.preparedPlans.single().itemId)
+            assertEquals(1, installed.releaseCount)
+            assertFalse(switching.presenter.state.value.backendSwitchPending)
+            switching.presenter.accept(TvPlaybackSessionIntent.SelectQueueItem(1))
+            runCurrent()
+            assertEquals(episode2.id, switching.presenter.state.value.itemId)
+            assertEquals(1, replacement.stopCount)
+            switching.presenter.close()
+        }
+
     private class Fixture(
         val presenter: TvPlaybackSessionPresenter,
         val controller: FakeTvPlayerController,
@@ -1820,7 +2044,7 @@ class TvPlaybackSessionPresenterTest {
         playbackHealthGuidancePolicy: PlaybackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Advisory,
         selectionStore: FakeTvPlaybackSelectionStore? = null,
         playbackDiagnosticsContext: PlaybackDiagnosticsContext? = null,
-        playerControllerFactory: (() -> com.jellyscope.core.domain.playback.PlayerController)? = null,
+        playerControllerFactory: ((PlayerBackend) -> com.jellyscope.core.domain.playback.PlayerController)? = null,
         workDispatcher: kotlinx.coroutines.CoroutineDispatcher? = null,
     ): Fixture {
         val dispatcher = StandardTestDispatcher(testScheduler)
@@ -1879,6 +2103,10 @@ class TvPlaybackSessionPresenterTest {
                 dispatchers = TvosDispatchers(main = dispatcher, work = workDispatcher ?: dispatcher),
                 playbackDiagnosticsContext = playbackDiagnosticsContext,
                 playbackHealthGuidancePolicy = playbackHealthGuidancePolicy,
+                deviceProfileProvider =
+                    object : DeviceProfileProvider {
+                        override fun capabilities(backend: PlayerBackend) = DeviceDecodingCapabilities(emptyList(), emptyList(), false)
+                    },
                 monotonicTimeMs = { testScheduler.currentTime },
             )
         return Fixture(presenter, controller, reporter, repository, preferencesStore, subtitleStore, reportingQueue)

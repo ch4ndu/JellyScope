@@ -24,6 +24,9 @@ struct PlayerControlsView: View {
                 subtitleMenu
                 chapterMenu
                 speedMenu
+                if !model.isOffline && !model.backendChoices.isEmpty {
+                    backendMenu
+                }
                 if model.avPlayer != nil {
                     sizingMenu
                 }
@@ -128,6 +131,24 @@ struct PlayerControlsView: View {
                 }
             }
         }
+    }
+
+    private var backendMenu: some View {
+        Menu(String(localized: "Player")) {
+            ForEach(model.backendChoices, id: \.self) { backend in
+                Button {
+                    model.selectBackend(backend)
+                } label: {
+                    if backend == model.backend {
+                        Label(backend.playbackTitle, systemImage: "checkmark")
+                    } else {
+                        Text(backend.playbackTitle)
+                    }
+                }
+                .disabled(backend == model.backend)
+            }
+        }
+        .disabled(model.backendSwitchPending)
     }
 
     private var sizingMenu: some View {

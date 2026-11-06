@@ -48,7 +48,7 @@ The following rules are non-negotiable:
   already-selected backend safer to execute, but it cannot change DirectPlay
   eligibility, the user quality policy, a device profile, or the wire request.
 - A remote current playback may take one explicit, session-local concrete-backend
-  switch. The ViewModel projects `PlayerBackendPolicy` in policy order, excludes
+  switch. Compose projects `PlayerBackendPolicy` in policy order, excludes
   `Auto`, leaves known unavailable choices visible but disabled, and never writes
   the persisted backend preference. It first builds and validates a clean
   target-qualified plan while the healthy controller remains installed. The
@@ -71,6 +71,17 @@ The following rules are non-negotiable:
   sessions, queue changes, stop, disposal, unavailable/current choices, later
   plan/reporting installation, and stale switch generations cannot commit.
 
+tvOS uses the same backend resolver, capability preflight, quality authority and
+explicit selection validation for online AVPlayer/VLC. Its candidate is owned
+before outgoing Stop; planning or construction failure retains an eligible
+installed owner. It pauses the outgoing timeline before planning so the server
+URL's immutable transcode offset names the captured position, and rejects a
+changed timeline before admission. After Stop admission, transfer finishes under
+the installation guard, carries the latest Play/Pause intent, replaces reporting
+and native-host identity, and releases the outgoing controller once. A failed
+prepare after transfer is a playback failure, not healthy rollback. Backend
+selection remains session-only; offline required-engine authority is unchanged.
+
 ## Quality semantics
 
 Diagnostics record the effective policy and origin, never a fake nullable-bitrate interpretation.
@@ -87,28 +98,22 @@ require that. It means that JellyScope adds no finite quality/performance
 limiter and does not silently choose a different stream for decoder or health
 recovery. Independent Audio activation recovery is the exception described below.
 
-In shared Compose playback, a user quality choice is a proposal until a current
-replacement plan succeeds. A rejected proposal preserves the installed stream,
-last applied quality and its explicit/inherited origin, current pause/play
-intent, reporting, tracks, and health/recovery state. It shows the same typed,
-dismissible playback-change notice used for rejected backend switches. A later
-backend switch inherits the last applied quality, never a rejected proposal.
-Planning remains cancellable; the existing installation guard owns outgoing
-reporting Stop through replacement installation.
-This preservation applies only while the same installed session remains active;
-startup, terminal recovery, and native prepare failures retain their normal
-failure semantics. A new relevant action or explicit dismissal clears the notice.
+Shared Compose and tvOS treat remote quality, Audio, Subtitle, local-subtitle
+and out-of-window seek changes as proposals. Requested fields, durable track
+preferences and recovery resets commit only at the owned replacement install.
+Immediate native track switches still commit directly. A rejected proposal
+keeps the installed stream, applied quality and its origin, tracks, reporting
+and latest play intent, with a typed passive notice.
 
-On tvOS, remote quality, Audio, Subtitle, local-subtitle and out-of-window seek
-changes are proposals. Planner exceptions over the same healthy installed
-session keep playback and show a passive rejection notice. Requested fields,
-persistence, recovery resets and local-asset observation commit only after
-outgoing reporting settles and the request still owns installation. Immediate
-native switches commit directly. A proposal that displaces admitted recovery,
-or replaces another proposal in that chain, retains fatal failure behavior;
-a healthy native status alone does not prove that the displaced recovery was
-unnecessary. Native preparation failures remain fatal. The
-[Apple player contract](apple-playback.md#tvos-native-player) owns presentation.
+Preservation requires the same healthy installed owner, intact reporting, no
+fatal presentation and no unresolved recovery displaced by this proposal or
+its predecessor. A still-Playing native status alone does not establish those
+conditions. Stale results are ignored. Startup, native prepare failure and
+failure after outgoing reporting Stop retain their fatal/recovery semantics.
+Planning is cancellable before Stop admission; the installation owner completes
+its reporting obligations afterward. Replacement seeks additionally use the
+[pause and loading contract](playback-runtime.md#player-control-and-state).
+A later backend switch inherits applied choices, never a rejected proposal.
 
 `Original` decoder/health recovery is a single prompt contract. Every trigger below returns
 `OriginalPlaybackFailed` with exactly `AcceptAuto`, `OpenPlaybackSettings`,
@@ -498,7 +503,7 @@ without that hardware gate and does not claim HDR support.
 
 ## Why
 
-- **Rejected changes need an intact installed session.** tvOS defers mutation
+- **Rejected changes need an intact installed session.** Both shells defer mutation
   until proposal commit so rejected planning cannot leave menus, persistence
   or recovery credit describing a stream that was never installed. Recovery
   displacement survives replacement proposals because a still-Playing native

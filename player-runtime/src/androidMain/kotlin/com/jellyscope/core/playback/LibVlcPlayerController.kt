@@ -123,7 +123,15 @@ class LibVlcPlayerController(
             }
         }
     private val credentialOriginGuard = CredentialOriginGuard(session.serverUrl)
-    private val timing = AndroidLibVlcTimingController(mediaPlayer)
+    private var pendingRetryTimingGeneration: Long? = null
+    private val timing =
+        AndroidLibVlcTimingController(mediaPlayer) {
+            !released &&
+                !stopped &&
+                _playbackState.value.status != PlaybackStatus.Failed &&
+                !isNativePreparePendingForCurrentGeneration() &&
+                pendingRetryTimingGeneration == null
+        }
     private var currentMedia: Media? = null
     private var nativeActiveMedia: Media? = null
     private var pendingNativePrepare: NativePrepareRequest? = null
@@ -544,6 +552,7 @@ class LibVlcPlayerController(
         val media = result.media
         val failure = result.failure
         if (media == null || failure != null) {
+            pendingRetryTimingGeneration = null
             logNativeTransition(
                 operation = PlayerOperation.Prepare,
                 milestone = PlaybackNativePlayerMilestone.TransitionFailed,
@@ -684,6 +693,11 @@ class LibVlcPlayerController(
                 }
             }
             MediaPlayer.Event.Playing -> {
+                if (_playbackState.value.status == PlaybackStatus.Failed || stopped) return
+                if (pendingRetryTimingGeneration == eventGeneration) {
+                    pendingRetryTimingGeneration = null
+                    timing.applyRetainedForRetry()
+                }
                 nativePlayingObserved = true
                 if (startupResyncArmed && startupPlayingAtMs == 0L) {
                     startupPlayingAtMs = SystemClock.elapsedRealtime()
@@ -716,6 +730,7 @@ class LibVlcPlayerController(
             MediaPlayer.Event.Vout -> maybeStartupResync(event.voutCount)
             MediaPlayer.Event.EncounteredError ->
                 if (!stopped) {
+                    pendingRetryTimingGeneration = null
                     logEncounteredError()
                     _playbackState.update { current ->
                         current.copy(status = PlaybackStatus.Failed, error = PlaybackError.Unknown)
@@ -906,6 +921,7 @@ class LibVlcPlayerController(
         subtitleAsset: SubtitleAsset?,
     ) {
         if (released) return
+        pendingRetryTimingGeneration = null
         if (plan.streamMode != com.jellyscope.core.domain.playback.StreamMode.Offline) {
             offlinePath = null
             offlineSidecarPath = null
@@ -1096,6 +1112,9 @@ class LibVlcPlayerController(
 
     override fun selectEmbeddedSubtitle(selection: EmbeddedSubtitleSelection?) {
         if (released) return warnReleased(PlayerOperation.SelectEmbeddedSubtitle)
+        lastPlan?.let { plan ->
+            lastPlan = plan.withLocalSubtitleTarget(selection?.target)
+        }
         lastRequestedSubtitleSelection = selection
         lastRequestedSubtitleSelectionWasSet = true
         // The initial transcode plan commonly selects Subtitle Off before
@@ -1327,6 +1346,7 @@ class LibVlcPlayerController(
 
     override fun stop() {
         if (released) return
+        pendingRetryTimingGeneration = null
         mediaPlayer.setEventListener(null)
         generation += 1L
         playIntent = false
@@ -1388,7 +1408,7 @@ class LibVlcPlayerController(
 
     override fun retry() {
         if (released) return warnReleased(PlayerOperation.Retry)
-        val plan = lastPlan ?: return
+        val plan = lastPlan?.snapshotForRetry(_playbackState.value) ?: return
         // prepare() clears the pending selections, so retain the last requested
         // choices and LibVLC's distinct explicit-Off classification.
         val audioSelection = lastRequestedAudioSelection
@@ -1405,6 +1425,8 @@ class LibVlcPlayerController(
                     },
                 planSubtitleTarget = plan.subtitleActivationTarget,
             )
+        val timingState = timing.timingState.value
+        val previousGeneration = generation
         val shouldPlay = playIntent
         prepare(
             plan,
@@ -1412,6 +1434,14 @@ class LibVlcPlayerController(
                 plan.streamMode == com.jellyscope.core.domain.playback.StreamMode.Offline
             },
         )
+        if (
+            generation != previousGeneration &&
+            isNativePreparePendingForCurrentGeneration() &&
+            _playbackState.value.status != PlaybackStatus.Failed
+        ) {
+            timing.retainForRetry(timingState)
+            pendingRetryTimingGeneration = generation
+        }
         selectionDecision.audioSelection?.let(::selectEmbeddedAudio)
         when (selectionDecision) {
             is RetrySelectionDecision.RestorePlan -> Unit
@@ -1423,6 +1453,7 @@ class LibVlcPlayerController(
 
     override fun release() {
         if (released) return
+        pendingRetryTimingGeneration = null
         mediaPlayer.setEventListener(null)
         // Flip released + tear down callbacks/jobs synchronously so no further
         // event coroutine, ticker, or seek job can observe a half-released player.
@@ -2640,6 +2671,7 @@ private val IMPORTANT_LIBVLC_EVENTS =
 
 private class AndroidLibVlcTimingController(
     private val mediaPlayer: MediaPlayer,
+    private val admitsOffset: () -> Boolean,
 ) : LibVlcTimingController {
     private val logger = Logger.withTag("LibVlcTiming")
     private val _timingState =
@@ -2655,6 +2687,36 @@ private class AndroidLibVlcTimingController(
         kind: PlaybackTimingKind,
         offsetMs: Long,
     ): PlayerTimingCommandResult {
+        if (!admitsOffset()) return PlayerTimingCommandResult.Unsupported
+        return applyOffset(kind, offsetMs, resetOnFailure = false)
+    }
+
+    fun retainForRetry(state: PlayerTimingState) {
+        _timingState.update { current ->
+            current.copy(
+                audio =
+                    current.audio.copy(
+                        offsetMs = state.audio.offsetMs.coerceIn(-PLAYBACK_TIMING_OFFSET_LIMIT_MS, PLAYBACK_TIMING_OFFSET_LIMIT_MS),
+                    ),
+                subtitle =
+                    current.subtitle.copy(
+                        offsetMs = state.subtitle.offsetMs.coerceIn(-PLAYBACK_TIMING_OFFSET_LIMIT_MS, PLAYBACK_TIMING_OFFSET_LIMIT_MS),
+                    ),
+            )
+        }
+    }
+
+    fun applyRetainedForRetry() {
+        val retained = _timingState.value
+        applyOffset(PlaybackTimingKind.Audio, retained.audio.offsetMs, resetOnFailure = true)
+        applyOffset(PlaybackTimingKind.Subtitle, retained.subtitle.offsetMs, resetOnFailure = true)
+    }
+
+    private fun applyOffset(
+        kind: PlaybackTimingKind,
+        offsetMs: Long,
+        resetOnFailure: Boolean,
+    ): PlayerTimingCommandResult {
         val normalized = offsetMs.coerceIn(-PLAYBACK_TIMING_OFFSET_LIMIT_MS, PLAYBACK_TIMING_OFFSET_LIMIT_MS)
         val applied =
             runCatching {
@@ -2663,17 +2725,17 @@ private class AndroidLibVlcTimingController(
                     PlaybackTimingKind.Subtitle -> mediaPlayer.setSpuDelay(normalized * 1_000L)
                 }
             }.getOrDefault(false)
-        // Sanitized: bare integer ms. Confirms whether a stored/user offset is
-        // being pushed to LibVLC (the one A/V-sync cause the timing feature owns).
         logger.i { "setOffset kind=$kind offsetMs=$normalized applied=$applied" }
-        if (!applied) return PlayerTimingCommandResult.Unsupported
-        _timingState.update { current ->
-            when (kind) {
-                PlaybackTimingKind.Audio -> current.copy(audio = current.audio.copy(offsetMs = normalized))
-                PlaybackTimingKind.Subtitle -> current.copy(subtitle = current.subtitle.copy(offsetMs = normalized))
+        if (applied || resetOnFailure) {
+            val publishedOffset = if (applied) normalized else 0L
+            _timingState.update { current ->
+                when (kind) {
+                    PlaybackTimingKind.Audio -> current.copy(audio = current.audio.copy(offsetMs = publishedOffset))
+                    PlaybackTimingKind.Subtitle -> current.copy(subtitle = current.subtitle.copy(offsetMs = publishedOffset))
+                }
             }
         }
-        return PlayerTimingCommandResult.Applied
+        return if (applied) PlayerTimingCommandResult.Applied else PlayerTimingCommandResult.Unsupported
     }
 
     fun clearForDiscontinuity() {

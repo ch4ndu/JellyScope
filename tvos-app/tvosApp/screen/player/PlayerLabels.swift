@@ -37,6 +37,7 @@ extension TvPlaybackNotice {
         }
         let reason = changeRejectionReason(operation)
         switch operation {
+        case .backend: return String(localized: "Could not change player. \(reason) Current playback was kept.")
         case .quality: return String(localized: "Could not change quality. \(reason) Current playback was kept.")
         case .audio: return String(localized: "Could not change audio. \(reason) Current playback was kept.")
         case .subtitle: return String(localized: "Could not change subtitles. \(reason) Current playback was kept.")
@@ -60,6 +61,12 @@ extension PlayerVideoSizing {
         case .fill: String(localized: "Fill")
         case .zoom: String(localized: "Zoom")
         }
+    }
+}
+
+extension PlayerBackend {
+    var playbackTitle: String {
+        self == .vlckit ? String(localized: "VLC") : String(localized: "AVPlayer")
     }
 }
 

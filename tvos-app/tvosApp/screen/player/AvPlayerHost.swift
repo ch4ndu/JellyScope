@@ -44,10 +44,12 @@ struct AvPlayerHost: UIViewControllerRepresentable {
         private var appliedMetadataEpoch: Int64 = -1
         private weak var observedVideoLayer: AVPlayerLayer?
         private var readyForDisplayObservation: NSKeyValueObservation?
-        private var observedPrepareEpoch: Int64?
-        private var observedVideoOutputEpoch: Int64?
+        private var observedOutputIdentity: VideoOutputHostIdentity?
+        private var reportedOutputIdentity: VideoOutputHostIdentity?
+        private weak var outputModel: PlaybackModel?
         private weak var observedRatePlayer: AVPlayer?
         private var observedPlaybackIdentity: PlaybackActionIdentity?
+        private var observedHostTransportEpoch: Int64?
         private var rateObservation: NSObjectProtocol?
         private let metadata = AvPlayerMetadata()
 
@@ -76,11 +78,15 @@ struct AvPlayerHost: UIViewControllerRepresentable {
         }
 
         func invalidate() {
+            if let observedOutputIdentity {
+                outputModel?.recordVideoOutputAvailability(observedOutputIdentity, available: false)
+            }
             readyForDisplayObservation?.invalidate()
             readyForDisplayObservation = nil
             observedVideoLayer = nil
-            observedPrepareEpoch = nil
-            observedVideoOutputEpoch = nil
+            observedOutputIdentity = nil
+            reportedOutputIdentity = nil
+            outputModel = nil
             if let rateObservation {
                 NotificationCenter.default.removeObserver(rateObservation)
             }
@@ -99,12 +105,15 @@ struct AvPlayerHost: UIViewControllerRepresentable {
                 observedPlaybackIdentity = nil
                 return
             }
-            guard observedRatePlayer !== player || observedPlaybackIdentity != identity else { return }
+            let transportEpoch = model.hostTransportEpoch
+            guard observedRatePlayer !== player || observedPlaybackIdentity != identity ||
+                observedHostTransportEpoch != transportEpoch else { return }
             if let rateObservation {
                 NotificationCenter.default.removeObserver(rateObservation)
             }
             observedRatePlayer = player
             observedPlaybackIdentity = identity
+            observedHostTransportEpoch = transportEpoch
             rateObservation = NotificationCenter.default.addObserver(
                 forName: AVPlayer.rateDidChangeNotification,
                 object: player,
@@ -115,43 +124,70 @@ struct AvPlayerHost: UIViewControllerRepresentable {
                 }
                 MainActor.assumeIsolated {
                     guard let player else { return }
-                    model?.recordNativePlaybackIntent(isPlaying: player.rate != 0, identity: identity)
+                    model?.recordNativePlaybackIntent(isPlaying: player.rate != 0, identity: identity, hostTransportEpoch: transportEpoch)
                 }
             }
         }
 
         private func bridgeVideoOutput(state: TvPlaybackUiState, controller: AVPlayerViewController, model: PlaybackModel) {
-            let prepareEpoch = state.prepareEpoch
-            guard prepareEpoch > 0,
+            let identity = VideoOutputHostIdentity(
+                playback: PlaybackActionIdentity(playerIdentity: state.playerIdentity, planEpoch: state.planEpoch, itemId: state.itemId),
+                prepareEpoch: state.prepareEpoch
+            )
+            guard identity.prepareEpoch > 0, let player = controller.player, let item = player.currentItem,
+                  boundPlayerIdentity == identity.playback.playerIdentity,
+                  model.acceptsOutputHost(identity, player: player, item: item) else { return }
+            if observedOutputIdentity != identity {
+                readyForDisplayObservation?.invalidate()
+                readyForDisplayObservation = nil
+                observedVideoLayer = nil
+                observedOutputIdentity = identity
+                reportedOutputIdentity = nil
+                outputModel = model
+            }
+            guard
                   let rootLayer = controller.viewIfLoaded?.layer,
-                  let playerLayer = findPlayerLayer(in: rootLayer) else { return }
-            if observedVideoLayer !== playerLayer || observedPrepareEpoch != prepareEpoch {
+                  let playerLayer = findPlayerLayer(in: rootLayer, player: player) else {
+                readyForDisplayObservation?.invalidate()
+                readyForDisplayObservation = nil
+                observedVideoLayer = nil
+                reportedOutputIdentity = nil
+                model.recordVideoOutputAvailability(identity, available: false)
+                return
+            }
+            if observedVideoLayer !== playerLayer {
                 readyForDisplayObservation?.invalidate()
                 readyForDisplayObservation = nil
                 observedVideoLayer = playerLayer
-                observedPrepareEpoch = prepareEpoch
-                observedVideoOutputEpoch = nil
+                reportedOutputIdentity = nil
             }
-            reportReady(layer: playerLayer, generation: prepareEpoch, model: model)
-            guard observedVideoOutputEpoch != prepareEpoch, readyForDisplayObservation == nil else { return }
-            readyForDisplayObservation = playerLayer.observe(\AVPlayerLayer.isReadyForDisplay, options: [.initial, .new]) { [weak self, weak model] layer, _ in
-                guard layer.isReadyForDisplay else { return }
-                Task { @MainActor in self?.reportReady(layer: layer, generation: prepareEpoch, model: model) }
+            if readyForDisplayObservation == nil {
+                readyForDisplayObservation = playerLayer.observe(\AVPlayerLayer.isReadyForDisplay, options: [.initial, .new]) { [weak self, weak model, weak player, weak item] layer, _ in
+                    Task { @MainActor in
+                        guard let player, let item, let model,
+                              model.acceptsOutputHost(identity, player: player, item: item) else { return }
+                        self?.reportReady(layer: layer, identity: identity, player: player, item: item, model: model)
+                    }
+                }
             }
+            model.recordVideoOutputAvailability(identity, available: true)
+            reportReady(layer: playerLayer, identity: identity, player: player, item: item, model: model)
         }
 
-        private func reportReady(layer: AVPlayerLayer, generation: Int64, model: PlaybackModel?) {
-            guard layer.isReadyForDisplay, observedVideoOutputEpoch != generation else { return }
-            observedVideoOutputEpoch = generation
-            readyForDisplayObservation?.invalidate()
-            readyForDisplayObservation = nil
-            model?.recordVideoOutputReady(generation)
+        private func reportReady(layer: AVPlayerLayer, identity: VideoOutputHostIdentity, player: AVPlayer, item: AVPlayerItem, model: PlaybackModel) {
+            // Validate the captured native and shell ownership before touching current observation state.
+            guard model.acceptsOutputHost(identity, player: player, item: item),
+                  boundPlayerIdentity == identity.playback.playerIdentity, observedOutputIdentity == identity,
+                  observedVideoLayer === layer, layer.player === player,
+                  layer.isReadyForDisplay, reportedOutputIdentity != identity else { return }
+            reportedOutputIdentity = identity
+            model.recordVideoOutputReady(identity)
         }
 
-        private func findPlayerLayer(in layer: CALayer) -> AVPlayerLayer? {
-            if let playerLayer = layer as? AVPlayerLayer { return playerLayer }
+        private func findPlayerLayer(in layer: CALayer, player: AVPlayer) -> AVPlayerLayer? {
+            if let playerLayer = layer as? AVPlayerLayer, playerLayer.player === player { return playerLayer }
             for sublayer in layer.sublayers ?? [] {
-                if let playerLayer = findPlayerLayer(in: sublayer) { return playerLayer }
+                if let playerLayer = findPlayerLayer(in: sublayer, player: player) { return playerLayer }
             }
             return nil
         }

@@ -235,7 +235,7 @@ private fun ensureKoin() {
                 module {
                     single { ClientInfo(versionName = desktopVersionName()) }
                     single { AppInfo(versionName = get<ClientInfo>().versionName) }
-                    single { PlaybackHealthGuidancePolicy.Advisory }
+                    single { PlaybackHealthGuidancePolicy.Actionable }
                 },
                 sharedUiModule,
             )

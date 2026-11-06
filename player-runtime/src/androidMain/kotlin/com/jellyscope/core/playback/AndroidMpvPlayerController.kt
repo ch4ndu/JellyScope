@@ -910,16 +910,11 @@ internal class AndroidMpvPlayerController(
 
     /** Keeps controller-owned reloads aligned with an in-player subtitle switch. */
     private fun syncPlanSubtitleTarget(target: SubtitleActivationTarget?) {
-        val currentPlan = lastPlan ?: return
-        val keepsExternalAsset = target?.kind == LocalSubtitleKind.ExternalText
-        lastPlan =
-            currentPlan.copy(
-                subtitleActivationTarget = target,
-                subtitleAsset = currentPlan.subtitleAsset.takeIf { keepsExternalAsset },
-            )
-        if (!keepsExternalAsset) {
+        val plan = lastPlan ?: return
+        if (plan.subtitleActivationTarget != target || target?.kind != LocalSubtitleKind.ExternalText) {
             lastSubtitleAsset = null
         }
+        lastPlan = plan.withLocalSubtitleTarget(target)
     }
 
     override fun setPlaybackSpeed(speed: Float) {
@@ -1029,7 +1024,7 @@ internal class AndroidMpvPlayerController(
 
     override fun retry() {
         if (releasedFlag.get()) return warnReleased(PlayerOperation.Retry)
-        val plan = lastPlan ?: return
+        val plan = lastPlan?.snapshotForRetry(_playbackState.value) ?: return
         val shouldPlay = playIntent
         val audioSelection = pendingAudioSelection
         val subtitleSelection = pendingSubtitleSelection
@@ -1046,13 +1041,8 @@ internal class AndroidMpvPlayerController(
                 planSubtitleTarget = plan.subtitleActivationTarget,
             )
         val timingState = timing.timingState.value
-        val position = _playbackState.value.positionMs
         prepare(
-            plan.copy(
-                startPositionMs = position,
-                playbackSpeed = _playbackState.value.playbackSpeed,
-                subtitleStyle = _playbackState.value.subtitleStyle,
-            ),
+            plan,
             if (plan.streamMode == com.jellyscope.core.domain.playback.StreamMode.Offline) {
                 null
             } else {

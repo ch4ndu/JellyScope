@@ -1,6 +1,36 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Player": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player"
+          }
+        }
+      }
+    },
+    "AVPlayer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVPlayer"
+          }
+        }
+      }
+    },
+    "VLC": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VLC"
+          }
+        }
+      }
+    },
     "%.1f Mbps": {
       "localizations": {
         "en": {
@@ -1237,6 +1267,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Could not change audio. %@ Current playback was kept."
+          }
+        }
+      }
+    },
+    "Could not change player. %@ Current playback was kept.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not change player. %@ Current playback was kept."
           }
         }
       }

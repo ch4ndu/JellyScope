@@ -21,8 +21,8 @@ is **0.1.0-alpha94**.
   movie/show/episode pages with versions, cast, trailers, chapters, and skipping
 - Direct play, audio-only conversion, or transcoding based on the selected
   player, quality, source, tracks, and device capabilities
-- Selectable players on Android, iOS, and macOS, including eligible
-  session-only switching during online playback
+- Selectable players on Android, iOS, macOS, and the Apple TV preview, including
+  eligible session-only switching during online playback
 - Text and image subtitles, local OpenSubtitles files, supported timing and
   audio controls, autoplay next, and queues
 - [Kids viewing](docs/user/getting-started.md#kids-viewing) on Android/iOS phones and

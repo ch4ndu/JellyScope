@@ -275,7 +275,7 @@ internal fun TvPlayerOverlay(
                             }
                             TvCircleButton(
                                 contentDescription =
-                                    if (playbackStatus == PlaybackStatus.Playing) {
+                                    if (content.pendingSeekPlayWhenReady ?: (playbackStatus == PlaybackStatus.Playing)) {
                                         stringResource(R.string.tv_player_pause_cd)
                                     } else {
                                         stringResource(R.string.tv_player_play_cd)
@@ -286,7 +286,7 @@ internal fun TvPlayerOverlay(
                                 size = TvDimens.playerPlayButtonSize,
                                 onClick = onTogglePlayPause,
                                 icon =
-                                    if (playbackStatus == PlaybackStatus.Playing) {
+                                    if (content.pendingSeekPlayWhenReady ?: (playbackStatus == PlaybackStatus.Playing)) {
                                         PlayerButtonIcon.Pause
                                     } else {
                                         PlayerButtonIcon.Play

@@ -106,6 +106,9 @@ final class PlaybackModel: ObservableObject {
     var playbackActionNotice: PlaybackActionNotice? { onlineState?.playbackActionNotice }
     var playbackActions: [PlaybackAction] { onlineState?.playbackActions ?? [] }
     var qualityChoices: [TvQualityChoice] { onlineState?.qualityChoices ?? [] }
+    var backendChoices: [PlayerBackend] { onlineState?.backendChoices ?? [] }
+    var backend: PlayerBackend? { onlineState?.backend }
+    var backendSwitchPending: Bool { onlineState?.backendSwitchPending ?? false }
     var playbackGuidance: PlaybackHealthGuidance? { onlineState?.playbackGuidance }
     var subtitleNotice: TvPlaybackNotice? { onlineState?.subtitleNotice }
     var localSubtitleSelected: Bool { onlineState?.localSubtitleSelected ?? false }
@@ -113,7 +116,10 @@ final class PlaybackModel: ObservableObject {
     var hasSelectedSubtitle: Bool {
         subtitleTracks.contains(where: { $0.selected }) || localSubtitleSelected
     }
-    var isPlaying: Bool { status == .playing || status == .buffering }
+    var pendingReplacementSeek: Bool { onlineState?.pendingReplacementSeek ?? false }
+    var hostTransportEpoch: Int64 { onlineState?.hostTransportEpoch ?? 0 }
+    var desiredPlayWhenReady: Bool { onlineState?.desiredPlayWhenReady ?? false }
+    var isPlaying: Bool { pendingReplacementSeek ? desiredPlayWhenReady : status == .playing || status == .buffering }
     var playbackActionIdentity: PlaybackActionIdentity? {
         guard let state = onlineState else { return nil }
         return PlaybackActionIdentity(
@@ -180,6 +186,9 @@ final class PlaybackModel: ObservableObject {
         }
     }
     func setPlaybackSpeed(_ speed: Float) { onlinePresenter?.accept(intent: TvPlaybackSessionIntentSetPlaybackSpeed(speed: speed)); offlinePresenter?.accept(intent: TvOfflinePlaybackIntentSetPlaybackSpeed(speed: speed)) }
+    func selectBackend(_ backend: PlayerBackend) {
+        onlinePresenter?.accept(intent: TvPlaybackSessionIntentSelectBackend(backend: backend))
+    }
     func setSubtitleStyle(fontScale: Float, foreground: String?, background: String?, edgeStyleName: String) {
         onlinePresenter?.accept(intent: TvPlaybackSessionIntentSetSubtitleStyle(
             fontScale: fontScale,
@@ -213,14 +222,30 @@ final class PlaybackModel: ObservableObject {
     func handlePlaybackAction(_ action: PlaybackAction) { onlinePresenter?.accept(intent: TvPlaybackSessionIntentHandlePlaybackAction(action: action)) }
     func dismissSubtitleNotice() { onlinePresenter?.accept(intent: TvPlaybackSessionIntentDismissSubtitleNotice.shared) }
     func retry() { onlinePresenter?.accept(intent: TvPlaybackSessionIntentHandlePlaybackAction(action: PlaybackAction.retry)); offlinePresenter?.accept(intent: TvOfflinePlaybackIntentRetry.shared) }
-    func recordVideoOutputReady(_ generation: Int64) { onlinePresenter?.accept(intent: TvPlaybackSessionIntentRecordVideoOutputReady(generation: generation)) }
-    func recordNativePlaybackIntent(isPlaying: Bool, identity: PlaybackActionIdentity) {
+    func acceptsOutputHost(_ identity: VideoOutputHostIdentity, player: AVPlayer, item: AVPlayerItem) -> Bool {
+        !closed && avPlayer === player && player.currentItem === item &&
+            playbackActionIdentity == identity.playback && onlineState?.prepareEpoch == identity.prepareEpoch
+    }
+    func recordVideoOutputReady(_ identity: VideoOutputHostIdentity) {
+        onlinePresenter?.accept(intent: TvPlaybackSessionIntentRecordVideoOutputReady(
+            generation: identity.prepareEpoch, playerIdentity: identity.playback.playerIdentity,
+            planEpoch: identity.playback.planEpoch, itemId: identity.playback.itemId
+        ))
+    }
+    func recordVideoOutputAvailability(_ identity: VideoOutputHostIdentity, available: Bool) {
+        onlinePresenter?.accept(intent: TvPlaybackSessionIntentRecordVideoOutputAvailability(
+            generation: identity.prepareEpoch, playerIdentity: identity.playback.playerIdentity,
+            planEpoch: identity.playback.planEpoch, itemId: identity.playback.itemId, available: available
+        ))
+    }
+    func recordNativePlaybackIntent(isPlaying: Bool, identity: PlaybackActionIdentity, hostTransportEpoch: Int64) {
         guard accepts(identity) else { return }
         onlinePresenter?.accept(intent: TvPlaybackSessionIntentRecordNativePlaybackIntent(
             playerIdentity: identity.playerIdentity,
             planEpoch: identity.planEpoch,
             itemId: identity.itemId,
-            isPlaying: isPlaying
+            isPlaying: isPlaying,
+            hostTransportEpoch: hostTransportEpoch
         ))
     }
 
@@ -241,7 +266,7 @@ final class PlaybackModel: ObservableObject {
             guard installedPlayerIdentity != playerIdentity || avPlayer !== player else { return }
             installedPlayerIdentity = playerIdentity
             avPlayer = player
-            vlcSurface = nil
+            vlcSurface = player == nil ? TvosEntry.shared.playbackSurface(presenter: onlinePresenter) : nil
         } else if let offlinePresenter {
             guard installedPlayerIdentity != playerIdentity else { return }
             installedPlayerIdentity = playerIdentity
@@ -271,6 +296,11 @@ struct PlaybackActionIdentity: Equatable {
     let playerIdentity: Int64
     let planEpoch: Int64
     let itemId: String
+}
+
+struct VideoOutputHostIdentity: Equatable {
+    let playback: PlaybackActionIdentity
+    let prepareEpoch: Int64
 }
 
 struct PlaybackSubtitleContext: Equatable {

@@ -46,6 +46,7 @@ sealed interface PlayerUiState {
 
     data class Content(
         val playbackState: PlaybackState,
+        val pendingSeekPlayWhenReady: Boolean? = null,
         val volumeControl: PlayerVolumeState? = null,
         val audioUnavailable: Boolean = false,
         val metadata: PlayerMediaMetadata = PlayerMediaMetadata(),
@@ -138,6 +139,9 @@ data class PlayerBackendSwitchChoice(
 enum class PlayerPlaybackChangeOperation {
     Quality,
     Backend,
+    Audio,
+    Subtitle,
+    Seek,
 }
 
 /** A proposed plan could not replace healthy playback, so the current session stayed installed. */

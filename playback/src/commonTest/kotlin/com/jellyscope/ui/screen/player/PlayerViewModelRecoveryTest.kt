@@ -20,6 +20,7 @@ import com.jellyscope.core.domain.playback.SubtitleDeliveryMethod
 import com.jellyscope.core.domain.playback.SubtitleRenderMode
 import com.jellyscope.core.domain.playback.SubtitleRenderStatus
 import com.jellyscope.core.domain.playback.androidPlayerBackendPolicy
+import com.jellyscope.core.domain.playback.desktopPlayerBackendPolicy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -34,6 +35,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PlayerViewModelRecoveryTest {
@@ -56,6 +58,29 @@ class PlayerViewModelRecoveryTest {
                 assertEquals(1, fixture.controller.retryCount)
             } finally {
             }
+        }
+
+    @Test
+    fun terminalFailureDuringHeldSeekReportsOutgoingPositionAndRetainsNewestTarget() =
+        runPlayerViewModelTest {
+            val fixture = playerFixture(playbackInfo = transcodePlaybackInfo)
+            fixture.controller.transcodeSeekRestartsStream = true
+            runCurrent()
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
+            runCurrent()
+            fixture.repository.ordinaryPlanGate = CompletableDeferred()
+            fixture.viewModel.accept(PlayerIntent.SeekTo(30_000L))
+            runCurrent()
+            fixture.viewModel.accept(PlayerIntent.SeekTo(40_000L))
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Failed, positionMs = 5_000L)
+            runCurrent()
+            assertIs<PlayerUiState.Error>(fixture.viewModel.state.value)
+            assertEquals(40_000L, fixture.viewModel.playbackState.value.positionMs)
+            assertEquals(
+                Report.Stopped(positionMs = 5_000L, playSessionId = "server-play-session-1", playMethod = "Transcode"),
+                fixture.reporter.reports.last(),
+            )
+            fixture.viewModel.dispose()
         }
 
     @Test
@@ -397,6 +422,67 @@ class PlayerViewModelRecoveryTest {
         }
 
     @Test
+    fun desktopDecoderFailureUsesSharedRecoveryWithAdvisoryHealth() =
+        runPlayerViewModelTest {
+            val profileProvider =
+                object : DeviceProfileProvider {
+                    override val backendPolicy = desktopPlayerBackendPolicy()
+                    override val availableBackends: Set<PlayerBackend> = setOf(PlayerBackend.Mpv, PlayerBackend.LibVlc)
+
+                    override fun capabilities(backend: PlayerBackend): DeviceDecodingCapabilities =
+                        DeviceDecodingCapabilities(
+                            videoCodecs = listOf("h264"),
+                            audioCodecs = listOf("aac"),
+                            supportsDolbyVision = false,
+                        )
+                }
+            val fixture =
+                playerFixture(
+                    activeBackend = PlayerBackend.Mpv,
+                    deviceProfileProvider = profileProvider,
+                    guidancePolicy = TestGuidancePolicy.Advisory,
+                    playbackPreferencesStore =
+                        FakePlaybackPreferencesStore(
+                            PlaybackPreferences(
+                                playbackWarningsEnabled = true,
+                                defaultPlayerBackend = PlayerBackend.Mpv,
+                                defaultQualityPolicy = PlaybackQualityPolicy.Auto,
+                            ),
+                        ),
+                )
+            try {
+                runCurrent()
+                fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing)
+                runCurrent()
+                assertEquals(1, fixture.repository.requests.size)
+                assertEquals(1, fixture.controller.prepareCount)
+                val initialReleaseCount = fixture.controller.releaseCount
+
+                fixture.controller.playbackStateFlow.value =
+                    playbackState(PlaybackStatus.Failed, error = PlaybackError.Decoder)
+                runCurrent()
+
+                assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
+                assertEquals(2, fixture.repository.requests.size)
+                val recoveryRequest =
+                    fixture.repository.requests
+                        .last()
+                        .requestPolicy
+                assertEquals(PlaybackClientTrigger.PlayerFailureFallback, recoveryRequest.clientTrigger)
+                assertFalse(recoveryRequest.enableDirectPlay)
+                assertFalse(recoveryRequest.enableDirectStream)
+                assertEquals(PlayerBackend.Mpv, recoveryRequest.backend)
+                assertEquals(PlayerBackend.Mpv, fixture.viewModel.currentPlayerController.activeBackend)
+                assertSame(fixture.controller, fixture.viewModel.currentPlayerController)
+                assertEquals(initialReleaseCount, fixture.controller.releaseCount)
+                assertEquals(2, fixture.controller.prepareCount)
+            } finally {
+                fixture.viewModel.dispose()
+                runCurrent()
+            }
+        }
+
+    @Test
     fun advisoryRecoverySurvivesReplacementWithAnotherController() =
         runPlayerViewModelTest {
             try {
@@ -526,8 +612,20 @@ class PlayerViewModelRecoveryTest {
                     playbackState(PlaybackStatus.Playing, positionMs = 5_000L).copy(bufferedPositionMs = 6_000L)
                 runCurrent()
 
+                val gate = CompletableDeferred<Unit>()
+                fixture.repository.ordinaryPlanGate = gate
+                val pauses = fixture.controller.pauseCount
                 fixture.viewModel.accept(PlayerIntent.SeekTo(30_000L))
+                assertEquals(pauses + 1, fixture.controller.pauseCount)
+                assertEquals(30_000L, fixture.viewModel.playbackState.value.positionMs)
+                assertEquals(PlaybackStatus.Loading, fixture.viewModel.playbackState.value.status)
                 runCurrent()
+                assertEquals(true, assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).pendingSeekPlayWhenReady)
+                fixture.viewModel.accept(PlayerIntent.Pause)
+                assertEquals(false, assertIs<PlayerUiState.Content>(fixture.viewModel.state.value).pendingSeekPlayWhenReady)
+                gate.complete(Unit)
+                runCurrent()
+                assertEquals(PlaybackStatus.Paused, fixture.controller.playbackStateFlow.value.status)
 
                 // No in-stream seek; the transcode is restarted at the target instead.
                 assertEquals(emptyList<Long>(), fixture.controller.seekPositions)
@@ -539,6 +637,30 @@ class PlayerViewModelRecoveryTest {
                 runCurrent()
             } finally {
             }
+        }
+
+    @Test
+    fun newerLocalSeekSupersedesPendingRemoteSeek() =
+        runPlayerViewModelTest {
+            val fixture = playerFixture(playbackInfo = transcodePlaybackInfo)
+            fixture.controller.transcodeSeekRestartsStream = true
+            runCurrent()
+            fixture.controller.playbackStateFlow.value =
+                playbackState(PlaybackStatus.Playing, positionMs = 5_000L).copy(bufferedPositionMs = 6_000L)
+            runCurrent()
+            val prepared = fixture.controller.prepareCount
+            val gate = CompletableDeferred<Unit>()
+            fixture.repository.ordinaryPlanGate = gate
+            fixture.viewModel.accept(PlayerIntent.SeekTo(30_000L))
+            runCurrent()
+            fixture.viewModel.accept(PlayerIntent.Pause)
+            fixture.viewModel.accept(PlayerIntent.SeekTo(4_000L))
+            gate.complete(Unit)
+            runCurrent()
+            assertEquals(listOf(4_000L), fixture.controller.seekPositions)
+            assertEquals(prepared, fixture.controller.prepareCount)
+            assertEquals(PlaybackStatus.Paused, fixture.viewModel.playbackState.value.status)
+            fixture.viewModel.dispose()
         }
 
     @Test

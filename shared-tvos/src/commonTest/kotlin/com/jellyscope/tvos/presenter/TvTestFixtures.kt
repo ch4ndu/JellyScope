@@ -300,6 +300,7 @@ internal class FakeTvMediaRepository(
     var searchProvider: (FindQuery) -> Result<FindResults> = { Result.success(FindResults()) },
 ) : MediaRepository {
     val planRequests = mutableListOf<RecordedPlanRequest>()
+    var ordinaryPlanGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     var subtitleFallbackGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     val playedCalls = mutableListOf<Pair<String, Boolean>>()
     val favoriteCalls = mutableListOf<Pair<String, Boolean>>()
@@ -422,6 +423,8 @@ internal class FakeTvMediaRepository(
             )
         if (requestPolicy.forceEncodeSubtitle != null) {
             subtitleFallbackGate?.await()
+        } else {
+            ordinaryPlanGate?.await()
         }
         return playbackInfoQueue.removeFirstOrNull() ?: defaultPlaybackInfo
     }
@@ -444,11 +447,14 @@ internal class FakeTvMediaRepository(
 }
 
 internal class FakeTvPlayerController : PlayerController {
+    override var activeBackend = com.jellyscope.core.domain.playback.PlayerBackend.AVPlayer
     val playbackStateFlow = MutableStateFlow(playbackState(PlaybackStatus.Idle))
 
     override val playbackState: StateFlow<PlaybackState> = playbackStateFlow
-    override val runtimeDiagnostics: StateFlow<PlaybackRuntimeDiagnostics> =
+    override val runtimeDiagnostics: MutableStateFlow<PlaybackRuntimeDiagnostics> =
         MutableStateFlow(PlaybackRuntimeDiagnostics.EMPTY)
+    override var retainedPlan: PlaybackPlan? = null
+    var onRetry: (() -> Unit)? = null
     override val platformPlayer: Any? = null
     override var transcodeSeekRestartsStream: Boolean = false
     override var playbackHealthMeasurementCapabilities =
@@ -511,7 +517,9 @@ internal class FakeTvPlayerController : PlayerController {
         stopCount += 1
     }
 
-    override fun retry() = Unit
+    override fun retry() {
+        onRetry?.invoke()
+    }
 
     override fun release() {
         releaseCount += 1
@@ -541,6 +549,7 @@ internal class RecordingProgressReporter : PlaybackProgressReporter {
     val reports = mutableListOf<TvReport>()
     var startAttempts = 0
     var failingStarts = 0
+    var stopGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
     override suspend fun reportStart(
         session: Session,
@@ -573,6 +582,7 @@ internal class RecordingProgressReporter : PlaybackProgressReporter {
         playSessionId: String,
         positionMs: Long,
     ) {
+        stopGate?.await()
         reports += TvReport.Stopped(positionMs, playSessionId)
     }
 }

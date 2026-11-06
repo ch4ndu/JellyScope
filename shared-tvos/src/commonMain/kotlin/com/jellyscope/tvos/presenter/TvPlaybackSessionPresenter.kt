@@ -25,6 +25,7 @@ import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryInput
 import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryPromptReason
 import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryState
 import com.jellyscope.core.domain.playback.AutoPlaybackRecoveryTrigger
+import com.jellyscope.core.domain.playback.BackendSourceDescriptor
 import com.jellyscope.core.domain.playback.DeviceProfileProvider
 import com.jellyscope.core.domain.playback.EmbeddedAudioSelection
 import com.jellyscope.core.domain.playback.EmbeddedSubtitleSelection
@@ -68,6 +69,7 @@ import com.jellyscope.core.domain.playback.PlaybackState
 import com.jellyscope.core.domain.playback.PlaybackStatus
 import com.jellyscope.core.domain.playback.PlaybackTerminalOutcome
 import com.jellyscope.core.domain.playback.PlaybackTransitionReason
+import com.jellyscope.core.domain.playback.PlayerBackend
 import com.jellyscope.core.domain.playback.PlayerController
 import com.jellyscope.core.domain.playback.PlayerOperation
 import com.jellyscope.core.domain.playback.PlayerStillWatchingAutomaticAdvance
@@ -84,19 +86,23 @@ import com.jellyscope.core.domain.playback.SubtitleSelectionKey
 import com.jellyscope.core.domain.playback.SubtitleStyle
 import com.jellyscope.core.domain.playback.SubtitleTrackOption
 import com.jellyscope.core.domain.playback.audioOptions
+import com.jellyscope.core.domain.playback.canRejectPlaybackChange
 import com.jellyscope.core.domain.playback.defaultSubtitleStreamIndex
 import com.jellyscope.core.domain.playback.diagnosticClass
 import com.jellyscope.core.domain.playback.formatPlaybackDiagnostic
 import com.jellyscope.core.domain.playback.millisecondsToTicks
 import com.jellyscope.core.domain.playback.playbackExceptionType
 import com.jellyscope.core.domain.playback.playerQualityOptions
+import com.jellyscope.core.domain.playback.positionForRetry
 import com.jellyscope.core.domain.playback.preferredAudioStreamIndex
 import com.jellyscope.core.domain.playback.preferredSubtitleStreamIndex
 import com.jellyscope.core.domain.playback.qualityOptions
 import com.jellyscope.core.domain.playback.qualityRungForBitrate
+import com.jellyscope.core.domain.playback.resolvePlayerBackend
 import com.jellyscope.core.domain.playback.subtitleOptions
 import com.jellyscope.core.domain.playback.subtitleRenderInfo
 import com.jellyscope.core.domain.playback.toBitrateConstraint
+import com.jellyscope.core.domain.playback.withReplacementSeekTarget
 import com.jellyscope.core.domain.usecase.GetChronologicalEpisodeQueueUseCase
 import com.jellyscope.core.domain.usecase.GetItemDetailUseCase
 import com.jellyscope.core.domain.usecase.GetLocalSubtitleAssetUseCase
@@ -143,7 +149,7 @@ class TvPlaybackSessionPresenter(
     initialItemId: String,
     private val requestedMediaSourceId: String?,
     private val initialStartPositionTicks: Long,
-    private val playerControllerFactory: () -> PlayerController,
+    private val playerControllerFactory: (PlayerBackend) -> PlayerController,
     private val playbackInfoPlanner: PlaybackInfoPlanner,
     private val reportingQueue: PlaybackReportingQueue,
     private val getItemDetail: GetItemDetailUseCase,
@@ -157,7 +163,7 @@ class TvPlaybackSessionPresenter(
     private val dispatchers: TvosDispatchers,
     private val playbackDiagnosticsContext: PlaybackDiagnosticsContext? = null,
     private val deviceProfileProvider: DeviceProfileProvider? = null,
-    private val playbackHealthGuidancePolicy: PlaybackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Advisory,
+    private val playbackHealthGuidancePolicy: PlaybackHealthGuidancePolicy = PlaybackHealthGuidancePolicy.Actionable,
     private val initialAudioStreamIndex: Int? = null,
     private val initialSubtitleMode: TvPlaybackSubtitleMode = TvPlaybackSubtitleMode.Unspecified,
     private val initialSubtitleStreamIndex: Int? = null,
@@ -170,8 +176,9 @@ class TvPlaybackSessionPresenter(
     private val _state = MutableStateFlow(TvPlaybackUiState(itemId = initialItemId))
     val state: StateFlow<TvPlaybackUiState> = _state.asStateFlow()
 
-    /** The AVPlayer for the Swift host; cast with `as? AVPlayer`, never trap. */
+    /** The installed native player; the Swift host uses a conditional AVPlayer cast. */
     val platformPlayer: Any? get() = installedPlayerController?.platformPlayer
+    val surfaceController: PlayerController? get() = installedPlayerController
 
     private var installedPlayerController: PlayerController? = null
     private val playerController: PlayerController
@@ -191,6 +198,21 @@ class TvPlaybackSessionPresenter(
     private var initialRouteIntentConsumed = false
     private var plan: PlaybackPlan? = null
     private var planEpoch = 0L
+    private var hostTransportEpoch = 0L
+    private var desiredPlayWhenReady = true
+    private var playbackIntentRevision = 0L
+    private var pendingReplacementSeek: Long? = null
+    private var replacementSeekStopPosition: Long? = null
+    private var queuedSeekTarget: Long? = null
+    private var controllerInstallInFlight = false
+    private var backendSwitchJob: Job? = null
+    private var backendSwitchGeneration = 0L
+    private var backendSwitchPending = false
+    private var stopRequestedDuringBackendInstall = false
+    private var availableBackends: List<PlayerBackend> = emptyList()
+    private var sessionBackend: PlayerBackend? = null
+    private var hostVideoOutputAvailable = false
+    private var healthPrepareEpoch: Long? = null
     private var selectedMediaSourceId: String? = null
     private var selectedSourceContainer: String? = null
     private var mediaStreams: List<PlaybackMediaStream> = emptyList()
@@ -289,7 +311,9 @@ class TvPlaybackSessionPresenter(
             scope = scope,
             monotonicTimeMs = monotonicTimeMs,
             measurementCapabilities = {
-                installedPlayerController?.playbackHealthMeasurementCapabilities
+                installedPlayerController?.playbackHealthMeasurementCapabilities?.let { capabilities ->
+                    capabilities.copy(hasReliableFirstVideoOutput = capabilities.hasReliableFirstVideoOutput && hostVideoOutputAvailable)
+                }
                     ?: com.jellyscope.core.domain.playback.PlaybackHealthMeasurementCapabilities.None
             },
             onSignal = { signal ->
@@ -349,6 +373,17 @@ class TvPlaybackSessionPresenter(
     }
 
     fun accept(intent: TvPlaybackSessionIntent) {
+        if (intent !is TvPlaybackSessionIntent.SelectBackend &&
+            intent !is TvPlaybackSessionIntent.RecordVideoOutputReady &&
+            intent !is TvPlaybackSessionIntent.RecordVideoOutputAvailability &&
+            intent !is TvPlaybackSessionIntent.RecordNativePlaybackIntent &&
+            intent !is TvPlaybackSessionIntent.SetDiagnosticsVisible &&
+            intent != TvPlaybackSessionIntent.DismissSubtitleNotice &&
+            intent != TvPlaybackSessionIntent.Start &&
+            intent != TvPlaybackSessionIntent.Stop
+        ) {
+            invalidateBackendSwitch()
+        }
         when (intent) {
             TvPlaybackSessionIntent.Start -> start()
             TvPlaybackSessionIntent.Play -> play()
@@ -380,13 +415,26 @@ class TvPlaybackSessionPresenter(
             is TvPlaybackSessionIntent.SelectQualityLimit -> selectQuality(intent.maxBitrateBps)
             is TvPlaybackSessionIntent.SelectQualityPolicy -> selectQuality(intent.policy)
             is TvPlaybackSessionIntent.SelectQualityChoice -> selectQualityChoice(intent.modeName, intent.maxBitrateBps)
-            is TvPlaybackSessionIntent.RecordVideoOutputReady -> recordVideoOutputReady(intent.generation)
+            is TvPlaybackSessionIntent.SelectBackend -> selectBackend(intent.backend)
+            is TvPlaybackSessionIntent.RecordVideoOutputReady ->
+                if (acceptsOutputHost(intent.playerIdentity, intent.planEpoch, intent.itemId, intent.generation) &&
+                    hostVideoOutputAvailable
+                ) {
+                    installedPlayerController?.recordVideoOutputObservation(generation = intent.generation)
+                }
+            is TvPlaybackSessionIntent.RecordVideoOutputAvailability ->
+                if (acceptsOutputHost(intent.playerIdentity, intent.planEpoch, intent.itemId, intent.generation)) {
+                    val changed = hostVideoOutputAvailable != intent.available
+                    hostVideoOutputAvailable = intent.available
+                    if (changed) playbackHealthCoordinator.restartEvidenceWindow()
+                }
             is TvPlaybackSessionIntent.RecordNativePlaybackIntent ->
                 recordNativePlaybackIntent(
                     intent.playerIdentity,
                     intent.planEpoch,
                     intent.itemId,
                     intent.isPlaying,
+                    intent.hostTransportEpoch,
                 )
             is TvPlaybackSessionIntent.HandlePlaybackAction -> handlePlaybackAction(intent.action)
         }
@@ -412,36 +460,7 @@ class TvPlaybackSessionPresenter(
         val expectedGeneration = ++startupGeneration
         startupJob =
             scope.launch {
-                val candidateOwner = TvControllerCandidateOwner()
                 try {
-                    withContext(dispatchers.work) {
-                        playerControllerFactory().also(candidateOwner::acquire)
-                    }
-                    currentCoroutineContext().ensureActive()
-                    if (closed || expectedGeneration != startupGeneration) {
-                        return@launch
-                    }
-                    candidateOwner.transferTo { installed ->
-                        installedPlayerController = installed
-                        try {
-                            playerIdentity += 1L
-                            installedPlaybackReportingCoordinator =
-                                PlaybackReportingCoordinator(
-                                    queue = reportingQueue,
-                                    scope = scope,
-                                    playbackState = installed.playbackState,
-                                )
-                            installedReportingMayBeStopped = false
-                            observeControllerOutput()
-                            reduce { TvPlaybackSessionChange.Installed(playerIdentity, installed.activeBackend) }
-                        } catch (exception: Throwable) {
-                            videoOutputJob?.cancel()
-                            videoOutputJob = null
-                            installedPlaybackReportingCoordinator = null
-                            installedPlayerController = null
-                            throw exception
-                        }
-                    }
                     if (
                         startItem(
                             itemId = currentItemId,
@@ -458,16 +477,20 @@ class TvPlaybackSessionPresenter(
                     if (!closed && expectedGeneration == startupGeneration) {
                         reduce { TvPlaybackSessionChange.StartFailed(installedPlayerController != null) }
                     }
-                } finally {
-                    candidateOwner.releaseUntransferred()
                 }
             }
     }
 
     private fun observeControllerOutput() {
+        val controller = playerController
         videoOutputJob =
             scope.launch {
-                playerController.videoOutputObservations.collect { observation ->
+                controller.videoOutputObservations.collect { observation ->
+                    if (installedPlayerController !== controller ||
+                        observation.generation != controller.runtimeDiagnostics.value.prepareEpoch
+                    ) {
+                        return@collect
+                    }
                     playbackHealthCoordinator.observeVideoOutput(observation)
                     if (observation.presented && videoOutputLoggedPrepareEpoch != playerController.runtimeDiagnostics.value.prepareEpoch) {
                         videoOutputLoggedPrepareEpoch = playerController.runtimeDiagnostics.value.prepareEpoch
@@ -479,19 +502,35 @@ class TvPlaybackSessionPresenter(
 
     private fun play() {
         val controller = installedPlayerController ?: return
-        if (plan?.itemId != currentItemId) return
-        playbackHealthCoordinator.restartEvidenceWindow()
-        controller.play()
+        playbackReportingCoordinator.settleRetryTransition()
+        desiredPlayWhenReady = true
+        playbackIntentRevision += 1L
+        hostTransportEpoch += 1L
+        if (plan?.itemId == currentItemId && !startInFlight && pendingReplacementSeek == null && !controllerInstallInFlight) {
+            playbackHealthCoordinator.restartEvidenceWindow()
+            controller.play()
+        }
+        publish(controller.playbackState.value)
     }
 
     private fun pause() {
         val controller = installedPlayerController ?: return
-        if (plan?.itemId != currentItemId) return
-        playbackHealthCoordinator.restartEvidenceWindow()
-        controller.pause()
+        playbackReportingCoordinator.settleRetryTransition()
+        desiredPlayWhenReady = false
+        playbackIntentRevision += 1L
+        hostTransportEpoch += 1L
+        if (plan?.itemId == currentItemId && !startInFlight && pendingReplacementSeek == null && !controllerInstallInFlight) {
+            playbackHealthCoordinator.restartEvidenceWindow()
+            controller.pause()
+        }
+        publish(controller.playbackState.value)
     }
 
     private fun togglePlayPause() {
+        if (pendingReplacementSeek != null) {
+            if (desiredPlayWhenReady) pause() else play()
+            return
+        }
         val controller = installedPlayerController ?: return
         if (plan?.itemId != currentItemId) return
         when (controller.playbackState.value.status) {
@@ -504,7 +543,22 @@ class TvPlaybackSessionPresenter(
     private fun seekTo(positionMs: Long) {
         if (startInFlight) return
         val controller = installedPlayerController ?: return
+        playbackReportingCoordinator.settleRetryTransition()
         val target = positionMs.coerceAtLeast(0L)
+        if (controllerInstallInFlight) {
+            if (pendingReplacementSeek != null) {
+                queuedSeekTarget = target
+                pendingReplacementSeek = target
+                publish(controller.playbackState.value)
+            }
+            return
+        }
+        val wasHeld = pendingReplacementSeek != null
+        if (wasHeld) {
+            replanJob?.cancel()
+            replanJob = null
+            cancelPendingProposal()
+        }
         val currentPlan = plan
         if (
             controller.transcodeSeekRestartsStream &&
@@ -513,11 +567,24 @@ class TvPlaybackSessionPresenter(
         ) {
             // Out-of-window transcode seeks wedge AVPlayer; restart the
             // transcode at the target instead (same contract as PlayerViewModel).
+            if (!wasHeld) replacementSeekStopPosition = controller.playbackState.value.positionMs
+            pendingReplacementSeek = target
+            hostTransportEpoch += 1L
+            playbackHealthCoordinator.restartEvidenceWindow(PlaybackHealthExclusionReason.Seek)
+            playbackHealthCoordinator.suspendForInstallation()
+            controller.pause()
+            publish(controller.playbackState.value)
             proposeChange(TvPlaybackChangeOperation.Seek, controller, targetPositionMs = target)
             return
         }
         playbackHealthCoordinator.restartEvidenceWindow(PlaybackHealthExclusionReason.Seek)
+        hostTransportEpoch += 1L
+        pendingReplacementSeek = null
+        replacementSeekStopPosition = null
         controller.seekTo(target)
+        if (wasHeld && desiredPlayWhenReady) controller.play()
+        if (wasHeld) playbackHealthCoordinator.resumeAfterInstallation(controller.playbackState.value)
+        publish(controller.playbackState.value)
         installedPlaybackReportingCoordinator?.progress(
             positionMs = target,
             isPaused = controller.playbackState.value.status == PlaybackStatus.Paused,
@@ -526,7 +593,7 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun setPlaybackSpeed(speed: Float) {
-        if (startInFlight || !speed.isFinite()) return
+        if (startInFlight || controllerInstallInFlight || !speed.isFinite()) return
         val controller = installedPlayerController ?: return
         val normalized =
             speed.coerceIn(
@@ -546,7 +613,7 @@ class TvPlaybackSessionPresenter(
         backgroundColor: String?,
         edgeStyleName: String,
     ) {
-        if (startInFlight) return
+        if (startInFlight || controllerInstallInFlight) return
         val controller = installedPlayerController ?: return
         if (!canApplySubtitleStyle()) return
         subtitleStyle =
@@ -592,6 +659,18 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun stop() {
+        desiredPlayWhenReady = false
+        playbackIntentRevision += 1L
+        invalidateBackendSwitch()
+        if (controllerInstallInFlight && backendSwitchPending) {
+            stopRequestedDuringBackendInstall = true
+            return
+        }
+        hostTransportEpoch += 1L
+        pendingReplacementSeek = null
+        queuedSeekTarget = null
+        replacementSeekStopPosition = null
+
         val controller = installedPlayerController ?: return
         cancelAutoplaySurface()
         cancelAndInvalidateSubtitleFallback()
@@ -617,6 +696,7 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun selectQueueItem(index: Int) {
+        if (controllerInstallInFlight) return
         val selected = episodeQueue?.getOrNull(index) ?: return
         if (selected.id == currentItemId) return
         stillWatchingState = stillWatchingState.resetForManualNavigation()
@@ -691,6 +771,7 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun continueStillWatching() {
+        if (controllerInstallInFlight) return
         val pendingIndex = stillWatchingState.pendingQueueIndex ?: return
         stillWatchingState = stillWatchingState.confirm()
         cancelAutoplaySurface()
@@ -712,6 +793,7 @@ class TvPlaybackSessionPresenter(
         index: Int,
         stopAlreadyReported: Boolean,
     ) {
+        if (controllerInstallInFlight) return
         val controller = installedPlayerController ?: return
         val reportingCoordinator = installedPlaybackReportingCoordinator ?: return
         val next = episodeQueue?.getOrNull(index) ?: return
@@ -763,7 +845,7 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun selectAudio(streamIndex: Int) {
-        if (startInFlight) return
+        if (startInFlight || controllerInstallInFlight) return
         val controller = installedPlayerController ?: return
         audioOptions(mediaStreams).firstOrNull { track -> track.streamIndex == streamIndex } ?: return
         val currentPlan = plan
@@ -814,7 +896,7 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun selectSubtitle(streamIndex: Int?) {
-        if (startInFlight) return
+        if (startInFlight || controllerInstallInFlight) return
         val controller = installedPlayerController ?: return
         val option =
             streamIndex?.let { selectedIndex ->
@@ -840,6 +922,29 @@ class TvPlaybackSessionPresenter(
         }
         // An in-player embedded switch or Off is an immediate native change: it commits now and
         // cancels a pending change.
+        if (pendingReplacementSeek != null) {
+            val healthyOwner =
+                canRejectPlaybackChange(
+                    installedPlayerController === controller && currentPlan != null && !controllerInstallInFlight,
+                    !installedReportingMayBeStopped,
+                    proposalDisplacedRecovery,
+                    _state.value.phase == TvPlaybackPhase.Failed,
+                    controller.playbackState.value.status,
+                )
+            if (!healthyOwner) {
+                cancelPendingProposal()
+                replanJob?.cancel()
+                replanJob = null
+                publishFailure(PlaybackError.Unknown)
+                return
+            }
+            hostTransportEpoch += 1L
+            pendingReplacementSeek = null
+            replacementSeekStopPosition = null
+            queuedSeekTarget = null
+            if (desiredPlayWhenReady) controller.play() else controller.pause()
+            playbackHealthCoordinator.resumeAfterInstallation(controller.playbackState.value)
+        }
         cancelPendingProposal()
         replanJob?.cancel()
         replanJob = null
@@ -894,7 +999,7 @@ class TvPlaybackSessionPresenter(
             selectSubtitle(null)
             return
         }
-        if (startInFlight) return
+        if (startInFlight || controllerInstallInFlight) return
         val controller = installedPlayerController ?: return
         val proposal =
             openProposal(TvPlaybackChangeOperation.LocalSubtitle, controller) {
@@ -950,7 +1055,7 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun selectQuality(maxBitrateBps: Long?) {
-        if (startInFlight) return
+        if (startInFlight || controllerInstallInFlight) return
         val controller = installedPlayerController ?: return
         val policy = maxBitrateBps?.let(PlaybackQualityPolicy::fixed) ?: PlaybackQualityPolicy.Auto
         proposeChange(TvPlaybackChangeOperation.Quality, controller) {
@@ -965,7 +1070,7 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun selectQuality(policy: PlaybackQualityPolicy) {
-        if (startInFlight) return
+        if (startInFlight || controllerInstallInFlight) return
         val controller = installedPlayerController ?: return
         val normalized = policy.normalized()
         proposeChange(TvPlaybackChangeOperation.Quality, controller) {
@@ -993,8 +1098,334 @@ class TvPlaybackSessionPresenter(
         selectQuality(policy)
     }
 
-    private fun recordVideoOutputReady(generation: Long = state.value.prepareEpoch) {
-        installedPlayerController?.recordVideoOutputObservation(generation = generation)
+    private fun acceptsOutputHost(
+        identity: Long,
+        epoch: Long,
+        itemId: String,
+        prepareEpoch: Long,
+    ): Boolean =
+        !closed &&
+            identity == playerIdentity &&
+            epoch == planEpoch &&
+            itemId == currentItemId &&
+            plan?.itemId == itemId &&
+            prepareEpoch > 0L &&
+            installedPlayerController?.runtimeDiagnostics?.value?.prepareEpoch == prepareEpoch
+
+    private fun expectPreparedVideoOutput() {
+        hostVideoOutputAvailable = false
+        healthPrepareEpoch = playerController.runtimeDiagnostics.value.prepareEpoch
+        healthPrepareEpoch?.let(playbackHealthCoordinator::expectVideoOutput)
+    }
+
+    private fun validatePlannedSelection(
+        playbackPlan: PlaybackPlan,
+        itemId: String,
+        sourceId: String,
+        quality: PlaybackQualityPolicy,
+        subtitle: SubtitleSelectionIntent,
+    ) {
+        val subtitleMatches =
+            when (subtitle) {
+                SubtitleSelectionIntent.Unspecified -> true
+                SubtitleSelectionIntent.Off -> playbackPlan.plannedSubtitle is PlannedSubtitle.Off
+                is SubtitleSelectionIntent.Track ->
+                    when (val planned = playbackPlan.plannedSubtitle) {
+                        is PlannedSubtitle.Track -> planned.streamIndex == subtitle.streamIndex
+                        is PlannedSubtitle.Unavailable -> planned.streamIndex == subtitle.streamIndex
+                        else -> false
+                    }
+                is SubtitleSelectionIntent.LocalAsset ->
+                    (playbackPlan.plannedSubtitle as? PlannedSubtitle.LocalAsset)?.assetId == subtitle.assetId &&
+                        (playbackPlan.subtitleAsset as? SubtitleAsset.LocalFile)?.assetId == subtitle.assetId
+            }
+        if (playbackPlan.itemId != itemId ||
+            playbackPlan.mediaSourceId != sourceId ||
+            playbackPlan.qualityPolicy != quality ||
+            !subtitleMatches
+        ) {
+            throw PlaybackPlanningException.NoSupportedStream
+        }
+    }
+
+    /** Candidate remains owned by its caller until every installed field and collector is bound. */
+    private fun transferController(candidateOwner: TvControllerCandidateOwner) {
+        candidateOwner.transferTo { installed ->
+            installedPlayerController = installed
+            try {
+                playerIdentity += 1L
+                hostVideoOutputAvailable = false
+                healthPrepareEpoch = null
+                installedPlaybackReportingCoordinator =
+                    PlaybackReportingCoordinator(queue = reportingQueue, scope = scope, playbackState = installed.playbackState)
+                installedReportingMayBeStopped = false
+                observeControllerOutput()
+                reduce { TvPlaybackSessionChange.Installed(playerIdentity, installed.activeBackend) }
+            } catch (exception: Throwable) {
+                observeJob?.cancel()
+                observeJob = null
+                videoOutputJob?.cancel()
+                videoOutputJob = null
+                installedPlaybackReportingCoordinator = null
+                installedPlayerController = null
+                reduce(TvPlaybackSessionChange.StartFailed(playerInstalled = false))
+                throw exception
+            }
+        }
+    }
+
+    private fun invalidateBackendSwitch() {
+        // Once Stop is admitted, the replacement owns installation even if transport intent changes.
+        if (controllerInstallInFlight) return
+        backendSwitchGeneration += 1L
+        backendSwitchJob?.cancel()
+        backendSwitchJob = null
+        if (pendingProposal?.operation == TvPlaybackChangeOperation.Backend) pendingProposal = null
+        if (backendSwitchPending) {
+            backendSwitchPending = false
+            installedPlayerController?.playbackState?.value?.let(::publish)
+        }
+    }
+
+    private fun selectBackend(backend: PlayerBackend) {
+        val outgoing = installedPlayerController ?: return
+        val outgoingPlan = plan ?: return
+        if (closed ||
+            startInFlight ||
+            controllerInstallInFlight ||
+            backendSwitchPending ||
+            backend == outgoing.activeBackend ||
+            backend == PlayerBackend.Auto ||
+            backend !in availableBackends ||
+            outgoingPlan.streamMode == StreamMode.Offline ||
+            outgoing.playbackState.value.status !in setOf(PlaybackStatus.Playing, PlaybackStatus.Paused, PlaybackStatus.Buffering)
+        ) {
+            return
+        }
+        // An unresolved seek/recovery retains its newest target and reporting ownership.
+        if (pendingReplacementSeek != null) return
+        val quality = if (qualityOverrideExplicit) selectedQualityPolicy else preferences.effectiveDefaultQualityPolicy(backend)
+        val proposal =
+            openProposal(TvPlaybackChangeOperation.Backend, outgoing) {
+                copy(
+                    qualityPolicy = quality,
+                    qualityMaxBitrate = quality.maxBitrateBps,
+                    qualityCapOrigin =
+                        if (qualityOverrideExplicit) {
+                            selectedQualityCapOrigin
+                        } else {
+                            PlaybackQualityCapOrigin.SettingsDefault.takeIf { quality.maxBitrateBps != null }
+                        },
+                )
+            } ?: return
+        val generation = ++backendSwitchGeneration
+        val revision = playbackIntentRevision
+        val hostSeek = outgoing.lastAcceptedHostSeek
+        val shouldResume = desiredPlayWhenReady && outgoing.playbackState.value.status != PlaybackStatus.Paused
+        backendSwitchPending = true
+        publish(outgoing.playbackState.value)
+        backendSwitchJob =
+            scope.launch {
+                val owner = TvControllerCandidateOwner()
+                var pausedForPlanning = false
+                var transferred = false
+                var installAdmitted = false
+                var replacementController: PlayerController? = null
+
+                fun ownsOutgoingSession(): Boolean =
+                    !closed &&
+                        installedPlayerController === outgoing &&
+                        currentItemId == proposal.itemId &&
+                        selectedMediaSourceId == proposal.mediaSourceId &&
+                        planEpoch == proposal.planEpoch &&
+                        plan === outgoingPlan
+
+                fun current(): Boolean =
+                    generation == backendSwitchGeneration &&
+                        isCurrentProposal(proposal) &&
+                        plan === outgoingPlan &&
+                        outgoing.lastAcceptedHostSeek == hostSeek
+                try {
+                    val candidate = withContext(dispatchers.work) { playerControllerFactory(backend).also(owner::acquire) }
+                    replacementController = candidate
+                    currentCoroutineContext().ensureActive()
+                    if (!current()) return@launch
+                    check(candidate.activeBackend == backend) { "Controller backend differs from requested backend." }
+                    // Freeze the current timeline before its one planning request: a transcode offset
+                    // belongs to the returned URL and cannot be repaired by copying startPositionMs.
+                    hostTransportEpoch += 1L
+                    pausedForPlanning = true
+                    outgoing.pause()
+                    val target = outgoing.playbackState.value.positionForRetry()
+                    val replacement =
+                        withContext(dispatchers.work) {
+                            playbackInfoPlanner.plan(
+                                session = session,
+                                itemId = proposal.itemId,
+                                mediaSourceId = proposal.mediaSourceId,
+                                startPositionTicks = millisecondsToTicks(target),
+                                audioStreamIndex = proposal.audioStreamIndex,
+                                detailMediaStreams = mediaStreams,
+                                subtitleSelection = proposal.subtitleSelection,
+                                localSubtitleAsset = proposal.localSubtitleAsset?.toPlaybackAsset(),
+                                maxStreamingBitrate = proposal.qualityMaxBitrate,
+                                qualityPolicy = quality,
+                                qualityCapOrigin = proposal.qualityCapOrigin,
+                                sourceContainer = selectedSourceContainer,
+                                requestPolicy =
+                                    PlaybackInfoRequestPolicy(backend = backend, diagnosticSessionSequence = diagnosticSession),
+                            )
+                        }
+                    currentCoroutineContext().ensureActive()
+                    if (!current()) return@launch
+                    // A host/native seek or a pause that has not settled must not install a URL
+                    // whose immutable server offset names an older point on the timeline.
+                    if (outgoing.playbackState.value.positionForRetry() != target) {
+                        throw PlaybackPlanningException.NoSupportedStream
+                    }
+                    val subtitlePreserved =
+                        when (val selection = proposal.subtitleSelection) {
+                            SubtitleSelectionIntent.Unspecified -> true
+                            SubtitleSelectionIntent.Off -> replacement.plannedSubtitle is PlannedSubtitle.Off
+                            is SubtitleSelectionIntent.Track ->
+                                (replacement.plannedSubtitle as? PlannedSubtitle.Track)?.streamIndex ==
+                                    selection.streamIndex
+                            is SubtitleSelectionIntent.LocalAsset ->
+                                (replacement.subtitleAsset as? SubtitleAsset.LocalFile)?.assetId ==
+                                    selection.assetId
+                        }
+                    if (replacement.itemId != proposal.itemId ||
+                        replacement.mediaSourceId != proposal.mediaSourceId ||
+                        replacement.qualityPolicy != quality ||
+                        !subtitlePreserved ||
+                        (
+                            proposal.explicitAudioStreamIndex != null &&
+                                replacement.selectedAudioStreamIndex != proposal.explicitAudioStreamIndex
+                        )
+                    ) {
+                        throw PlaybackPlanningException.NoSupportedStream
+                    }
+                    val enriched =
+                        replacement
+                            .withAudioActivationTarget()
+                            .withSubtitleActivationTarget(
+                                requestId = nextSubtitleActivationRequestId(),
+                                selectedSubtitle = selectedSubtitleMediaStream(proposal.subtitleStreamIndex),
+                            ).copy(
+                                chapters = outgoingPlan.chapters,
+                                mediaSegments = outgoingPlan.mediaSegments,
+                                playbackSpeed = playbackSpeed,
+                                subtitleStyle = subtitleStyle,
+                            )
+                    controllerInstallInFlight = true
+                    installAdmitted = true
+                    hostTransportEpoch += 1L
+                    playbackHealthCoordinator.suspendForInstallation()
+                    installedReportingMayBeStopped = true
+                    playbackReportingCoordinator.stopNow(outgoing.playbackState.value.positionForRetry())
+                    currentCoroutineContext().ensureActive()
+                    if (!current()) {
+                        if (ownsOutgoingSession() && installedReportingMayBeStopped) {
+                            throw PlaybackPlanningException.NoSupportedStream
+                        }
+                        return@launch
+                    }
+                    if (outgoing.playbackState.value.positionForRetry() != target) {
+                        throw PlaybackPlanningException.NoSupportedStream
+                    }
+                    observeJob?.cancel()
+                    observeJob = null
+                    videoOutputJob?.cancel()
+                    videoOutputJob = null
+                    try {
+                        transferController(owner)
+                        transferred = true
+                    } finally {
+                        outgoing.release()
+                    }
+                    sessionBackend = backend
+                    commitProposal(proposal)
+                    playbackHealthGeneration += 1L
+                    playbackHealthCoordinator.end()
+                    autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, currentItemId, backend)
+                    playbackSessionRecoveryState = playbackSessionRecoveryPolicy.reset(playbackHealthGeneration, currentItemId)
+                    playbackHealthCoordinator.start(playbackHealthGeneration, playbackHealthSessionContext())
+                    installPlan(enriched, resetReporting = true)
+                    if (playbackIntentRevision == revision) desiredPlayWhenReady = shouldResume
+                    playerController.prepare(enriched)
+                    expectPreparedVideoOutput()
+                    if (playerController.playbackState.value.status == PlaybackStatus.Failed) {
+                        publishFailure(playerController.playbackState.value.error ?: PlaybackError.Unknown)
+                        return@launch
+                    }
+                    applyInitialEmbeddedSelections(enriched)
+                    if (desiredPlayWhenReady && !stopRequestedDuringBackendInstall) playerController.play() else playerController.pause()
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Throwable) {
+                    logTvDiagnostic(PlaybackDiagnosticStage.Planner, PlaybackDiagnosticEvent.Failed, exception = exception)
+                    if (!closed) {
+                        if (!transferred &&
+                            current() &&
+                            canRejectHealthily(proposal)
+                        ) {
+                            rejectProposal(proposal, planningPlaybackError(exception))
+                        } else if (
+                            (installAdmitted && ownsOutgoingSession()) ||
+                            (
+                                installAdmitted &&
+                                    installedPlayerController == null &&
+                                    currentItemId == proposal.itemId &&
+                                    selectedMediaSourceId == proposal.mediaSourceId &&
+                                    planEpoch == proposal.planEpoch &&
+                                    plan === outgoingPlan
+                            ) ||
+                            (transferred && installedPlayerController === replacementController && currentItemId == proposal.itemId) ||
+                            current()
+                        ) {
+                            publishFailure(planningPlaybackError(exception))
+                        }
+                    }
+                } finally {
+                    owner.releaseUntransferred()
+                    val stopAfterInstall = installAdmitted && stopRequestedDuringBackendInstall
+                    if (!transferred &&
+                        pausedForPlanning &&
+                        !closed &&
+                        installedPlayerController === outgoing &&
+                        plan === outgoingPlan &&
+                        !installedReportingMayBeStopped &&
+                        pendingReplacementSeek == null &&
+                        shouldResume &&
+                        desiredPlayWhenReady &&
+                        playbackIntentRevision == revision
+                    ) {
+                        outgoing.play()
+                    }
+                    if (generation == backendSwitchGeneration) {
+                        if (pendingProposal?.requestIdentity == proposal.requestIdentity) pendingProposal = null
+                        backendSwitchPending = false
+                        backendSwitchJob = null
+                    }
+                    if (installAdmitted) {
+                        controllerInstallInFlight = false
+                        stopRequestedDuringBackendInstall = false
+                    }
+                    if (stopAfterInstall && !closed) stop()
+                    if (!closed) {
+                        installedPlayerController?.let { controller ->
+                            if (installAdmitted) {
+                                playbackHealthCoordinator.resumeAfterInstallation(
+                                    controller.playbackState.value.takeIf { pendingReplacementSeek == null },
+                                )
+                            }
+                            publish(controller.playbackState.value)
+                            observePlaybackState()
+                            if (transferred && !stopAfterInstall) plan?.let(::maybeStartInstalledUnavailableFallback)
+                        }
+                    }
+                }
+            }
     }
 
     private fun recordNativePlaybackIntent(
@@ -1002,8 +1433,16 @@ class TvPlaybackSessionPresenter(
         planEpoch: Long,
         itemId: String,
         isPlaying: Boolean,
+        hostTransportEpoch: Long,
     ) {
-        if (closed || startInFlight) return
+        if (closed ||
+            startInFlight ||
+            pendingReplacementSeek != null ||
+            controllerInstallInFlight ||
+            hostTransportEpoch != this.hostTransportEpoch
+        ) {
+            return
+        }
         val controller = installedPlayerController ?: return
         if (
             playerIdentity != this.playerIdentity ||
@@ -1015,6 +1454,10 @@ class TvPlaybackSessionPresenter(
         }
         val prepareEpoch = controller.runtimeDiagnostics.value.prepareEpoch ?: return
         if (controller.recordHostPlaybackIntent(prepareEpoch, isPlaying)) {
+            invalidateBackendSwitch()
+            playbackReportingCoordinator.settleRetryTransition()
+            desiredPlayWhenReady = isPlaying
+            playbackIntentRevision += 1L
             playbackHealthCoordinator.restartEvidenceWindow()
         }
     }
@@ -1051,7 +1494,13 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun retryPlayback() {
-        if (closed || startInFlight) return
+        if (closed || startInFlight || controllerInstallInFlight) return
+        pendingReplacementSeek?.let { target ->
+            queuedSeekTarget = null
+            replanAtPosition(target)
+            return
+        }
+        hostTransportEpoch += 1L
         // An accepted Retry owns playback in all three branches: a pending change and its local read
         // are invalidated, and the passive notice and any repair fact belong to the outgoing attempt.
         localSubtitleSelectionJob?.cancel()
@@ -1098,8 +1547,17 @@ class TvPlaybackSessionPresenter(
             return
         }
         val reportingCoordinator = installedPlaybackReportingCoordinator ?: return
+        val retryTarget = controller.playbackState.value.positionForRetry()
+        val priorPrepareEpoch = controller.runtimeDiagnostics.value.prepareEpoch
+        val retryPlanEpoch = planEpoch
+        val retryStartup = startupGeneration
+        val retryItem = currentItemId
+        val retrySource = selectedMediaSourceId
+        val retryPaused = !desiredPlayWhenReady
+        val retryIntentRevision = playbackIntentRevision
         // Pending replans belong to the failed attempt and must not install over this Retry.
         cancelAndInvalidateSubtitleFallback()
+        val retryFallbackGeneration = subtitleFallbackGeneration
         // Drop a stored notice; pending credit stays with the installed plan this Retry re-prepares.
         playbackActionNotice = null
         playbackSessionRecoveryState =
@@ -1112,14 +1570,44 @@ class TvPlaybackSessionPresenter(
             playSessionId = currentPlan.playSessionId ?: playSessionId,
         )
         installedReportingMayBeStopped = false
+        if (controller.activeBackend == PlayerBackend.VlcKit) {
+            reportingCoordinator.beginRetryTransition(retryTarget, !retryPaused, priorPrepareEpoch)
+        }
         // Native retry can replace an uncollected exact Active with Pending.
         retireResolvedAudioFallback(controller.playbackState.value)
         controller.retry()
-        maybeStartInstalledUnavailableFallback(currentPlan, includeInadmissibleAudio = true)
+        if (closed ||
+            startInFlight ||
+            controllerInstallInFlight ||
+            installedPlayerController !== controller ||
+            plan !== currentPlan ||
+            planEpoch != retryPlanEpoch ||
+            startupGeneration != retryStartup ||
+            currentItemId != retryItem ||
+            selectedMediaSourceId != retrySource ||
+            installedPlaybackReportingCoordinator !== reportingCoordinator ||
+            subtitleFallbackGeneration != retryFallbackGeneration
+        ) {
+            return
+        }
+        val newEpoch = controller.runtimeDiagnostics.value.prepareEpoch
+        val retainedTarget =
+            if (newEpoch != null && newEpoch != priorPrepareEpoch && controller.playbackState.value.status != PlaybackStatus.Failed) {
+                controller.retainedPlan?.takeIf { it.itemId == retryItem && it.mediaSourceId == retrySource }?.startPositionMs
+            } else {
+                null
+            }
+        expectPreparedVideoOutput()
+        maybeStartInstalledUnavailableFallback(
+            currentPlan,
+            includeInadmissibleAudio = true,
+            positionOverride = retainedTarget ?: retryTarget,
+            pausedOverride = if (playbackIntentRevision == retryIntentRevision) retryPaused else !desiredPlayWhenReady,
+        )
     }
 
     private fun clearQualityOverride() {
-        if (startInFlight) return
+        if (startInFlight || controllerInstallInFlight) return
         val controller = installedPlayerController ?: return
         val inherited = preferences.effectiveDefaultQualityPolicy(controller.activeBackend)
         proposeChange(TvPlaybackChangeOperation.Quality, controller) {
@@ -1134,7 +1622,7 @@ class TvPlaybackSessionPresenter(
     }
 
     private fun tryHigherQuality() {
-        if (startInFlight) return
+        if (startInFlight || controllerInstallInFlight) return
         val controller = installedPlayerController ?: return
         proposeChange(TvPlaybackChangeOperation.Quality, controller) {
             copy(
@@ -1151,7 +1639,7 @@ class TvPlaybackSessionPresenter(
     private fun proposeChange(
         operation: TvPlaybackChangeOperation,
         controller: PlayerController,
-        targetPositionMs: Long = controller.playbackState.value.positionMs,
+        targetPositionMs: Long = pendingReplacementSeek ?: controller.playbackState.value.positionMs,
         change: TvChangeProposal.() -> TvChangeProposal = { this },
     ) {
         val proposal = openProposal(operation, controller, targetPositionMs, change) ?: return
@@ -1162,14 +1650,15 @@ class TvPlaybackSessionPresenter(
      * Makes the one pending user change from the installed inputs plus [change]. Nothing installed,
      * persisted, native, health, credit or recovery-owned changes here: the older change, its local
      * read and the replan slot are cancelled (invalidating a superseded Subtitle fallback token), the
-     * stored notices clear, and the record captures its authority and any recovery it displaces.
+     * record captures its authority and any recovery it displaces. Passive notices survive planning.
      */
     private fun openProposal(
         operation: TvPlaybackChangeOperation,
         controller: PlayerController,
-        targetPositionMs: Long = controller.playbackState.value.positionMs,
+        targetPositionMs: Long = pendingReplacementSeek ?: controller.playbackState.value.positionMs,
         change: TvChangeProposal.() -> TvChangeProposal = { this },
     ): TvChangeProposal? {
+        if (controllerInstallInFlight) return null
         val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return null
         // A replacement inherits its lineage's provenance; only a fresh lineage records which recovery it
         // displaces, before the cancellation below invalidates the SubtitleEncode fallback's token.
@@ -1182,9 +1671,6 @@ class TvPlaybackSessionPresenter(
         localSubtitleSelectionJob = null
         cancelAndInvalidateSubtitleFallback()
         proposalDisplacedRecovery = displacesRecovery
-        val noticeCleared = subtitleNotice != null || playbackActionNotice != null
-        subtitleNotice = null
-        playbackActionNotice = null
         val proposal =
             TvChangeProposal(
                 operation = operation,
@@ -1206,7 +1692,6 @@ class TvPlaybackSessionPresenter(
                 qualityRecovery = TvQualityRecoveryEffect.Retain,
             ).change()
         pendingProposal = proposal
-        if (noticeCleared) publish(controller.playbackState.value)
         return proposal
     }
 
@@ -1227,11 +1712,13 @@ class TvPlaybackSessionPresenter(
      * [proposalDisplacedRecovery], so a displaced root that resolved while it was pending counts.
      */
     private fun canRejectHealthily(proposal: TvChangeProposal): Boolean =
-        isCurrentProposal(proposal) &&
-            !proposalDisplacedRecovery &&
-            !installedReportingMayBeStopped &&
-            _state.value.phase != TvPlaybackPhase.Failed &&
-            proposal.controller.playbackState.value.status in healthyChangeStatuses
+        canRejectPlaybackChange(
+            isCurrentProposal(proposal),
+            !installedReportingMayBeStopped,
+            proposalDisplacedRecovery,
+            _state.value.phase == TvPlaybackPhase.Failed,
+            proposal.controller.playbackState.value.status,
+        )
 
     /** Keeps the installed playback and every installed input; only the passive notice is new. */
     private fun rejectProposal(
@@ -1240,6 +1727,13 @@ class TvPlaybackSessionPresenter(
         settledJob: Job? = null,
     ) {
         pendingProposal = null
+        if (pendingReplacementSeek != null) {
+            hostTransportEpoch += 1L
+            pendingReplacementSeek = null
+            replacementSeekStopPosition = null
+            if (desiredPlayWhenReady) proposal.controller.play()
+            playbackHealthCoordinator.resumeAfterInstallation(proposal.controller.playbackState.value)
+        }
         subtitleNotice =
             TvPlaybackNotice(
                 token = ++subtitleNoticeToken,
@@ -1275,16 +1769,16 @@ class TvPlaybackSessionPresenter(
 
     /**
      * A requested local asset could not be read. A healthy current change that displaced no recovery
-     * is rejected and writes nothing. When the installed reporting session may be stopped, the change is
-     * fatal: an unavailable repair whose planning fails could not restart reporting. Otherwise the
-     * existing unavailable path turns subtitles off.
+     * is rejected and writes nothing. When the installed reporting session may be stopped or a replacement
+     * seek is held, the change is fatal: an unavailable repair whose planning fails could not restart
+     * reporting or settle the held seek. Otherwise the existing unavailable path turns subtitles off.
      */
     private fun settleUnreadableLocalSubtitle(proposal: TvChangeProposal) {
         if (canRejectHealthily(proposal)) {
             rejectProposal(proposal, error = null)
             return
         }
-        if (installedReportingMayBeStopped) {
+        if (installedReportingMayBeStopped || pendingReplacementSeek != null) {
             settleFailedLocalSubtitleRead(proposal, PlaybackError.UnsupportedMedia)
             return
         }
@@ -1345,7 +1839,7 @@ class TvPlaybackSessionPresenter(
                     LocalSubtitleContext(session.serverId, session.userId, proposal.itemId, proposal.mediaSourceId),
                 )
             }
-            TvPlaybackChangeOperation.Quality -> Unit
+            TvPlaybackChangeOperation.Quality, TvPlaybackChangeOperation.Backend -> Unit
             TvPlaybackChangeOperation.Seek ->
                 playbackHealthCoordinator.restartEvidenceWindow(PlaybackHealthExclusionReason.Seek)
         }
@@ -1367,6 +1861,12 @@ class TvPlaybackSessionPresenter(
     }
 
     override fun close() {
+        invalidateBackendSwitch()
+        hostTransportEpoch += 1L
+        pendingReplacementSeek = null
+        queuedSeekTarget = null
+        replacementSeekStopPosition = null
+
         if (closed) {
             reportingQueue.closeAfterDrain()
             return
@@ -1457,6 +1957,12 @@ class TvPlaybackSessionPresenter(
         startPositionTicks: Long,
         resetReporting: Boolean,
     ): Boolean {
+        pendingReplacementSeek = null
+        queuedSeekTarget = null
+        replacementSeekStopPosition = null
+        hostTransportEpoch += 1L
+        desiredPlayWhenReady = true
+
         cancelAutoplaySurface()
         handledCompletion = null
         pendingQueueCompletion = null
@@ -1478,6 +1984,7 @@ class TvPlaybackSessionPresenter(
         val itemChanged = currentItemId != itemId
         if (itemChanged) {
             plan = null
+            hostTransportEpoch += 1L
             planEpoch += 1L
             selectedMediaSourceId = null
             selectedSourceContainer = null
@@ -1517,14 +2024,9 @@ class TvPlaybackSessionPresenter(
         playbackHealthCoordinator.end()
         playbackHealthGeneration += 1L
         diagnosticSession = PlaybackDiagnosticSessions.allocate()
-        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, itemId, playerController.activeBackend)
         playbackSessionRecoveryState =
             playbackSessionRecoveryPolicy.reset(playbackHealthGeneration, itemId)
         playbackActionNotice = null
-        playbackHealthCoordinator.start(
-            generation = playbackHealthGeneration,
-            context = playbackHealthSessionContext(),
-        )
         // Stale menus must not act on the outgoing item mid-switch.
         mediaStreams = emptyList()
         reduce { TvPlaybackSessionChange.ItemLoading(itemId, selectedMediaSourceId, planEpoch, nextEpisodePresentation, queuePresentation) }
@@ -1570,19 +2072,7 @@ class TvPlaybackSessionPresenter(
             stillWatchingState = stillWatchingState.resetForDisabledPreference()
         }
         val effectiveStartTicks = startPositionTicks
-        if (!qualityInitialized) {
-            val rememberedSelection = launchContext.playbackSelection
-            rememberedPlaybackSelection = rememberedSelection
-            qualityOverrideExplicit = false
-            selectedQualityPolicy = preferences.effectiveDefaultQualityPolicy(playerController.activeBackend)
-            selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
-            selectedQualityCapOrigin =
-                when {
-                    selectedQualityMaxBitrate != null -> PlaybackQualityCapOrigin.SettingsDefault
-                    else -> null
-                }
-            qualityInitialized = true
-        }
+        rememberedPlaybackSelection = launchContext.playbackSelection
 
         // Segments only feed the skip UI; fetch them concurrently with the
         // PlaybackInfo round-trip, parented to this start job.
@@ -1611,6 +2101,71 @@ class TvPlaybackSessionPresenter(
                 ?: audioTrackOptions.preferredAudioStreamIndex(preferences.preferredAudioLanguage)
                 ?: audioTrackOptions.firstOrNull { option -> option.isDefault }?.streamIndex
                 ?: audioTrackOptions.firstOrNull()?.streamIndex
+        val provider = deviceProfileProvider
+        val resolvedBackend =
+            if (provider != null) {
+                withContext(dispatchers.work) {
+                    val available = provider.availableBackends
+                    availableBackends = provider.backendPolicy.concreteBackends.filter { it in available }
+                    val video = mediaStreams.firstOrNull { it.type.equals("Video", ignoreCase = true) }
+                    val audio =
+                        mediaStreams.firstOrNull {
+                            it.index == requestedAudioStreamIndex &&
+                                it.type.equals("Audio", ignoreCase = true)
+                        }
+                    val range = video?.videoRangeType?.uppercase().orEmpty()
+                    val requested =
+                        resolvePlayerBackend(
+                            defaultBackend = preferences.defaultPlayerBackend,
+                            itemOverride = sessionBackend,
+                            source =
+                                BackendSourceDescriptor(
+                                    container = version.container,
+                                    videoCodec = video?.codec,
+                                    audioCodec = audio?.codec,
+                                    isHdrOrDolbyVision =
+                                        range.contains("HDR") || range.contains("DOLBY") || range in setOf("DOVI", "DV", "HLG"),
+                                ),
+                            avPlayerCapabilities = provider.capabilities(PlayerBackend.AVPlayer),
+                            backendPolicy = provider.backendPolicy,
+                        )
+                    requested.takeIf { it in availableBackends }
+                        ?: provider.backendPolicy.concreteDefaultBackend.takeIf { it in availableBackends }
+                        ?: throw IllegalStateException("No available concrete playback backend.")
+                }
+            } else {
+                sessionBackend ?: PlayerBackend.AVPlayer
+            }
+        if (installedPlayerController == null || playerController.activeBackend != resolvedBackend) {
+            val candidateOwner = TvControllerCandidateOwner()
+            try {
+                val candidate = withContext(dispatchers.work) { playerControllerFactory(resolvedBackend).also(candidateOwner::acquire) }
+                currentCoroutineContext().ensureActive()
+                if (closed) return false
+                check(candidate.activeBackend == resolvedBackend) { "Controller backend differs from requested backend." }
+                val outgoing = installedPlayerController
+                observeJob?.cancel()
+                observeJob = null
+                videoOutputJob?.cancel()
+                videoOutputJob = null
+                try {
+                    transferController(candidateOwner)
+                } finally {
+                    outgoing?.release()
+                }
+            } finally {
+                candidateOwner.releaseUntransferred()
+            }
+        }
+        autoRecoveryState = autoRecoveryCoordinator.reset(playbackHealthGeneration, itemId, playerController.activeBackend)
+        playbackHealthCoordinator.start(generation = playbackHealthGeneration, context = playbackHealthSessionContext())
+        if (!qualityInitialized) {
+            qualityOverrideExplicit = false
+            selectedQualityPolicy = preferences.effectiveDefaultQualityPolicy(playerController.activeBackend)
+            selectedQualityMaxBitrate = selectedQualityPolicy.maxBitrateBps
+            selectedQualityCapOrigin = PlaybackQualityCapOrigin.SettingsDefault.takeIf { selectedQualityMaxBitrate != null }
+            qualityInitialized = true
+        }
         val subtitleOptions = subtitleOptions(mediaStreams)
         val explicitInitialSubtitle =
             when {
@@ -1654,24 +2209,26 @@ class TvPlaybackSessionPresenter(
         val playbackPlan =
             try {
                 withContext(dispatchers.work) {
-                    playbackInfoPlanner.plan(
-                        session = session,
-                        itemId = itemId,
-                        mediaSourceId = version.id,
-                        startPositionTicks = effectiveStartTicks,
-                        audioStreamIndex = requestedAudioStreamIndex,
-                        detailMediaStreams = mediaStreams,
-                        subtitleSelection = requestedSubtitleSelection,
-                        localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset(),
-                        maxStreamingBitrate = selectedQualityMaxBitrate,
-                        qualityPolicy = selectedQualityPolicy,
-                        qualityCapOrigin = selectedQualityCapOrigin,
-                        sourceContainer = selectedSourceContainer,
-                        requestPolicy =
-                            PlaybackInfoRequestPolicy(
-                                diagnosticSessionSequence = diagnosticSession,
-                            ),
-                    )
+                    playbackInfoPlanner
+                        .plan(
+                            session = session,
+                            itemId = itemId,
+                            mediaSourceId = version.id,
+                            startPositionTicks = effectiveStartTicks,
+                            audioStreamIndex = requestedAudioStreamIndex,
+                            detailMediaStreams = mediaStreams,
+                            subtitleSelection = requestedSubtitleSelection,
+                            localSubtitleAsset = requestedLocalSubtitleAsset?.toPlaybackAsset(),
+                            maxStreamingBitrate = selectedQualityMaxBitrate,
+                            qualityPolicy = selectedQualityPolicy,
+                            qualityCapOrigin = selectedQualityCapOrigin,
+                            sourceContainer = selectedSourceContainer,
+                            requestPolicy =
+                                PlaybackInfoRequestPolicy(
+                                    backend = playerController.activeBackend,
+                                    diagnosticSessionSequence = diagnosticSession,
+                                ),
+                        ).also { validatePlannedSelection(it, itemId, version.id, selectedQualityPolicy, requestedSubtitleSelection) }
                 }
             } catch (exception: CancellationException) {
                 segmentsDeferred.cancel()
@@ -1711,14 +2268,14 @@ class TvPlaybackSessionPresenter(
             event = PlaybackDiagnosticEvent.PrepareRequested,
         )
         playerController.prepare(enrichedPlan)
-        playerController.runtimeDiagnostics.value.prepareEpoch
-            ?.let(playbackHealthCoordinator::expectVideoOutput)
+        expectPreparedVideoOutput()
         logTvDiagnostic(
             stage = PlaybackDiagnosticStage.Prepare,
             event = PlaybackDiagnosticEvent.PrepareDispatched,
         )
         applyInitialEmbeddedSelections(enrichedPlan)
-        playerController.play()
+        hostTransportEpoch += 1L
+        if (desiredPlayWhenReady) playerController.play() else playerController.pause()
         observeSelectedLocalSubtitle(context = LocalSubtitleContext(session.serverId, session.userId, itemId, version.id))
         return true
     }
@@ -1807,9 +2364,11 @@ class TvPlaybackSessionPresenter(
         if (observeJob != null) {
             return
         }
+        val controller = playerController
         observeJob =
             scope.launch {
-                playerController.playbackState.collect { playbackState ->
+                controller.playbackState.collect { playbackState ->
+                    if (installedPlayerController !== controller) return@collect
                     onPlaybackState(playbackState)
                 }
             }
@@ -1824,6 +2383,13 @@ class TvPlaybackSessionPresenter(
             return
         }
         if (plan?.itemId != currentItemId) {
+            return
+        }
+        if (controllerInstallInFlight) return
+        val prepareEpoch = playerController.runtimeDiagnostics.value.prepareEpoch
+        if (healthPrepareEpoch != prepareEpoch) expectPreparedVideoOutput()
+        if (pendingReplacementSeek != null && playbackState.status != PlaybackStatus.Failed) {
+            publish(playbackState)
             return
         }
         retireResolvedAudioFallback(playbackState)
@@ -1879,7 +2445,7 @@ class TvPlaybackSessionPresenter(
             lastStatus = playbackState.status
             return
         }
-        playbackReportingCoordinator.onPlaybackState(playbackState, lastStatus)
+        playbackReportingCoordinator.onPlaybackState(playbackState, lastStatus, prepareEpoch = prepareEpoch)
         maybeAutoSkipSegment(playbackState)
         if (playbackState.status == PlaybackStatus.Failed) {
             logTvDiagnostic(
@@ -2012,7 +2578,10 @@ class TvPlaybackSessionPresenter(
             selectedMediaSourceId != null &&
             plan?.itemId == currentItemId
 
-    private fun maybeHandlePlaybackSessionRecovery(playbackState: PlaybackState): TvSessionRecoveryResult {
+    private fun maybeHandlePlaybackSessionRecovery(
+        playbackState: PlaybackState,
+        pausedOverride: Boolean? = null,
+    ): TvSessionRecoveryResult {
         if (!canHandlePlaybackSessionRecovery()) return TvSessionRecoveryResult.NotHandled
         val result =
             playbackSessionRecoveryPolicy.decide(
@@ -2061,6 +2630,7 @@ class TvPlaybackSessionPresenter(
                     targetPositionMs = playbackState.positionMs,
                     requestPolicy = decision.requestPolicy,
                     audioRecovery = decision.target,
+                    pausedOverride = pausedOverride,
                 )
                 TvSessionRecoveryResult.RetryScheduled
             }
@@ -2074,6 +2644,7 @@ class TvPlaybackSessionPresenter(
                     requestPolicy = decision.requestPolicy,
                     nonFatalSubtitleFallback = decision.target,
                     subtitleFallbackGeneration = fallbackGeneration,
+                    pausedOverride = pausedOverride,
                 )
                 TvSessionRecoveryResult.RetryScheduled
             }
@@ -2105,6 +2676,8 @@ class TvPlaybackSessionPresenter(
     private fun maybeStartInstalledUnavailableFallback(
         playbackPlan: PlaybackPlan,
         includeInadmissibleAudio: Boolean = false,
+        positionOverride: Long? = null,
+        pausedOverride: Boolean? = null,
     ) {
         val controller = installedPlayerController ?: return
         if (plan !== playbackPlan || !canHandlePlaybackSessionRecovery()) return
@@ -2129,7 +2702,7 @@ class TvPlaybackSessionPresenter(
         if (audioTarget == null && subtitleTarget == null) return
         maybeHandlePlaybackSessionRecovery(
             nativeState.copy(
-                positionMs = playbackPlan.startPositionMs,
+                positionMs = positionOverride ?: playbackPlan.startPositionMs,
                 audioActivation =
                     audioTarget?.let { target -> AudioActivationState.Unavailable(target) }
                         ?: nativeState.audioActivation,
@@ -2137,6 +2710,7 @@ class TvPlaybackSessionPresenter(
                     subtitleTarget?.let { target -> SubtitleActivationState.Unavailable(target) }
                         ?: nativeState.subtitleActivation,
             ),
+            pausedOverride = pausedOverride,
         )
     }
 
@@ -2173,6 +2747,7 @@ class TvPlaybackSessionPresenter(
                 plannedSubtitle = unavailable,
             )
         subtitleFallbackTarget = null
+        hostTransportEpoch += 1L
         planEpoch += 1
         publish(playerController.playbackState.value)
     }
@@ -2186,11 +2761,16 @@ class TvPlaybackSessionPresenter(
         nonFatalLocalSubtitleFailure: Boolean = false,
         audioRecovery: AudioActivationTarget? = null,
         proposal: TvChangeProposal? = null,
+        pausedOverride: Boolean? = null,
     ) {
         if (startInFlight) return
         val mediaSource = selectedMediaSourceId ?: return
         val target = targetPositionMs.coerceAtLeast(0L)
         val replanItemId = currentItemId
+        val nativePausedAtRequest =
+            pausedOverride ?: (pendingReplacementSeek == null && playerController.playbackState.value.status == PlaybackStatus.Paused)
+        val playbackShouldPlayAtRequest = desiredPlayWhenReady && (forcePlay || !nativePausedAtRequest)
+        val playbackIntentRevisionAtRequest = playbackIntentRevision
         val admittedRecovery = proposal == null && !nonFatalLocalSubtitleFailure
         if (proposal == null) {
             // A recovery or repair takes the slot from a pending user change without a notice and
@@ -2234,27 +2814,37 @@ class TvPlaybackSessionPresenter(
                 val playbackPlan =
                     try {
                         withContext(dispatchers.work) {
-                            playbackInfoPlanner.plan(
-                                session = session,
-                                itemId = replanItemId,
-                                mediaSourceId = mediaSource,
-                                startPositionTicks = millisecondsToTicks(target),
-                                audioStreamIndex = if (proposal != null) proposal.audioStreamIndex else requestedAudioStreamIndex,
-                                detailMediaStreams = mediaStreams,
-                                subtitleSelection = proposal?.subtitleSelection ?: requestedSubtitleSelection,
-                                localSubtitleAsset =
-                                    (if (proposal != null) proposal.localSubtitleAsset else requestedLocalSubtitleAsset)
-                                        ?.toPlaybackAsset(),
-                                maxStreamingBitrate = if (proposal != null) proposal.qualityMaxBitrate else selectedQualityMaxBitrate,
-                                qualityPolicy = qualityPolicy,
-                                qualityCapOrigin = if (proposal != null) proposal.qualityCapOrigin else selectedQualityCapOrigin,
-                                sourceContainer = selectedSourceContainer,
-                                requestPolicy =
-                                    requestPolicy.copy(
-                                        diagnosticSessionSequence = diagnosticSession,
-                                        bitrateConstraint = bitrateConstraint,
-                                    ),
-                            )
+                            playbackInfoPlanner
+                                .plan(
+                                    session = session,
+                                    itemId = replanItemId,
+                                    mediaSourceId = mediaSource,
+                                    startPositionTicks = millisecondsToTicks(target),
+                                    audioStreamIndex = if (proposal != null) proposal.audioStreamIndex else requestedAudioStreamIndex,
+                                    detailMediaStreams = mediaStreams,
+                                    subtitleSelection = proposal?.subtitleSelection ?: requestedSubtitleSelection,
+                                    localSubtitleAsset =
+                                        (if (proposal != null) proposal.localSubtitleAsset else requestedLocalSubtitleAsset)
+                                            ?.toPlaybackAsset(),
+                                    maxStreamingBitrate = if (proposal != null) proposal.qualityMaxBitrate else selectedQualityMaxBitrate,
+                                    qualityPolicy = qualityPolicy,
+                                    qualityCapOrigin = if (proposal != null) proposal.qualityCapOrigin else selectedQualityCapOrigin,
+                                    sourceContainer = selectedSourceContainer,
+                                    requestPolicy =
+                                        requestPolicy.copy(
+                                            backend = playerController.activeBackend,
+                                            diagnosticSessionSequence = diagnosticSession,
+                                            bitrateConstraint = bitrateConstraint,
+                                        ),
+                                ).also {
+                                    validatePlannedSelection(
+                                        it,
+                                        replanItemId,
+                                        mediaSource,
+                                        qualityPolicy,
+                                        proposal?.subtitleSelection ?: requestedSubtitleSelection,
+                                    )
+                                }
                         }
                     } catch (exception: CancellationException) {
                         throw exception
@@ -2368,68 +2958,94 @@ class TvPlaybackSessionPresenter(
                     return@launch
                 }
                 // Cancellation can land during the await, after Stop was queued.
-                installedReportingMayBeStopped = true
-                playbackReportingCoordinator.stopNow(target)
-                currentCoroutineContext().ensureActive()
-                if (
-                    nonFatalSubtitleFallback != null &&
-                    !isCurrentSubtitleFallback(
-                        target = nonFatalSubtitleFallback,
-                        generation = subtitleFallbackGeneration,
-                        itemId = replanItemId,
+                controllerInstallInFlight = true
+                hostTransportEpoch += 1L
+                try {
+                    installedReportingMayBeStopped = true
+                    playbackReportingCoordinator.stopNow(replacementSeekStopPosition ?: playerController.playbackState.value.positionMs)
+                    currentCoroutineContext().ensureActive()
+                    if (
+                        nonFatalSubtitleFallback != null &&
+                        !isCurrentSubtitleFallback(
+                            target = nonFatalSubtitleFallback,
+                            generation = subtitleFallbackGeneration,
+                            itemId = replanItemId,
+                        )
+                    ) {
+                        return@launch
+                    }
+                    // Accepted limit: a drop here follows the queued Stop, so reporting stays stopped.
+                    if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
+                        releaseSilentAudioRecovery(requestJob)
+                        return@launch
+                    }
+                    if (proposal != null && !isCurrentProposal(proposal)) {
+                        dropProposal(proposal, PlaybackTransitionReason.ProposalStale, requestJob)
+                        return@launch
+                    }
+                    proposal?.let(::commitProposal)
+                    audioRecoveryJob = null
+                    installPlan(enrichedPlan, resetReporting = true)
+                    if (nonFatalSubtitleFallback != null) {
+                        subtitleFallbackTarget = null
+                    }
+                    logTvDiagnostic(
+                        stage = PlaybackDiagnosticStage.Prepare,
+                        event = PlaybackDiagnosticEvent.PrepareRequested,
                     )
-                ) {
+                    playerController.prepare(enrichedPlan)
+                    if (playerController.playbackState.value.status == PlaybackStatus.Failed) {
+                        publishFailure(playerController.playbackState.value.error ?: PlaybackError.Unknown)
+                        return@launch
+                    }
+                    expectPreparedVideoOutput()
+                    logTvDiagnostic(
+                        stage = PlaybackDiagnosticStage.Prepare,
+                        event = PlaybackDiagnosticEvent.PrepareDispatched,
+                    )
+                    applyInitialEmbeddedSelections(enrichedPlan)
+                    hostTransportEpoch += 1L
+                    if (playbackIntentRevision == playbackIntentRevisionAtRequest) {
+                        desiredPlayWhenReady = playbackShouldPlayAtRequest
+                    }
+                    if (desiredPlayWhenReady && queuedSeekTarget == null) {
+                        playerController.play()
+                    } else {
+                        playerController.pause()
+                    }
+                    // Credit only a prepared recovery stream, by this request's own intent; the
+                    // planner's forced retry relabels only its internal request as Compatibility.
+                    when (requestPolicy.recoveryIntent) {
+                        PlaybackRecoveryIntent.Compatibility -> pendingRecoveredPlaybackGuidance = true
+                        PlaybackRecoveryIntent.Quality ->
+                            pendingRecoveredAutoQualityBps =
+                                (enrichedPlan.bitrateConstraint as? PlaybackBitrateConstraint.AutoSessionLimit)?.bitrateBps
+                        PlaybackRecoveryIntent.Initial -> Unit
+                    }
+                    if (audioRecoveryTarget != null && enrichedPlan.streamMode != StreamMode.DirectPlay) {
+                        // Only a repair install still carries a lineage here; this install resolves its root.
+                        if (audioRecoveryTarget == proposalDisplacedAudioRecovery) clearDisplacedRecovery()
+                        audioRecoveryTarget = null
+                    }
+                    if (queuedSeekTarget == null) {
+                        pendingReplacementSeek = null
+                        replacementSeekStopPosition = null
+                    }
+                    publish(playerController.playbackState.value)
+                } finally {
+                    controllerInstallInFlight = false
+                    playbackHealthCoordinator.resumeAfterInstallation(
+                        playerController.playbackState.value.takeIf { !closed && pendingReplacementSeek == null },
+                    )
+                }
+                if (queuedSeekTarget != null) {
+                    val newest = queuedSeekTarget
+                    queuedSeekTarget = null
+                    replacementSeekStopPosition = playerController.playbackState.value.positionMs
+                    replanJob = null
+                    newest?.let(::seekTo)
                     return@launch
                 }
-                // Accepted limit: a drop here follows the queued Stop, so reporting stays stopped.
-                if (audioRecovery != null && !isCurrentAudioFallback(audioRecovery, replanItemId)) {
-                    releaseSilentAudioRecovery(requestJob)
-                    return@launch
-                }
-                if (proposal != null && !isCurrentProposal(proposal)) {
-                    dropProposal(proposal, PlaybackTransitionReason.ProposalStale, requestJob)
-                    return@launch
-                }
-                // The controller's current play/pause intent, including AVKit's recorded transport intent.
-                val pausedAtCommit = playerController.playbackState.value.status == PlaybackStatus.Paused
-                proposal?.let(::commitProposal)
-                audioRecoveryJob = null
-                installPlan(enrichedPlan, resetReporting = true)
-                if (nonFatalSubtitleFallback != null) {
-                    subtitleFallbackTarget = null
-                }
-                logTvDiagnostic(
-                    stage = PlaybackDiagnosticStage.Prepare,
-                    event = PlaybackDiagnosticEvent.PrepareRequested,
-                )
-                playerController.prepare(enrichedPlan)
-                playerController.runtimeDiagnostics.value.prepareEpoch
-                    ?.let(playbackHealthCoordinator::expectVideoOutput)
-                logTvDiagnostic(
-                    stage = PlaybackDiagnosticStage.Prepare,
-                    event = PlaybackDiagnosticEvent.PrepareDispatched,
-                )
-                applyInitialEmbeddedSelections(enrichedPlan)
-                if (forcePlay || !pausedAtCommit) {
-                    playerController.play()
-                } else {
-                    playerController.pause()
-                }
-                // Credit only a prepared recovery stream, by this request's own intent; the
-                // planner's forced retry relabels only its internal request as Compatibility.
-                when (requestPolicy.recoveryIntent) {
-                    PlaybackRecoveryIntent.Compatibility -> pendingRecoveredPlaybackGuidance = true
-                    PlaybackRecoveryIntent.Quality ->
-                        pendingRecoveredAutoQualityBps =
-                            (enrichedPlan.bitrateConstraint as? PlaybackBitrateConstraint.AutoSessionLimit)?.bitrateBps
-                    PlaybackRecoveryIntent.Initial -> Unit
-                }
-                if (audioRecoveryTarget != null && enrichedPlan.streamMode != StreamMode.DirectPlay) {
-                    // Only a repair install still carries a lineage here; this install resolves its root.
-                    if (audioRecoveryTarget == proposalDisplacedAudioRecovery) clearDisplacedRecovery()
-                    audioRecoveryTarget = null
-                }
-                publish(playerController.playbackState.value)
                 maybeStartInstalledUnavailableFallback(enrichedPlan)
                 reconsiderLocalSubtitleRepair(requestJob)
             }
@@ -2527,6 +3143,7 @@ class TvPlaybackSessionPresenter(
         }
         plan = playbackPlan
         updatePlaybackHealthSessionContext()
+        hostTransportEpoch += 1L
         planEpoch += 1
         val authoritativeAudio =
             playbackPlan.selectedAudioStreamIndex.takeIf { playbackPlan.audioSelectionAuthoritative }
@@ -3466,33 +4083,50 @@ class TvPlaybackSessionPresenter(
         retainCompletedHost: Boolean = completedWithNext,
     ) {
         val controller = installedPlayerController ?: return
+        val visiblePlaybackState =
+            if (pendingReplacementSeek != null && _state.value.phase == TvPlaybackPhase.Failed) {
+                playbackState.copy(status = PlaybackStatus.Failed)
+            } else {
+                playbackState
+            }
+        val projectedPlaybackState = visiblePlaybackState.withReplacementSeekTarget(pendingReplacementSeek)
         logTvTrackDiagnostics(playbackState)
-        val confirmedAudio = confirmedAudioStreamIndex(playbackState)
-        val confirmedSubtitle = confirmedSubtitleStreamIndex(playbackState)
-        val duration = playbackState.durationMs
+        val confirmedAudio = confirmedAudioStreamIndex(projectedPlaybackState)
+        val confirmedSubtitle = confirmedSubtitleStreamIndex(projectedPlaybackState)
+        val duration = projectedPlaybackState.durationMs
         val inheritedQualityPolicy = preferences.effectiveDefaultQualityPolicy(controller.activeBackend)
         reduce {
             TvPlaybackSessionChange.Projected(
                 TvPlaybackUiState(
                     playerInstalled = installedPlayerController != null,
                     playerIdentity = playerIdentity,
+                    hostTransportEpoch = hostTransportEpoch,
+                    pendingReplacementSeek = pendingReplacementSeek != null,
+                    desiredPlayWhenReady = desiredPlayWhenReady,
                     backend = controller.activeBackend,
+                    backendChoices = availableBackends,
+                    backendSwitchPending = backendSwitchPending,
                     phase =
-                        when (playbackState.status) {
-                            PlaybackStatus.Failed -> TvPlaybackPhase.Failed
-                            PlaybackStatus.Completed ->
-                                when {
-                                    retainCompletedHost -> TvPlaybackPhase.Active
-                                    terminalCompleted -> TvPlaybackPhase.Completed
-                                    else -> TvPlaybackPhase.Loading
+                        when {
+                            pendingReplacementSeek != null && projectedPlaybackState.status != PlaybackStatus.Failed ->
+                                TvPlaybackPhase.Active
+                            else ->
+                                when (projectedPlaybackState.status) {
+                                    PlaybackStatus.Failed -> TvPlaybackPhase.Failed
+                                    PlaybackStatus.Completed ->
+                                        when {
+                                            retainCompletedHost -> TvPlaybackPhase.Active
+                                            terminalCompleted -> TvPlaybackPhase.Completed
+                                            else -> TvPlaybackPhase.Loading
+                                        }
+                                    PlaybackStatus.Idle, PlaybackStatus.Loading -> TvPlaybackPhase.Loading
+                                    else -> TvPlaybackPhase.Active
                                 }
-                            PlaybackStatus.Idle, PlaybackStatus.Loading -> TvPlaybackPhase.Loading
-                            else -> TvPlaybackPhase.Active
                         },
-                    status = playbackState.status,
-                    positionMs = playbackState.positionMs,
+                    status = projectedPlaybackState.status,
+                    positionMs = projectedPlaybackState.positionMs,
                     durationMs = duration,
-                    bufferedPositionMs = playbackState.bufferedPositionMs,
+                    bufferedPositionMs = projectedPlaybackState.bufferedPositionMs,
                     isTranscode = plan?.streamMode == StreamMode.Transcode,
                     itemId = currentItemId,
                     mediaSourceId = selectedMediaSourceId,
@@ -3559,7 +4193,7 @@ class TvPlaybackSessionPresenter(
                     inheritedQualityResolutionHeight =
                         qualityRungForBitrate(inheritedQualityPolicy.maxBitrateBps)?.height,
                     inheritedQualityUsesVlcSetting = preferences.usesVlcDefaultQuality(controller.activeBackend),
-                    activeSegment = activeSegment(playbackState),
+                    activeSegment = activeSegment(projectedPlaybackState),
                     nextEpisode = nextEpisodePresentation,
                     upNextVisible =
                         nextEpisodeItem != null &&
@@ -3568,29 +4202,30 @@ class TvPlaybackSessionPresenter(
                                 retainCompletedHost ||
                                     (
                                         duration != null &&
-                                            duration - playbackState.positionMs <= UP_NEXT_WINDOW_MS
+                                            duration - projectedPlaybackState.positionMs <= UP_NEXT_WINDOW_MS
                                     )
                             ),
                     queue = queuePresentation,
                     nextUpCountdownSeconds = autoplayCountdownSeconds,
                     nextUpDismissed = autoplayDismissed,
                     stillWatchingVisible = stillWatchingState.isPromptVisible,
-                    playbackSpeed = playbackState.playbackSpeed,
-                    playbackSpeedChoices = tvPlaybackSpeedChoices(playbackState.playbackSpeed),
-                    subtitleStyle = playbackState.subtitleStyle,
+                    playbackSpeed = projectedPlaybackState.playbackSpeed,
+                    playbackSpeedChoices = tvPlaybackSpeedChoices(projectedPlaybackState.playbackSpeed),
+                    subtitleStyle = projectedPlaybackState.subtitleStyle,
                     subtitleStyleSupported = canApplySubtitleStyle(),
                     playbackGuidance = playbackHealthCoordinator.guidance,
                     playbackActionNotice = playbackActionNotice,
                     playbackActions = playbackActionNotice?.actions.orEmpty().toList(),
                     subtitleNotice = subtitleNotice,
                     preferences = preferences,
-                    error = playbackState.error,
+                    error = projectedPlaybackState.error,
                 ),
             )
         }
     }
 
     private fun publishFailure(error: PlaybackError) {
+        playbackHealthCoordinator.resumeAfterInstallation(null)
         // A published failure ends any recovery-displacing change chain.
         clearDisplacedRecovery()
         logTvDiagnostic(
@@ -3617,6 +4252,7 @@ class TvPlaybackSessionPresenter(
         val rootFailure = copyFailure?.cause ?: exception
         return when {
             isDeterministicCapabilityFailure -> PlaybackError.UnsupportedMedia
+            rootFailure == PlaybackPlanningException.NoSupportedStream -> PlaybackError.UnsupportedMedia
             rootFailure is PlaybackPlanningException.RemoteRequestFailed && rootFailure.isNetworkFailure ->
                 PlaybackError.Network
             else -> PlaybackError.Unknown
@@ -3731,10 +4367,9 @@ private data class TvLocalSubtitleRepair(
     val mediaSourceId: String,
 )
 
-private val healthyChangeStatuses = setOf(PlaybackStatus.Playing, PlaybackStatus.Paused, PlaybackStatus.Buffering)
-
 private fun TvPlaybackChangeOperation.diagnosticOperation(): PlayerOperation =
     when (this) {
+        TvPlaybackChangeOperation.Backend -> PlayerOperation.BackendSwitch
         TvPlaybackChangeOperation.Quality -> PlayerOperation.QualityChange
         TvPlaybackChangeOperation.Audio -> PlayerOperation.SelectEmbeddedAudio
         TvPlaybackChangeOperation.Subtitle -> PlayerOperation.SelectEmbeddedSubtitle

@@ -29,8 +29,21 @@ class VlcKitPlaybackTransitionTest {
         assertEquals(10_000L, initial.publishedPositionMs)
         assertTrue(initial.forceBuffering)
         assertTrue(transition.observePosition(7L, 10_050L)?.arrivedNow == true)
+        val clockSettled = transition.observePosition(7L, 10_100L)
+        assertEquals(VlcKitPlaybackTransitionState.Pending, clockSettled?.state)
+        assertFalse(clockSettled?.forceBuffering == true)
+        assertFalse(clockSettled?.transportPending == true)
+        assertFalse(clockSettled?.becameReady == true)
+        assertEquals(10_100L, clockSettled?.publishedPositionMs)
+        assertEquals(0, transition.snapshot(7L)?.pictureAdvances)
+        assertFalse(
+            shouldLatchVlcKitPictureInPictureContent(
+                transitionState = requireNotNull(clockSettled).state,
+                hasVideoOut = true,
+                nativePlaying = true,
+            ),
+        )
         assertFalse(transition.observeDisplayedPictures(7L, 21L)?.becameReady == true)
-        assertFalse(transition.observePosition(7L, 10_100L)?.becameReady == true)
 
         val ready = transition.observeDisplayedPictures(7L, 22L)
 
@@ -197,19 +210,28 @@ class VlcKitPlaybackTransitionTest {
             transitionSequence = 7L,
             initialDisplayedPictures = 0L,
         )
-        transition.observePosition(13L, 27_000L)
+        transition.observePosition(13L, 5_000L)
 
         val timedOut = transition.timeout(13L, 7L)
 
         assertEquals(VlcKitPlaybackTransitionState.TimedOut, timedOut?.state)
         assertFalse(timedOut?.forceBuffering == true)
-        assertEquals(27_000L, timedOut?.publishedPositionMs)
+        assertEquals(5_000L, timedOut?.publishedPositionMs)
 
         val laterClock = transition.observePosition(13L, 29_500L)
 
         assertEquals(VlcKitPlaybackTransitionState.TimedOut, laterClock?.state)
         assertFalse(laterClock?.forceBuffering == true)
         assertEquals(29_500L, laterClock?.publishedPositionMs)
+        assertFalse(laterClock?.transportPending == true)
+        val paused = transition.pause(13L)
+        assertEquals(VlcKitPlaybackTransitionState.Pending, paused?.state)
+        assertFalse(paused?.transportPending == true)
+        assertFalse(paused?.forceBuffering == true)
+        assertEquals(29_500L, paused?.publishedPositionMs)
+        val pausedClock = transition.observePosition(13L, 29_600L)
+        assertFalse(pausedClock?.transportPending == true)
+        assertEquals(29_600L, pausedClock?.publishedPositionMs)
     }
 
     @Test

@@ -2,8 +2,7 @@
 
 package com.jellyscope.tvos.presenter
 
-import com.jellyscope.core.domain.playback.MAX_PLAYBACK_SPEED
-import com.jellyscope.core.domain.playback.MIN_PLAYBACK_SPEED
+import com.jellyscope.core.domain.playback.PLAYBACK_SPEED_CHOICES
 import com.jellyscope.core.domain.playback.SubtitleEdgeStyle
 
 data class TvPlaybackSpeedChoice(
@@ -28,9 +27,7 @@ data class TvPlaybackDiagnosticRow(
     val value: String?,
 )
 
-internal val tvPlaybackSpeedValues =
-    listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
-        .filter { speed -> speed in MIN_PLAYBACK_SPEED..MAX_PLAYBACK_SPEED }
+internal val tvPlaybackSpeedValues = PLAYBACK_SPEED_CHOICES
 
 internal fun tvPlaybackSpeedChoices(selectedSpeed: Float): List<TvPlaybackSpeedChoice> =
     tvPlaybackSpeedValues.map { speed ->

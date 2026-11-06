@@ -986,6 +986,8 @@ internal class FakeMediaRepository(
     private val mediaStreams: List<PlaybackMediaStream> = playbackStreams,
     private val fallbackRequestGate: CompletableDeferred<Unit>? = null,
 ) : MediaRepository {
+    var ordinaryPlanGate: CompletableDeferred<Unit>? = null
+
     var honoursRequestPolicy: Boolean = true
 
     val requests = mutableListOf<PlaybackInfoRequest>()
@@ -1133,6 +1135,8 @@ internal class FakeMediaRepository(
             )
         if (requestPolicy.forceEncodeSubtitle != null) {
             fallbackRequestGate?.await()
+        } else {
+            ordinaryPlanGate?.await()
         }
         if (playbackInfoResults.isNotEmpty()) {
             return playbackInfoResults.removeFirst()

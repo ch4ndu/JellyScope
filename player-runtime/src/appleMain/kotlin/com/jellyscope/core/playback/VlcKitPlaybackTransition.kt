@@ -20,6 +20,7 @@ internal data class VlcKitPlaybackTransitionDecision(
     val state: VlcKitPlaybackTransitionState,
     val publishedPositionMs: Long,
     val forceBuffering: Boolean,
+    val transportPending: Boolean,
     val arrivedNow: Boolean = false,
     val becameReady: Boolean = false,
 )
@@ -180,6 +181,7 @@ internal class VlcKitPlaybackTransition {
                     transition.playIntent &&
                     transition.videoExpected
             } ?: return null
+        current.transportSettled = true
         current.state = VlcKitPlaybackTransitionState.TimedOut
         return current.decision()
     }
@@ -201,6 +203,7 @@ internal class VlcKitPlaybackTransition {
         var pictureAdvances: Int = 0,
         var arrivalPositionMs: Long? = null,
         var clockAdvanced: Boolean = false,
+        var transportSettled: Boolean = false,
         var lastNativePositionMs: Long = targetPositionMs,
         var state: VlcKitPlaybackTransitionState = VlcKitPlaybackTransitionState.Pending,
     ) {
@@ -213,6 +216,9 @@ internal class VlcKitPlaybackTransition {
         }
 
         fun resolveReady(): Boolean {
+            if (arrivalPositionMs != null && (!playIntent || clockAdvanced)) {
+                transportSettled = true
+            }
             if (state != VlcKitPlaybackTransitionState.Pending || arrivalPositionMs == null) return false
             val ready =
                 if (playIntent) {
@@ -233,12 +239,13 @@ internal class VlcKitPlaybackTransition {
             VlcKitPlaybackTransitionDecision(
                 state = state,
                 publishedPositionMs =
-                    if (state == VlcKitPlaybackTransitionState.Pending) {
+                    if (!transportSettled) {
                         targetPositionMs
                     } else {
                         lastNativePositionMs
                     },
-                forceBuffering = playIntent && state == VlcKitPlaybackTransitionState.Pending,
+                forceBuffering = playIntent && !transportSettled,
+                transportPending = !transportSettled,
                 arrivedNow = arrivedNow,
                 becameReady = becameReady,
             )

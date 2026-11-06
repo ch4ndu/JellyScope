@@ -6,6 +6,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
+val PLAYBACK_SPEED_CHOICES: List<Float> =
+    listOf(0.5f, 0.75f, DEFAULT_PLAYBACK_SPEED, 1.25f, 1.5f, 2f)
+        .filter { it in MIN_PLAYBACK_SPEED..MAX_PLAYBACK_SPEED }
+
 interface PlayerController {
     val playbackState: StateFlow<PlaybackState>
     val runtimeDiagnostics: StateFlow<PlaybackRuntimeDiagnostics>
@@ -242,6 +246,13 @@ data class PlaybackState(
      */
     val healthStatusOverride: PlaybackStatus? = null,
 )
+
+/** Absolute retry target, bounded only by a known positive duration. */
+fun PlaybackState.positionForRetry(): Long {
+    val position = positionMs.coerceAtLeast(0L)
+    val duration = durationMs
+    return if (duration != null && duration > 0L) position.coerceAtMost(duration) else position
+}
 
 sealed interface PlaybackError {
     data object AudioOutput : PlaybackError

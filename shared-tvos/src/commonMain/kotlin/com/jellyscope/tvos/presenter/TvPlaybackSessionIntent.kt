@@ -4,6 +4,7 @@ package com.jellyscope.tvos.presenter
 
 import com.jellyscope.core.domain.playback.PlaybackAction
 import com.jellyscope.core.domain.playback.PlaybackQualityPolicy
+import com.jellyscope.core.domain.playback.PlayerBackend
 
 sealed interface TvPlaybackSessionIntent {
     data object Start : TvPlaybackSessionIntent
@@ -80,8 +81,23 @@ sealed interface TvPlaybackSessionIntent {
         val maxBitrateBps: Long?,
     ) : TvPlaybackSessionIntent
 
+    data class SelectBackend(
+        val backend: PlayerBackend,
+    ) : TvPlaybackSessionIntent
+
     data class RecordVideoOutputReady(
         val generation: Long,
+        val playerIdentity: Long,
+        val planEpoch: Long,
+        val itemId: String,
+    ) : TvPlaybackSessionIntent
+
+    data class RecordVideoOutputAvailability(
+        val generation: Long,
+        val playerIdentity: Long,
+        val planEpoch: Long,
+        val itemId: String,
+        val available: Boolean,
     ) : TvPlaybackSessionIntent
 
     data class RecordNativePlaybackIntent(
@@ -89,6 +105,7 @@ sealed interface TvPlaybackSessionIntent {
         val planEpoch: Long,
         val itemId: String,
         val isPlaying: Boolean,
+        val hostTransportEpoch: Long,
     ) : TvPlaybackSessionIntent
 
     data class HandlePlaybackAction(

@@ -299,9 +299,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   pending and cannot enable subtitle styling. Media3 may prefix a sidecar
   `Format.id` with its media-period identifier, so Android matches the complete
   configured activation id after that delimiter; partial or suffix-collision
-  matches remain invalid. Once the native player is ready/loaded, one
-  non-extending three-second confirmation deadline turns a still-pending target
-  into `Unavailable`. An exact Jellyfin-track local failure disables the failed
+  matches remain invalid. Confirmation budgets begin at backend-qualified
+  readiness; an expired budget turns a pending target into `Unavailable`.
+  An exact Jellyfin-track local failure disables the failed
   selection, publishes a six-second passive notice token, and re-plans once at
   the same position with only Encode exposed for that normalized format. That
   server-burn-in fallback MUST disable both direct play and direct stream in its
@@ -317,6 +317,23 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   and tvOS; each shell still owns its suspended request and cancels it when a
   newer choice/item or stop/close makes the result stale.
 
+The activation fallback above concerns the installed target. Reading a newly
+selected local asset follows the [proposal contract](playback-policy.md#quality-semantics):
+a healthy rejection preserves installed selection; an unsafe held seek fails
+with its latest target retained rather than committing Subtitle Off.
+
+`Active` means the exact requested target reached the adapter's native
+acceptance boundary; it does not prove subtitle pixels were displayed. Native
+track identity/readback is preferred where available. Apple VLC waits for
+external-track discovery without a discovery timeout: an earlier timeout caused
+Encode/reprepare loops while a valid HLS sidecar was still loading. AVPlayer
+separately bounds asset/group loading before selection confirmation. Desktop
+VLC's accepted slave plus native Playing handoff is weaker evidence than selected
+track readback and must not be described as rendered output. These exceptions
+retain the same target identity and nonfatal activation outcomes; equal timeout
+numbers would not establish equal behavior. See the [Apple recovery contract](apple-playback.md#ios-recovery)
+and [desktop playback](desktop-playback.md).
+
 ## Timing offset contract
 
 - Audio and subtitle timing offsets are signed, finite milliseconds, clamped to
@@ -328,7 +345,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   persists **the value the controller actually applied** (a negative subtitle
   request is stored as 0 on Media3), not the raw request. Unsupported platforms
   expose an explicit unsupported capability rather than a misleading applied
-  value.
+  value. Unsupported describes the installed adapter/route, not proof that the
+  native SDK lacks an API. Available native APIs still require ownership,
+  acknowledgement and restoration integration before a control can be enabled.
 - The timing owner is the currently installed controller. Commands and restores
   do nothing while no concrete controller is installed or after disposal;
   Stop/release retain the last displayed values until a new observation.

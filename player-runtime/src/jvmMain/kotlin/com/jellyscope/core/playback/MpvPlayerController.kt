@@ -750,6 +750,12 @@ class MpvPlayerController private constructor(
     }
 
     override fun selectEmbeddedSubtitle(selection: EmbeddedSubtitleSelection?) {
+        lastPlan?.let { plan ->
+            if (plan.subtitleActivationTarget != selection?.target || selection?.target?.kind != LocalSubtitleKind.ExternalText) {
+                lastSubtitleAsset = null
+            }
+            lastPlan = plan.withLocalSubtitleTarget(selection?.target)
+        }
         pendingEmbeddedSubtitleSelection = selection
         pendingSubtitleSelectionWasSet = true
         if (selection == null) {
@@ -804,7 +810,7 @@ class MpvPlayerController private constructor(
     override fun play() {
         playIntent = true
         withEngineLease { active ->
-            if (initialAudioGate && _playbackState.value.audioActivation is AudioActivationState.Pending) {
+            if (initialAudioGate) {
                 pollState()
                 return@withEngineLease
             }
@@ -866,6 +872,7 @@ class MpvPlayerController private constructor(
             initialAudioGate = false
             pendingEmbeddedAudioSelection = null
             pendingEmbeddedSubtitleSelection = null
+            pendingSubtitleSelectionWasSet = false
             resolvedAudioSelectorId = null
             resolvedSubtitleSelectorId = null
             audioActivationConfirmation.clear()
@@ -890,14 +897,16 @@ class MpvPlayerController private constructor(
         val embeddedSelection = pendingEmbeddedSubtitleSelection
         val audioSelection = pendingEmbeddedAudioSelection
         val shouldPlay = playIntent
-        lastPlan?.let { plan ->
+        lastPlan?.snapshotForRetry(_playbackState.value)?.let { plan ->
             val selectionDecision =
                 retrySelectionDecision(
                     audioSelection = audioSelection,
                     subtitleIntent =
-                        embeddedSelection
-                            ?.let(RetrySubtitleIntent::Selection)
-                            ?: RetrySubtitleIntent.Unspecified,
+                        when {
+                            !pendingSubtitleSelectionWasSet -> RetrySubtitleIntent.Unspecified
+                            embeddedSelection == null -> RetrySubtitleIntent.ExplicitOff
+                            else -> RetrySubtitleIntent.Selection(embeddedSelection)
+                        },
                     planSubtitleTarget = plan.subtitleActivationTarget,
                 )
             prepare(

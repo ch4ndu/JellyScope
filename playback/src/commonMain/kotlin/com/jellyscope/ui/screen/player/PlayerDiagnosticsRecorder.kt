@@ -375,6 +375,9 @@ internal class PlayerDiagnosticsRecorder {
                         when (facts.operation) {
                             PlayerPlaybackChangeOperation.Quality -> PlayerOperation.QualityChange
                             PlayerPlaybackChangeOperation.Backend -> PlayerOperation.BackendSwitch
+                            PlayerPlaybackChangeOperation.Audio -> PlayerOperation.SelectEmbeddedAudio
+                            PlayerPlaybackChangeOperation.Subtitle -> PlayerOperation.SelectEmbeddedSubtitle
+                            PlayerPlaybackChangeOperation.Seek -> PlayerOperation.SeekTo
                         },
                     playbackChangeResult = PlaybackChangeResult.CurrentPlaybackKept,
                     qualityCapOrigin = context.qualityCapOrigin,

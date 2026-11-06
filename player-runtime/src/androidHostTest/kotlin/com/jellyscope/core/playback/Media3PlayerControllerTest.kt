@@ -406,12 +406,18 @@ class Media3PlayerControllerTest {
                 asset,
             )
 
+            controller.selectEmbeddedSubtitle(embeddedSubtitleSelection(externalTarget))
+            assertEquals(asset, controller.planForTest()?.subtitleAsset)
+            controller.selectEmbeddedSubtitle(embeddedSubtitleSelection(externalTarget.copy(requestId = 2L)))
+            assertNull(controller.planForTest()?.subtitleAsset)
             controller.selectEmbeddedSubtitle(null)
+            controller.retry()
 
             val plan = controller.planForTest()
             assertEquals(testPlan.itemId, plan?.itemId)
             assertNull(plan?.subtitleActivationTarget)
             assertNull(plan?.subtitleAsset)
+            assertEquals(SubtitleActivationState.None, controller.playbackState.value.subtitleActivation)
         } finally {
             controller.release()
         }
@@ -426,10 +432,20 @@ class Media3PlayerControllerTest {
         try {
             controller.prepare(testPlan.copy(subtitleActivationTarget = subtitleTarget))
             controller.selectEmbeddedAudio(audioSelection)
-            controller.setPendingSubtitleSelectionForTest(subtitleSelection)
+            controller.selectEmbeddedSubtitle(subtitleSelection)
 
+            controller.seekTo(12_000L)
+            controller.setPlaybackSpeed(1.5f)
+            val style =
+                controller.playbackState.value.subtitleStyle
+                    .copy(fontScale = 1.25f)
+            controller.setSubtitleStyle(style)
+            val position = controller.playbackState.value.positionMs
             controller.retry()
 
+            assertEquals(position, controller.planForTest()?.startPositionMs)
+            assertEquals(1.5f, controller.planForTest()?.playbackSpeed)
+            assertEquals(style, controller.planForTest()?.subtitleStyle)
             assertEquals(2L, controller.runtimeDiagnostics.value.prepareEpoch)
             assertEquals(audioSelection, controller.pendingAudioSelectionForTest())
             assertEquals(subtitleSelection, controller.pendingSubtitleSelectionForTest())
@@ -443,7 +459,7 @@ class Media3PlayerControllerTest {
     }
 
     @Test
-    fun retryRejectsStaleSubtitleSelectionAndRestoresPlanTarget() {
+    fun retryRetainsNewlyAdmittedSubtitleTarget() {
         val controller = media3PlayerController()
         val plannedTarget = embeddedSubtitleTarget(requestId = 21L, streamIndex = 2)
         val staleSelection =
@@ -452,15 +468,15 @@ class Media3PlayerControllerTest {
             )
         try {
             controller.prepare(testPlan.copy(subtitleActivationTarget = plannedTarget))
-            controller.setPendingSubtitleSelectionForTest(staleSelection)
+            controller.selectEmbeddedSubtitle(staleSelection)
 
             controller.retry()
 
             assertEquals(2L, controller.runtimeDiagnostics.value.prepareEpoch)
-            assertNull(controller.pendingSubtitleSelectionForTest())
-            assertEquals(plannedTarget, controller.planForTest()?.subtitleActivationTarget)
+            assertEquals(staleSelection, controller.pendingSubtitleSelectionForTest())
+            assertEquals(staleSelection.target, controller.planForTest()?.subtitleActivationTarget)
             assertEquals(
-                SubtitleActivationState.Pending(plannedTarget),
+                SubtitleActivationState.Pending(staleSelection.target),
                 controller.playbackState.value.subtitleActivation,
             )
         } finally {
@@ -584,12 +600,6 @@ private fun Media3PlayerController.pendingSubtitleSelectionForTest(): EmbeddedSu
     val field = Media3PlayerController::class.java.getDeclaredField("pendingEmbeddedSubtitleSelection")
     field.isAccessible = true
     return field.get(this) as EmbeddedSubtitleSelection?
-}
-
-private fun Media3PlayerController.setPendingSubtitleSelectionForTest(selection: EmbeddedSubtitleSelection) {
-    val field = Media3PlayerController::class.java.getDeclaredField("pendingEmbeddedSubtitleSelection")
-    field.isAccessible = true
-    field.set(this, selection)
 }
 
 @Suppress("UNCHECKED_CAST")

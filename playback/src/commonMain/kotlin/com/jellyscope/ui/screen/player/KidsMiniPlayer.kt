@@ -188,6 +188,7 @@ internal fun KidsMiniPlayerOverlay(
     state: KidsMiniPlayerState,
     playbackStateFlow: StateFlow<PlaybackState>,
     showPlaybackControl: Boolean,
+    pendingSeekPlayWhenReady: Boolean?,
     onRestore: () -> Unit,
     onClose: () -> Unit,
     onPlay: () -> Unit,
@@ -232,6 +233,7 @@ internal fun KidsMiniPlayerOverlay(
             KidsPlayPauseControl(
                 playbackStateFlow = playbackStateFlow,
                 controlsVisible = true,
+                pendingSeekPlayWhenReady = pendingSeekPlayWhenReady,
                 onPlay = onPlay,
                 onPause = onPause,
                 onReplay = onReplay,

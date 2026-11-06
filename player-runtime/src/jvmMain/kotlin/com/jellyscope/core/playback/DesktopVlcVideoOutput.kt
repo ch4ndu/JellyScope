@@ -30,10 +30,10 @@ class DesktopVlcSurfaceHandle private constructor(
 /** JVM-only surface capability consumed by the desktop Compose player host. */
 interface DesktopVlcVideoOutput {
     /**
-     * False while LibVLC may still expose a stale pre-seek frame. The macOS
-     * host remains transparent until the controller confirms a current frame.
+     * Display admission only; this is not evidence of a rendered frame.
+     * Actual presentation evidence is delivered through VideoOutputObservation.
      */
-    val videoPresentationReady: StateFlow<Boolean>
+    val videoSurfaceVisible: StateFlow<Boolean>
 
     fun attachVideoSurface(surface: DesktopVlcSurfaceHandle)
 

@@ -2,6 +2,7 @@
 
 package com.jellyscope.ui.screen.player
 
+import androidx.lifecycle.viewModelScope
 import com.jellyscope.core.domain.model.PlaybackPreferences
 import com.jellyscope.core.domain.model.PlaybackSelection
 import com.jellyscope.core.domain.model.PlaybackSelectionKey
@@ -19,7 +20,9 @@ import com.jellyscope.core.domain.playback.SubtitleEdgeStyle
 import com.jellyscope.core.domain.playback.SubtitleRenderMode
 import com.jellyscope.core.domain.playback.SubtitleRenderStatus
 import com.jellyscope.core.domain.playback.SubtitleStyle
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -34,6 +37,63 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class PlayerViewModelTrackSelectionTest {
+    @Test
+    fun missingLocalSubtitleSettlesHeldSeekOnHealthyOwner() =
+        runPlayerViewModelTest {
+            val fixture = playerFixture(playbackInfo = transcodePlaybackInfo)
+            fixture.controller.transcodeSeekRestartsStream = true
+            runCurrent()
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
+            runCurrent()
+            fixture.repository.ordinaryPlanGate = CompletableDeferred()
+            fixture.viewModel.accept(PlayerIntent.SeekTo(30_000L))
+            runCurrent()
+            fixture.viewModel.accept(PlayerIntent.Pause)
+            fixture.viewModel.accept(PlayerIntent.SelectLocalSubtitle("missing"))
+            runCurrent()
+            val content = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
+            assertEquals(null, content.pendingSeekPlayWhenReady)
+            assertEquals(PlaybackStatus.Paused, content.playbackState.status)
+            assertEquals(5_000L, content.playbackState.positionMs)
+            assertEquals(PlayerPlaybackChangeOperation.Subtitle, content.playbackChangeNotice?.operation)
+            assertEquals(1, fixture.controller.prepareCount)
+            fixture.viewModel.dispose()
+        }
+
+    @Test
+    fun rejectedRemoteAudioDoesNotCommitDurableSelection() =
+        runPlayerViewModelTest {
+            val store = FakePlaybackSelectionStore()
+            val fixture =
+                playerFixture(
+                    playbackInfo = transcodePlaybackInfo,
+                    playbackInfoResults =
+                        ArrayDeque(
+                            listOf(
+                                Result.success(transcodePlaybackInfo),
+                                Result.failure(IllegalStateException("unavailable")),
+                            ),
+                        ),
+                    selectionStore = store,
+                )
+            runCurrent()
+            fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
+            runCurrent()
+            val before = store.values.toMap()
+            val prepared = fixture.controller.preparedPlan
+            fixture.viewModel.accept(PlayerIntent.SelectAudio(3))
+            runCurrent()
+            assertEquals(2, fixture.repository.requests.size)
+            assertEquals(3, fixture.repository.requests[1].audioStreamIndex)
+            val content = assertIs<PlayerUiState.Content>(fixture.viewModel.state.value)
+            assertEquals(PlayerPlaybackChangeOperation.Audio, content.playbackChangeNotice?.operation)
+            assertEquals(before, store.values)
+            assertEquals(prepared, fixture.controller.preparedPlan)
+            assertEquals(1, fixture.controller.prepareCount)
+            assertEquals(PlaybackStatus.Playing, fixture.viewModel.playbackState.value.status)
+            fixture.viewModel.dispose()
+        }
+
     @Test
     fun unavailableInitialAudioRecoversOnceWithDirectPlayDisabled() =
         runPlayerViewModelTest {
@@ -285,36 +345,51 @@ class PlayerViewModelTrackSelectionTest {
     @Test
     fun newerDirectSubtitleChoiceCancelsPendingFrenchReplan() =
         runPlayerViewModelTest {
-            try {
-                val streams = englishTextAndFrenchPgsPlaybackStreams()
-                val fixture =
-                    playerFixture(
-                        playbackInfoResults =
-                            ArrayDeque(
-                                listOf(
-                                    Result.success(playbackInfoWithStreams(streams)),
-                                    Result.success(subtitleTranscodePlaybackInfoWithStreams(streams)),
-                                ),
+            val streams = englishTextAndFrenchPgsPlaybackStreams().map { if (it.index == 4) it.copy(deliveryMethod = "Embed") else it }
+            val fixture =
+                playerFixture(
+                    playbackInfoResults =
+                        ArrayDeque(
+                            listOf(
+                                Result.success(transcodePlaybackInfoWithStreams(streams)),
+                                Result.success(subtitleTranscodePlaybackInfoWithStreams(streams)),
                             ),
-                        mediaStreams = streams,
-                        initialSubtitleStreamIndex = 4,
-                    )
+                        ),
+                    mediaStreams = streams,
+                    initialSubtitleStreamIndex = 4,
+                )
+            try {
                 runCurrent()
 
+                fixture.controller.transcodeSeekRestartsStream = true
+                fixture.controller.playbackStateFlow.value = playbackState(PlaybackStatus.Playing, positionMs = 5_000L)
+                runCurrent()
+                fixture.repository.ordinaryPlanGate = CompletableDeferred()
+                fixture.viewModel.accept(PlayerIntent.SeekTo(40_000L))
+                runCurrent()
                 fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = 5))
+                val playCountBeforeRestoration = fixture.controller.playCount
                 fixture.viewModel.accept(PlayerIntent.SelectSubtitle(streamIndex = null))
                 runCurrent()
 
+                assertEquals(playCountBeforeRestoration + 1, fixture.controller.playCount)
+                fixture.controller.playbackStateFlow.value =
+                    fixture.controller.playbackStateFlow.value
+                        .copy(status = PlaybackStatus.Playing)
+                runCurrent()
+
                 val content = fixture.viewModel.state.value as PlayerUiState.Content
+                assertNull(content.pendingSeekPlayWhenReady)
+                assertEquals(PlaybackStatus.Playing, content.playbackState.status)
                 assertEquals(SubtitleRenderStatus.Off, content.subtitleRenderInfo.status)
                 assertEquals(null, content.selectedSubtitleStreamIndex)
                 assertEquals(null, fixture.controller.embeddedTextOrdinals.last())
                 assertEquals(1, fixture.controller.prepareCount)
-                assertEquals(1, fixture.repository.requests.size)
-
-                fixture.viewModel.dispose()
-                runCurrent()
+                assertEquals(2, fixture.repository.requests.size)
             } finally {
+                fixture.viewModel.dispose()
+                fixture.viewModel.viewModelScope.cancel()
+                runCurrent()
             }
         }
 

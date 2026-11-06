@@ -66,10 +66,14 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   `MPV_ERROR_LOADING_FAILED (-13)` → Network (feeds the shared one-shot retry),
   `NOTHING_TO_PLAY (-16)`/`UNKNOWN_FORMAT (-17)`/ `UNSUPPORTED (-18)` →
   UnsupportedMedia — then the keyword classifier over `mpv_error_string`. This
-  is what engages the shared recovery ladder and network retry on desktop.
-  The Metal experiment instead projects terminal `Unknown` errors without
-  that recovery, including failure to identify the replacement playlist entry
-  after an accepted load. Its startup error path does not require `FILE_LOADED`.
+  engages the shared recovery ladder and network retry on desktop. Typed terminal
+  recovery remains eligible independently of health guidance; desktop uses the
+  common Actionable health policy with installed evidence and quality gates. Android's
+  alternate-backend replacement branch applies only to Android.
+  The Metal experiment instead projects `Unknown` errors, including failure to
+  identify the replacement playlist entry after an accepted load. Admitted online
+  failures still enter the shared recovery policy; this does not select another
+  native presentation path. Its startup error path does not require `FILE_LOADED`.
 - Buffering derivation includes `core-idle` (gated on loaded/not-paused/not-
   completed) alongside `paused-for-cache` and `seeking`.
 - `track-auto-selection=no` is a required init option: mpv never auto-picks
@@ -202,15 +206,15 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 - Desktop player hosts and native video surfaces start black. For a non-zero
   LibVLC start, the controller supplies a per-media `:start-time` input option
   before playback and retains its bounded post-start seek as a compatibility
-  fallback. The native view stays transparent, playback status stays
-  `Buffering`, and native audio stays suppressed until the clock is near the
-  requested position and at least two pictures beyond the post-seek baseline
-  have been displayed. One picture is not sufficient because cold decoder
-  startup can leave that opening picture frozen while the audio clock advances.
-  The shared buffering indicator therefore covers decoder startup or fallback-seek work
-  instead of exposing a stale opening frame while audio advances. Once ready,
-  the surface becomes visible and the controller restores the user's actual
-  mute state.
+  fallback. The native view stays transparent and audio stays suppressed until
+  the requested position arrives and two pictures beyond the startup baseline
+  have displayed. When picture statistics are unavailable or stall, twenty
+  seconds of native Playing permits surface/audio admission only after target
+  arrival and a fresh forward clock sample. This transport fallback does not
+  publish first-frame evidence. A target never reached fails with the requested
+  position retained for recovery; genuine buffering remains buffering. A new
+  seek before admission resets the target and its evidence. Admission restores
+  the user's mute state, and later real picture evidence may confirm output.
 - The shared controls render only in the full-player parent Compose scene above
   either native surface; there is no desktop controls window or synchronization
   lifecycle. Very-high-resolution desktop playback limits are backend-specific:
@@ -358,7 +362,10 @@ does not establish real playback behavior.
 - **Timing and subtitle placement remain backend-owned.** Desktop mpv maps the
   shared offset contract to native delay properties and applies its transient
   subtitle margin from chrome state. Desktop LibVLC keeps native placement and
-  no timing support until equivalent evidence exists.
+  no timing support until adapter integration and acceptance are implemented.
+  LibVLC exposes delay APIs; the current JNA bridge does not bind them. This is
+  an open integration gap, not an absent native feature. A queued command must
+  not claim an applied value before the native result is qualified.
 
 - **Completion is generation-qualified.** Desktop mpv's sticky EOF and Android
   LibVLC's trailing `Stopped` event can otherwise complete the wrong media or

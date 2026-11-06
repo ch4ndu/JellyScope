@@ -464,7 +464,7 @@ class MpvPlayerControllerHardeningTest {
     }
 
     @Test
-    fun retryRejectsStaleSubtitleSelectionAndRestoresPlanTarget() {
+    fun retryRetainsNewlyAdmittedSubtitleTarget() {
         val plannedTarget = embeddedSubtitleTarget(requestId = 21L)
         val staleSelection = embeddedSubtitleSelection(embeddedSubtitleTarget(requestId = 22L))
         val lib = HardeningLibMpv(tracks = listOf(videoTrack, subtitleTrack))
@@ -476,9 +476,9 @@ class MpvPlayerControllerHardeningTest {
             controller.retry()
             finishLoad(controller, lib)
 
-            assertFalse(lib.propertyWrites.contains("property:sid:${subtitleTrack.id}"))
+            assertTrue(lib.propertyWrites.contains("property:sid:${subtitleTrack.id}"))
             assertEquals(
-                SubtitleActivationState.Pending(plannedTarget),
+                SubtitleActivationState.Pending(staleSelection.target),
                 controller.playbackState.value.subtitleActivation,
             )
         }
@@ -500,6 +500,12 @@ class MpvPlayerControllerHardeningTest {
                 SubtitleActivationState.Pending(plannedTarget),
                 controller.playbackState.value.subtitleActivation,
             )
+            controller.selectEmbeddedSubtitle(null)
+            lib.propertyWrites.clear()
+            controller.retry()
+            finishLoad(controller, lib)
+            assertTrue(lib.propertyWrites.contains("property:sid:no"))
+            assertEquals(SubtitleActivationState.None, controller.playbackState.value.subtitleActivation)
         }
     }
 

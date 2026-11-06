@@ -359,7 +359,7 @@ private fun PlayerControlStripHost(
         )
     PlayerControlStrip(
         content = content,
-        playing = playing,
+        playing = content.pendingSeekPlayWhenReady ?: playing,
         controlsScrollState = controlsScrollState,
         onPlay = onPlay,
         onPause = onPause,

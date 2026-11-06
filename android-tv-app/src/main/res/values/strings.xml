@@ -402,6 +402,9 @@
     <string name="tv_player_backend_current">Current backend</string>
     <string name="tv_player_change_quality_rejected">Couldn\'t change quality. %1$s Current playback was kept.</string>
     <string name="tv_player_change_backend_rejected">Couldn\'t change player. %1$s Current playback was kept.</string>
+    <string name="tv_player_change_audio_rejected">Couldn\'t change audio. %1$s Current playback was kept.</string>
+    <string name="tv_player_change_subtitle_rejected">Couldn\'t change subtitles. %1$s Current playback was kept.</string>
+    <string name="tv_player_change_seek_rejected">Couldn\'t seek. %1$s Current playback was kept.</string>
     <string name="tv_player_change_reason_network">The server couldn\'t be reached.</string>
     <string name="tv_player_change_reason_unsupported">The requested option isn\'t supported for this item.</string>
     <string name="tv_player_change_reason_unknown">The requested option couldn\'t be prepared.</string>

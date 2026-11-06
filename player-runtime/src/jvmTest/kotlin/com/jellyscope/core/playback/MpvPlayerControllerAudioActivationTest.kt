@@ -36,6 +36,12 @@ class MpvPlayerControllerAudioActivationTest {
             controller.play()
 
             assertEquals(0, lib.unpauseCount.get())
+            waitUntil(timeoutSeconds = 5L) {
+                controller.playbackState.value.audioActivation is AudioActivationState.Unavailable
+            }
+            controller.play()
+            assertEquals(0, lib.unpauseCount.get())
+            controller.selectEmbeddedAudio(audioSelection)
             lib.audioTrackAvailable.set(true)
             waitUntil { controller.playbackState.value.audioActivation == AudioActivationState.Active(audioTarget) }
             waitUntil { controller.playbackState.value.status == PlaybackStatus.Playing }
@@ -124,15 +130,18 @@ private class StatefulAudioLibMpv : LibMpv {
             "time-pos" -> data.setDouble(0L, 0.0)
             "duration" -> data.setDouble(0L, 60.0)
             "demuxer-cache-time" -> data.setDouble(0L, 5.0)
-            "track-list/count" -> data.setLong(0L, if (audioTrackAvailable.get()) 1L else 0L)
-            "track-list/0/id" -> data.setLong(0L, AUDIO_SELECTOR_ID)
-            "track-list/0/ff-index" -> data.setLong(0L, audioTarget.streamIndex.toLong())
+            "track-list/count" -> data.setLong(0L, if (audioTrackAvailable.get()) 2L else 1L)
+            "track-list/0/id" -> data.setLong(0L, 1L)
+            "track-list/0/ff-index" -> data.setLong(0L, 0L)
+            "track-list/1/id" -> data.setLong(0L, AUDIO_SELECTOR_ID)
+            "track-list/1/ff-index" -> data.setLong(0L, audioTarget.streamIndex.toLong())
             "aid" -> data.setLong(0L, selectedAudioId.get())
             "pause" -> {
                 pauseReadCount.incrementAndGet()
                 data.setInt(0L, if (paused.get()) 1 else 0)
             }
             "track-list/0/external",
+            "track-list/1/external",
             "paused-for-cache",
             "seeking",
             "eof-reached",
@@ -149,10 +158,12 @@ private class StatefulAudioLibMpv : LibMpv {
     ): Pointer? {
         val value =
             when (name) {
-                "track-list/0/type" -> MPV_TRACK_TYPE_AUDIO
-                "track-list/0/codec" -> "aac"
-                "track-list/0/lang" -> "eng"
-                "track-list/0/title" -> "English"
+                "track-list/0/type" -> "video"
+                "track-list/0/codec" -> "h264"
+                "track-list/1/type" -> MPV_TRACK_TYPE_AUDIO
+                "track-list/1/codec" -> "aac"
+                "track-list/1/lang" -> "eng"
+                "track-list/1/title" -> "English"
                 else -> return null
             }
         return Memory((value.encodeToByteArray().size + 1).toLong()).also { memory ->
@@ -253,8 +264,11 @@ private val audioSession =
         deviceId = "device-1",
     )
 
-private fun waitUntil(condition: () -> Boolean) {
-    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3L)
+private fun waitUntil(
+    timeoutSeconds: Long = 3L,
+    condition: () -> Boolean,
+) {
+    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds)
     while (!condition()) {
         check(System.nanoTime() < deadline) { "Timed out waiting for mpv controller state" }
         Thread.sleep(20L)

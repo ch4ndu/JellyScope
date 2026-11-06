@@ -245,7 +245,7 @@ class DesktopLibVlcPlayerControllerTest {
         }
 
     @Test
-    fun retryDoesNotReapplyConfirmedSubtitleSelectionWhenItsTargetDiffersFromThePlan() =
+    fun retryReappliesConfirmedSubtitleSelectionAfterAnAdmittedTargetChange() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -316,7 +316,8 @@ class DesktopLibVlcPlayerControllerTest {
                 testScheduler.advanceTimeBy(251L)
                 runCurrent()
 
-                assertEquals(listOf<Int?>(4), engine.selectedSubtitleTrackIds)
+                assertEquals(listOf<Int?>(4, 4), engine.selectedSubtitleTrackIds)
+                assertEquals(SubtitleActivationState.Active(selectedTarget), controller.playbackState.value.subtitleActivation)
             } finally {
                 controller.release()
                 runCurrent()
@@ -567,6 +568,7 @@ class DesktopLibVlcPlayerControllerTest {
                             seekable = true,
                             displayedPictures = 100L,
                             lostPictures = 3L,
+                            nativeState = DesktopVlcNativeState.Playing,
                             width = 7_680,
                             height = 4_320,
                             frameRate = 60.0,
@@ -1025,25 +1027,36 @@ class DesktopLibVlcPlayerControllerTest {
                 runCurrent()
 
                 assertEquals(PlaybackStatus.Buffering, controller.playbackState.value.status)
-                assertFalse(controller.videoPresentationReady.value)
+                assertFalse(controller.videoSurfaceVisible.value)
                 assertEquals(true, engine.muteCalls.last())
 
                 testScheduler.advanceTimeBy(251L)
                 runCurrent()
 
                 assertEquals(PlaybackStatus.Buffering, controller.playbackState.value.status)
-                assertFalse(controller.videoPresentationReady.value)
+                assertFalse(controller.videoSurfaceVisible.value)
                 assertEquals(true, engine.muteCalls.last())
+
+                controller.seekTo(20_000L)
+                runCurrent()
+                engine.snapshot = engine.snapshot.copy(displayedPictures = 10L)
+                testScheduler.advanceTimeBy(251L)
+                runCurrent()
+                assertFalse(controller.videoSurfaceVisible.value)
+                engine.snapshot = engine.snapshot.copy(positionMs = 20_000L, displayedPictures = 10L)
+                testScheduler.advanceTimeBy(251L)
+                runCurrent()
+                assertFalse(controller.videoSurfaceVisible.value)
 
                 // The first sample establishes the post-seek baseline; two
                 // subsequently displayed frames make the presentation fact
                 // trustworthy enough to unsuppress the resumed session.
-                engine.snapshot = engine.snapshot.copy(displayedPictures = 3L)
+                engine.snapshot = engine.snapshot.copy(displayedPictures = 12L)
                 testScheduler.advanceTimeBy(251L)
                 runCurrent()
 
                 assertEquals(PlaybackStatus.Playing, controller.playbackState.value.status)
-                assertTrue(controller.videoPresentationReady.value)
+                assertTrue(controller.videoSurfaceVisible.value)
                 assertEquals(false, engine.muteCalls.last())
             } finally {
                 controller.release()
@@ -1078,7 +1091,9 @@ class DesktopLibVlcPlayerControllerTest {
                     stateScope = scope,
                     engine = engine,
                     nativeDispatcher = dispatcher,
+                    monotonicTimeNanos = { testScheduler.currentTime * 1_000_000L },
                 )
+            val firstOutput = scope.async { controller.videoOutputObservations.first() }
             try {
                 controller.prepare(playbackPlan(), null)
                 controller.play()
@@ -1088,7 +1103,20 @@ class DesktopLibVlcPlayerControllerTest {
                 testScheduler.advanceTimeBy(251L)
                 runCurrent()
 
-                assertFalse(controller.videoPresentationReady.value)
+                engine.snapshot = engine.snapshot.copy(positionMs = 1_250L)
+                testScheduler.advanceTimeBy(251L)
+                runCurrent()
+                testScheduler.advanceTimeBy(20_000L)
+                runCurrent()
+                assertFalse(controller.videoSurfaceVisible.value)
+                assertEquals(true, engine.muteCalls.last())
+                engine.snapshot = engine.snapshot.copy(positionMs = 1_500L)
+                testScheduler.advanceTimeBy(251L)
+                runCurrent()
+                assertTrue(controller.videoSurfaceVisible.value)
+                assertEquals(false, engine.muteCalls.last())
+                assertEquals(PlaybackStatus.Playing, controller.playbackState.value.status)
+                assertFalse(firstOutput.isCompleted)
                 assertFalse(controller.playbackHealthMeasurementCapabilities.hasReliableFirstVideoOutput)
                 assertEquals(VideoOutputMeasurementCapabilities.Unsupported, controller.videoOutputMeasurementCapabilities)
             } finally {
@@ -1423,6 +1451,7 @@ class DesktopLibVlcPlayerControllerTest {
                             seekable = true,
                             displayedPictures = 600L,
                             lostPictures = 0L,
+                            nativeState = DesktopVlcNativeState.Playing,
                             width = 7_680,
                             height = 4_320,
                             frameRate = 60.0,
