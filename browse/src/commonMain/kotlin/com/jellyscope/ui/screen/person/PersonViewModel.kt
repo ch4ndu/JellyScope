@@ -17,6 +17,7 @@ import com.jellyscope.ui.paging.Paginator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,7 +53,7 @@ class PersonViewModel(
     }
 
     private fun retry() {
-        paginator.first()
+        if (_state.value is PersonUiState.Content) loadMore() else paginator.first()
     }
 
     private fun loadMore() {
@@ -73,86 +74,68 @@ class PersonViewModel(
     }
 
     private suspend fun loadPageLocked(reset: Boolean) {
-        val currentContent = _state.value as? PersonUiState.Content
-        val startIndex =
-            if (reset) {
-                0
-            } else {
-                currentContent?.itemCount ?: 0
-            }
+        var currentContent = if (reset) null else _state.value as? PersonUiState.Content
+        var startIndex = currentContent?.consumedOffset ?: 0
+        var emptyPages = 0
         reduce(PersonChange.LoadStarted(reset))
-
         val header =
-            try {
-                if (reset) {
-                    getPersonUseCase
-                        ?.invoke(personId)
-                        ?.getOrElse {
-                            reduce(PersonChange.LoadFailed(reset = true))
-                            return
-                        }?.toUi()
-                } else {
-                    currentContent?.header
-                }
-            } catch (exception: CancellationException) {
-                throw exception
+            if (reset) {
+                getPersonUseCase
+                    ?.invoke(personId)
+                    ?.getOrElse {
+                        if (it is CancellationException) throw it
+                        reduce(PersonChange.LoadFailed(reset = true))
+                        return
+                    }?.toUi()
+            } else {
+                currentContent?.header
             }
-
-        val result =
-            try {
-                getPersonItemsPageUseCase
-                    ?.invoke(
-                        personId = personId,
-                        startIndex = startIndex,
-                        limit = DEFAULT_DISCOVERY_PAGE_SIZE,
-                    )
+        while (true) {
+            val result =
+                getPersonItemsPageUseCase?.invoke(personId, startIndex, DEFAULT_DISCOVERY_PAGE_SIZE)
                     ?: getPersonItemsUseCase(personId)
-            } catch (exception: CancellationException) {
-                throw exception
+            kotlin.coroutines.coroutineContext.ensureActive()
+            val page =
+                result.getOrElse {
+                    if (it is CancellationException) throw it
+                    reduce(PersonChange.LoadFailed(reset = currentContent == null))
+                    return
+                }
+            val nextOffset = page.startIndex + page.receivedCount
+            if (page.startIndex != startIndex ||
+                page.receivedCount < 0 ||
+                nextOffset < startIndex ||
+                (page.receivedCount > 0 && nextOffset == startIndex)
+            ) {
+                reduce(PersonChange.LoadFailed(reset = currentContent == null))
+                return
             }
-
-        // Map DTOs -> cards once, outside update{}: the CAS lambda can re-run
-        // under contention, so it must stay cheap and side-effect free (A2).
-        result.fold(
-            onSuccess = { filmography ->
-                val pageMovies = filmography.movies.map { item -> item.toMediaCardUi(session, imageUrlBuilder) }
-                val pageSeries = filmography.series.map { item -> item.toMediaCardUi(session, imageUrlBuilder) }
-                val movies =
-                    if (reset) {
-                        pageMovies
-                    } else {
-                        currentContent?.movies.orEmpty() + pageMovies
-                    }
-                val series =
-                    if (reset) {
-                        pageSeries
-                    } else {
-                        currentContent?.series.orEmpty() + pageSeries
-                    }
-
-                reduce(
-                    PersonChange.Loaded(
-                        PersonUiState.Content(
-                            movies = movies,
-                            series = series,
-                            header = header ?: currentContent?.header,
-                            totalCount = filmography.totalCount,
-                            startIndex = filmography.startIndex,
-                            hasMore = movies.size + series.size < filmography.totalCount,
-                            isLoadingMore = false,
-                            error = false,
-                        ),
-                    ),
+            val ids = (currentContent?.movies.orEmpty() + currentContent?.series.orEmpty()).mapTo(mutableSetOf()) { it.id }
+            val newMovies = page.movies.filter { ids.add(it.id) }.map { it.toMediaCardUi(session, imageUrlBuilder) }
+            val newSeries = page.series.filter { ids.add(it.id) }.map { it.toMediaCardUi(session, imageUrlBuilder) }
+            val hasMore = page.receivedCount > 0 && nextOffset < page.totalCount
+            val continueLoading = hasMore && newMovies.isEmpty() && newSeries.isEmpty()
+            val content =
+                PersonUiState.Content(
+                    movies = currentContent?.movies.orEmpty() + newMovies,
+                    series = currentContent?.series.orEmpty() + newSeries,
+                    header = header,
+                    totalCount = page.totalCount,
+                    startIndex = page.startIndex,
+                    consumedOffset = nextOffset,
+                    hasMore = hasMore,
+                    isLoadingMore = continueLoading,
                 )
-            },
-            onFailure = {
-                reduce(PersonChange.LoadFailed(reset))
-            },
-        )
+            reduce(PersonChange.Loaded(content))
+            currentContent = content
+            if (!continueLoading) return
+            if (++emptyPages >= 3) {
+                reduce(PersonChange.LoadFailed(reset = false))
+                return
+            }
+            startIndex = nextOffset
+        }
     }
-
-    private val PersonUiState.Content.itemCount: Int
-        get() = movies.size + series.size
 
     private fun PersonHeader.toUi(): PersonHeaderUi =
         PersonHeaderUi(

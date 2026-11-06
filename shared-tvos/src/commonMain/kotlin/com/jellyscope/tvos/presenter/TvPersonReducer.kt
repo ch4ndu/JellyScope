@@ -2,8 +2,6 @@
 
 package com.jellyscope.tvos.presenter
 
-import com.jellyscope.core.domain.model.DEFAULT_DISCOVERY_PAGE_SIZE
-
 internal sealed interface TvPersonChange {
     data object AppendStarted : TvPersonChange
 
@@ -40,7 +38,11 @@ internal fun reduceTvPerson(
     when (change) {
         TvPersonChange.AppendStarted ->
             run {
-                current.copy(isLoadingMore = true, error = null)
+                current.copy(
+                    isLoading = current.movies.isEmpty() && current.shows.isEmpty(),
+                    isLoadingMore = current.movies.isNotEmpty() || current.shows.isNotEmpty(),
+                    error = null,
+                )
             }
         TvPersonChange.HeaderStarted ->
             run {
@@ -71,13 +73,13 @@ internal fun reduceTvPerson(
             with(change) {
                 if (generation == pageGeneration) {
                     current.copy(
-                        isLoading = false,
-                        isLoadingMore = continuePaging,
+                        isLoading = continuePaging && page.movies.isEmpty() && page.shows.isEmpty(),
+                        isLoadingMore = continuePaging && (page.movies.isNotEmpty() || page.shows.isNotEmpty()),
                         movies = page.movies,
                         shows = page.shows,
                         totalCount = page.totalCount,
                         consumedOffset = startIndex + page.rawCount,
-                        endReached = page.rawCount < DEFAULT_DISCOVERY_PAGE_SIZE,
+                        endReached = page.rawCount == 0 || startIndex + page.rawCount >= page.totalCount,
                         error = null,
                     )
                 } else {

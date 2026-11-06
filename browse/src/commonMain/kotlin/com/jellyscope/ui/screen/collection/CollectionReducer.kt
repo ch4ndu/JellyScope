@@ -16,6 +16,9 @@ internal sealed interface CollectionChange {
         val items: List<MediaCardUi>,
         val totalCount: Int,
         val startIndex: Int,
+        val receivedCount: Int,
+        val hasMore: Boolean,
+        val continueLoading: Boolean,
     ) : CollectionChange
 
     data object LoadFailed : CollectionChange
@@ -27,16 +30,22 @@ internal fun reduceCollection(
 ): CollectionUiState =
     when (change) {
         CollectionChange.RetryPage -> current.copy(error = false)
-        is CollectionChange.LoadStarted -> current.copy(isLoading = change.reset, isLoadingMore = !change.reset, error = false)
+        is CollectionChange.LoadStarted ->
+            current.copy(
+                isLoading = change.reset || current.items.isEmpty(),
+                isLoadingMore = !change.reset && current.items.isNotEmpty(),
+                error = false,
+            )
         is CollectionChange.PageLoaded -> {
-            val items = if (change.reset) change.items else current.items + change.items
+            val items = (if (change.reset) change.items else current.items + change.items).distinctBy { it.id }
             current.copy(
                 items = items,
                 totalCount = change.totalCount,
                 startIndex = change.startIndex,
-                hasMore = items.size < change.totalCount,
-                isLoading = false,
-                isLoadingMore = false,
+                consumedOffset = change.startIndex + change.receivedCount,
+                hasMore = change.hasMore,
+                isLoading = change.continueLoading && items.isEmpty(),
+                isLoadingMore = change.continueLoading && items.isNotEmpty(),
                 error = false,
             )
         }

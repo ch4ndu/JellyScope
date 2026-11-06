@@ -66,11 +66,12 @@ def run(*arguments, cwd=None):
     return result.stdout.strip()
 
 
-def local_path(value, local_root):
+def local_path(value, local_root, shared_root=None):
     path = Path(os.path.abspath(Path(value).expanduser()))
     resolved = path.resolve()
-    if resolved == local_root or local_root not in resolved.parents:
-        raise ValueError("All experiment paths must be inside this worktree's .local directory")
+    roots = (local_root,) if shared_root is None else (local_root, shared_root)
+    if not any(root in resolved.parents for root in roots):
+        raise ValueError("Experiment output must be task-local; inputs may also use the shared data directory")
     if path != resolved:
         raise ValueError("Experiment paths must not traverse symlinks")
     return path
@@ -194,7 +195,7 @@ def validate_candidate(directory, lipo, otool):
             "dependencies": entries, "signature_verified": True, "native_video_exercised": False}
 
 
-def prepare_context(repo, work, baseline, caches, local_root, offline):
+def prepare_context(repo, work, baseline, caches, local_root, shared_root, offline):
     """Rebuild one object using pinned headers and the existing macOS pthread ABI."""
     notices = repo / "scripts/desktop-mpv-bundle"
     with (notices / "sources-macos-arm64.tsv").open() as source:
@@ -204,7 +205,7 @@ def prepare_context(repo, work, baseline, caches, local_root, offline):
     for name in ("mpv", "vulkan-headers"):
         pin = pins[name]
         target = work / "inputs" / pin["archive"]
-        cached = [local_path(str(cache / pin["archive"]), local_root) for cache in caches]
+        cached = [local_path(str(cache / pin["archive"]), local_root, shared_root) for cache in caches]
         acquire(pin["url"], target, cached, offline)
         destination = work / "sources" / name
         destination.mkdir(parents=True)
@@ -286,23 +287,29 @@ def prepare_context(repo, work, baseline, caches, local_root, offline):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--destination", required=True, help="New/recipe-owned candidate directory under this worktree's .local")
-    parser.add_argument("--archives-dir", action="append", default=[], help="Task-local cached release archives; may be repeated")
-    parser.add_argument("--source-archive", help="Task-local cached MPVKit source zip at the pinned revision")
+    parser.add_argument("--archives-dir", action="append", default=[], help="Task-local or shared cached release archives; may be repeated")
+    parser.add_argument("--source-archive", help="Task-local or shared MPVKit source zip at the pinned revision")
     parser.add_argument("--offline", action="store_true", help="Fail if any input is absent; never download")
     parser.add_argument("--desktop-runtime",
-                        help="Validated source-built desktop runtime under .local; provides dav1d and mpv ABI config "
-                             "(default: this checkout's .local/native/desktop-mpv/runtime)")
+                        help="Validated source-built desktop runtime; provides dav1d and mpv ABI config "
+                             "(default: the configured shared Standard runtime cache)")
     args = parser.parse_args()
     if sys.platform != "darwin" or platform.machine() != "arm64":
         raise ValueError("This experiment recipe requires macOS arm64")
     repo = Path(__file__).resolve().parent.parent
     local_root = repo / ".local"
+    shared_root = Path(os.environ.get("JELLYSCOPE_DATA_ROOT", str(Path.home() / "Private/JellyScopeData")))
     if local_root.is_symlink():
         raise ValueError("The worktree .local directory must not be a symlink")
     destination = local_path(args.destination, local_root)
-    caches = [local_path(value, local_root) for value in args.archives_dir]
-    source_archive = local_path(args.source_archive, local_root) if args.source_archive else None
-    baseline = local_path(args.desktop_runtime or str(local_root / "native/desktop-mpv/runtime"), local_root)
+    caches = [local_path(value, local_root, shared_root) for value in args.archives_dir]
+    source_archive = local_path(args.source_archive, local_root, shared_root) if args.source_archive else None
+    runtime_cache = Path(os.environ.get("JELLYSCOPE_MPV_RUNTIME_CACHE_ROOT", str(shared_root / "caches/desktop-mpv")))
+    baseline = local_path(
+        args.desktop_runtime or str(runtime_cache / "runtime"),
+        local_root,
+        shared_root,
+    )
     run("bash", str(repo / "scripts/prepare-desktop-mpv-bundle.sh"), "--validate-only", str(baseline))
     options = json.loads((baseline / "mpv-notices/build/dav1d-options.json").read_text())
     if not any(option["name"] == "enable_asm" and option["value"] is True for option in options):
@@ -338,11 +345,11 @@ def main():
         for component in COMPONENTS:
             name = component["name"]
             filename = f"{name}.xcframework.zip"
-            cached = [local_path(str(cache / filename), local_root) for cache in caches]
+            cached = [local_path(str(cache / filename), local_root, shared_root) for cache in caches]
             target = work / "inputs" / filename
             acquire(component["url"], target, cached, args.offline)
             archives[name] = extract_arm64(target, name, work, tools["lipo"])
-        prepare_context(repo, work, baseline, caches, local_root, args.offline)
+        prepare_context(repo, work, baseline, caches, local_root, shared_root, args.offline)
         # The optimized decoder takes the omitted Libdav1d archive's link position.
         archives["Libdav1d"] = "libdav1d.7.dylib"
         command = [tools["clang++"], "-dynamiclib", "-arch", "arm64", "-isysroot", sdk,

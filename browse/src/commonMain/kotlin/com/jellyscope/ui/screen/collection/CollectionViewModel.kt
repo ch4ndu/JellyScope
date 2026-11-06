@@ -13,6 +13,7 @@ import com.jellyscope.ui.paging.Paginator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,7 +47,7 @@ class CollectionViewModel(
 
     private fun retry() {
         val current = _state.value
-        if (current.error && current.items.isNotEmpty()) {
+        if (current.error) {
             reduce(CollectionChange.RetryPage)
             paginator.more()
             return
@@ -63,35 +64,55 @@ class CollectionViewModel(
     }
 
     private suspend fun loadPageLocked(reset: Boolean) {
-        val startIndex =
-            if (reset) {
-                0
-            } else {
-                _state.value.items.size
-            }
+        var startIndex = if (reset) 0 else _state.value.consumedOffset
+        var replace = reset
+        var emptyPages = 0
         reduce(CollectionChange.LoadStarted(reset))
-
-        val result =
-            try {
+        while (true) {
+            val result =
                 getCollectionItemsUseCase(
                     collectionId = collectionId,
                     startIndex = startIndex,
                     limit = DEFAULT_DISCOVERY_PAGE_SIZE,
                 )
-            } catch (exception: CancellationException) {
-                throw exception
-            }
-
-        // Map DTOs -> cards once, outside update{}: the CAS lambda can re-run
-        // under contention, so it must stay cheap and side-effect free (A2).
-        result.fold(
-            onSuccess = { page ->
-                val pageItems = page.items.map { item -> item.toMediaCardUi(session, imageUrlBuilder) }
-                reduce(CollectionChange.PageLoaded(reset, pageItems, page.totalCount, page.startIndex))
-            },
-            onFailure = {
+            kotlin.coroutines.coroutineContext.ensureActive()
+            val page =
+                result.getOrElse {
+                    if (it is CancellationException) throw it
+                    reduce(CollectionChange.LoadFailed)
+                    return
+                }
+            val nextOffset = page.startIndex + page.receivedCount
+            if (page.startIndex != startIndex ||
+                page.receivedCount < 0 ||
+                nextOffset < startIndex ||
+                (page.receivedCount > 0 && nextOffset == startIndex)
+            ) {
                 reduce(CollectionChange.LoadFailed)
-            },
-        )
+                return
+            }
+            val pageItems = page.items.map { it.toMediaCardUi(session, imageUrlBuilder) }
+            val existingIds = if (replace) emptySet() else _state.value.items.mapTo(mutableSetOf()) { it.id }
+            val hasMore = page.receivedCount > 0 && nextOffset < page.totalCount
+            val continueLoading = hasMore && pageItems.none { it.id !in existingIds }
+            reduce(
+                CollectionChange.PageLoaded(
+                    reset = replace,
+                    items = pageItems,
+                    totalCount = page.totalCount,
+                    startIndex = page.startIndex,
+                    receivedCount = page.receivedCount,
+                    hasMore = hasMore,
+                    continueLoading = continueLoading,
+                ),
+            )
+            if (!continueLoading) return
+            if (++emptyPages >= 3) {
+                reduce(CollectionChange.LoadFailed)
+                return
+            }
+            startIndex = nextOffset
+            replace = false
+        }
     }
 }

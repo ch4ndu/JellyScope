@@ -13,6 +13,7 @@ import com.jellyscope.tvos.bridge.WatchHandle
 import com.jellyscope.tvos.bridge.watchIn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,7 +66,7 @@ class TvPersonPresenter(
 
     private fun retry() {
         val failedOffset = failedAppendOffset
-        if (failedOffset != null && (state.value.movies.isNotEmpty() || state.value.shows.isNotEmpty())) {
+        if (failedOffset != null) {
             reduce(TvPersonChange.AppendStarted)
             fetchPage(failedOffset, append = true)
         } else {
@@ -132,39 +133,60 @@ class TvPersonPresenter(
     ) {
         pageJob?.cancel()
         val generation = ++pageGeneration
-        val existingMovies = if (append) state.value.movies else emptyList()
-        val existingShows = if (append) state.value.shows else emptyList()
         pageJob =
             scope.launch {
-                val result =
-                    withContext(workDispatcher) {
-                        try {
-                            getPersonItemsPage(
-                                personId = personId,
-                                startIndex = startIndex,
-                                limit = DEFAULT_DISCOVERY_PAGE_SIZE,
-                            ).map { page -> page.toProjection(existingMovies, existingShows, append) }
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (error: Throwable) {
-                            Result.failure(error)
+                var offset = startIndex
+                var appendPage = append
+                var emptyPages = 0
+                while (true) {
+                    val existingMovies = if (appendPage) state.value.movies else emptyList()
+                    val existingShows = if (appendPage) state.value.shows else emptyList()
+                    val result =
+                        withContext(workDispatcher) {
+                            try {
+                                getPersonItemsPage(
+                                    personId = personId,
+                                    startIndex = offset,
+                                    limit = DEFAULT_DISCOVERY_PAGE_SIZE,
+                                ).map { page -> page.toProjection(existingMovies, existingShows, appendPage) }
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: Throwable) {
+                                Result.failure(error)
+                            }
                         }
-                    }
-                if (generation != pageGeneration) return@launch
-                result
-                    .onSuccess { page ->
-                        val continuePaging = append && page.addedCount == 0 && page.rawCount == DEFAULT_DISCOVERY_PAGE_SIZE
-                        failedAppendOffset = null
-                        reduce(TvPersonChange.Loaded(generation, page, continuePaging, startIndex))
-                        if (continuePaging && generation == pageGeneration) {
-                            pageJob = null
-                            fetchPage(startIndex + page.rawCount, append = true)
+                    coroutineContext.ensureActive()
+                    if (generation != pageGeneration) return@launch
+                    val page =
+                        result.getOrElse { error ->
+                            if (error is CancellationException) throw error
+                            failedAppendOffset = offset
+                            reduce(TvPersonChange.Failed(generation, error.toTvErrorKind()))
+                            return@launch
                         }
-                    }.onFailure { error ->
-                        if (error is CancellationException) throw error
-                        failedAppendOffset = startIndex.takeIf { append }
-                        reduce(TvPersonChange.Failed(generation, error.toTvErrorKind()))
+                    val nextOffset = page.startIndex + page.rawCount
+                    if (page.startIndex != offset ||
+                        page.rawCount < 0 ||
+                        nextOffset < offset ||
+                        (page.rawCount > 0 && nextOffset == offset)
+                    ) {
+                        failedAppendOffset = offset
+                        reduce(TvPersonChange.Failed(generation, TvErrorKind.Unknown))
+                        return@launch
                     }
+                    val hasMore = page.rawCount > 0 && nextOffset < page.totalCount
+                    val continuePaging = hasMore && page.addedCount == 0
+                    failedAppendOffset = null
+                    reduce(TvPersonChange.Loaded(generation, page, continuePaging, page.startIndex))
+                    if (!continuePaging) return@launch
+                    if (++emptyPages >= 3) {
+                        failedAppendOffset = nextOffset
+                        reduce(TvPersonChange.Failed(generation, TvErrorKind.Unknown))
+                        return@launch
+                    }
+                    offset = nextOffset
+                    appendPage = true
+                }
             }
     }
 
@@ -189,14 +211,15 @@ class TvPersonPresenter(
         existingShows: List<TvMediaCard>,
         append: Boolean,
     ): TvPersonPageProjection {
-        val movieIds = if (append) existingMovies.mapTo(mutableSetOf()) { card -> card.id } else mutableSetOf()
-        val showIds = if (append) existingShows.mapTo(mutableSetOf()) { card -> card.id } else mutableSetOf()
-        val newMovies = movies.map { item -> item.toTvMediaCard(session, imageUrlBuilder) }.filter { card -> movieIds.add(card.id) }
-        val newShows = series.map { item -> item.toTvMediaCard(session, imageUrlBuilder) }.filter { card -> showIds.add(card.id) }
+        val ids = if (append) existingMovies.mapTo(mutableSetOf()) { card -> card.id } else mutableSetOf()
+        if (append) existingShows.mapTo(ids) { card -> card.id }
+        val newMovies = movies.map { item -> item.toTvMediaCard(session, imageUrlBuilder) }.filter { card -> ids.add(card.id) }
+        val newShows = series.map { item -> item.toTvMediaCard(session, imageUrlBuilder) }.filter { card -> ids.add(card.id) }
         return TvPersonPageProjection(
             movies = if (append) existingMovies + newMovies else newMovies,
             shows = if (append) existingShows + newShows else newShows,
-            rawCount = movies.size + series.size,
+            rawCount = receivedCount,
+            startIndex = startIndex,
             addedCount = newMovies.size + newShows.size,
             totalCount = totalCount,
         )
@@ -209,6 +232,7 @@ internal data class TvPersonPageProjection(
     val rawCount: Int,
     val addedCount: Int,
     val totalCount: Int,
+    val startIndex: Int = 0,
 )
 
 private const val LOAD_MORE_THRESHOLD = 12

@@ -32,6 +32,61 @@ import kotlin.test.assertIs
 
 class PersonViewModelTest {
     @Test
+    fun consumesRawEmptyPagesWithinCapAndRetriesWithoutLosingProgress() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            try {
+                val repository =
+                    PersonRepository(
+                        pages =
+                            mapOf(
+                                0 to PersonFilmography(totalCount = 10, startIndex = 0, receivedCount = 2),
+                                2 to PersonFilmography(totalCount = 10, startIndex = 2, receivedCount = 2),
+                                4 to PersonFilmography(totalCount = 10, startIndex = 4, receivedCount = 2),
+                                6 to
+                                    PersonFilmography(
+                                        movies = listOf(mediaItem("movie", MediaKind.Movie), mediaItem("movie", MediaKind.Movie)),
+                                        totalCount = 10,
+                                        startIndex = 6,
+                                        receivedCount = 3,
+                                    ),
+                                9 to PersonFilmography(totalCount = 10, startIndex = 9, receivedCount = 0),
+                            ),
+                    )
+                val viewModel = repository.personViewModel(dispatcher)
+                advanceUntilIdle()
+                val capped = assertIs<PersonUiState.Content>(viewModel.state.value)
+                assertEquals(listOf(0, 2, 4), repository.pageStartIndexes)
+                assertEquals(6, capped.consumedOffset)
+                assertEquals(emptyList(), capped.movies)
+                assertEquals(true, capped.error)
+                assertEquals("Actor", capped.header?.name)
+
+                viewModel.accept(PersonIntent.LoadMoreAutomatically)
+                advanceUntilIdle()
+                assertEquals(listOf(0, 2, 4), repository.pageStartIndexes)
+                viewModel.accept(PersonIntent.Retry)
+                advanceUntilIdle()
+                val recovered = assertIs<PersonUiState.Content>(viewModel.state.value)
+                assertEquals(listOf(0, 2, 4, 6), repository.pageStartIndexes)
+                assertEquals(listOf("movie"), recovered.movies.map { it.id })
+                assertEquals(9, recovered.consumedOffset)
+                assertEquals(false, recovered.error)
+                assertEquals(true, recovered.hasMore)
+
+                viewModel.accept(PersonIntent.LoadMore)
+                advanceUntilIdle()
+                val terminal = assertIs<PersonUiState.Content>(viewModel.state.value)
+                assertEquals(listOf(0, 2, 4, 6, 9), repository.pageStartIndexes)
+                assertEquals(9, terminal.consumedOffset)
+                assertEquals(false, terminal.hasMore)
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
+
+    @Test
     fun surfacesHeaderAndPagedFilmography() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)

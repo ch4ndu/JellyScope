@@ -20,6 +20,7 @@ sealed interface PersonUiState {
         val hasMore: Boolean = false,
         val isLoadingMore: Boolean = false,
         val error: Boolean = false,
+        val consumedOffset: Int = 0,
     ) : PersonUiState
 }
 

@@ -672,6 +672,7 @@ class DefaultMediaRepository(
                     series = page.items.filter { item -> item.kind == MediaKind.Series },
                     totalCount = page.totalCount,
                     startIndex = page.startIndex,
+                    receivedCount = page.receivedCount,
                 )
             }
         }

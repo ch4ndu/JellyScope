@@ -81,6 +81,16 @@ export boundary.
 - Any future SDK adoption must remain behind the same repository boundary and
   satisfy target-support, API-compatibility, and licensing constraints.
 
+## Collection and Person pagination
+
+Collection and Person advance by the server response's received row count,
+independently of discarded rows and duplicate display IDs. Person preserves
+that count through `PersonFilmography` for shared and native tvOS presentation.
+A zero-row response or reaching the reported total ends paging. Pages that add
+no cards continue automatically for at most three consecutive responses; the
+existing error/retry controls then resume from the consumed offset, even when
+no cards are visible. Failed requests retry their unconsumed offset.
+
 ## Related shelves
 
 - `DefaultMediaRepository.getRelatedGroups` owns related-source selection,
@@ -128,6 +138,10 @@ its cache key. Remote keys are versioned to exclude older cached fallback bytes.
   repopulate a cache after a transition. Full logout clears runtime stores;
   account transitions clear the retired account and server-wide state only when
   the final account for that server is removed.
+- Native tvOS artwork snapshots a cache generation with its request context.
+  Account-scope replacement and logout advance that generation while purging
+  the cache. Completion validates the generation and cancellation under the
+  same lock as insertion, so retired requests cannot repopulate the cache.
 - Authenticated Coil keys use a length-qualified server/user namespace and never
   include authorization headers or access tokens. Memory keys also distinguish
   source URLs and decode variants. Disk keys contain the account namespace and
@@ -229,6 +243,13 @@ its cache key. Remote keys are versioned to exclude older cached fallback bytes.
 See the dedicated [launcher data and artwork contract](../launcher/engineering.md#android-launcher-queries-and-artwork).
 
 ## Why
+
+- **Transport progress is independent of presentation.** Dropped or repeated rows
+  must not shift the next server offset or duplicate lazy keys. Bounded empty-page
+  continuation preserves reachability without an unbounded request loop.
+- **Purging alone does not retire artwork work.** A completed response can still
+  be decoding during an account transition; atomic generation validation prevents
+  it from restoring entries after the purge.
 
 - HTTP execution and response contracts stay together below application
   orchestration. Retaining configured clients and session identity in core keeps

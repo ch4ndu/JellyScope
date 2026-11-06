@@ -14,6 +14,7 @@ data class PersonFilmography(
     val series: List<MediaItem> = emptyList(),
     val totalCount: Int = movies.size + series.size,
     val startIndex: Int = 0,
+    val receivedCount: Int = movies.size + series.size,
 )
 
 data class MediaSuggestions(

@@ -14,6 +14,7 @@ final class ImageFetcher: @unchecked Sendable {
 
     private let cache = NSCache<NSString, UIImage>()
     private let lock = NSLock()
+    private var generation: UInt64 = 0
     private var scopeKey = ""
     private var authHeader: String?
 
@@ -25,6 +26,7 @@ final class ImageFetcher: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if scopeKey != self.scopeKey {
+            generation &+= 1
             cache.removeAllObjects()
         }
         self.scopeKey = scopeKey
@@ -34,6 +36,7 @@ final class ImageFetcher: @unchecked Sendable {
     func reset() {
         lock.lock()
         defer { lock.unlock() }
+        generation &+= 1
         cache.removeAllObjects()
         scopeKey = ""
         authHeader = nil
@@ -41,13 +44,12 @@ final class ImageFetcher: @unchecked Sendable {
 
     func image(for url: String, pixelSize: CGSize? = nil) async -> UIImage? {
         let variant = pixelSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "original"
-        lock.lock()
-        let key = "\(scopeKey)|\(url)|\(variant)" as NSString
-        let header = authHeader
-        lock.unlock()
-        if let hit = cache.object(forKey: key) {
-            return hit
+        let context = requestContext(url: url, variant: variant)
+        guard !Task.isCancelled else { return nil }
+        if let hit = context.cachedImage {
+            return publish(hit, key: context.key, generation: context.generation)
         }
+        let header = context.header
         guard var components = URLComponents(string: url) else {
             return nil
         }
@@ -71,6 +73,20 @@ final class ImageFetcher: @unchecked Sendable {
         else {
             return nil
         }
+        return publish(image, key: context.key, generation: context.generation)
+    }
+
+    private func requestContext(url: String, variant: String) -> (key: NSString, header: String?, generation: UInt64, cachedImage: UIImage?) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = "\(scopeKey)|\(url)|\(variant)" as NSString
+        return (key, authHeader, generation, cache.object(forKey: key))
+    }
+
+    private func publish(_ image: UIImage, key: NSString, generation: UInt64) -> UIImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !Task.isCancelled, generation == self.generation else { return nil }
         cache.setObject(image, forKey: key)
         return image
     }
