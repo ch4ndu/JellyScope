@@ -9,6 +9,7 @@ import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 object Routes {
     val Home = "home"
     val Discover = "discover"
+    val Requests = "requests"
     val LibraryRoot = "library-root"
     val Find = "find"
     val Downloads = "downloads"

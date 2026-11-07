@@ -6,7 +6,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 ## Native tvOS screens
 
 The SwiftUI shell uses `TabView`/`NavigationStack`, with a tvOS 18 sidebar and
-tvOS 17 tabs ordered Home, Favorites, Libraries, Search, Downloads, Settings.
+tvOS 17 tabs ordered Home, Favorites, Libraries, Search, Requests, Downloads, Settings.
 Favorites has its own history and reuses View All. Refresh keeps cards mounted,
 reports failure inline, restores surviving focus, and supersedes older re-entry
 refreshes. System Back pops the current destination. Browsing state follows the
@@ -15,6 +15,13 @@ App-global appearance watches live outside the account-keyed subtree: Ocean,
 Midnight and Ember colors and Small/Medium/Large card sizes update browsing and
 settings through a native environment. Resizing preserves aspect ratios, clipped
 viewports, focus reserve and stable media identity; player video remains black.
+
+Requests has its own navigation history and uses the current account's boundary
+epoch. Native Seerr views present connection, discovery/search, details, explicit
+request confirmation and My Requests through `TvSeerrPresenter`. External artwork
+uses plain `AsyncImage`, never the Jellyfin-authenticated image fetcher. A verified
+library match opens the existing media destination. Seerr rules and limits belong
+to the [API contract](api-and-caching.md#seerr-requests).
 
 Home orders Continue Watching, Favorites, Next Up, Recently Added. Ribbons load
 and retry independently; empty rows collapse and refresh retains cards. The hero

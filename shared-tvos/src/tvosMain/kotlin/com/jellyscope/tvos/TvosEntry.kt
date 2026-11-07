@@ -48,6 +48,7 @@ import com.jellyscope.tvos.presenter.TvPlaybackRequest
 import com.jellyscope.tvos.presenter.TvPlaybackSessionPresenter
 import com.jellyscope.tvos.presenter.TvPlaybackSubtitleMode
 import com.jellyscope.tvos.presenter.TvSearchPresenter
+import com.jellyscope.tvos.presenter.TvSeerrPresenter
 import com.jellyscope.tvos.presenter.TvSessionPresenter
 import com.jellyscope.tvos.presenter.TvSettingsPresenter
 import com.jellyscope.tvos.presenter.TvSubtitleSettingsPresenter
@@ -184,6 +185,11 @@ object TvosEntry {
         session: Session,
         personId: String,
     ): TvPersonPresenter = koin().get { parametersOf(session, personId) }
+
+    fun seerrPresenter(
+        session: Session,
+        boundaryEpoch: Long,
+    ): TvSeerrPresenter = koin().get { parametersOf(session, boundaryEpoch) }
 
     fun searchPresenter(session: Session): TvSearchPresenter = koin().get { parametersOf(session) }
 

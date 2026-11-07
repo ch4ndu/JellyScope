@@ -20,7 +20,7 @@
 
 - Data owns API clients/DTOs, transport queries, caches, settings stores,
   repositories, and platform data adapters. Remote models map to domain before
-  ViewModels or UI. Jellyfin and OpenSubtitles calls remain behind their API and
+  ViewModels or UI. Jellyfin, Seerr and OpenSubtitles calls remain behind their API and
   repository facades.
 - Domain owns models, mapping, read UseCases, write/side-effect Actions, search
   projection, playback planning, and decision protocols consumed by presentation.
@@ -132,17 +132,17 @@ navigation controllers.
 
 Screen actions enter typed intents across shared Compose, Android TV, the Android
 launcher, and native tvOS. ViewModels/presenters own effects and cancellation;
-reducers update their presentation state. The coverage inventory comprises 22
-ViewModels and 21 concrete native tvOS presenters (excluding the lifecycle base):
+reducers update their presentation state. The coverage inventory comprises 23
+ViewModels and 22 concrete native tvOS presenters (excluding the lifecycle base):
 
 | Owners | Covered presentation paths |
 | --- | --- |
 | Shared authentication | Server entry, login, Quick Connect |
-| Shared browsing | Home, Find, Discover, grid, collection, person, library browse/hub/tab |
+| Shared browsing | Home, Find, Discover, Seerr Requests, grid, collection, person, library browse/hub/tab |
 | Shared details and downloads | Detail, Series, subtitle search, downloads |
 | Shared settings and playback | Account, settings, Player, Kids catalogue |
 | Android-specific | TV preferences and launcher |
-| Native tvOS | Home/view-all, libraries/browse/hub, search, person, detail/series helper, login/accounts/session, settings/appearance/device/subtitle settings, downloads/request/artwork, subtitles, online/offline playback |
+| Native tvOS | Home/view-all, libraries/browse/hub, search, Seerr Requests, person, detail/series helper, login/accounts/session, settings/appearance/device/subtitle settings, downloads/request/artwork, subtitles, online/offline playback |
 
 Player asset selection is a Boolean `PlayerIntent.Request`; Kids launch uses a
 separate suspending `PlayerIntent.Admission`. Callers publish catalogue selection
@@ -294,6 +294,17 @@ The TV Collection header consumes only its count; the body consumes cards and
 paging flags, excluding collection identity, offset, and total count. Existing
 focus, lazy keys, scroll, and ambient ownership remain unchanged. No runtime
 recomposition gain is asserted.
+
+### Seerr Requests MVI slice
+
+`SeerrViewModel` and `TvSeerrPresenter` own connection, catalog, detail, selection
+and request effects through typed intents and reducers. Shared Compose and
+Android TV consume the ViewModel; native tvOS uses a Swift adapter and native
+controls. Account/epoch plus connection and request generations guard results;
+actual library navigation is guarded again when consumed. Both owners observe
+live parental policy, clear external content when restricted, and keep connection
+management available. The [Seerr protocol contract](api-and-caching.md#seerr-requests)
+owns admission, transport and identity rules.
 
 ### Detail, Series, and subtitle search MVI slice
 

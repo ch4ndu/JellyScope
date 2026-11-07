@@ -29,6 +29,7 @@ internal enum class TvRoute {
     FilteredLibrary,
     Find,
     Discover,
+    Requests,
     Favorites,
     Downloads,
     DownloadDetail,

@@ -1,0 +1,346 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package com.jellyscope.ui.screen.seerr
+
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import com.jellyscope.core.domain.model.SeerrCatalog
+import com.jellyscope.core.domain.model.SeerrLibraryItem
+import com.jellyscope.core.domain.model.SeerrQuality
+import com.jellyscope.ui.adaptive.tileScaled
+import com.jellyscope.ui.generated.resources.Res
+import com.jellyscope.ui.generated.resources.seerr_clear
+import com.jellyscope.ui.generated.resources.seerr_discover
+import com.jellyscope.ui.generated.resources.seerr_empty
+import com.jellyscope.ui.generated.resources.seerr_load_more
+import com.jellyscope.ui.generated.resources.seerr_loading
+import com.jellyscope.ui.generated.resources.seerr_manage
+import com.jellyscope.ui.generated.resources.seerr_movies
+import com.jellyscope.ui.generated.resources.seerr_my_requests
+import com.jellyscope.ui.generated.resources.seerr_owner_changed
+import com.jellyscope.ui.generated.resources.seerr_page
+import com.jellyscope.ui.generated.resources.seerr_page_hint
+import com.jellyscope.ui.generated.resources.seerr_refresh
+import com.jellyscope.ui.generated.resources.seerr_requests_empty
+import com.jellyscope.ui.generated.resources.seerr_restricted
+import com.jellyscope.ui.generated.resources.seerr_search
+import com.jellyscope.ui.generated.resources.seerr_search_results
+import com.jellyscope.ui.generated.resources.seerr_search_submit
+import com.jellyscope.ui.generated.resources.seerr_setup
+import com.jellyscope.ui.generated.resources.seerr_trending
+import com.jellyscope.ui.generated.resources.seerr_tv
+import com.jellyscope.ui.generated.resources.seerr_untitled
+import com.jellyscope.ui.theme.Dimensions
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import org.jetbrains.compose.resources.stringResource
+
+@Composable
+fun SeerrScreen(
+    viewModel: SeerrViewModel,
+    onOpenLibrary: (SeerrLibraryItem) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    SeerrScreenEffects(viewModel, onOpenLibrary)
+    SeerrContent(state, viewModel::accept, modifier)
+}
+
+/** Shared lifecycle bridge only; TV supplies its own focusable rendering. */
+@Composable
+fun SeerrScreenEffects(
+    viewModel: SeerrViewModel,
+    onOpenLibrary: (SeerrLibraryItem) -> Unit,
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val openLibrary by rememberUpdatedState(onOpenLibrary)
+    LaunchedEffect(viewModel, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.libraryEffects.collect { viewModel.consumeLibraryEffect(it, openLibrary) }
+        }
+    }
+    DisposableEffect(viewModel, lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) viewModel.accept(SeerrIntent.Disposed)
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.accept(SeerrIntent.Disposed)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SeerrContent(
+    state: SeerrUiState,
+    onIntent: (SeerrIntent) -> Unit,
+    modifier: Modifier,
+) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    Column(
+        modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = {
+                    keyboard?.hide()
+                    focus.clearFocus()
+                })
+            }.onPreviewKeyEvent {
+                if (it.key == Key.Escape && it.type == KeyEventType.KeyDown && state.detail != null) {
+                    onIntent(SeerrIntent.Back)
+                    true
+                } else {
+                    false
+                }
+            },
+    ) {
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = Dimensions.screenPadding),
+            horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
+        ) {
+            SeerrSection.entries.forEach { section ->
+                FilterChip(
+                    selected = state.section == section,
+                    enabled = state.ownerValid && state.detail?.submitting != true,
+                    onClick = {
+                        keyboard?.hide()
+                        focus.clearFocus()
+                        onIntent(SeerrIntent.SelectSection(section))
+                    },
+                    label = { Text(seerrSectionText(section)) },
+                )
+            }
+        }
+        when {
+            !state.ownerValid -> Text(stringResource(Res.string.seerr_owner_changed), Modifier.padding(Dimensions.screenPadding))
+            state.section == SeerrSection.Connection -> SeerrConnectionContent(state.connection, onIntent, Modifier.weight(1f))
+            state.restricted -> Text(stringResource(Res.string.seerr_restricted), Modifier.padding(Dimensions.screenPadding))
+            !state.connected ->
+                Column(Modifier.padding(Dimensions.screenPadding), verticalArrangement = Arrangement.spacedBy(Dimensions.formSpacing)) {
+                    Text(stringResource(Res.string.seerr_setup))
+                    state.connection.error?.let { Text(seerrErrorText(it), color = MaterialTheme.colorScheme.error) }
+                    if (state.connection.busy) Text(stringResource(Res.string.seerr_loading))
+                    Button(
+                        onClick = { onIntent(SeerrIntent.SelectSection(SeerrSection.Connection)) },
+                    ) { Text(stringResource(Res.string.seerr_manage)) }
+                }
+            state.detail != null -> key(state.detail.key) { SeerrDetailContent(state.detail, onIntent, Modifier.weight(1f)) }
+            else ->
+                key(state.section, state.catalog, state.submittedQuery, state.feed.resetRevision) {
+                    SeerrFeedContent(state, onIntent, Modifier.weight(1f))
+                }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SeerrFeedContent(
+    state: SeerrUiState,
+    onIntent: (SeerrIntent) -> Unit,
+    modifier: Modifier,
+) {
+    val feed = state.feed
+    val scroll = rememberLazyGridState(feed.scroll.index, feed.scroll.offset)
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    LaunchedEffect(feed.page) {
+        // The footer moves on append; keep the viewport at its prior content position.
+        if (feed.page > 1 && !scroll.isScrollInProgress) scroll.scrollToItem(feed.scroll.index, feed.scroll.offset)
+    }
+    LaunchedEffect(scroll) {
+        snapshotFlow {
+            if (scroll.isScrollInProgress) null else SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset)
+        }.filterNotNull()
+            .distinctUntilChanged()
+            .collect { onIntent(SeerrIntent.RememberScroll(false, it)) }
+    }
+
+    fun submit() {
+        keyboard?.hide()
+        focus.clearFocus()
+        onIntent(SeerrIntent.SubmitSearch)
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(Dimensions.gridMinCellWidth.tileScaled()),
+        state = scroll,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(Dimensions.screenPadding),
+        horizontalArrangement = Arrangement.spacedBy(Dimensions.cardSpacing),
+        verticalArrangement = Arrangement.spacedBy(Dimensions.formSpacing),
+    ) {
+        if (state.section == SeerrSection.Discover) {
+            item(key = "search", span = { GridItemSpan(maxLineSpan) }) {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
+                    OutlinedTextField(
+                        value = state.query,
+                        onValueChange = { onIntent(SeerrIntent.QueryChanged(it)) },
+                        label = { Text(stringResource(Res.string.seerr_search)) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { submit() }),
+                        modifier = Modifier.widthIn(max = Dimensions.formControlMaxWidth).fillMaxWidth(),
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing)) {
+                        Button(
+                            onClick = ::submit,
+                            enabled = state.query.isNotBlank(),
+                        ) { Text(stringResource(Res.string.seerr_search_submit)) }
+                        TextButton(onClick = {
+                            keyboard?.hide()
+                            focus.clearFocus()
+                            onIntent(SeerrIntent.ClearSearch)
+                        }) { Text(stringResource(Res.string.seerr_clear)) }
+                        listOf(SeerrCatalog.Trending, SeerrCatalog.Movies, SeerrCatalog.Tv).forEach { catalog ->
+                            FilterChip(selected = state.catalog == catalog, onClick = {
+                                keyboard?.hide()
+                                focus.clearFocus()
+                                onIntent(SeerrIntent.SelectCatalog(catalog))
+                            }, label = { Text(seerrCatalogText(catalog)) })
+                        }
+                    }
+                    if (state.catalog == SeerrCatalog.Search) Text(stringResource(Res.string.seerr_search_results, state.submittedQuery))
+                }
+            }
+        }
+        item(key = "status", span = { GridItemSpan(maxLineSpan) }) {
+            Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
+                TextButton(
+                    onClick = { onIntent(SeerrIntent.Refresh) },
+                    enabled = !feed.loading,
+                ) { Text(stringResource(Res.string.seerr_refresh)) }
+                if (feed.loading) Text(stringResource(Res.string.seerr_loading))
+                feed.error?.let { Text(seerrErrorText(it), color = MaterialTheme.colorScheme.error) }
+                if (feed.loaded &&
+                    feed.rows.isEmpty() &&
+                    !feed.loading &&
+                    feed.error == null
+                ) {
+                    Text(
+                        stringResource(
+                            if (state.section ==
+                                SeerrSection.Requests
+                            ) {
+                                Res.string.seerr_requests_empty
+                            } else {
+                                Res.string.seerr_empty
+                            },
+                        ),
+                    )
+                }
+                if (feed.page > 0) Text(stringResource(Res.string.seerr_page, feed.page, feed.totalPages.coerceAtLeast(feed.page)))
+            }
+        }
+        items(feed.rows, key = { it.id }, contentType = { "title" }) { row ->
+            val title = row.media.title ?: stringResource(Res.string.seerr_untitled)
+            Card(onClick = {
+                keyboard?.hide()
+                focus.clearFocus()
+                onIntent(
+                    SeerrIntent.RememberScroll(
+                        false,
+                        SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset),
+                    ),
+                )
+                onIntent(SeerrIntent.OpenDetail(row))
+            }) {
+                SeerrPoster(row.media, Modifier.fillMaxWidth())
+                Column(
+                    Modifier.padding(Dimensions.contentSpacing),
+                    verticalArrangement = Arrangement.spacedBy(Dimensions.labelGlyphSpacing),
+                ) {
+                    Text(title, style = MaterialTheme.typography.titleSmall)
+                    Text(seerrMediaTypeText(row.media.key.type), style = MaterialTheme.typography.bodySmall)
+                    row.media.year?.let { Text(it.toString(), style = MaterialTheme.typography.bodySmall) }
+                    Text(
+                        seerrAvailabilityLine(SeerrQuality.Standard, row.media.standardAvailability),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    row.request?.let { Text(seerrRequestLine(it), style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        }
+        if (feed.hasMore) {
+            item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Button(
+                        enabled = !feed.loading,
+                        onClick = { onIntent(SeerrIntent.LoadMore) },
+                    ) { Text(stringResource(Res.string.seerr_load_more)) }
+                    Text(stringResource(Res.string.seerr_page_hint), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun seerrSectionText(section: SeerrSection): String =
+    stringResource(
+        when (section) {
+            SeerrSection.Discover -> Res.string.seerr_discover
+            SeerrSection.Requests -> Res.string.seerr_my_requests
+            SeerrSection.Connection -> Res.string.seerr_manage
+        },
+    )
+
+@Composable
+fun seerrCatalogText(catalog: SeerrCatalog): String =
+    stringResource(
+        when (catalog) {
+            SeerrCatalog.Trending -> Res.string.seerr_trending
+            SeerrCatalog.Movies -> Res.string.seerr_movies
+            SeerrCatalog.Tv -> Res.string.seerr_tv
+            SeerrCatalog.Search -> Res.string.seerr_search
+        },
+    )

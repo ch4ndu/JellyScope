@@ -136,6 +136,10 @@
 		E887A7C64E70DCEC582B11A6 /* DownloadArtworkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30FF007218502367CF3F4E5 /* DownloadArtworkModel.swift */; };
 		624BDB87991F29E418ECC7F6 /* DownloadArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76BFCCC19B33B6657635A772 /* DownloadArtworkView.swift */; };
 		3DBD21261A9FB37959C46E12 /* DownloadDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1596DB242532DC46F3A305 /* DownloadDetailView.swift */; };
+		18999525CFD9926249B76DA3 /* SeerrModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 436D1C145187F56DAC3158F2 /* SeerrModel.swift */; };
+		278C316D0811DE8D1549B89F /* SeerrView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74F1ABBBCA944A86AAACE6DD /* SeerrView.swift */; };
+		B89149826C243C2C7622CB36 /* SeerrDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB7B6739ACE5F2789078423 /* SeerrDetailView.swift */; };
+		42BD11AEB9138C958C849E79 /* SeerrConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8500755A981C051BBD1F1BB /* SeerrConnectionView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -269,6 +273,10 @@
 		E30FF007218502367CF3F4E5 /* DownloadArtworkModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadArtworkModel.swift; sourceTree = "<group>"; };
 		76BFCCC19B33B6657635A772 /* DownloadArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadArtworkView.swift; sourceTree = "<group>"; };
 		8E1596DB242532DC46F3A305 /* DownloadDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadDetailView.swift; sourceTree = "<group>"; };
+		436D1C145187F56DAC3158F2 /* SeerrModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeerrModel.swift; sourceTree = "<group>"; };
+		74F1ABBBCA944A86AAACE6DD /* SeerrView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeerrView.swift; sourceTree = "<group>"; };
+		CCB7B6739ACE5F2789078423 /* SeerrDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeerrDetailView.swift; sourceTree = "<group>"; };
+		E8500755A981C051BBD1F1BB /* SeerrConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeerrConnectionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -354,6 +362,7 @@
 				10AC9812F9980379BB5D63F3 /* player */,
 				D4949DCA469DD8186C1B4AAA /* subtitle */,
 				03927443E810C9CA28BA594F /* search */,
+				2532D5AE2C576766AD314583 /* seerr */,
 				D82EF2F7C0EE6E3624880E0F /* settings */,
 				D554850338C3DC9B0EB2FC60 /* login */,
 				38C410C956553ED1822BE90A /* detail */,
@@ -561,6 +570,17 @@
 				CA5C61DBEAE7E8E8046616CE /* DownloadsView.swift */,
 			);
 			path = downloads;
+			sourceTree = "<group>";
+		};
+		2532D5AE2C576766AD314583 /* seerr */ = {
+			isa = PBXGroup;
+			children = (
+				436D1C145187F56DAC3158F2 /* SeerrModel.swift */,
+				74F1ABBBCA944A86AAACE6DD /* SeerrView.swift */,
+				CCB7B6739ACE5F2789078423 /* SeerrDetailView.swift */,
+				E8500755A981C051BBD1F1BB /* SeerrConnectionView.swift */,
+			);
+			path = seerr;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -807,6 +827,10 @@
 				7A11C0282E1F500300B00001 /* ItemDetailView.swift in Sources */,
 				7A11C0292E1F500300B00001 /* PlayerScreen.swift in Sources */,
 				7A11C0332E1F500300B00001 /* SearchView.swift in Sources */,
+				18999525CFD9926249B76DA3 /* SeerrModel.swift in Sources */,
+				278C316D0811DE8D1549B89F /* SeerrView.swift in Sources */,
+				B89149826C243C2C7622CB36 /* SeerrDetailView.swift in Sources */,
+				42BD11AEB9138C958C849E79 /* SeerrConnectionView.swift in Sources */,
 				7A11C0352E1F500300B00001 /* SettingsFormView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

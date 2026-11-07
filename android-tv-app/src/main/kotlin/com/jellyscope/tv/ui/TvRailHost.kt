@@ -70,6 +70,8 @@ internal sealed interface TvRailTarget {
 
     data object Discover : TvRailTarget
 
+    data object Requests : TvRailTarget
+
     data object Favorites : TvRailTarget
 
     data object Home : TvRailTarget
@@ -87,6 +89,7 @@ internal fun TvRailDestination.toRailTarget(): TvRailTarget =
     when (this) {
         TvRailDestination.Find -> TvRailTarget.Find
         TvRailDestination.Discover -> TvRailTarget.Discover
+        TvRailDestination.Requests -> TvRailTarget.Requests
         TvRailDestination.Favorites -> TvRailTarget.Favorites
         TvRailDestination.Home -> TvRailTarget.Home
         TvRailDestination.Downloads -> TvRailTarget.Downloads

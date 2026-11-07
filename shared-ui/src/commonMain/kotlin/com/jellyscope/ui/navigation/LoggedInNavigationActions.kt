@@ -53,6 +53,7 @@ internal fun selectedTopLevelRoute(currentRoute: String?): String? =
         Routes.DownloadDetail -> Routes.Downloads
         Routes.Home,
         Routes.Discover,
+        Routes.Requests,
         Routes.Find,
         Routes.Downloads,
         -> currentRoute

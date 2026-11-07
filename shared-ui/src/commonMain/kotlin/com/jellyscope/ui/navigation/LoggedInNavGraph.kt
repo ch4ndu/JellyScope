@@ -6,13 +6,17 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.unit.Dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -20,6 +24,7 @@ import androidx.navigation.compose.navigation
 import androidx.savedstate.read
 import com.jellyscope.core.domain.model.LibraryCollectionType
 import com.jellyscope.core.domain.model.LibraryFilterSelection
+import com.jellyscope.core.domain.model.MediaKind
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.isKidsPlaybackEligible
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
@@ -44,10 +49,14 @@ import com.jellyscope.ui.screen.player.KidsPlaybackLaunchRequest
 import com.jellyscope.ui.screen.player.PlayerLaunchOptions
 import com.jellyscope.ui.screen.player.PlayerLaunchPolicy
 import com.jellyscope.ui.screen.player.PlayerScreen
+import com.jellyscope.ui.screen.seerr.SeerrIntent
+import com.jellyscope.ui.screen.seerr.SeerrScreen
+import com.jellyscope.ui.screen.seerr.SeerrViewModel
 import com.jellyscope.ui.screen.settings.SettingsScreen
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun LoggedInNavGraph(
     navController: NavHostController,
@@ -122,6 +131,33 @@ internal fun LoggedInNavGraph(
                     onItemSelected = { item -> navController.navigateToMediaItem(item) },
                     onSettingsClick = onSettingsClick,
                     bottomContentPadding = bottomBarContentPadding,
+                )
+            }
+        }
+        composable(Routes.Requests) {
+            val viewModel =
+                koinViewModel<SeerrViewModel>(
+                    key = "requests-${session.serverId}-${session.userId}-$boundaryEpoch",
+                    parameters = { parametersOf(session, boundaryEpoch) },
+                )
+            val requestsState by viewModel.state.collectAsStateWithLifecycle()
+            BackHandler(enabled = requestsState.detail != null || requestsState.connection.authenticating) {
+                viewModel.accept(SeerrIntent.Back)
+            }
+            LoggedInScreenFrame(
+                contentWindowInsets = loggedInContentInsets,
+                startSafeDrawingConsumed = startSafeDrawingConsumed,
+            ) {
+                SeerrScreen(
+                    viewModel = viewModel,
+                    onOpenLibrary = { item ->
+                        when (item.kind) {
+                            MediaKind.Series -> navController.navigate(Routes.series(item.itemId))
+                            MediaKind.Movie -> navController.navigate(Routes.detail(item.itemId))
+                            else -> Unit
+                        }
+                    },
+                    modifier = Modifier.padding(bottom = bottomBarContentPadding),
                 )
             }
         }

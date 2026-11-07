@@ -35,6 +35,7 @@ import com.jellyscope.tvos.presenter.TvPersonPresenter
 import com.jellyscope.tvos.presenter.TvPlaybackRequest
 import com.jellyscope.tvos.presenter.TvPlaybackSessionPresenter
 import com.jellyscope.tvos.presenter.TvSearchPresenter
+import com.jellyscope.tvos.presenter.TvSeerrPresenter
 import com.jellyscope.tvos.presenter.TvSessionPresenter
 import com.jellyscope.tvos.presenter.TvSettingsPresenter
 import com.jellyscope.tvos.presenter.TvSubtitleSettingsPresenter
@@ -136,6 +137,29 @@ val tvosPresentationModule =
                 row = row,
                 getRibbonItems = get(),
                 imageUrlBuilder = get(),
+                dispatchers = get(),
+            )
+        }
+        factory { (session: Session, boundaryEpoch: Long) ->
+            TvSeerrPresenter(
+                session = session,
+                boundaryEpoch = boundaryEpoch,
+                getConnection = get(),
+                restoreConnection = get(),
+                validateService = get(),
+                connect = get(),
+                beginQuickConnect = get(),
+                completeQuickConnect = get(),
+                cancelAuthentication = get(),
+                disconnect = get(),
+                getCatalog = get(),
+                getRequests = get(),
+                getDetail = get(),
+                requestMedia = get(),
+                reconcileRequest = get(),
+                resolveLibraryItem = get(),
+                validatePublication = get(),
+                observeSessionState = get(),
                 dispatchers = get(),
             )
         }

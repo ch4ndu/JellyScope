@@ -129,6 +129,32 @@ class PersistentAccountStoreCleanerTest {
         }
 
     @Test
+    fun secondaryCredentialCleanupFailureRetainsPendingAfterPrimaryCredentialsClear() =
+        runTest {
+            val secureStore = FakeSecureStore()
+            val sessionStore = SessionStore(secureStore, Json)
+            sessionStore.writeSession(storedSession("server-1", "user-1"))
+            sessionStore.markLogoutPending()
+            secureStore.failOnRemoveKey = SEERR_SESSION_KEY
+            val cleaner =
+                cleaner(
+                    sessionStore,
+                    RecordingRecentSearchStore(),
+                    RecordingWatchNextStore(),
+                    RecordingSubtitleSelectionStore(),
+                    seerr = SeerrSessionStore(secureStore, Json),
+                )
+
+            assertFailsWith<StoreCleanupException> { cleaner.clearAll() }
+
+            assertEquals(null, sessionStore.readSession())
+            assertTrue(sessionStore.isLogoutPending())
+            secureStore.failOnRemoveKey = null
+            cleaner.clearAll()
+            assertEquals(false, sessionStore.isLogoutPending())
+        }
+
+    @Test
     fun fullCleanupAttemptsAllStoresAfterMultipleFailures() =
         runTest {
             val sessionStore = SessionStore(FakeSecureStore(), Json)
@@ -172,6 +198,7 @@ class PersistentAccountStoreCleanerTest {
         watchNext: RecordingWatchNextStore,
         subtitles: RecordingSubtitleSelectionStore,
         overrides: RecordingPlayerBackendOverrideStore = RecordingPlayerBackendOverrideStore(),
+        seerr: SeerrSessionStore? = null,
     ): PersistentAccountStoreCleaner =
         PersistentAccountStoreCleaner(
             sessionStore = sessionStore,
@@ -183,6 +210,7 @@ class PersistentAccountStoreCleanerTest {
             librarySortStore = RecordingLibrarySortStore(),
             libraryViewPreferencesStore = RecordingLibraryViewStore(),
             gridSortStore = RecordingGridSortStore(),
+            seerrSessionStore = seerr,
         )
 }
 

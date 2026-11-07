@@ -12,12 +12,12 @@ import kotlin.test.assertTrue
 
 class RoutesTest {
     @Test
-    fun topLevelNavItemsExposeHomeLibraryDiscoverFindAndDownloads() {
+    fun topLevelNavItemsExposeHomeLibraryDiscoverRequestsFindAndDownloads() {
         // Settings was moved off the bottom bar to a top-right gear on root
         // screens; the Library tab took its place. Downloads is the durable
         // local-only account shelf.
         assertEquals(
-            listOf(Routes.Home, Routes.LibraryRoot, Routes.Discover, Routes.Find, Routes.Downloads),
+            listOf(Routes.Home, Routes.LibraryRoot, Routes.Discover, Routes.Requests, Routes.Find, Routes.Downloads),
             TopLevelNavItems.map { item -> item.route },
         )
     }

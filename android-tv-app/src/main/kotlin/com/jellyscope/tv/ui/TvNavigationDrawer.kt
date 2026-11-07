@@ -86,6 +86,7 @@ internal fun TvNavigationDrawer(
     selected: TvRailDestination?,
     onSearchSelected: () -> Unit,
     onDiscoverSelected: () -> Unit,
+    onRequestsSelected: () -> Unit,
     onFavoritesSelected: () -> Unit,
     onHomeSelected: () -> Unit,
     onDownloadsSelected: () -> Unit,
@@ -270,6 +271,17 @@ internal fun TvNavigationDrawer(
                     onExitRight = requestContentRightFocus,
                 )
                 TvDrawerItem(
+                    label = stringResource(R.string.tv_requests_tab),
+                    icon = TvDrawerIconKind.Requests,
+                    selected = selected == TvRailDestination.Requests,
+                    expanded = expanded,
+                    onClick = onRequestsSelected,
+                    onFocused = { onTargetFocused(TvRailTarget.Requests) },
+                    focusRequester = focusRequesterFor(TvRailDestination.Requests),
+                    rightFocusRequester = contentRightFocusRequester,
+                    onExitRight = requestContentRightFocus,
+                )
+                TvDrawerItem(
                     label = stringResource(R.string.tv_settings_tab),
                     icon = TvDrawerIconKind.Settings,
                     selected = selected == TvRailDestination.Settings,
@@ -327,6 +339,7 @@ private fun TvDrawerContentSlot(
 enum class TvRailDestination {
     Find,
     Discover,
+    Requests,
     Favorites,
     Home,
     Downloads,
@@ -475,6 +488,7 @@ private fun TvDrawerIcon(
             when (icon) {
                 TvDrawerIconKind.Search -> TvIcons.Magnify
                 TvDrawerIconKind.Discover -> TvIcons.Compass
+                TvDrawerIconKind.Requests -> TvIcons.FormatListBulleted
                 TvDrawerIconKind.Favorite -> TvIcons.HeartOutline
                 TvDrawerIconKind.Home -> TvIcons.Home
                 TvDrawerIconKind.Downloads -> TvIcons.Download
@@ -490,6 +504,7 @@ private fun TvDrawerIcon(
 private enum class TvDrawerIconKind {
     Search,
     Discover,
+    Requests,
     Favorite,
     Home,
     Downloads,

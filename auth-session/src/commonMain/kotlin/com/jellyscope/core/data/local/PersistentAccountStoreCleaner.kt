@@ -21,6 +21,7 @@ class PersistentAccountStoreCleaner(
     private val gridSortStore: GridSortStore,
     private val playbackSelectionStore: PlaybackSelectionStore? = null,
     private val playbackTimingStore: PlaybackTimingStore? = null,
+    private val seerrSessionStore: SeerrSessionStore? = null,
 ) : AccountStoreCleaner {
     override suspend fun clearAll() {
         val failures = mutableListOf<Throwable>()
@@ -30,6 +31,15 @@ class PersistentAccountStoreCleaner(
             sessionStore.clearSession()
             credentialsCleared = true
         } catch (throwable: Throwable) {
+            failures += throwable
+        }
+
+        // Attempt both credential owners even when either one fails. The cold
+        // logout tombstone remains until neither can resurrect a saved login.
+        try {
+            seerrSessionStore?.clearServerScoped()
+        } catch (throwable: Throwable) {
+            credentialsCleared = false
             failures += throwable
         }
 
@@ -69,6 +79,7 @@ class PersistentAccountStoreCleaner(
         clearOperations(
             listOf(
                 { sessionStore.clearServerScoped(serverId) },
+                { seerrSessionStore?.clearServerScoped(serverId) },
                 { playbackPreferencesStore.clearServerScoped(serverId) },
                 { playerBackendOverrideStore.clearServerScoped(serverId) },
                 { recentSearchStore.clearServerScoped(serverId) },
@@ -91,6 +102,7 @@ class PersistentAccountStoreCleaner(
                 { subtitleSelectionStore.clearAccount(accountIdentity) },
                 { playbackPreferencesStore.clearAccount(accountIdentity) },
                 { sessionStore.clearAccount(accountIdentity) },
+                { seerrSessionStore?.clearAccount(accountIdentity) },
                 { playbackSelectionStore?.clearAccount(accountIdentity) },
                 { playbackTimingStore?.clearAccount(accountIdentity) },
             ),

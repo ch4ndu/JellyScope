@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Icon
@@ -199,6 +200,7 @@ internal fun TopLevelNavIconGlyph(
             when (icon) {
                 TopLevelNavIcon.Home -> Icons.Filled.Home
                 TopLevelNavIcon.Discover -> Icons.Filled.Explore
+                TopLevelNavIcon.Requests -> Icons.Filled.PlaylistAdd
                 TopLevelNavIcon.Library -> Icons.Filled.VideoLibrary
                 TopLevelNavIcon.Find -> Icons.Filled.Search
                 TopLevelNavIcon.Downloads -> Icons.Filled.Download

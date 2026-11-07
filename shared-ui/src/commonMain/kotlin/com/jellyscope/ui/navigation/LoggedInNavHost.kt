@@ -55,6 +55,8 @@ import com.jellyscope.ui.generated.resources.nav_find
 import com.jellyscope.ui.generated.resources.nav_find_cd
 import com.jellyscope.ui.generated.resources.nav_home
 import com.jellyscope.ui.generated.resources.nav_home_cd
+import com.jellyscope.ui.generated.resources.nav_requests
+import com.jellyscope.ui.generated.resources.nav_requests_cd
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.StringResource
 import org.koin.compose.koinInject
@@ -69,6 +71,7 @@ data class TopLevelNavItem(
 enum class TopLevelNavIcon {
     Home,
     Discover,
+    Requests,
     Library,
     Find,
     Downloads,
@@ -93,6 +96,12 @@ val TopLevelNavItems =
             label = Res.string.nav_discover,
             contentDescription = Res.string.nav_discover_cd,
             icon = TopLevelNavIcon.Discover,
+        ),
+        TopLevelNavItem(
+            route = Routes.Requests,
+            label = Res.string.nav_requests,
+            contentDescription = Res.string.nav_requests_cd,
+            icon = TopLevelNavIcon.Requests,
         ),
         TopLevelNavItem(
             route = Routes.Find,

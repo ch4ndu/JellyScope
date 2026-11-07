@@ -61,6 +61,7 @@ import com.jellyscope.tv.ui.TvPlayerScreen
 import com.jellyscope.tv.ui.TvRailDestination
 import com.jellyscope.tv.ui.TvRailTarget
 import com.jellyscope.tv.ui.TvRouteScope
+import com.jellyscope.tv.ui.TvSeerrScreen
 import com.jellyscope.tv.ui.TvSettingsBackdrop
 import com.jellyscope.tv.ui.TvSettingsDetailDialog
 import com.jellyscope.tv.ui.TvSettingsScreen
@@ -84,6 +85,7 @@ import com.jellyscope.ui.screen.home.HomeViewModel
 import com.jellyscope.ui.screen.library.LibraryBrowseViewModel
 import com.jellyscope.ui.screen.library.LibraryHubViewModel
 import com.jellyscope.ui.screen.player.PlayerLaunchOptions
+import com.jellyscope.ui.screen.seerr.SeerrViewModel
 import com.jellyscope.ui.theme.LocalAppBackgroundBrush
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -121,6 +123,7 @@ internal fun TvLoggedInApp(
     val libraryStateHolder = rememberSaveableStateHolder()
     val findStateHolder = rememberSaveableStateHolder()
     val discoverStateHolder = rememberSaveableStateHolder()
+    val requestsStateHolder = rememberSaveableStateHolder()
     val downloadsStateHolder = rememberSaveableStateHolder()
     var route by rememberSaveable { mutableStateOf(TvRoute.Home.name) }
     var routeHistory by rememberSaveable { mutableStateOf(TvRouteHistory()) }
@@ -367,6 +370,7 @@ internal fun TvLoggedInApp(
                     homeStateHolder.removeState("home")
                 }
                 TvRoute.Discover -> discoverStateHolder.removeState("discover")
+                TvRoute.Requests -> requestsStateHolder.removeState("requests")
                 TvRoute.Favorites -> libraryStateHolder.removeState("favorites")
                 TvRoute.Find -> findStateHolder.removeState("find")
                 TvRoute.Downloads -> downloadsStateHolder.removeState("downloads")
@@ -685,6 +689,7 @@ internal fun TvLoggedInApp(
         when (target) {
             TvRailTarget.Find -> selectTopLevelRoute(TvRoute.Find, TvRailSelectionOrigin.Rail)
             TvRailTarget.Discover -> selectTopLevelRoute(TvRoute.Discover, TvRailSelectionOrigin.Rail)
+            TvRailTarget.Requests -> selectTopLevelRoute(TvRoute.Requests, TvRailSelectionOrigin.Rail)
             TvRailTarget.Favorites -> selectTopLevelRoute(TvRoute.Favorites, TvRailSelectionOrigin.Rail)
             TvRailTarget.Home -> selectTopLevelRoute(TvRoute.Home, TvRailSelectionOrigin.Rail)
             TvRailTarget.Downloads -> selectTopLevelRoute(TvRoute.Downloads, TvRailSelectionOrigin.Rail)
@@ -1039,6 +1044,30 @@ internal fun TvLoggedInApp(
                                     }
                                 }
                             }
+                            animatedRoute == TvRoute.Requests.name -> {
+                                requestsStateHolder.SaveableStateProvider(
+                                    tvPresentationStateKey("requests", renderKey, focusCoordinator.presentationEpoch),
+                                ) {
+                                    TvRouteScope(key = "requests") {
+                                        TvSeerrScreen(
+                                            viewModel =
+                                                koinViewModel<SeerrViewModel>(
+                                                    viewModelStoreOwner = topLevelViewModelStoreOwner,
+                                                    key = tvTopLevelViewModelKey(session, "requests-$boundaryEpoch"),
+                                                    parameters = { parametersOf(session, boundaryEpoch) },
+                                                ),
+                                            onBack = { requestRailFocus() },
+                                            onOpenLibrary = { item ->
+                                                when (item.kind) {
+                                                    MediaKind.Series -> openTvItem(item.itemId, MediaCardKind.Series)
+                                                    MediaKind.Movie -> openTvItem(item.itemId, MediaCardKind.Movie)
+                                                    else -> Unit
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
                             animatedRoute == TvRoute.Find.name -> {
                                 findStateHolder.SaveableStateProvider(
                                     tvPresentationStateKey("find", renderKey, focusCoordinator.presentationEpoch),
@@ -1353,6 +1382,7 @@ internal fun TvLoggedInApp(
                     selected = selectedRailDestination,
                     onSearchSelected = { selectRailTarget(TvRailTarget.Find) },
                     onDiscoverSelected = { selectRailTarget(TvRailTarget.Discover) },
+                    onRequestsSelected = { selectRailTarget(TvRailTarget.Requests) },
                     onFavoritesSelected = { selectRailTarget(TvRailTarget.Favorites) },
                     onHomeSelected = { selectRailTarget(TvRailTarget.Home) },
                     onDownloadsSelected = { selectRailTarget(TvRailTarget.Downloads) },

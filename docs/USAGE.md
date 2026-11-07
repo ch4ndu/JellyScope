@@ -4,6 +4,7 @@ Choose a task. Android TV here also includes Google TV and Fire TV; Apple TV
 has a separate, unsupported preview with different behavior.
 
 - [Getting started](user/getting-started.md): installation, accounts, versions and Kids viewing.
+- [Seerr requests](user/seerr.md): connect, discover titles and request movies or seasons.
 - [Downloads](user/downloads.md): storage, offline playback and background limits.
 - [Playback](user/playback.md): player choice, quality, queues and controls.
 - [Audio and subtitles](user/subtitles.md): tracks, local assets and OpenSubtitles.

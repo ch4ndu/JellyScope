@@ -103,7 +103,7 @@ This contract applies to Android TV.
 
 ## Navigation drawer contract (all screens with the drawer)
 
-- The drawer appears on Home, Discover, Find, Favorites, Settings, enabled
+- The drawer appears on Home, Discover, Requests, Find, Favorites, Settings, enabled
   Downloads, and Library browse. Detail, Series, Season, Grid/View All,
   Collection, Person, and FilteredLibrary are nested and fill the width.
 - Nested navigation uses a saveable LIFO of payload snapshots. Each Detail,
@@ -113,7 +113,7 @@ This contract applies to Android TV.
   rows keep the 48 dp collapsed and 180 dp expanded footprint. Do not add
   per-screen rails.
 - With download permission, order is Search, Home, Favorites, Downloads, user
-  libraries, Discover, Settings; otherwise omit Downloads and its ordinary
+  libraries, Discover, Requests, Settings; otherwise omit Downloads and its ordinary
   route. The list scrolls as one column, including Settings. Search opens Find,
   Favorites opens favorite-filtered Library, and library items keep the drawer
   while marking the current library.

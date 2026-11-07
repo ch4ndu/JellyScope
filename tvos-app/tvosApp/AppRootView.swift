@@ -12,7 +12,7 @@ struct AppRootView: View {
             if sessionModel.state.phase == .restoring {
                 ProgressView()
             } else if let session = sessionModel.state.session, sessionModel.state.phase == .loggedin {
-                MainTabView(session: session)
+                MainTabView(session: session, boundaryEpoch: sessionModel.state.boundaryEpoch)
                     .id(sessionScopeKey(session, epoch: sessionModel.state.boundaryEpoch))
             } else {
                 LoginFlowView()

@@ -34,6 +34,7 @@ import com.jellyscope.ui.screen.player.PendingPlayerController
 import com.jellyscope.ui.screen.player.PlaybackSelectionMemory
 import com.jellyscope.ui.screen.player.PlayerLaunchOptions
 import com.jellyscope.ui.screen.player.PlayerViewModel
+import com.jellyscope.ui.screen.seerr.SeerrViewModel
 import com.jellyscope.ui.screen.serverentry.ServerEntryViewModel
 import com.jellyscope.ui.screen.settings.SettingsViewModel
 import org.koin.core.module.dsl.viewModel
@@ -92,6 +93,28 @@ val sharedUiModule =
                 getRecentlyAddedUseCase = get(),
                 getFavoritesUseCase = get(),
                 imageUrlBuilder = get(),
+            )
+        }
+        viewModel { (session: Session, boundaryEpoch: Long) ->
+            SeerrViewModel(
+                session = session,
+                boundaryEpoch = boundaryEpoch,
+                getConnection = get(),
+                getCatalog = get(),
+                getDetail = get(),
+                getRequests = get(),
+                resolveLibraryItem = get(),
+                validatePublication = get(),
+                validateService = get(),
+                restoreConnection = get(),
+                connect = get(),
+                beginQuickConnect = get(),
+                completeQuickConnect = get(),
+                cancelAuthentication = get(),
+                disconnect = get(),
+                requestMedia = get(),
+                reconcileRequest = get(),
+                observeSessionState = get(),
             )
         }
         viewModel { (session: Session) ->

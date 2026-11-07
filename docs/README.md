@@ -18,7 +18,7 @@ owns audience, size and migration policy.
 | [launcher plugin](launcher/plugin-reference.md) | Server schema, editor persistence and permission projection |
 | [architecture](engineering/architecture.md) | Layers, state, DI, source sets and platform bridges |
 | [accounts-and-persistence](engineering/accounts-and-persistence.md) | Credentials, account boundaries, settings and durable state |
-| [api-and-caching](engineering/api-and-caching.md) | Jellyfin requests, projections, discovery and caches |
+| [api-and-caching](engineering/api-and-caching.md) | Jellyfin and Seerr requests, projections, discovery and caches |
 | [playback-architecture](engineering/playback-architecture.md) | Playback pipeline and platform ownership |
 | [playback-policy](engineering/playback-policy.md) | Quality, capabilities, wire profiles and server evidence |
 | [playback-runtime](engineering/playback-runtime.md) | Session installation, activation, reporting and recovery |

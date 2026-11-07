@@ -81,6 +81,61 @@ export boundary.
 - Any future SDK adoption must remain behind the same repository boundary and
   satisfy target-support, API-compatibility, and licensing constraints.
 
+## Seerr requests
+
+Seerr is an optional, separate service targeting the v3.5.1 API. `SeerrApi` in
+`transport` owns its DTOs and protocol; `DefaultSeerrRepository` in `shared-core`
+owns account/connection authority, request policy and verified library handoff.
+Presentation consumes domain models through individual UseCases/Actions. Setup
+and supported user flows are in the [Seerr guide](../user/seerr.md).
+
+- Use the dedicated nonlogging client with redirects disabled. Jellyfin tokens,
+  authorization headers, API keys and administrator impersonation never enter
+  Seerr requests. Editing the destination invalidates authentication eligibility
+  and clears transient credentials until that destination is validated again.
+  Cookies belong to one validated origin and deployment subpath;
+  rejected redirects cannot replace them. Bootstrap CSRF protection and send the
+  current token on unsafe methods. Secure cookies require HTTPS; never weaken
+  cookie or server protection to make HTTP work.
+- `/auth/me` verifies login and restore. Its 401/403 proves expiry; an ambiguous
+  403 elsewhere gets one guarded `/auth/me` probe. Valid-session permission or
+  quota denial preserves the connection, and an unavailable probe remains an
+  actionable verification failure. Do not replay the original mutation.
+- Every operation captures account, boundary epoch and connection generation.
+  Cookie persistence, content publication and library navigation revalidate
+  that authority. Restricted Jellyfin accounts cannot read or request the
+  external catalog. Observe live parental policy, including same-epoch changes,
+  and clear external content and pending confirmations when restricted.
+- Discover/search advances by the server's page metadata; My Requests advances
+  by received server offsets. Deduplication does not change transport progress.
+  My Requests always uses the authenticated Seerr user and hydrates metadata
+  only for the bounded received page.
+- Admission uses selected-quality availability, active requests, server
+  capabilities, permissions and quota. Standard and 4K grants are independent;
+  4K also requires server configuration. TV requests use explicit returned
+  seasons; specials require the server setting. Partial seasons and active
+  failed requests block another request; completed history alone does not block
+  content that has since been deleted. Unknown metadata fails conservatively.
+- Valid quota objects with `restricted=false` and no `limit` or `remaining`
+  represent unlimited quota; explicit zero limits do likewise. Missing,
+  malformed or failed quota is unavailable. A movie consumes one unit; TV
+  consumes the selected eligible season count.
+- Send only media type, TMDB identity, quality and explicit TV seasons. Server
+  acquisition defaults and approval policy remain authoritative. Valid 201
+  responses establish creation, including a valid nonempty subset of submitted
+  TV seasons; retain the actual returned seasons. Empty or unrequested-season
+  results remain uncertain. 202 `NoSeasonsAvailable` is non-creation.
+  Lost or malformed success responses retain an uncertain intent until read
+  reconciliation. Never queue, automatically retry or silently resend requests.
+- Seerr's Jellyfin item ID is a candidate only. Resolve it for the active
+  Jellyfin user and verify exact TMDB identity and Movie/Series kind before
+  opening the normal library route. Missing or inaccessible matches stay
+  unavailable; do not match titles, open external media URLs or start playback
+  from an external identifier. Selecting an existing standard or 4K library copy
+  does not depend on request permission or acquisition configuration. Artwork
+  uses validated public TMDB URLs without
+  Jellyfin image credentials.
+
 ## Collection and Person pagination
 
 Collection and Person advance by the server response's received row count,
@@ -243,6 +298,12 @@ its cache key. Remote keys are versioned to exclude older cached fallback bytes.
 See the dedicated [launcher data and artwork contract](../launcher/engineering.md#android-launcher-queries-and-artwork).
 
 ## Why
+
+- Seerr has independent credentials, permissions and identity. Origin isolation
+  prevents credential crossover; guarded publication prevents retired work from
+  reaching another account. Read reconciliation avoids duplicating a request
+  whose response was lost, and exact library matching keeps availability separate
+  from access to the current Jellyfin server.
 
 - **Transport progress is independent of presentation.** Dropped or repeated rows
   must not shift the next server offset or duplicate lazy keys. Bounded empty-page

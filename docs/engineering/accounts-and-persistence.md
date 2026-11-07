@@ -33,6 +33,26 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   desktop uses the existing file preferences store. Missing or unknown values
   resolve to High; settings writes use the existing serialized preference path.
 
+## Seerr connection lifecycle
+
+`SeerrSessionStore` uses the existing `SecureStore` with one record per
+`AccountIdentity`; it inherits the platform storage guarantees above, including
+plaintext Apple-family storage. Records hold the validated service address and
+session cookies, never passwords or Quick Connect secrets. Seerr protocol and
+admission rules belong to [API and caching](api-and-caching.md#seerr-requests).
+
+`DefaultSeerrRepository` registers runtime state with the account boundary
+registry. Switching accounts retires the in-memory connection; returning restores
+only that account's saved connection and verifies it with Seerr. Disconnect
+invalidates its generation and deletes the local record; remote sign-out is best
+effort. Old responses cannot restore cookies after disconnect or replacement.
+
+`PersistentAccountStoreCleaner` receives the Seerr store explicitly so cold
+logout also removes secondary credentials before clearing `logoutPending`.
+Failed secondary cleanup leaves the marker for retry, even if the primary
+session envelope was already cleared. Account removal deletes that account's
+Seerr record; full logout clears every record.
+
 ## Persistence and account isolation
 
 `storage` owns ordinary file/preferences stores and Room databases, schemas and
@@ -51,7 +71,7 @@ this module boundary does not change cleanup ordering or credential authority.
   `~/.jellyscope/secure-store.json`. These Apple-family stores accept lower
   at-rest security to avoid application-triggered Keychain prompts. Readable
   app storage, backups, or copied files may expose Jellyfin access tokens,
-  account/device/logout state, and the OpenSubtitles API key and preference;
+  account/device/logout state, Seerr session cookies, and the OpenSubtitles API key and preference;
   passwords are not persisted. Application credentials must never be written
   to, read from, migrated from, or cleaned up through Apple Keychain or
   Security.framework. Existing Keychain entries are intentionally ignored;
@@ -257,6 +277,10 @@ this module boundary does not change cleanup ordering or credential authority.
 See the dedicated [launcher persistence contract](../launcher/engineering.md#independent-android-launcher-state).
 
 ## Why
+
+- Secondary credentials participate in cold cleanup before the pending marker is
+  cleared. Otherwise a partially successful logout could leave an independently
+  authenticated Seerr session available after restart.
 
 ### Persistence and transfer recovery
 

@@ -19,6 +19,8 @@ is **0.1.0-alpha94**.
   multiple accounts
 - Home, library browse, search, recommendations, Discover, people, and detailed
   movie/show/episode pages with versions, cast, trailers, chapters, and skipping
+- Optional [Seerr integration](docs/user/seerr.md) for discovering external movies
+  and shows, requesting eligible titles or seasons, and following your requests
 - Direct play, audio-only conversion, or transcoding based on the selected
   player, quality, source, tracks, and device capabilities
 - Selectable players on Android, iOS, macOS, and the Apple TV preview, including

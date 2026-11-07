@@ -5,8 +5,9 @@ import SharedTv
 
 struct MainTabView: View {
     let session: Session
+    let boundaryEpoch: Int64
     private enum Tab: Hashable {
-        case home, favorites, libraries, search, downloads, settings
+        case home, favorites, libraries, search, requests, downloads, settings
     }
 
     @State private var selectedTab: Tab = .home
@@ -14,6 +15,7 @@ struct MainTabView: View {
     @State private var favoritesPath = NavigationPath()
     @State private var librariesPath = NavigationPath()
     @State private var searchPath = NavigationPath()
+    @State private var requestsPath = NavigationPath()
     @State private var downloadsPath = NavigationPath()
 
     var body: some View {
@@ -63,6 +65,13 @@ struct MainTabView: View {
             }
             .tabItem { Label("Search", systemImage: "magnifyingglass") }
             .tag(Tab.search)
+
+            NavigationStack(path: $requestsPath) {
+                SeerrView(session: session, boundaryEpoch: boundaryEpoch, path: $requestsPath)
+                    .mediaDestinations(session: session, path: $requestsPath, onOpenPlaybackSettings: openPlaybackSettings)
+            }
+            .tabItem { Label(SeerrCopy.text("seerr.title"), systemImage: "text.badge.plus") }
+            .tag(Tab.requests)
 
             NavigationStack(path: $downloadsPath) {
                 DownloadsView(session: session) { downloadId, restart in

@@ -16,6 +16,7 @@ import com.jellyscope.core.data.local.PlaybackSelectionStore
 import com.jellyscope.core.data.local.PlaybackTimingStore
 import com.jellyscope.core.data.local.PlayerDeviceSettingsStore
 import com.jellyscope.core.data.local.PreviousRunFailureStore
+import com.jellyscope.core.data.local.SeerrSessionStore
 import com.jellyscope.core.data.local.ServerScopedStoreRegistry
 import com.jellyscope.core.data.local.SessionStore
 import com.jellyscope.core.data.local.SubtitleSelectionStore
@@ -27,6 +28,7 @@ import com.jellyscope.core.data.remote.JellyfinApi
 import com.jellyscope.core.data.remote.JellyfinClientFactory
 import com.jellyscope.core.data.remote.KtorJellyfinApi
 import com.jellyscope.core.data.remote.OpenSubtitlesApi
+import com.jellyscope.core.data.remote.SeerrApi
 import com.jellyscope.core.data.remote.SessionAuthHeaderProvider
 import com.jellyscope.core.data.repository.AuthRepository
 import com.jellyscope.core.data.repository.CoordinatedSubtitleSelectionStore
@@ -35,6 +37,7 @@ import com.jellyscope.core.data.repository.DefaultLocalSubtitleSyncRepository
 import com.jellyscope.core.data.repository.DefaultMediaRepository
 import com.jellyscope.core.data.repository.DefaultOpenSubtitlesRepository
 import com.jellyscope.core.data.repository.DefaultPlaybackProgressReporter
+import com.jellyscope.core.data.repository.DefaultSeerrRepository
 import com.jellyscope.core.data.repository.DefaultSessionRepository
 import com.jellyscope.core.data.repository.DownloadRepository
 import com.jellyscope.core.data.repository.JellyfinLocalSubtitleSyncApi
@@ -47,23 +50,32 @@ import com.jellyscope.core.data.repository.MediaRepository
 import com.jellyscope.core.data.repository.NoOpSessionBoundaryParticipant
 import com.jellyscope.core.data.repository.OpenSubtitlesRepository
 import com.jellyscope.core.data.repository.RoutingPlaybackProgressReporter
+import com.jellyscope.core.data.repository.SeerrRepository
 import com.jellyscope.core.data.repository.SessionBoundaryParticipant
 import com.jellyscope.core.data.repository.SessionRepository
 import com.jellyscope.core.data.repository.SessionTransitionCoordinator
 import com.jellyscope.core.domain.action.AddAccountAction
 import com.jellyscope.core.domain.action.AddRecentSearchAction
+import com.jellyscope.core.domain.action.BeginSeerrQuickConnectAction
+import com.jellyscope.core.domain.action.CancelSeerrAuthenticationAction
 import com.jellyscope.core.domain.action.ClearLocalSubtitlesAction
 import com.jellyscope.core.domain.action.ClearRecentSearchesAction
+import com.jellyscope.core.domain.action.CompleteSeerrQuickConnectAction
+import com.jellyscope.core.domain.action.ConnectSeerrAction
 import com.jellyscope.core.domain.action.DeleteLocalSubtitleAction
 import com.jellyscope.core.domain.action.DeletePlaybackSelectionAction
 import com.jellyscope.core.domain.action.DeletePlayerBackendOverrideAction
+import com.jellyscope.core.domain.action.DisconnectSeerrAction
 import com.jellyscope.core.domain.action.DownloadAndInstallOpenSubtitleAction
 import com.jellyscope.core.domain.action.InstallLocalSubtitleAction
 import com.jellyscope.core.domain.action.LoginAction
 import com.jellyscope.core.domain.action.LogoutAction
 import com.jellyscope.core.domain.action.PreparePlaybackTimelineAction
 import com.jellyscope.core.domain.action.QuickConnectLoginAction
+import com.jellyscope.core.domain.action.ReconcileSeerrRequestAction
 import com.jellyscope.core.domain.action.RefreshParentalRatingAction
+import com.jellyscope.core.domain.action.RequestSeerrMediaAction
+import com.jellyscope.core.domain.action.RestoreSeerrConnectionAction
 import com.jellyscope.core.domain.action.RetryLocalSubtitleSyncAction
 import com.jellyscope.core.domain.action.SavePlaybackPreferencesAction
 import com.jellyscope.core.domain.action.SavePlaybackSelectionAction
@@ -92,6 +104,7 @@ import com.jellyscope.core.domain.action.SetTileSizeAction
 import com.jellyscope.core.domain.action.SetVerboseLogcatEnabledAction
 import com.jellyscope.core.domain.action.SignOutAccountAction
 import com.jellyscope.core.domain.action.SwitchAccountAction
+import com.jellyscope.core.domain.action.ValidateSeerrServiceAction
 import com.jellyscope.core.domain.action.ValidateServerAction
 import com.jellyscope.core.domain.discovery.ServerDiscovery
 import com.jellyscope.core.domain.model.JellyfinImageUrlBuilder
@@ -143,6 +156,11 @@ import com.jellyscope.core.domain.usecase.GetRelatedItemsUseCase
 import com.jellyscope.core.domain.usecase.GetRibbonItemsUseCase
 import com.jellyscope.core.domain.usecase.GetSavedLibraryViewUseCase
 import com.jellyscope.core.domain.usecase.GetSeasonEpisodesUseCase
+import com.jellyscope.core.domain.usecase.GetSeerrCatalogUseCase
+import com.jellyscope.core.domain.usecase.GetSeerrConnectionUseCase
+import com.jellyscope.core.domain.usecase.GetSeerrDetailUseCase
+import com.jellyscope.core.domain.usecase.GetSeerrQuotaUseCase
+import com.jellyscope.core.domain.usecase.GetSeerrRequestsUseCase
 import com.jellyscope.core.domain.usecase.GetSeriesSeasonsUseCase
 import com.jellyscope.core.domain.usecase.GetStudioItemsUseCase
 import com.jellyscope.core.domain.usecase.GetStudiosUseCase
@@ -164,8 +182,10 @@ import com.jellyscope.core.domain.usecase.ObserveRememberLastLibraryViewUseCase
 import com.jellyscope.core.domain.usecase.ObserveSessionStateUseCase
 import com.jellyscope.core.domain.usecase.ObserveTileSizeUseCase
 import com.jellyscope.core.domain.usecase.RefreshPlayerDevicePolicyUseCase
+import com.jellyscope.core.domain.usecase.ResolveSeerrLibraryItemUseCase
 import com.jellyscope.core.domain.usecase.SearchLibraryUseCase
 import com.jellyscope.core.domain.usecase.SearchOpenSubtitlesUseCase
+import com.jellyscope.core.domain.usecase.ValidateSeerrPublicationUseCase
 import com.jellyscope.core.playback.PlaybackDiagnosticsContext
 import com.jellyscope.core.playback.PlaybackStopSettlementRegistry
 import com.jellyscope.core.util.LogBufferStore
@@ -175,6 +195,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.Json
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 
 internal val downloadTransferClientQualifier = named("DownloadTransfer")
 val coreModule =
@@ -192,6 +213,20 @@ val coreModule =
         }
         single<HttpClient>(named("OpenSubtitlesDownload")) {
             JellyfinClientFactory(enableHttpLogging = false).create(followRedirects = false)
+        }
+        single<HttpClient>(named("SeerrApi")) {
+            JellyfinClientFactory(enableHttpLogging = false).create(followRedirects = false)
+        } onClose { client -> client?.close() }
+        single { SeerrApi(client = get(named("SeerrApi")), json = get()) }
+        single { SeerrSessionStore(secureStore = get(), json = get()) }
+        single<SeerrRepository> {
+            DefaultSeerrRepository(
+                api = get(),
+                store = get(),
+                sessions = get(),
+                registry = get(),
+                mediaRepository = get(),
+            )
         }
         single { OpenSubtitlesSettingsStore(secureStore = get()) }
         single {
@@ -291,6 +326,7 @@ val coreModule =
                 gridSortStore = get(),
                 playbackSelectionStore = get(),
                 playbackTimingStore = get(),
+                seerrSessionStore = get(),
             )
         }
         single {
@@ -401,6 +437,22 @@ val coreModule =
         single { GetItemsByIdsUseCase(mediaRepository = get()) }
         single { SearchLibraryUseCase(mediaRepository = get()) }
         single { FindPersonsUseCase(mediaRepository = get()) }
+        single { GetSeerrConnectionUseCase(repository = get()) }
+        single { GetSeerrCatalogUseCase(repository = get()) }
+        single { GetSeerrDetailUseCase(repository = get()) }
+        single { GetSeerrRequestsUseCase(repository = get()) }
+        single { GetSeerrQuotaUseCase(repository = get()) }
+        single { ResolveSeerrLibraryItemUseCase(repository = get()) }
+        single { ValidateSeerrPublicationUseCase(repository = get()) }
+        single { ValidateSeerrServiceAction(repository = get()) }
+        single { RestoreSeerrConnectionAction(repository = get()) }
+        single { ConnectSeerrAction(repository = get()) }
+        single { BeginSeerrQuickConnectAction(repository = get()) }
+        single { CompleteSeerrQuickConnectAction(repository = get()) }
+        single { CancelSeerrAuthenticationAction(repository = get()) }
+        single { DisconnectSeerrAction(repository = get()) }
+        single { RequestSeerrMediaAction(repository = get()) }
+        single { ReconcileSeerrRequestAction(repository = get()) }
         single { SearchOpenSubtitlesUseCase(repository = get()) }
         single { DownloadOpenSubtitleUseCase(repository = get()) }
         single { DiscoverServersUseCase(serverDiscovery = get()) }

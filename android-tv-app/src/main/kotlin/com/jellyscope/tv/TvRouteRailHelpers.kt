@@ -15,6 +15,7 @@ internal fun isTvRailRoute(
 ): Boolean =
     route == TvRoute.Home.name ||
         route == TvRoute.Discover.name ||
+        route == TvRoute.Requests.name ||
         route == TvRoute.Find.name ||
         route == TvRoute.Favorites.name ||
         (route == TvRoute.Downloads.name && enableContentDownloading) ||
@@ -28,6 +29,7 @@ internal fun selectedTvRailDestination(
     when (route) {
         TvRoute.Home.name -> TvRailDestination.Home
         TvRoute.Discover.name -> TvRailDestination.Discover
+        TvRoute.Requests.name -> TvRailDestination.Requests
         TvRoute.Find.name -> TvRailDestination.Find
         TvRoute.Favorites.name -> TvRailDestination.Favorites
         TvRoute.Downloads.name -> TvRailDestination.Downloads.takeIf { enableContentDownloading }
