@@ -28,10 +28,12 @@ import com.jellyscope.core.domain.model.SeerrResult
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.model.isFullyAvailable
 import com.jellyscope.core.domain.usecase.GetSeerrCatalogUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrConnectionUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrDetailUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrRequestsUseCase
+import com.jellyscope.core.domain.usecase.GetSeerrSimilarUseCase
 import com.jellyscope.core.domain.usecase.ObserveSessionStateUseCase
 import com.jellyscope.core.domain.usecase.ResolveSeerrLibraryItemUseCase
 import com.jellyscope.core.domain.usecase.ValidateSeerrPublicationUseCase
@@ -64,6 +66,7 @@ class TvSeerrPresenter(
     private val getCatalog: GetSeerrCatalogUseCase,
     private val getRequests: GetSeerrRequestsUseCase,
     private val getDetail: GetSeerrDetailUseCase,
+    private val getSimilar: GetSeerrSimilarUseCase,
     private val requestMedia: RequestSeerrMediaAction,
     private val reconcileRequest: ReconcileSeerrRequestAction,
     private val resolveLibraryItem: ResolveSeerrLibraryItemUseCase,
@@ -89,6 +92,7 @@ class TvSeerrPresenter(
     private var managementGeneration = 0L
     private var listGeneration = 0L
     private var detailGeneration = 0L
+    private var resolvingLibrary = false
     private var libraryGeneration = 0L
     private var effectSequence = 0L
     private var pendingLibrary: PendingSeerrLibrary? = null
@@ -101,6 +105,12 @@ class TvSeerrPresenter(
     private var detailKey: SeerrMediaKey? = null
     private var quality = SeerrQuality.Standard
     private var selectedSeasons = emptySet<Int>()
+    private var relatedJob: Job? = null
+    private var relatedRevision = 0L
+    private var entrySequence = 0L
+    private var hideAvailable = true
+    private val history = mutableListOf<SeerrDetailSnapshot>()
+    private var visible = false
     private var closed = false
 
     init {
@@ -138,6 +148,37 @@ class TvSeerrPresenter(
     fun accept(intent: TvSeerrIntent) {
         if (closed || !state.value.ownerValid) return
         when (intent) {
+            TvSeerrIntent.Visible -> {
+                visible = true
+                refreshRelatedAdmission()
+                if (state.value.detail?.relatedPhase == TvSeerrRelatedPhase.NotAttempted) loadRelated()
+            }
+            TvSeerrIntent.ToggleHideAvailable -> {
+                if (detailKey != null ||
+                    state.value.section != TvSeerrSection.Discover ||
+                    state.value.browse.catalog == SeerrCatalog.Search
+                ) {
+                    return
+                }
+                hideAvailable = !hideAvailable
+                reprojectCards(resetFocus = true)
+            }
+            is TvSeerrIntent.OpenSimilar -> openSimilar(intent.id)
+            TvSeerrIntent.RetrySimilar -> loadRelated()
+            is TvSeerrIntent.RememberPosition ->
+                state.value.detail?.let {
+                    val next =
+                        when (intent.section) {
+                            "vertical" -> it.copy(verticalAnchor = intent.id)
+                            "seasons" -> it.copy(seasonAnchor = intent.id)
+                            "cast" -> it.copy(castAnchor = intent.id)
+                            "similar" -> it.copy(similarAnchor = intent.id)
+                            else -> return
+                        }
+                    reduce(TvSeerrChange.Detail(next))
+                }
+            is TvSeerrIntent.FocusDetail -> state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(focusedId = intent.id))) }
+
             is TvSeerrIntent.SelectSection -> selectSection(intent.section)
             is TvSeerrIntent.SelectCatalog -> selectCatalog(intent.catalog, "")
             is TvSeerrIntent.Search -> selectCatalog(SeerrCatalog.Search, intent.query.trim())
@@ -160,6 +201,8 @@ class TvSeerrPresenter(
             TvSeerrIntent.RestoreConnection -> loadConnection(restore = true)
             TvSeerrIntent.Disconnect -> disconnectConnection()
             TvSeerrIntent.Hidden -> {
+                visible = false
+                cancelRelated()
                 cancelLibrary()
                 if (authToken != null) cancelAuth()
             }
@@ -173,15 +216,25 @@ class TvSeerrPresenter(
     ) {
         val pending = pendingLibrary?.takeIf { it.id == id } ?: return
         pendingLibrary = null
+        resolvingLibrary = true
+        state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(resolvingLibrary = true, relatedEnabled = false))) }
         libraryJob =
             scope.launch {
-                validatePublication.publish(pending.token) {
-                    if (canShowCatalog() &&
-                        pending.generation == libraryGeneration &&
-                        detailKey == pending.item.key &&
-                        token == pending.token
-                    ) {
-                        onNavigate(pending.item.itemId)
+                try {
+                    validatePublication.publish(pending.token) {
+                        if (canShowCatalog() &&
+                            pending.generation == libraryGeneration &&
+                            detailKey == pending.item.key &&
+                            token == pending.token
+                        ) {
+                            onNavigate(pending.item.itemId)
+                        }
+                    }
+                } finally {
+                    if (pending.generation == libraryGeneration) {
+                        resolvingLibrary = false
+                        state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(resolvingLibrary = false))) }
+                        refreshRelatedAdmission()
                     }
                 }
             }
@@ -194,6 +247,7 @@ class TvSeerrPresenter(
     private fun setMutation(value: TvSeerrMutation) {
         mutation = value
         reduce(TvSeerrChange.Confirmation(value.confirmation))
+        state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(relatedEnabled = relatedAllowed()))) }
     }
 
     private fun ownerMatches(): Boolean {
@@ -225,11 +279,14 @@ class TvSeerrPresenter(
     private fun cancelLibrary() {
         libraryGeneration += 1
         libraryJob?.cancel()
+        resolvingLibrary = false
         pendingLibrary = null
         state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(resolvingLibrary = false))) }
+        refreshRelatedAdmission()
     }
 
     private fun cancelReads() {
+        cancelRelated()
         listGeneration += 1
         detailGeneration += 1
         listJob?.cancel()
@@ -238,6 +295,7 @@ class TvSeerrPresenter(
     }
 
     private fun clearContent() {
+        history.clear()
         cancelReads()
         mutationJob?.cancel()
         cards = emptyList()
@@ -499,6 +557,7 @@ class TvSeerrPresenter(
     }
 
     private fun selectSection(section: TvSeerrSection) {
+        if (mutation !is TvSeerrMutation.Submitting) history.clear()
         if (mutation is TvSeerrMutation.Submitting) return
         if (section == state.value.section) {
             if (detailKey != null) back()
@@ -525,6 +584,7 @@ class TvSeerrPresenter(
     ) {
         if (mutation is TvSeerrMutation.Submitting || !canShowCatalog()) return
         cancelReads()
+        history.clear()
         detailKey = null
         detail = null
         detailAdmitted = false
@@ -532,7 +592,7 @@ class TvSeerrPresenter(
         requests = emptyList()
         mutation = TvSeerrMutation.None
         reduce(TvSeerrChange.Section(TvSeerrSection.Discover))
-        reduce(TvSeerrChange.Browse(TvSeerrBrowseState(catalog = catalog, query = query)))
+        reduce(TvSeerrChange.Browse(TvSeerrBrowseState(catalog = catalog, query = query, hideAvailable = hideAvailable)))
         loadList(append = false)
     }
 
@@ -585,12 +645,12 @@ class TvSeerrPresenter(
         cards = ((if (append) cards else emptyList()) + incoming).distinctBy { it.key }
         page = currentPage
         nextSkip = skip
-        val requestsByMedia = requests.groupBy { it.key }
-        val projected = cards.map { card -> card.toTvSeerr(requestsByMedia[card.key].orEmpty()) }
+        val projected = projectCards()
         val currentFocus = state.value.browse.focusedCardId
         reduce(
             TvSeerrChange.Browse(
                 state.value.browse.copy(
+                    hideAvailable = hideAvailable,
                     cards = projected,
                     loading = false,
                     loaded = true,
@@ -602,13 +662,31 @@ class TvSeerrPresenter(
         )
     }
 
+    private fun projectCards(): List<TvSeerrCard> {
+        val requestsByMedia = requests.groupBy { it.key }
+        return if (state.value.section == TvSeerrSection.Requests) {
+            requests.mapNotNull { request ->
+                cards.firstOrNull { it.key == request.key }?.toTvSeerr(listOf(request))?.copy(id = "request:${request.id}")
+            }
+        } else {
+            cards
+                .filterNot { hideAvailable && state.value.browse.catalog != SeerrCatalog.Search && it.isFullyAvailable() }
+                .map { card -> card.toTvSeerr(requestsByMedia[card.key].orEmpty()) }
+        }
+    }
+
     private fun listFailure(key: String) {
         reduce(TvSeerrChange.Browse(state.value.browse.copy(loading = false, errorKey = key)))
     }
 
     private fun openDetail(id: String) {
-        if (!canShowCatalog() || mutation is TvSeerrMutation.Submitting) return
-        val card = cards.firstOrNull { it.key.stableId() == id } ?: return
+        if (!canShowCatalog() || detailKey != null || mutation is TvSeerrMutation.Submitting) return
+        val visible =
+            state.value.browse.cards
+                .firstOrNull { it.id == id } ?: return
+        val key = visible.requests.singleOrNull()?.let { request -> requests.firstOrNull { it.id == request.id }?.key }
+        val card = cards.firstOrNull { it.key == key || it.key.stableId() == id } ?: return
+        history.clear()
         cancelReads()
         reduce(TvSeerrChange.Browse(state.value.browse.copy(loading = false, focusedCardId = id)))
         detailKey = card.key
@@ -616,7 +694,7 @@ class TvSeerrPresenter(
         detailAdmitted = false
         selectedSeasons = emptySet()
         quality = SeerrQuality.Standard
-        reduce(TvSeerrChange.Detail(TvSeerrDetailState(card.toTvSeerr())))
+        reduce(TvSeerrChange.Detail(TvSeerrDetailState(card.toTvSeerr(), entryId = ++entrySequence)))
         loadDetail()
     }
 
@@ -624,13 +702,18 @@ class TvSeerrPresenter(
         val captured = token ?: return
         val key = detailKey ?: return
         if (!canShowCatalog() || mutation is TvSeerrMutation.Submitting) return
+        cancelRelated()
         detailJob?.cancel()
         cancelLibrary()
         val generation = ++detailGeneration
         detailAdmitted = false
         setMutation(TvSeerrMutation.None)
         state.value.detail?.let {
-            reduce(TvSeerrChange.Detail(it.copy(loading = true, errorKey = null, canRequest = false, selectionEnabled = false)))
+            reduce(
+                TvSeerrChange.Detail(
+                    it.copy(loading = true, errorKey = null, canRequest = false, selectionEnabled = false, relatedEnabled = false),
+                ),
+            )
         }
         detailJob =
             scope.launch {
@@ -643,6 +726,7 @@ class TvSeerrPresenter(
                     val option = if (quality == SeerrQuality.FourK) it.fourK else it.standard
                     selectedSeasons = selectedSeasons.intersect(option.eligibleSeasonNumbers.toSet())
                     projectDetail(notice = notice)
+                    if (state.value.detail?.relatedPhase == TvSeerrRelatedPhase.NotAttempted) loadRelated()
                 }
             }
     }
@@ -659,6 +743,7 @@ class TvSeerrPresenter(
                         resolvingLibrary = false,
                         canRequest = false,
                         selectionEnabled = false,
+                        relatedEnabled = false,
                         reconciliationRequired = state.value.reconciliationRequired,
                     ),
                 ),
@@ -678,6 +763,21 @@ class TvSeerrPresenter(
         reduce(
             TvSeerrChange.Detail(
                 projected.copy(
+                    entryId = state.value.detail?.entryId ?: ++entrySequence,
+                    similar =
+                        state.value.detail
+                            ?.similar
+                            .orEmpty(),
+                    relatedPhase = state.value.detail?.relatedPhase ?: TvSeerrRelatedPhase.NotAttempted,
+                    focusedId = state.value.detail?.focusedId,
+                    verticalAnchor = state.value.detail?.verticalAnchor,
+                    seasonAnchor = state.value.detail?.seasonAnchor,
+                    castAnchor = state.value.detail?.castAnchor,
+                    similarAnchor = state.value.detail?.similarAnchor,
+                    selectedSeasonCount = selectedSeasons.size,
+                    showFourK = supportsFourK(value),
+                    resolvingLibrary = resolvingLibrary,
+                    relatedEnabled = relatedAllowed(coreLoading = false),
                     canRequest = projected.canRequest && detailAdmitted,
                     selectionEnabled = detailAdmitted,
                     noticeKey = notice,
@@ -686,7 +786,23 @@ class TvSeerrPresenter(
         )
     }
 
+    private fun supportsFourK(value: SeerrDetail): Boolean {
+        val configured =
+            if (value.media.key.type == com.jellyscope.core.domain.model.SeerrMediaType.Movie) {
+                connection?.service?.movie4kEnabled
+            } else {
+                connection?.service?.series4kEnabled
+            }
+        return (configured == true && connection?.user?.permissions?.canRequest(value.media.key.type, SeerrQuality.FourK) == true) ||
+            value.media.fourKAvailability in
+            setOf(
+                com.jellyscope.core.domain.model.SeerrAvailability.Available,
+                com.jellyscope.core.domain.model.SeerrAvailability.PartiallyAvailable,
+            )
+    }
+
     private fun selectQuality(fourK: Boolean) {
+        if (fourK && state.value.detail?.showFourK != true) return
         if (!canShowCatalog() || !detailAdmitted || state.value.detail?.loading != false || mutation.confirmation != null) return
         quality = if (fourK) SeerrQuality.FourK else SeerrQuality.Standard
         selectedSeasons = emptySet()
@@ -728,6 +844,7 @@ class TvSeerrPresenter(
         val key = detailKey ?: return
         val confirming = mutation as? TvSeerrMutation.Confirming ?: return
         if (!canShowCatalog() || state.value.detail?.canRequest != true) return
+        cancelRelated()
         val generation = detailGeneration
         val intent = confirming.intent
         setMutation(TvSeerrMutation.Submitting(intent, generation, confirming.confirmation))
@@ -799,13 +916,15 @@ class TvSeerrPresenter(
         if (!canShowCatalog() ||
             state.value.detail?.loading != false ||
             mutation.confirmation != null ||
-            state.value.detail?.resolvingLibrary == true ||
+            resolvingLibrary ||
             pendingLibrary != null
         ) {
             return
         }
+        cancelRelated()
         val generation = ++libraryGeneration
-        state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(resolvingLibrary = true, errorKey = null))) }
+        resolvingLibrary = true
+        state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(resolvingLibrary = true, relatedEnabled = false, errorKey = null))) }
         libraryJob =
             scope.launch {
                 publishResult(
@@ -813,12 +932,15 @@ class TvSeerrPresenter(
                     true,
                     { generation == libraryGeneration && key == detailKey },
                     { error ->
+                        resolvingLibrary = false
                         state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(resolvingLibrary = false, errorKey = error))) }
+                        refreshRelatedAdmission()
                     },
                 ) { item ->
                     val publication = token ?: return@publishResult
                     val id = ++effectSequence
                     pendingLibrary = PendingSeerrLibrary(id, publication, item, generation)
+                    resolvingLibrary = false
                     state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(resolvingLibrary = false))) }
                     effects.trySend(TvSeerrLibraryEffect(id))
                 }
@@ -832,14 +954,129 @@ class TvSeerrPresenter(
             setMutation(reconciling?.copy(confirming = null) ?: TvSeerrMutation.None)
         } else if (detailKey != null) {
             cancelReads()
-            detailKey = null
-            detail = null
-            detailAdmitted = false
-            selectedSeasons = emptySet()
-            reduce(TvSeerrChange.Detail(null))
+            val parent = history.removeLastOrNull()
+            if (parent == null) {
+                detailKey = null
+                detail = null
+                detailAdmitted = false
+                selectedSeasons = emptySet()
+                reduce(TvSeerrChange.Detail(null))
+            } else {
+                detailKey = parent.detail.media.key
+                detail = parent.detail
+                quality = parent.quality
+                selectedSeasons = parent.selected
+                detailAdmitted = false
+                reduce(TvSeerrChange.Detail(parent.display.copy(canRequest = false, selectionEnabled = false, relatedEnabled = false)))
+                loadDetail(notice = null)
+            }
         } else if (state.value.section == TvSeerrSection.Connection) {
             selectSection(TvSeerrSection.Discover)
         }
+    }
+
+    private fun reprojectCards(resetFocus: Boolean) {
+        val before = state.value.browse
+        val projected = projectCards()
+        reduce(
+            TvSeerrChange.Browse(
+                before.copy(
+                    hideAvailable = hideAvailable,
+                    cards = projected,
+                    focusedCardId = if (resetFocus) projected.firstOrNull()?.id else before.focusedCardId,
+                ),
+            ),
+        )
+    }
+
+    private fun refreshRelatedAdmission() {
+        state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(relatedEnabled = relatedAllowed()))) }
+    }
+
+    private fun relatedAllowed(coreLoading: Boolean = state.value.detail?.loading != false): Boolean =
+        visible &&
+            canShowCatalog() &&
+            detailAdmitted &&
+            detailKey != null &&
+            !coreLoading &&
+            mutation == TvSeerrMutation.None &&
+            !state.value.reconciliationRequired &&
+            !resolvingLibrary &&
+            pendingLibrary == null
+
+    private fun cancelRelated() {
+        relatedRevision++
+        relatedJob?.cancel()
+        relatedJob = null
+        state.value.detail?.let {
+            if (it.relatedPhase == TvSeerrRelatedPhase.Loading) {
+                reduce(TvSeerrChange.Detail(it.copy(relatedPhase = TvSeerrRelatedPhase.Interrupted)))
+            }
+        }
+    }
+
+    private fun loadRelated() {
+        val captured = token ?: return
+        val key = detailKey ?: return
+        val current = state.value.detail ?: return
+        if (!relatedAllowed() || current.relatedPhase == TvSeerrRelatedPhase.Loading || relatedJob?.isActive == true) return
+        val revision = ++relatedRevision
+        val entry = current.entryId
+        reduce(TvSeerrChange.Detail(current.copy(relatedPhase = TvSeerrRelatedPhase.Loading)))
+        relatedJob =
+            scope.launch {
+                val owns = { revision == relatedRevision && state.value.detail?.entryId == entry && token == captured }
+                publishResult(getSimilar(captured, key), true, owns, {
+                    state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(relatedPhase = TvSeerrRelatedPhase.Error))) }
+                }) { page ->
+                    state.value.detail?.let {
+                        reduce(
+                            TvSeerrChange.Detail(
+                                it.copy(
+                                    relatedPhase = TvSeerrRelatedPhase.Ready,
+                                    similar =
+                                        page.items.map { card ->
+                                            card.toTvSeerr()
+                                        },
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
+    }
+
+    private fun openSimilar(id: String) {
+        if (!relatedAllowed()) return
+        val current = state.value.detail ?: return
+        val card = current.similar.firstOrNull { it.id == id } ?: return
+        val value = detail ?: return
+        val type =
+            if (card.typeKey ==
+                "seerr.movie"
+            ) {
+                com.jellyscope.core.domain.model.SeerrMediaType.Movie
+            } else {
+                com.jellyscope.core.domain.model.SeerrMediaType.Tv
+            }
+        val key = SeerrMediaKey(type, id.substringAfter(':').toIntOrNull() ?: return)
+        cancelReads()
+        val snapshot = state.value.detail ?: return
+        history.add(
+            SeerrDetailSnapshot(
+                value,
+                quality,
+                selectedSeasons,
+                snapshot.copy(noticeKey = null, canRequest = false, selectionEnabled = false),
+            ),
+        )
+        detailKey = key
+        detail = null
+        detailAdmitted = false
+        quality = SeerrQuality.Standard
+        selectedSeasons = emptySet()
+        reduce(TvSeerrChange.Detail(TvSeerrDetailState(card, entryId = ++entrySequence)))
+        loadDetail(notice = null)
     }
 
     private fun retireAuthOnClose() {
@@ -893,3 +1130,10 @@ private sealed interface TvSeerrMutation {
         override val confirmation: TvSeerrConfirmation? get() = confirming?.confirmation
     }
 }
+
+private data class SeerrDetailSnapshot(
+    val detail: SeerrDetail,
+    val quality: SeerrQuality,
+    val selected: Set<Int>,
+    val display: TvSeerrDetailState,
+)

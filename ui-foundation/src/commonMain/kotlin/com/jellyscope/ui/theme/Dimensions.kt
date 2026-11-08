@@ -54,6 +54,7 @@ object Dimensions {
     val detailBackdropAspectRatio = 1.78f
     val detailPosterWidth = 116.dp
     val detailSectionSpacing = 20.dp
+    val seerrSeasonWidth = 240.dp
     val badgePadding = 6.dp
     val watchedBadgeSize = 22.dp
     val watchedBadgeIconSize = 14.dp

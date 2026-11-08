@@ -160,6 +160,18 @@ data class SeerrMediaCard(
     val fourKAvailability: SeerrAvailability,
 )
 
+/** Discover uses scan status from either quality; explicit lookup remains inclusive. */
+fun SeerrMediaCard.isFullyAvailable(): Boolean =
+    standardAvailability == SeerrAvailability.Available || fourKAvailability == SeerrAvailability.Available
+
+data class SeerrCastMember(
+    val id: Int,
+    val creditId: String?,
+    val name: String,
+    val character: String?,
+    val profileUrl: String?,
+)
+
 data class SeerrCatalogPage(
     val items: List<SeerrMediaCard>,
     val page: Int,
@@ -239,6 +251,7 @@ data class SeerrDetail(
     val standard: SeerrRequestOption,
     val fourK: SeerrRequestOption,
     val reconciliationRequired: Boolean,
+    val cast: List<SeerrCastMember> = emptyList(),
 )
 
 data class SeerrRequestIntent(

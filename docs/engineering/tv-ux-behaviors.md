@@ -104,7 +104,8 @@ This contract applies to Android TV.
 ## Navigation drawer contract (all screens with the drawer)
 
 - The drawer appears on Home, Discover, Requests, Find, Favorites, Settings, enabled
-  Downloads, and Library browse. Detail, Series, Season, Grid/View All,
+  Downloads, and Library browse. Requests hides the drawer while Seerr detail is
+  active and restores its feed focus on return. Detail, Series, Season, Grid/View All,
   Collection, Person, and FilteredLibrary are nested and fill the width.
 - Nested navigation uses a saveable LIFO of payload snapshots. Each Detail,
   Person, Collection, Series/Season, Grid, FilteredLibrary, and Player push

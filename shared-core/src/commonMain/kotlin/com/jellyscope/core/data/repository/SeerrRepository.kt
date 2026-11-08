@@ -52,6 +52,11 @@ interface SeerrRepository {
         query: String,
     ): SeerrResult<SeerrCatalogPage>
 
+    suspend fun similar(
+        token: SeerrPublicationToken,
+        key: SeerrMediaKey,
+    ): SeerrResult<SeerrCatalogPage>
+
     suspend fun detail(
         token: SeerrPublicationToken,
         key: SeerrMediaKey,

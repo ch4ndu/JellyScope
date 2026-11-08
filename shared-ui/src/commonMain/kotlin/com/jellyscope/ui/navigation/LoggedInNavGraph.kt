@@ -6,7 +6,6 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +59,7 @@ import org.koin.core.parameter.parametersOf
 @Composable
 internal fun LoggedInNavGraph(
     navController: NavHostController,
+    requestsViewModel: @Composable () -> SeerrViewModel,
     session: Session,
     boundaryEpoch: Long,
     onLogoutComplete: () -> Unit,
@@ -135,11 +135,7 @@ internal fun LoggedInNavGraph(
             }
         }
         composable(Routes.Requests) {
-            val viewModel =
-                koinViewModel<SeerrViewModel>(
-                    key = "requests-${session.serverId}-${session.userId}-$boundaryEpoch",
-                    parameters = { parametersOf(session, boundaryEpoch) },
-                )
+            val viewModel = requestsViewModel()
             val requestsState by viewModel.state.collectAsStateWithLifecycle()
             BackHandler(enabled = requestsState.detail != null || requestsState.connection.authenticating) {
                 viewModel.accept(SeerrIntent.Back)
@@ -150,6 +146,9 @@ internal fun LoggedInNavGraph(
             ) {
                 SeerrScreen(
                     viewModel = viewModel,
+                    session = session,
+                    onSettingsClick = onSettingsClick,
+                    bottomContentPadding = bottomBarContentPadding,
                     onOpenLibrary = { item ->
                         when (item.kind) {
                             MediaKind.Series -> navController.navigate(Routes.series(item.itemId))
@@ -157,7 +156,6 @@ internal fun LoggedInNavGraph(
                             else -> Unit
                         }
                     },
-                    modifier = Modifier.padding(bottom = bottomBarContentPadding),
                 )
             }
         }

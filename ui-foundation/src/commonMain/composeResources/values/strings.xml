@@ -958,4 +958,14 @@
     <string name="seerr_error_network">The server could not be reached. Check the connection and retry.</string>
     <string name="seerr_error_response">The server returned an unusable response. Refresh to check its current state.</string>
     <string name="seerr_error_persistence">The connection could not be saved or cleared. Retry from Manage connection.</string>
+    <string name="seerr_hide_available">Hide available</string>
+    <string name="seerr_hide_available_hint">Uses Seerr library scan status in either quality.</string>
+    <string name="seerr_filtered_empty">No titles remain with Hide available enabled. Load more or show available titles.</string>
+    <string name="seerr_similar">Similar</string>
+    <string name="seerr_cast">Cast</string>
+    <string name="seerr_related_error">Similar titles could not be loaded.</string>
+    <string name="seerr_related_interrupted">Similar titles loading was interrupted.</string>
+    <string name="seerr_request_one_season">Request 1 season</string>
+    <string name="seerr_request_seasons">Request %1$d seasons</string>
+    <string name="seerr_episode_count">%1$d episodes</string>
 </resources>

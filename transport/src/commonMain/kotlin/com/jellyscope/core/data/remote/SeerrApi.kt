@@ -141,6 +141,18 @@ class SeerrApi(
         return get(session, path, parameters) { it.toCatalogPage(catalog, page) }
     }
 
+    suspend fun similar(
+        session: SeerrTransportSession,
+        key: SeerrMediaKey,
+        page: Int = 1,
+    ): SeerrApiResponse<SeerrCatalogPage> {
+        require(page == 1)
+        val catalog = if (key.type == SeerrMediaType.Movie) SeerrCatalog.Movies else SeerrCatalog.Tv
+        return get(session, "${key.type.wireName()}/${key.tmdbId}/similar", listOf("page" to page.toString())) {
+            it.toCatalogPage(catalog, page)
+        }
+    }
+
     suspend fun detail(
         session: SeerrTransportSession,
         key: SeerrMediaKey,

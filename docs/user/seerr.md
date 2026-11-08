@@ -46,11 +46,21 @@ Enter and submit a search to find a title. **Load more** adds another page;
 **Refresh** reloads the list from its beginning. The existing Jellyfin Discover
 destination continues to browse your server's own content.
 
+**Hide available** is on by default for the trending, movie and TV catalogs.
+It hides titles that Seerr reports as fully available in either quality; partly
+available series remain visible unless another quality is fully available.
+Turn it off to browse existing titles or another quality. Search, My Requests
+and Similar remain inclusive. Availability follows Seerr's library scan and may
+lag recent Jellyfin additions. A filtered-empty page can still offer Load more.
+
 Open a title to inspect availability and request history. Choose standard or
 4K quality where your permissions and server configuration allow requests, or
 where that quality already exists in the library. Existing library access does
 not require permission to make new requests. For TV,
-select the specific eligible seasons before reviewing the request. Quotas may
+select one or more eligible seasons in **Seasons**. Checkmarks show your selections
+independently of focus; unavailable choices explain why they cannot be selected.
+Changing quality clears the selection. The request action shows the selected
+season count, and confirmation lists the exact seasons and quality. Quotas may
 limit how many requests you can make; TV quotas count selected seasons.
 
 Review the title, media type, quality, seasons and approval notice, then confirm.
@@ -71,6 +81,12 @@ Some selections cannot be requested:
 - Missing eligibility or quota information requires a successful refresh before
   requesting. A completed request does not prevent another request if the media
   was subsequently deleted and is otherwise eligible.
+
+Details also show **Cast** and a **Similar** ribbon when data is available.
+Cast cards are informational. Selecting a similar title opens its Seerr details;
+Back returns through the previous details to the original list. Similar shows a
+bounded first page. A failed or interrupted Similar load offers Retry without
+blocking requests; returning to the screen does not automatically retry it.
 
 ## Follow requests and open your library
 

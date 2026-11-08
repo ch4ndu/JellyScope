@@ -5,6 +5,7 @@
 package com.jellyscope.core.data.remote
 
 import com.jellyscope.core.domain.model.SeerrAvailability
+import com.jellyscope.core.domain.model.SeerrCastMember
 import com.jellyscope.core.domain.model.SeerrCatalog
 import com.jellyscope.core.domain.model.SeerrCatalogPage
 import com.jellyscope.core.domain.model.SeerrError
@@ -55,6 +56,7 @@ data class SeerrWireDetail(
     val requestMetadataComplete: Boolean,
     val jellyfinMediaId: String?,
     val jellyfinMediaId4k: String?,
+    val cast: List<SeerrCastMember> = emptyList(),
 )
 
 internal class SeerrProtocolException(
@@ -169,6 +171,19 @@ internal fun JsonObject.toDetail(key: SeerrMediaKey): SeerrWireDetail {
         overview = text("overview")?.take(20_000),
         backdropUrl = artwork(text("backdropPath"), "w1280"),
         seasons = seasons,
+        cast =
+            ((this["credits"] as? JsonObject)?.get("cast") as? JsonArray).orEmpty().take(200).mapNotNull { value ->
+                val member = value as? JsonObject ?: return@mapNotNull null
+                val id = member.integer("id")?.takeIf { it > 0 } ?: return@mapNotNull null
+                val name = member.text("name")?.take(256)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                SeerrCastMember(
+                    id,
+                    member.text("creditId")?.take(256),
+                    name,
+                    member.text("character")?.take(512),
+                    artwork(member.text("profilePath"), "w185"),
+                )
+            },
         requests = requests,
         requestMetadataComplete = info == null || (rawRequests != null && (key.type != SeerrMediaType.Tv || info.array("seasons") != null)),
         jellyfinMediaId = info?.text("jellyfinMediaId")?.takeIf(::validLibraryCandidate),

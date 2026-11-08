@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +32,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
@@ -57,9 +59,14 @@ import com.jellyscope.ui.generated.resources.nav_home
 import com.jellyscope.ui.generated.resources.nav_home_cd
 import com.jellyscope.ui.generated.resources.nav_requests
 import com.jellyscope.ui.generated.resources.nav_requests_cd
+import com.jellyscope.ui.screen.seerr.SeerrViewModel
 import com.jellyscope.ui.theme.Dimensions
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import org.jetbrains.compose.resources.StringResource
 import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 
 data class TopLevelNavItem(
     val route: String,
@@ -207,7 +214,29 @@ private fun LoggedInNavHostContent(
         }
     val topLevelRoutes = remember(visibleTopLevelNavItems) { visibleTopLevelNavItems.mapTo(HashSet()) { item -> item.route } }
     val windowWidthTier = LocalWindowWidthTier.current
-    val showTopLevelChrome = currentRoute != null && currentRoute in topLevelRoutes
+    val seerrOwner = checkNotNull(LocalViewModelStoreOwner.current)
+    var seerrViewModel by remember(session.serverId, session.userId, boundaryEpoch, seerrOwner) {
+        mutableStateOf<SeerrViewModel?>(null)
+    }
+    // Requests resolves synchronously even before the restored route reaches the shell collector.
+    val requestsViewModel: @Composable () -> SeerrViewModel = {
+        val resolved =
+            koinViewModel<SeerrViewModel>(
+                viewModelStoreOwner = seerrOwner,
+                key = "requests-${session.serverId}-${session.userId}-$boundaryEpoch",
+                parameters = { parametersOf(session, boundaryEpoch) },
+            )
+        SideEffect { seerrViewModel = resolved }
+        resolved
+    }
+    val seerrDetailActive =
+        seerrViewModel?.let { vm ->
+            val detailFlow = remember(vm) { vm.state.map { it.detail != null }.distinctUntilChanged() }
+            val active by detailFlow.collectAsStateWithLifecycle(initialValue = vm.state.value.detail != null)
+            active
+        } ?: false
+    val showTopLevelChrome =
+        currentRoute != null && currentRoute in topLevelRoutes && !(currentRoute == Routes.Requests && seerrDetailActive)
     val showBottomBar = showTopLevelChrome && windowWidthTier == WindowWidthTier.Compact
     val showAdaptiveRail = showTopLevelChrome && windowWidthTier != WindowWidthTier.Compact
     var adaptiveNavRailExpanded by rememberSaveable(session.serverId, session.userId, boundaryEpoch) {
@@ -278,6 +307,7 @@ private fun LoggedInNavHostContent(
             ) {
                 LoggedInNavGraph(
                     navController = navController,
+                    requestsViewModel = requestsViewModel,
                     session = session,
                     boundaryEpoch = boundaryEpoch,
                     onLogoutComplete = onLogoutComplete,

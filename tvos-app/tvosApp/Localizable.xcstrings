@@ -6170,7 +6170,19 @@
           }
         }
       }
-    }
+    },
+    "seerr.hide_available": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hide available" } } } },
+    "seerr.hide_available.hint": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Uses Seerr library scan status in either quality." } } } },
+    "seerr.results.filtered": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "No titles remain with Hide available enabled. Load more or show available titles." } } } },
+    "seerr.cast": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Cast" } } } },
+    "seerr.similar": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Similar" } } } },
+    "seerr.similar.error": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Similar titles could not be loaded." } } } },
+    "seerr.similar.interrupted": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Similar titles loading was interrupted." } } } },
+    "seerr.retry": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Retry" } } } },
+    "seerr.request.one_season": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Request 1 season" } } } },
+    "seerr.request.seasons": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Request %lld seasons" } } } },
+    "seerr.season.episodes": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%lld episodes" } } } },
+    "seerr.seasons.empty": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Choose seasons" } } } }
   },
   "version": "1.0"
 }

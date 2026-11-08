@@ -22,6 +22,8 @@ import com.jellyscope.core.domain.model.SeerrRequestOption
 import com.jellyscope.core.domain.model.SeerrRequestStatus
 import com.jellyscope.core.domain.model.SeerrRequestSummary
 import com.jellyscope.core.domain.model.SeerrSeason
+import com.jellyscope.ui.component.MediaCardKind
+import com.jellyscope.ui.component.MediaCardUi
 
 enum class SeerrSection { Discover, Requests, Connection }
 
@@ -39,6 +41,18 @@ data class SeerrRow(
     val request: SeerrRequestSummary? = null,
 ) {
     val id: String = request?.let { "request:${it.id}" } ?: media.key.stableId
+    val card: MediaCardUi =
+        MediaCardUi(
+            id = id,
+            title = media.title.orEmpty(),
+            subtitle = media.year?.toString(),
+            progressFraction = null,
+            watched = false,
+            unplayedCount = null,
+            imageUrl = seerrArtworkUrl(media.posterUrl),
+            kind = if (media.key.type == SeerrMediaType.Movie) MediaCardKind.Movie else MediaCardKind.Series,
+            year = media.year?.toString(),
+        )
 }
 
 val SeerrMediaKey.stableId: String get() = "${if (type == SeerrMediaType.Movie) "movie" else "tv"}:$tmdbId"
@@ -46,6 +60,7 @@ val SeerrMediaKey.stableId: String get() = "${if (type == SeerrMediaType.Movie) 
 @Immutable
 data class SeerrFeedUi(
     val rows: List<SeerrRow> = emptyList(),
+    val rawRows: List<SeerrRow> = emptyList(),
     val loading: Boolean = false,
     val loaded: Boolean = false,
     val error: SeerrError? = null,
@@ -100,6 +115,11 @@ sealed interface SeerrMutation {
 @Immutable
 data class SeerrDetailUi(
     val key: SeerrMediaKey,
+    val entryId: Long = 0,
+    val related: SeerrRelatedUi = SeerrRelatedUi(),
+    val focusedId: String? = null,
+    val seasonScroll: SeerrScrollPosition = SeerrScrollPosition(),
+    val castScroll: SeerrScrollPosition = SeerrScrollPosition(),
     val detail: SeerrDetail? = null,
     val loading: Boolean = true,
     val error: SeerrError? = null,
@@ -139,6 +159,7 @@ data class SeerrDetailUi(
 
 @Immutable
 data class SeerrUiState(
+    val hideAvailable: Boolean = true,
     val section: SeerrSection = SeerrSection.Discover,
     val catalog: SeerrCatalog = SeerrCatalog.Trending,
     val query: String = "",
@@ -155,7 +176,39 @@ data class SeerrUiState(
     val feed: SeerrFeedUi get() = if (section == SeerrSection.Requests) requests else discover
 }
 
+enum class SeerrRelatedPhase { NotAttempted, Loading, Ready, Error, Interrupted }
+
+@Immutable
+data class SeerrRelatedUi(
+    val phase: SeerrRelatedPhase = SeerrRelatedPhase.NotAttempted,
+    val rows: List<SeerrRow> = emptyList(),
+    val scroll: SeerrScrollPosition = SeerrScrollPosition(),
+)
+
+val SeerrDetailUi.relatedEnabled: Boolean
+    get() = admissionFresh && !loading && mutation == SeerrMutation.None && !uncertain && !resolvingLibrary
+
 sealed interface SeerrIntent {
+    data object ToggleHideAvailable : SeerrIntent
+
+    data class OpenSimilar(
+        val id: String,
+    ) : SeerrIntent
+
+    data object RetrySimilar : SeerrIntent
+
+    data class RememberRelatedScroll(
+        val position: SeerrScrollPosition,
+    ) : SeerrIntent
+
+    data class RememberSeasonScroll(
+        val position: SeerrScrollPosition,
+    ) : SeerrIntent
+
+    data class RememberCastScroll(
+        val position: SeerrScrollPosition,
+    ) : SeerrIntent
+
     data class SelectSection(
         val section: SeerrSection,
     ) : SeerrIntent
@@ -222,6 +275,8 @@ sealed interface SeerrIntent {
 
     data object Disconnect : SeerrIntent
 
+    data object Resumed : SeerrIntent
+
     data object Disposed : SeerrIntent
 
     data class RememberScroll(
@@ -242,6 +297,10 @@ data class SeerrLibraryEffect internal constructor(
 )
 
 internal sealed interface SeerrChange {
+    data class HideAvailable(
+        val value: Boolean,
+    ) : SeerrChange
+
     data class Connection(
         val value: SeerrConnectionUi,
     ) : SeerrChange
@@ -285,6 +344,7 @@ internal fun reduceSeerr(
     change: SeerrChange,
 ): SeerrUiState =
     when (change) {
+        is SeerrChange.HideAvailable -> state.copy(hideAvailable = change.value)
         is SeerrChange.Connection -> state.copy(connection = change.value)
         is SeerrChange.Feed ->
             if (change.section ==

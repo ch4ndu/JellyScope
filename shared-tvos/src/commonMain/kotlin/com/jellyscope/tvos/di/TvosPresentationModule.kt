@@ -155,6 +155,7 @@ val tvosPresentationModule =
                 getCatalog = get(),
                 getRequests = get(),
                 getDetail = get(),
+                getSimilar = get(),
                 requestMedia = get(),
                 reconcileRequest = get(),
                 resolveLibraryItem = get(),

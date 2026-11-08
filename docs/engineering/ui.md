@@ -390,6 +390,11 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   shows expose Last Episode Added. Shuffle respects filters and reports
   empty/failure through a passive snackbar; repeating it retries. Do not add
   client-side date-favorited sorting because Jellyfin exposes no timestamp.
+- Requests follows Library header, inner navigation and media-card geometry.
+  Seerr detail replaces browse chrome with an adaptive artwork-led body and
+  explicit multi-season selection. Cast and Similar follow standard ribbons;
+  selected-season checkmarks remain distinct from remote focus. User controls
+  and limits belong to the [Seerr guide](../user/seerr.md).
 - Library is a two-level hub. A content-sized top-bar dropdown selects and
   persists a library per server/user, falling back to and re-persisting the
   first available library. Movies/shows default to Recommended and also expose

@@ -18,7 +18,10 @@ viewports, focus reserve and stable media identity; player video remains black.
 
 Requests has its own navigation history and uses the current account's boundary
 epoch. Native Seerr views present connection, discovery/search, details, explicit
-request confirmation and My Requests through `TvSeerrPresenter`. External artwork
+request confirmation and My Requests through `TvSeerrPresenter`. Browse uses native
+Library card geometry; detail replaces its section header and retains separate
+season, cast and similar ribbon positions. Similar drill-down restores the
+previous detail before returning to the feed. External artwork
 uses plain `AsyncImage`, never the Jellyfin-authenticated image fetcher. A verified
 library match opens the existing media destination. Seerr rules and limits belong
 to the [API contract](api-and-caching.md#seerr-requests).

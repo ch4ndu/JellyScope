@@ -434,6 +434,11 @@ class DefaultSeerrRepository(
             exchange(work) { api.catalog(it, catalog, page, query.trim()) }
         }
 
+    override suspend fun similar(
+        token: SeerrPublicationToken,
+        key: SeerrMediaKey,
+    ): SeerrResult<SeerrCatalogPage> = operation(token) { work -> exchange(work) { api.similar(it, key) } }
+
     override suspend fun detail(
         token: SeerrPublicationToken,
         key: SeerrMediaKey,
@@ -684,6 +689,7 @@ class DefaultSeerrRepository(
                 requestOption(connection, wire, quota, SeerrQuality.Standard),
                 requestOption(connection, wire, quota, SeerrQuality.FourK),
                 connection.uncertain != null,
+                cast = wire.cast,
             )
         }
     }

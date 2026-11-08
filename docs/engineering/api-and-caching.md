@@ -110,6 +110,16 @@ and supported user flows are in the [Seerr guide](../user/seerr.md).
   by received server offsets. Deduplication does not change transport progress.
   My Requests always uses the authenticated Seerr user and hydrates metadata
   only for the bounded received page.
+- Cast is optional detail metadata; malformed optional credits cannot invalidate
+  request metadata. Similar is a bounded first-page read with independent
+  attempt identity and local retry state. Foreground request, reconciliation,
+  library resolution and detail refresh cancel it before acquiring the shared
+  connection lock. Hiding a screen interrupts Similar without invalidating an
+  active submission. History retains display state, never request admission;
+  returning to a previous detail revalidates eligibility before requesting.
+- Discover's availability filter uses Seerr's scan status and preserves raw
+  rows and server pagination independently of visible rows. Search, My Requests
+  and Similar remain inclusive; a filtered-empty page is not an end-of-feed signal.
 - Admission uses selected-quality availability, active requests, server
   capabilities, permissions and quota. Standard and 4K grants are independent;
   4K also requires server configuration. TV requests use explicit returned

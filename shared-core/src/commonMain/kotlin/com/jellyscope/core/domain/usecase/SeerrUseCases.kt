@@ -82,3 +82,12 @@ class ValidateSeerrPublicationUseCase(
         block: () -> Unit,
     ): Boolean = repository.publishIfCurrent(token, catalog, block)
 }
+
+class GetSeerrSimilarUseCase(
+    private val repository: SeerrRepository,
+) {
+    suspend operator fun invoke(
+        token: SeerrPublicationToken,
+        key: SeerrMediaKey,
+    ): SeerrResult<SeerrCatalogPage> = repository.similar(token, key)
+}

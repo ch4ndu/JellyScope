@@ -3,6 +3,7 @@
 package com.jellyscope.tvos.presenter
 
 import com.jellyscope.core.domain.model.SeerrAvailability
+import com.jellyscope.core.domain.model.SeerrCastMember
 import com.jellyscope.core.domain.model.SeerrCatalog
 import com.jellyscope.core.domain.model.SeerrConnection
 import com.jellyscope.core.domain.model.SeerrConnectionPhase
@@ -47,6 +48,13 @@ data class TvSeerrCard(
     val standardKey: String,
     val fourKKey: String,
     val requests: List<TvSeerrRequestStatus> = emptyList(),
+    val artworkCard: TvMediaCard =
+        TvMediaCard(
+            id = id,
+            title = title.orEmpty(),
+            kind = if (typeKey == "seerr.movie") TvCardKind.Movie else TvCardKind.Series,
+            imageUrl = posterUrl,
+        ),
 )
 
 data class TvSeerrRequestStatus(
@@ -57,6 +65,7 @@ data class TvSeerrRequestStatus(
 )
 
 data class TvSeerrBrowseState(
+    val hideAvailable: Boolean = true,
     val catalog: SeerrCatalog = SeerrCatalog.Trending,
     val query: String = "",
     val cards: List<TvSeerrCard> = emptyList(),
@@ -74,10 +83,25 @@ data class TvSeerrSeason(
     val selected: Boolean,
     val enabled: Boolean,
     val reasonKey: String?,
+    val episodeCount: Int = 0,
+    val availabilityKey: String = "seerr.availability.unknown",
 )
 
 data class TvSeerrDetailState(
     val card: TvSeerrCard,
+    val entryId: Long = 0,
+    val backdropUrl: String? = null,
+    val cast: List<SeerrCastMember> = emptyList(),
+    val similar: List<TvSeerrCard> = emptyList(),
+    val relatedPhase: TvSeerrRelatedPhase = TvSeerrRelatedPhase.NotAttempted,
+    val relatedEnabled: Boolean = false,
+    val focusedId: String? = null,
+    val verticalAnchor: String? = null,
+    val seasonAnchor: String? = null,
+    val castAnchor: String? = null,
+    val similarAnchor: String? = null,
+    val selectedSeasonCount: Int = 0,
+    val showFourK: Boolean = false,
     val overview: String? = null,
     val loading: Boolean = true,
     val errorKey: String? = null,
@@ -122,7 +146,26 @@ data class TvSeerrLibraryEffect(
     val id: Long,
 )
 
+enum class TvSeerrRelatedPhase { NotAttempted, Loading, Ready, Error, Interrupted }
+
 sealed interface TvSeerrIntent {
+    data object ToggleHideAvailable : TvSeerrIntent
+
+    data class OpenSimilar(
+        val id: String,
+    ) : TvSeerrIntent
+
+    data object RetrySimilar : TvSeerrIntent
+
+    data class FocusDetail(
+        val id: String,
+    ) : TvSeerrIntent
+
+    data class RememberPosition(
+        val section: String,
+        val id: String?,
+    ) : TvSeerrIntent
+
     data class SelectSection(
         val section: TvSeerrSection,
     ) : TvSeerrIntent
@@ -197,6 +240,8 @@ sealed interface TvSeerrIntent {
     data object RestoreConnection : TvSeerrIntent
 
     data object Disconnect : TvSeerrIntent
+
+    data object Visible : TvSeerrIntent
 
     data object Hidden : TvSeerrIntent
 }
@@ -310,6 +355,8 @@ internal fun SeerrDetail.toTvSeerr(
     return TvSeerrDetailState(
         card = media.toTvSeerr(requests),
         overview = overview,
+        backdropUrl = backdropUrl,
+        cast = cast,
         loading = false,
         fourK = quality == SeerrQuality.FourK,
         selectionEnabled = true,
@@ -340,6 +387,8 @@ internal fun SeerrDetail.toTvSeerr(
                     selected = season.number in selected,
                     enabled = eligible && option.canRequest && !needsReconciliation && !reconciliationRequired,
                     reasonKey = reason ?: option.blockedBy?.copyKey(),
+                    episodeCount = season.episodeCount,
+                    availabilityKey = availability.copyKey(),
                 )
             },
         quotaKey =

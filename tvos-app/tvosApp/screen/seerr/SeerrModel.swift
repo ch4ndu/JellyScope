@@ -12,6 +12,9 @@ final class SeerrModel: ObservableObject {
     private var effectHandle: WatchHandle?
     private var pendingEffect: Int64?
     private var navigate: ((String) -> Void)?
+    private var routeAppeared = false
+    private var sceneActive = false
+    private var visible = false
 
     init(session: Session, boundaryEpoch: Int64) {
         let presenter = TvosEntry.shared.seerrPresenter(session: session, boundaryEpoch: boundaryEpoch)
@@ -32,15 +35,36 @@ final class SeerrModel: ObservableObject {
         state = presenter.currentState()
     }
 
-    func appeared(navigate: @escaping (String) -> Void) {
+    func appeared(active: Bool, navigate: @escaping (String) -> Void) {
         self.navigate = navigate
-        consumeNavigation()
+        routeAppeared = true
+        sceneActive = active
+        updateVisibility()
+    }
+
+    func sceneChanged(active: Bool) {
+        sceneActive = active
+        updateVisibility()
     }
 
     func disappeared() {
+        routeAppeared = false
         navigate = nil
         pendingEffect = nil
-        send(TvSeerrIntentHidden.shared)
+        updateVisibility()
+    }
+
+    private func updateVisibility() {
+        let next = routeAppeared && sceneActive
+        guard next != visible else { return }
+        visible = next
+        if next {
+            send(TvSeerrIntentVisible.shared)
+            consumeNavigation()
+        } else {
+            pendingEffect = nil
+            send(TvSeerrIntentHidden.shared)
+        }
     }
 
     func login(method: SeerrLoginMethod, url: String, identifier: String, password: String) -> Bool {
@@ -52,7 +76,7 @@ final class SeerrModel: ObservableObject {
     }
 
     private func consumeNavigation() {
-        guard let id = pendingEffect, navigate != nil else { return }
+        guard visible, let id = pendingEffect, navigate != nil else { return }
         pendingEffect = nil
         presenter.consumeLibraryEffect(id: id) { [weak self] itemId in
             // This callback runs inside the final domain publication gate on Main.

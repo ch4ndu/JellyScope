@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.DrawerValue
 import androidx.tv.material3.rememberDrawerState
 import com.jellyscope.core.domain.model.DownloadId
@@ -91,6 +92,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import org.koin.android.ext.android.get
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -621,7 +624,25 @@ internal fun TvLoggedInApp(
         return
     }
 
-    val railEnabled = isTvRailRoute(route, isTvDownloadsVisible(session))
+    var requestsVisited by remember(session.serverId, session.userId, boundaryEpoch) { mutableStateOf(false) }
+    LaunchedEffect(route) { if (route == TvRoute.Requests.name) requestsVisited = true }
+    val seerrViewModel =
+        if (requestsVisited || route == TvRoute.Requests.name) {
+            koinViewModel<SeerrViewModel>(
+                viewModelStoreOwner = topLevelViewModelStoreOwner,
+                key = tvTopLevelViewModelKey(session, "requests-$boundaryEpoch"),
+                parameters = { parametersOf(session, boundaryEpoch) },
+            )
+        } else {
+            null
+        }
+    val seerrDetailActive =
+        seerrViewModel?.let { vm ->
+            val flow = remember(vm) { vm.state.map { it.detail != null }.distinctUntilChanged() }
+            val active by flow.collectAsStateWithLifecycle(initialValue = vm.state.value.detail != null)
+            active
+        } ?: false
+    val railEnabled = isTvRailRoute(route, isTvDownloadsVisible(session)) && !(route == TvRoute.Requests.name && seerrDetailActive)
     val selectedRailDestination = selectedTvRailDestination(route, isTvDownloadsVisible(session))
     val selectedRailLibraryId = libraryParentId.takeIf { route == TvRoute.Library.name }
     val selectedRailTarget =
@@ -1050,12 +1071,8 @@ internal fun TvLoggedInApp(
                                 ) {
                                     TvRouteScope(key = "requests") {
                                         TvSeerrScreen(
-                                            viewModel =
-                                                koinViewModel<SeerrViewModel>(
-                                                    viewModelStoreOwner = topLevelViewModelStoreOwner,
-                                                    key = tvTopLevelViewModelKey(session, "requests-$boundaryEpoch"),
-                                                    parameters = { parametersOf(session, boundaryEpoch) },
-                                                ),
+                                            viewModel = requireNotNull(seerrViewModel),
+                                            session = session,
                                             onBack = { requestRailFocus() },
                                             onOpenLibrary = { item ->
                                                 when (item.kind) {

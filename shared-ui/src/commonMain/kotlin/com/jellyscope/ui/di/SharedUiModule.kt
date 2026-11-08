@@ -102,6 +102,7 @@ val sharedUiModule =
                 getConnection = get(),
                 getCatalog = get(),
                 getDetail = get(),
+                getSimilar = get(),
                 getRequests = get(),
                 resolveLibraryItem = get(),
                 validatePublication = get(),

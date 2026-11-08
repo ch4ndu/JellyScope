@@ -28,10 +28,12 @@ import com.jellyscope.core.domain.model.SeerrResult
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.model.SessionState
 import com.jellyscope.core.domain.model.accountIdentity
+import com.jellyscope.core.domain.model.isFullyAvailable
 import com.jellyscope.core.domain.usecase.GetSeerrCatalogUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrConnectionUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrDetailUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrRequestsUseCase
+import com.jellyscope.core.domain.usecase.GetSeerrSimilarUseCase
 import com.jellyscope.core.domain.usecase.ObserveSessionStateUseCase
 import com.jellyscope.core.domain.usecase.ResolveSeerrLibraryItemUseCase
 import com.jellyscope.core.domain.usecase.ValidateSeerrPublicationUseCase
@@ -52,6 +54,7 @@ class SeerrViewModel(
     private val getConnection: GetSeerrConnectionUseCase,
     private val getCatalog: GetSeerrCatalogUseCase,
     private val getDetail: GetSeerrDetailUseCase,
+    private val getSimilar: GetSeerrSimilarUseCase,
     private val getRequests: GetSeerrRequestsUseCase,
     private val resolveLibraryItem: ResolveSeerrLibraryItemUseCase,
     private val validatePublication: ValidateSeerrPublicationUseCase,
@@ -83,6 +86,11 @@ class SeerrViewModel(
     private var effectSequence = 0L
     private var pendingEffect: Long? = null
     private var authToken: SeerrPublicationToken? = null
+    private var relatedJob: Job? = null
+    private var relatedRevision = 0L
+    private var visible = false
+    private var entrySequence = 0L
+    private val history = mutableListOf<SeerrDetailUi>()
 
     init {
         observePolicy(observeSessionState().value)
@@ -93,14 +101,56 @@ class SeerrViewModel(
     fun accept(intent: SeerrIntent) {
         observePolicy(observeSessionState().value)
         if (intent == SeerrIntent.Disposed) {
+            visible = false
+            cancelRelated()
             cancelLibrary()
             cancelAuth()
             return
         }
         if (!state.value.ownerValid) return
         when (intent) {
+            SeerrIntent.Resumed -> {
+                visible = true
+                if (state.value.detail
+                        ?.related
+                        ?.phase == SeerrRelatedPhase.NotAttempted
+                ) {
+                    loadRelated()
+                }
+            }
+            SeerrIntent.ToggleHideAvailable -> {
+                if (state.value.section != SeerrSection.Discover ||
+                    state.value.catalog == SeerrCatalog.Search ||
+                    state.value.detail != null
+                ) {
+                    return
+                }
+                reduce(SeerrChange.HideAvailable(!state.value.hideAvailable))
+                val feed = state.value.discover
+                val rows = visibleRows(feed.rawRows)
+                reduce(
+                    SeerrChange.Feed(
+                        SeerrSection.Discover,
+                        feed.copy(
+                            rows = rows,
+                            scroll = SeerrScrollPosition(),
+                            selectedId = null,
+                            resetRevision =
+                                feed.resetRevision + 1,
+                        ),
+                    ),
+                )
+                reduce(SeerrChange.Focus(rows.firstOrNull()?.id))
+            }
+            is SeerrIntent.RememberSeasonScroll -> updateDetail { it.copy(seasonScroll = intent.position) }
+            is SeerrIntent.RememberCastScroll -> updateDetail { it.copy(castScroll = intent.position) }
+            is SeerrIntent.OpenSimilar -> openSimilar(intent.id)
+            SeerrIntent.RetrySimilar -> loadRelated()
+            is SeerrIntent.RememberRelatedScroll -> updateDetail { it.copy(related = it.related.copy(scroll = intent.position)) }
+
             is SeerrIntent.SelectSection -> {
                 if (state.value.detail?.submitting == true) return
+                history.clear()
                 cancelReads()
                 if (state.value.section == SeerrSection.Connection) cancelAuth()
                 reduce(SeerrChange.Section(intent.section))
@@ -218,7 +268,10 @@ class SeerrViewModel(
                     reduce(SeerrChange.Feed(state.value.section, state.value.feed.copy(scroll = intent.position)))
                 }
             }
-            is SeerrIntent.Focused -> reduce(SeerrChange.Focus(intent.id))
+            is SeerrIntent.Focused -> {
+                reduce(SeerrChange.Focus(intent.id))
+                updateDetail { it.copy(focusedId = intent.id) }
+            }
             SeerrIntent.Disposed -> Unit
         }
     }
@@ -230,26 +283,40 @@ class SeerrViewModel(
     ) {
         if (pendingEffect != effect.id) return
         pendingEffect = null
-        if (!catalogAllowed() ||
-            effect.id != effectSequence ||
-            effect.detailGeneration != detailGeneration ||
-            state.value.detail?.key != effect.item.key
-        ) {
-            return
-        }
-        validatePublication.publish(effect.token) {
-            if (catalogAllowed() &&
+        // Keep Similar admission closed until publication and synchronous navigation finish.
+        try {
+            if (!catalogAllowed() ||
+                effect.id != effectSequence ||
+                effect.detailGeneration != detailGeneration ||
+                state.value.detail?.key != effect.item.key
+            ) {
+                return
+            }
+            validatePublication.publish(effect.token) {
+                if (catalogAllowed() &&
+                    effect.id == effectSequence &&
+                    effect.detailGeneration == detailGeneration &&
+                    state.value.detail?.key == effect.item.key &&
+                    token == effect.token
+                ) {
+                    onOpenLibrary(effect.item)
+                }
+            }
+        } finally {
+            if (
                 effect.id == effectSequence &&
                 effect.detailGeneration == detailGeneration &&
-                state.value.detail?.key == effect.item.key &&
-                token == effect.token
+                state.value.detail?.key == effect.item.key
             ) {
-                onOpenLibrary(effect.item)
+                updateDetail { it.copy(resolvingLibrary = false) }
             }
         }
     }
 
-    private fun reduce(change: SeerrChange) = mutableState.update { reduceSeerr(it, change) }
+    private fun reduce(change: SeerrChange) {
+        if (change is SeerrChange.ClearContent || change is SeerrChange.Catalog) history.clear()
+        mutableState.update { reduceSeerr(it, change) }
+    }
 
     private fun connection(transform: (SeerrConnectionUi) -> SeerrConnectionUi) =
         reduce(SeerrChange.Connection(transform(state.value.connection)))
@@ -299,6 +366,7 @@ class SeerrViewModel(
     }
 
     private fun cancelReads() {
+        cancelRelated()
         cancelList()
         detailGeneration++
         detailJob?.cancel()
@@ -329,6 +397,7 @@ class SeerrViewModel(
             )
         }
         if (value.phase != SeerrConnectionPhase.Connected) {
+            history.clear()
             cancelReads()
             reduce(SeerrChange.ClearContent)
         }
@@ -507,13 +576,14 @@ class SeerrViewModel(
                 if (section == SeerrSection.Requests) {
                     publish(getRequests(captured, if (more) previous.nextSkip else 0), true, current, failed) { value ->
                         val retained = if (more) state.value.feed else SeerrFeedUi(resetRevision = previous.resetRevision + 1)
-                        val rows = (retained.rows + value.items.map { SeerrRow(it.media, it.request) }).distinctBy { it.id }
+                        val rows = (retained.rawRows + value.items.map { SeerrRow(it.media, it.request) }).distinctBy { it.id }
                         if (!more) reduce(SeerrChange.Focus(rows.firstOrNull()?.id))
                         reduce(
                             SeerrChange.Feed(
                                 section,
                                 retained.copy(
-                                    rows = rows,
+                                    rawRows = rows,
+                                    rows = visibleRows(rows),
                                     loading = false,
                                     error = null,
                                     loaded = true,
@@ -527,13 +597,14 @@ class SeerrViewModel(
                 } else {
                     publish(getCatalog(captured, catalog, page, query), true, current, failed) { value ->
                         val retained = if (more) state.value.feed else SeerrFeedUi(resetRevision = previous.resetRevision + 1)
-                        val rows = (retained.rows + value.items.map { SeerrRow(it) }).distinctBy { it.id }
+                        val rows = (retained.rawRows + value.items.map { SeerrRow(it) }).distinctBy { it.id }
                         if (!more) reduce(SeerrChange.Focus(rows.firstOrNull()?.id))
                         reduce(
                             SeerrChange.Feed(
                                 section,
                                 retained.copy(
-                                    rows = rows,
+                                    rawRows = rows,
+                                    rows = visibleRows(rows),
                                     loading = false,
                                     error = null,
                                     loaded = true,
@@ -548,11 +619,18 @@ class SeerrViewModel(
     }
 
     private fun openDetail(row: SeerrRow) {
-        if (!catalogAllowed() || state.value.detail?.submitting == true) return
+        if (!catalogAllowed() ||
+            state.value.detail != null ||
+            state.value.feed.rows
+                .none { it.id == row.id && it.media.key == row.media.key }
+        ) {
+            return
+        }
+        history.clear()
         cancelReads()
         reduce(SeerrChange.Feed(state.value.section, state.value.feed.copy(selectedId = row.id)))
         reduce(SeerrChange.Focus(null))
-        reduce(SeerrChange.Detail(SeerrDetailUi(row.media.key)))
+        reduce(SeerrChange.Detail(SeerrDetailUi(row.media.key, entryId = ++entrySequence)))
         loadDetail(row.media.key)
     }
 
@@ -581,6 +659,12 @@ class SeerrViewModel(
                             uncertain = detail.reconciliationRequired || state.value.connection.connection.unresolvedRequest != null,
                         )
                     }
+                    if (state.value.detail
+                            ?.related
+                            ?.phase == SeerrRelatedPhase.NotAttempted
+                    ) {
+                        loadRelated()
+                    }
                 }
             }
     }
@@ -597,8 +681,15 @@ class SeerrViewModel(
             reduce(SeerrChange.Focus("request"))
         } else {
             cancelReads()
-            reduce(SeerrChange.Detail(null))
-            reduce(SeerrChange.Focus(state.value.feed.selectedId))
+            val parent = history.removeLastOrNull()
+            if (parent == null) {
+                reduce(SeerrChange.Detail(null))
+                reduce(SeerrChange.Focus(state.value.feed.selectedId))
+            } else {
+                reduce(SeerrChange.Detail(parent.copy(admissionFresh = false, loading = false)))
+                reduce(SeerrChange.Focus(parent.focusedId))
+                loadDetail(parent.key)
+            }
         }
     }
 
@@ -607,6 +698,7 @@ class SeerrViewModel(
         val detail = state.value.detail ?: return
         val intent = detail.confirmation ?: return
         if (!catalogAllowed() || !detail.canSubmit || detail.submitting || mutationJob?.isActive == true) return
+        cancelRelated()
         val generation = detailGeneration
         cancelLibrary()
         updateDetail {
@@ -695,6 +787,7 @@ class SeerrViewModel(
         val captured = token ?: return
         val detail = state.value.detail ?: return
         if (!catalogAllowed() || detail.resolvingLibrary || detail.submitting || detail.loading || detail.reconciling) return
+        cancelRelated()
         cancelLibrary()
         val generation = detailGeneration
         val effectId = effectSequence
@@ -708,15 +801,90 @@ class SeerrViewModel(
                 }, { error ->
                     updateDetail { it.copy(resolvingLibrary = false, error = error) }
                 }) { item ->
-                    updateDetail { it.copy(resolvingLibrary = false) }
                     val effect = SeerrLibraryEffect(effectId, token ?: captured, generation, item)
                     pendingEffect = effect.id
-                    if (!libraryChannel.trySend(effect).isSuccess) pendingEffect = null
+                    if (!libraryChannel.trySend(effect).isSuccess) {
+                        pendingEffect = null
+                        updateDetail { it.copy(resolvingLibrary = false) }
+                    }
                 }
             }
     }
 
+    private fun visibleRows(rows: List<SeerrRow>): List<SeerrRow> =
+        if (state.value.section == SeerrSection.Discover && state.value.catalog != SeerrCatalog.Search && state.value.hideAvailable) {
+            rows.filterNot { it.media.isFullyAvailable() }
+        } else {
+            rows
+        }
+
+    private fun cancelRelated() {
+        relatedRevision++
+        relatedJob?.cancel()
+        relatedJob = null
+        updateDetail {
+            if (it.related.phase ==
+                SeerrRelatedPhase.Loading
+            ) {
+                it.copy(related = it.related.copy(phase = SeerrRelatedPhase.Interrupted))
+            } else {
+                it
+            }
+        }
+    }
+
+    private fun loadRelated() {
+        val captured = token ?: return
+        val current = state.value.detail ?: return
+        if (!visible ||
+            pendingEffect != null ||
+            !catalogAllowed() ||
+            !current.relatedEnabled ||
+            current.related.phase == SeerrRelatedPhase.Loading ||
+            relatedJob?.isActive == true
+        ) {
+            return
+        }
+        val entry = current.entryId
+        val revision = ++relatedRevision
+        updateDetail { it.copy(related = it.related.copy(phase = SeerrRelatedPhase.Loading)) }
+        relatedJob =
+            viewModelScope.launch {
+                val owns = { revision == relatedRevision && state.value.detail?.entryId == entry && token == captured }
+                publish(getSimilar(captured, current.key), true, owns, {
+                    updateDetail { it.copy(related = it.related.copy(phase = SeerrRelatedPhase.Error)) }
+                }) { page ->
+                    updateDetail {
+                        it.copy(
+                            related =
+                                it.related.copy(
+                                    phase = SeerrRelatedPhase.Ready,
+                                    rows =
+                                        page.items.map { media ->
+                                            SeerrRow(media)
+                                        },
+                                ),
+                        )
+                    }
+                }
+            }
+    }
+
+    private fun openSimilar(id: String) {
+        val current = state.value.detail ?: return
+        if (!catalogAllowed() || !current.relatedEnabled) return
+        val row = current.related.rows.firstOrNull { it.id == id } ?: return
+        cancelReads()
+        val snapshot = state.value.detail ?: return
+        history.add(snapshot.copy(mutation = SeerrMutation.None, notice = null, admissionFresh = false))
+        reduce(SeerrChange.Detail(SeerrDetailUi(row.media.key, entryId = ++entrySequence)))
+        reduce(SeerrChange.Focus(null))
+        loadDetail(row.media.key)
+    }
+
     override fun onCleared() {
+        cancelRelated()
+        history.clear()
         cancelLibrary()
         cancelAuth()
         libraryChannel.close()

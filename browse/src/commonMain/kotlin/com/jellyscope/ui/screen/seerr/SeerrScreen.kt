@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -31,10 +30,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -44,6 +47,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -52,11 +56,20 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.jellyscope.core.domain.model.SeerrCatalog
 import com.jellyscope.core.domain.model.SeerrLibraryItem
 import com.jellyscope.core.domain.model.SeerrQuality
+import com.jellyscope.core.domain.model.Session
+import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
 import com.jellyscope.ui.adaptive.tileScaled
+import com.jellyscope.ui.component.AppTopBar
+import com.jellyscope.ui.component.MediaCard
+import com.jellyscope.ui.component.SelectableActionButton
 import com.jellyscope.ui.generated.resources.Res
+import com.jellyscope.ui.generated.resources.nav_requests
 import com.jellyscope.ui.generated.resources.seerr_clear
 import com.jellyscope.ui.generated.resources.seerr_discover
 import com.jellyscope.ui.generated.resources.seerr_empty
+import com.jellyscope.ui.generated.resources.seerr_filtered_empty
+import com.jellyscope.ui.generated.resources.seerr_hide_available
+import com.jellyscope.ui.generated.resources.seerr_hide_available_hint
 import com.jellyscope.ui.generated.resources.seerr_load_more
 import com.jellyscope.ui.generated.resources.seerr_loading
 import com.jellyscope.ui.generated.resources.seerr_manage
@@ -75,6 +88,7 @@ import com.jellyscope.ui.generated.resources.seerr_setup
 import com.jellyscope.ui.generated.resources.seerr_trending
 import com.jellyscope.ui.generated.resources.seerr_tv
 import com.jellyscope.ui.generated.resources.seerr_untitled
+import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.theme.Dimensions
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -84,12 +98,15 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun SeerrScreen(
     viewModel: SeerrViewModel,
+    session: Session,
+    onSettingsClick: () -> Unit,
+    bottomContentPadding: Dp = Dimensions.zero,
     onOpenLibrary: (SeerrLibraryItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     SeerrScreenEffects(viewModel, onOpenLibrary)
-    SeerrContent(state, viewModel::accept, modifier)
+    SeerrContent(state, session, onSettingsClick, bottomContentPadding, viewModel::accept, modifier)
 }
 
 /** Shared lifecycle bridge only; TV supplies its own focusable rendering. */
@@ -102,6 +119,7 @@ fun SeerrScreenEffects(
     val openLibrary by rememberUpdatedState(onOpenLibrary)
     LaunchedEffect(viewModel, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.accept(SeerrIntent.Resumed)
             viewModel.libraryEffects.collect { viewModel.consumeLibraryEffect(it, openLibrary) }
         }
     }
@@ -122,6 +140,9 @@ fun SeerrScreenEffects(
 @Composable
 private fun SeerrContent(
     state: SeerrUiState,
+    session: Session,
+    onSettingsClick: () -> Unit,
+    bottomContentPadding: Dp,
     onIntent: (SeerrIntent) -> Unit,
     modifier: Modifier,
 ) {
@@ -144,21 +165,42 @@ private fun SeerrContent(
                 }
             },
     ) {
-        FlowRow(
-            Modifier.fillMaxWidth().padding(horizontal = Dimensions.screenPadding),
-            horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
-        ) {
-            SeerrSection.entries.forEach { section ->
-                FilterChip(
-                    selected = state.section == section,
-                    enabled = state.ownerValid && state.detail?.submitting != true,
-                    onClick = {
-                        keyboard?.hide()
-                        focus.clearFocus()
-                        onIntent(SeerrIntent.SelectSection(section))
+        if (state.detail == null) {
+            AppTopBar(
+                title = stringResource(Res.string.nav_requests),
+                visible = true,
+                onBack =
+                    if (state.section ==
+                        SeerrSection.Connection
+                    ) {
+                        ({ onIntent(SeerrIntent.SelectSection(SeerrSection.Discover)) })
+                    } else {
+                        null
                     },
-                    label = { Text(seerrSectionText(section)) },
-                )
+                onSettingsClick = onSettingsClick,
+                actions = {
+                    if (state.section !=
+                        SeerrSection.Connection
+                    ) {
+                        TextButton(onClick = { onIntent(SeerrIntent.SelectSection(SeerrSection.Connection)) }) {
+                            Text(stringResource(Res.string.seerr_manage))
+                        }
+                    }
+                },
+            )
+            if (state.section != SeerrSection.Connection) {
+                FlowRow(
+                    Modifier.fillMaxWidth().padding(horizontal = Dimensions.screenPadding),
+                    horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
+                ) {
+                    listOf(SeerrSection.Discover, SeerrSection.Requests).forEach { section ->
+                        SelectableActionButton(
+                            label = seerrSectionText(section),
+                            selected = state.section == section,
+                            onClick = { onIntent(SeerrIntent.SelectSection(section)) },
+                        )
+                    }
+                }
             }
         }
         when {
@@ -174,10 +216,13 @@ private fun SeerrContent(
                         onClick = { onIntent(SeerrIntent.SelectSection(SeerrSection.Connection)) },
                     ) { Text(stringResource(Res.string.seerr_manage)) }
                 }
-            state.detail != null -> key(state.detail.key) { SeerrDetailContent(state.detail, onIntent, Modifier.weight(1f)) }
+            state.detail != null ->
+                key(
+                    state.detail.entryId,
+                ) { SeerrDetailContent(state.detail, onIntent, Modifier.weight(1f), session = session) }
             else ->
                 key(state.section, state.catalog, state.submittedQuery, state.feed.resetRevision) {
-                    SeerrFeedContent(state, onIntent, Modifier.weight(1f))
+                    SeerrFeedContent(state, session, bottomContentPadding, onIntent, Modifier.weight(1f))
                 }
         }
     }
@@ -187,9 +232,12 @@ private fun SeerrContent(
 @Composable
 private fun SeerrFeedContent(
     state: SeerrUiState,
+    session: Session,
+    bottomContentPadding: Dp,
     onIntent: (SeerrIntent) -> Unit,
     modifier: Modifier,
 ) {
+    val horizontal = adaptiveHorizontalContentPadding()
     val feed = state.feed
     val scroll = rememberLazyGridState(feed.scroll.index, feed.scroll.offset)
     val keyboard = LocalSoftwareKeyboardController.current
@@ -215,7 +263,14 @@ private fun SeerrFeedContent(
         columns = GridCells.Adaptive(Dimensions.gridMinCellWidth.tileScaled()),
         state = scroll,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(Dimensions.screenPadding),
+        contentPadding =
+            PaddingValues(
+                start = horizontal.start,
+                end = horizontal.end,
+                top = Dimensions.libraryInnerViewContentSpacing,
+                bottom =
+                    bottomContentPadding + Dimensions.screenPadding,
+            ),
         horizontalArrangement = Arrangement.spacedBy(Dimensions.cardSpacing),
         verticalArrangement = Arrangement.spacedBy(Dimensions.formSpacing),
     ) {
@@ -249,6 +304,14 @@ private fun SeerrFeedContent(
                             }, label = { Text(seerrCatalogText(catalog)) })
                         }
                     }
+                    if (state.catalog != SeerrCatalog.Search) {
+                        FilterChip(
+                            selected = state.hideAvailable,
+                            onClick = { onIntent(SeerrIntent.ToggleHideAvailable) },
+                            label = { Text(stringResource(Res.string.seerr_hide_available)) },
+                        )
+                        Text(stringResource(Res.string.seerr_hide_available_hint), style = MaterialTheme.typography.bodySmall)
+                    }
                     if (state.catalog == SeerrCatalog.Search) Text(stringResource(Res.string.seerr_search_results, state.submittedQuery))
                 }
             }
@@ -273,7 +336,13 @@ private fun SeerrFeedContent(
                             ) {
                                 Res.string.seerr_requests_empty
                             } else {
-                                Res.string.seerr_empty
+                                if (state.hideAvailable &&
+                                    state.catalog != SeerrCatalog.Search
+                                ) {
+                                    Res.string.seerr_filtered_empty
+                                } else {
+                                    Res.string.seerr_empty
+                                }
                             },
                         ),
                     )
@@ -283,31 +352,37 @@ private fun SeerrFeedContent(
         }
         items(feed.rows, key = { it.id }, contentType = { "title" }) { row ->
             val title = row.media.title ?: stringResource(Res.string.seerr_untitled)
-            Card(onClick = {
-                keyboard?.hide()
-                focus.clearFocus()
-                onIntent(
-                    SeerrIntent.RememberScroll(
-                        false,
-                        SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset),
-                    ),
+            val requester = remember(row.id) { FocusRequester() }
+            val restoreId = remember { feed.selectedId }
+            LaunchedEffect(restoreId) { if (restoreId == row.id) requester.requestFocusSafely() }
+            Column {
+                MediaCard(
+                    item = row.card.copy(title = title),
+                    session = session,
+                    fillWidth = true,
+                    modifier =
+                        Modifier
+                            .focusRequester(
+                                requester,
+                            ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused(row.id)) },
+                    onClick = {
+                        keyboard?.hide()
+                        focus.clearFocus()
+                        onIntent(
+                            SeerrIntent.RememberScroll(
+                                false,
+                                SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset),
+                            ),
+                        )
+                        onIntent(SeerrIntent.OpenDetail(row))
+                    },
+                    artwork = { SeerrPoster(row.media, Modifier.fillMaxWidth()) },
                 )
-                onIntent(SeerrIntent.OpenDetail(row))
-            }) {
-                SeerrPoster(row.media, Modifier.fillMaxWidth())
-                Column(
-                    Modifier.padding(Dimensions.contentSpacing),
-                    verticalArrangement = Arrangement.spacedBy(Dimensions.labelGlyphSpacing),
-                ) {
-                    Text(title, style = MaterialTheme.typography.titleSmall)
-                    Text(seerrMediaTypeText(row.media.key.type), style = MaterialTheme.typography.bodySmall)
-                    row.media.year?.let { Text(it.toString(), style = MaterialTheme.typography.bodySmall) }
-                    Text(
-                        seerrAvailabilityLine(SeerrQuality.Standard, row.media.standardAvailability),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    row.request?.let { Text(seerrRequestLine(it), style = MaterialTheme.typography.bodySmall) }
-                }
+                Text(
+                    seerrAvailabilityLine(SeerrQuality.Standard, row.media.standardAvailability),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                row.request?.let { Text(seerrRequestLine(it), style = MaterialTheme.typography.bodySmall) }
             }
         }
         if (feed.hasMore) {
