@@ -25,13 +25,11 @@ class PlaybackReportingCoordinator(
     private val playbackState: StateFlow<PlaybackState>,
 ) {
     private var generation = 0L
-    private var installedSession: PlaybackReportingSession? = null
-    private var startPending = false
-    private var started = false
-    private var stopRequested = false
+    private var lifecycle: ReportingLifecycle = ReportingLifecycle.Empty
+
+    // Admission precedes synchronous enqueue; the receipt attaches later and survives disposal.
     private var stopResult: Deferred<Boolean>? = null
     private var periodicProgressJob: Job? = null
-    private var disposed = false
     private var retryTransition: RetryReportingTransition? = null
 
     /** The owner must settle the outgoing Stop before installing a new session. */
@@ -40,18 +38,17 @@ class PlaybackReportingCoordinator(
         plan: PlaybackPlan,
         playSessionId: String,
     ) {
-        if (disposed) return
+        if (lifecycle == ReportingLifecycle.Disposed) return
         cancelPeriodicProgress()
-        installedSession =
-            PlaybackReportingSession(
-                generation = ++generation,
-                session = session,
-                plan = plan,
-                playSessionId = playSessionId,
+        lifecycle =
+            ReportingLifecycle.Installed(
+                PlaybackReportingSession(
+                    generation = ++generation,
+                    session = session,
+                    plan = plan,
+                    playSessionId = playSessionId,
+                ),
             )
-        startPending = false
-        started = false
-        stopRequested = false
         stopResult = null
         retryTransition = null
     }
@@ -68,8 +65,8 @@ class PlaybackReportingCoordinator(
         playIntended: Boolean,
         priorPrepareEpoch: Long?,
     ): Boolean {
-        val session = installedSession
-        if (disposed || session == null) return false
+        val session = lifecycle.session
+        if (session == null) return false
         retryTransition =
             RetryReportingTransition(
                 generation = session.generation,
@@ -103,7 +100,7 @@ class PlaybackReportingCoordinator(
                 prepareEpoch != transition.priorPrepareEpoch &&
                 (current.status == PlaybackStatus.Buffering || current.status == PlaybackStatus.Playing)
         if (settled) retryTransition = null
-        if (disposed || stopRequested) {
+        if (lifecycle == ReportingLifecycle.Disposed || lifecycle is ReportingLifecycle.StopAdmitted) {
             cancelPeriodicProgress()
             return settled
         }
@@ -122,8 +119,8 @@ class PlaybackReportingCoordinator(
         isPaused: Boolean,
         eventName: PlaybackProgressEvent,
     ) {
-        val session = installedSession ?: return
-        if (disposed || stopRequested || (!started && !startPending)) return
+        val session = lifecycle.session ?: return
+        if (lifecycle !is ReportingLifecycle.Starting && lifecycle !is ReportingLifecycle.Started) return
         queue.enqueueProgress(
             reportingSession = session,
             positionMs = reportedPosition(positionMs),
@@ -138,7 +135,7 @@ class PlaybackReportingCoordinator(
     ) {
         val reportedPositionMs = consumeReportedStopPosition(positionMs)
         val session = sessionEligibleForStop() ?: return
-        stopRequested = true
+        lifecycle = ReportingLifecycle.StopAdmitted(session)
         cancelPeriodicProgress()
         stopResult =
             queue.enqueueStop(
@@ -158,7 +155,7 @@ class PlaybackReportingCoordinator(
             return
         }
         val session = sessionEligibleForStop() ?: return
-        stopRequested = true
+        lifecycle = ReportingLifecycle.StopAdmitted(session)
         cancelPeriodicProgress()
         val result =
             queue.enqueueStop(
@@ -174,17 +171,17 @@ class PlaybackReportingCoordinator(
         positionMs: Long,
         completed: Boolean = playbackState.value.status == PlaybackStatus.Completed,
     ) {
-        if (disposed) return
+        if (lifecycle == ReportingLifecycle.Disposed) return
         stop(positionMs, completed)
-        disposed = true
+        lifecycle = ReportingLifecycle.Disposed
         cancelPeriodicProgress()
         queue.closeAfterDrain()
     }
 
     private fun maybeStart(playbackState: PlaybackState) {
-        if (started || startPending || !playbackState.status.isReadyForStartReport()) return
-        val session = installedSession ?: return
-        startPending = true
+        if (!playbackState.status.isReadyForStartReport()) return
+        val session = (lifecycle as? ReportingLifecycle.Installed)?.session ?: return
+        lifecycle = ReportingLifecycle.Starting(session)
         val result =
             queue.enqueueStart(
                 reportingSession = session,
@@ -192,10 +189,9 @@ class PlaybackReportingCoordinator(
             )
         scope.launch {
             val succeeded = result.await()
-            if (installedSession?.generation != session.generation) return@launch
-            startPending = false
-            if (!stopRequested && !disposed) {
-                started = succeeded
+            if (lifecycle.session?.generation != session.generation) return@launch
+            if (lifecycle is ReportingLifecycle.Starting) {
+                lifecycle = if (succeeded) ReportingLifecycle.Started(session) else ReportingLifecycle.Installed(session)
             }
         }
     }
@@ -204,7 +200,9 @@ class PlaybackReportingCoordinator(
         current: PlaybackState,
         previousStatus: PlaybackStatus,
     ) {
-        if ((!started && !startPending) || previousStatus == current.status) return
+        if ((lifecycle !is ReportingLifecycle.Starting && lifecycle !is ReportingLifecycle.Started) || previousStatus == current.status) {
+            return
+        }
         when (current.status) {
             PlaybackStatus.Paused ->
                 progress(
@@ -230,13 +228,13 @@ class PlaybackReportingCoordinator(
             return
         }
         if (periodicProgressJob != null) return
-        val reportingSession = installedSession ?: return
+        val reportingSession = lifecycle.session ?: return
         periodicProgressJob =
             scope.launch {
                 while (playbackState.value.status == PlaybackStatus.Playing) {
                     delay(reportingSession.plan.progressReportingPolicy.reportIntervalMs)
                     if (
-                        installedSession?.generation != reportingSession.generation ||
+                        lifecycle.session?.generation != reportingSession.generation ||
                         playbackState.value.status != PlaybackStatus.Playing
                     ) {
                         return@launch
@@ -251,8 +249,8 @@ class PlaybackReportingCoordinator(
     }
 
     private fun sessionEligibleForStop(): PlaybackReportingSession? {
-        if (disposed || stopRequested || (!started && !startPending)) return null
-        return installedSession
+        if (lifecycle !is ReportingLifecycle.Starting && lifecycle !is ReportingLifecycle.Started) return null
+        return lifecycle.session
     }
 
     private fun cancelPeriodicProgress() {
@@ -261,7 +259,7 @@ class PlaybackReportingCoordinator(
     }
 
     private fun currentRetryTransition(): RetryReportingTransition? =
-        retryTransition?.takeIf { transition -> transition.generation == installedSession?.generation }
+        retryTransition?.takeIf { transition -> transition.generation == lifecycle.session?.generation }
 
     private fun reportedPosition(positionMs: Long): Long = currentRetryTransition()?.targetPositionMs ?: positionMs
 
@@ -280,3 +278,27 @@ private data class RetryReportingTransition(
     val playIntended: Boolean,
     val priorPrepareEpoch: Long?,
 )
+
+private sealed interface ReportingLifecycle {
+    val session: PlaybackReportingSession? get() = null
+
+    data object Empty : ReportingLifecycle
+
+    data class Installed(
+        override val session: PlaybackReportingSession,
+    ) : ReportingLifecycle
+
+    data class Starting(
+        override val session: PlaybackReportingSession,
+    ) : ReportingLifecycle
+
+    data class Started(
+        override val session: PlaybackReportingSession,
+    ) : ReportingLifecycle
+
+    data class StopAdmitted(
+        override val session: PlaybackReportingSession,
+    ) : ReportingLifecycle
+
+    data object Disposed : ReportingLifecycle
+}

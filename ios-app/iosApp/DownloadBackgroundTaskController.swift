@@ -22,8 +22,11 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
     /// Scheduler registrations live for the process and must never be repeated.
     private var registeredGenerations = Set<Int64>()
     /// BGTask is available at the iOS 16 deployment floor; iOS 26-only casts stay scoped.
-    private var activeTask: BGTask?
-    private var activeGeneration: Int64?
+    private struct ActiveContinuation {
+        let task: BGTask
+        let generation: Int64
+    }
+    private var activeContinuation: ActiveContinuation?
 
     init(bridge: IosDownloadBackgroundBridge? = nil) {
         self.bridge = bridge
@@ -66,8 +69,9 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
             guard
                 let self,
                 #available(iOS 26.0, *),
-                self.activeGeneration == wakeGeneration,
-                let task = self.activeTask as? BGContinuedProcessingTask
+                let active = self.activeContinuation,
+                active.generation == wakeGeneration,
+                let task = active.task as? BGContinuedProcessingTask
             else {
                 return
             }
@@ -204,10 +208,8 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
             task.setTaskCompleted(success: false)
             return
         }
-        let previousTask = activeTask
-        let previousGeneration = activeGeneration
-        activeTask = continuedTask
-        activeGeneration = generation
+        let previous = activeContinuation
+        activeContinuation = ActiveContinuation(task: continuedTask, generation: generation)
         if pendingGeneration == generation {
             pendingGeneration = nil
         }
@@ -218,15 +220,14 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
             self?.bridge?.expire(wakeGeneration: generation)
         }
         guard bridge?.grant(wakeGeneration: generation) == true else {
-            activeTask = previousTask
-            activeGeneration = previousGeneration
+            activeContinuation = previous
             continuedTask.expirationHandler = nil
             continuedTask.setTaskCompleted(success: false)
             return
         }
-        if let previousTask {
-            previousTask.expirationHandler = nil
-            previousTask.setTaskCompleted(success: false)
+        if let previous {
+            previous.task.expirationHandler = nil
+            previous.task.setTaskCompleted(success: false)
         }
     }
 
@@ -248,11 +249,10 @@ final class DownloadBackgroundTaskController: NSObject, IosDownloadBackgroundTas
     }
 
     private func finishActiveTask(generation: Int64, succeeded: Bool) {
-        guard activeGeneration == generation, let task = activeTask else { return }
-        activeTask = nil
-        activeGeneration = nil
-        task.expirationHandler = nil
-        task.setTaskCompleted(success: succeeded)
+        guard let active = activeContinuation, active.generation == generation else { return }
+        activeContinuation = nil
+        active.task.expirationHandler = nil
+        active.task.setTaskCompleted(success: succeeded)
     }
 
     @available(iOS 26.0, *)

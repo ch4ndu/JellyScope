@@ -158,6 +158,12 @@ their owners. Internal persistence helpers and pure projection helpers are not
 additional screen stores. A single screen state does not require every child to
 observe it; the workflow requires narrow inputs and appropriately scoped reads.
 
+Operation phases carry data whose lifetime follows that phase. Independent
+lifetimes remain separate: a coroutine job, lock, generation, cleanup obligation,
+or queued receipt does not become mutually exclusive merely because the UI shows
+one activity. Keep one owner for admission and project existing UI fields from it;
+state records do not replace synchronization or callback identity checks.
+
 ### Find MVI pilot
 
 Shared Find and Android TV Find send `FindIntent` values to

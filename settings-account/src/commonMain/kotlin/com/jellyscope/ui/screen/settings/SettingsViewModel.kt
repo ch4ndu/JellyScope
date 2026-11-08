@@ -202,9 +202,7 @@ class SettingsViewModel(
     private var downloadUsageGeneration = 0L
 
     // One timeline operation at a time. The payload is in memory only and dropped on every end.
-    private var activePlaybackTimelineOperation: Long? = null
-    private var activePlaybackTimelineDelivery = PlaybackTimelineDelivery.Save
-    private var pendingPlaybackTimeline: PlaybackTimeline? = null
+    private var playbackTimelineOperation: TimelineOperation? = null
     private var playbackTimelineJob: Job? = null
     private val policyRefreshRequests = Channel<Unit>(capacity = Channel.BUFFERED)
     private val appThemeWriter =
@@ -889,8 +887,9 @@ class SettingsViewModel(
 
     override fun deliverablePlaybackTimeline(operationId: Long): PlaybackTimeline? {
         val prepare = preparePlaybackTimelineAction ?: return null
-        if (operationId != activePlaybackTimelineOperation) return null
-        return pendingPlaybackTimeline?.takeIf(prepare::isDeliverable)
+        val saving = playbackTimelineOperation as? TimelineOperation.Saving ?: return null
+        if (operationId != saving.id) return null
+        return saving.timeline?.takeIf(prepare::isDeliverable)
     }
 
     override fun onPlaybackTimelineSaveResult(
@@ -898,7 +897,7 @@ class SettingsViewModel(
         result: PlaybackTimelineSaveResult,
     ) {
         val feedback = result.playbackTimelineFeedback()
-        if (operationId == activePlaybackTimelineOperation) {
+        if (operationId == playbackTimelineOperation?.id) {
             finishPlaybackTimelineOperation(feedback)
             return
         }
@@ -906,7 +905,7 @@ class SettingsViewModel(
         // restoration), a platform fact is still reported: bytes written, a write that failed
         // partway, or an empty destination the provider created.
         logPlaybackTimelineOutcome(event = "save-stale-result", result = feedback.diagnosticResult())
-        if (activePlaybackTimelineOperation == null && result in reportedStaleSaveResults) {
+        if (playbackTimelineOperation == null && result in reportedStaleSaveResults) {
             emitPlaybackTimelineFeedback(PlaybackTimelineDelivery.Save, feedback)
         }
     }
@@ -918,18 +917,18 @@ class SettingsViewModel(
      * best effort; bytes that reached the server cannot be recalled, and no outcome is reported.
      */
     override fun releasePlaybackTimelineOperation() {
-        if (activePlaybackTimelineOperation == null) return
+        if (playbackTimelineOperation == null) return
         playbackTimelineJob?.cancel()
-        logPlaybackTimelineOutcome(event = activePlaybackTimelineDelivery.finishedEvent(), result = "released")
+        logPlaybackTimelineOutcome(event = (playbackTimelineOperation?.delivery ?: return).finishedEvent(), result = "released")
         endPlaybackTimelineOperation()
     }
 
     private fun startPlaybackTimelineOperation(send: SendPlaybackTimelineAction?) {
         val prepare = preparePlaybackTimelineAction ?: return
-        if (activePlaybackTimelineOperation != null) return
+        if (playbackTimelineOperation != null) return
         val operationId = newPlaybackTimelineOperationId()
-        activePlaybackTimelineOperation = operationId
-        activePlaybackTimelineDelivery = if (send == null) PlaybackTimelineDelivery.Save else PlaybackTimelineDelivery.Send
+        playbackTimelineOperation =
+            TimelineOperation.Preparing(operationId, if (send == null) PlaybackTimelineDelivery.Save else PlaybackTimelineDelivery.Send)
         reduce(SettingsChange.TimelinePreparing)
         playbackTimelineJob =
             viewModelScope.launch {
@@ -942,7 +941,7 @@ class SettingsViewModel(
                         logPlaybackTimelineFailure("prepare-failed", exception)
                         PreparePlaybackTimelineResult.Failure
                     }
-                if (operationId != activePlaybackTimelineOperation) return@launch
+                if (operationId != playbackTimelineOperation?.id) return@launch
                 val timeline =
                     when (prepared) {
                         is PreparePlaybackTimelineResult.Ready -> prepared.timeline
@@ -954,11 +953,12 @@ class SettingsViewModel(
                             return@launch finishPlaybackTimelineOperation(PlaybackTimelineFeedback.PrepareFailed)
                     }
                 if (send == null) {
-                    pendingPlaybackTimeline = timeline
+                    playbackTimelineOperation = TimelineOperation.Saving(operationId, timeline)
                     reduce(SettingsChange.TimelineSaving)
                     _events.send(SettingsEvent.SavePlaybackTimeline(operationId))
                     return@launch
                 }
+                playbackTimelineOperation = TimelineOperation.Sending(operationId)
                 reduce(SettingsChange.TimelineSending)
                 // The action makes the final collection check immediately before the repository call.
                 val sent =
@@ -970,7 +970,7 @@ class SettingsViewModel(
                         logPlaybackTimelineFailure("send-failed", exception)
                         SendPlaybackTimelineResult.Failure
                     }
-                if (operationId != activePlaybackTimelineOperation) return@launch
+                if (operationId != playbackTimelineOperation?.id) return@launch
                 finishPlaybackTimelineOperation(
                     when (sent) {
                         is SendPlaybackTimelineResult.Success -> PlaybackTimelineFeedback.Sent(sent.filename)
@@ -984,7 +984,7 @@ class SettingsViewModel(
     }
 
     private fun finishPlaybackTimelineOperation(feedback: PlaybackTimelineFeedback) {
-        val delivery = activePlaybackTimelineDelivery
+        val delivery = playbackTimelineOperation?.delivery ?: return
         logPlaybackTimelineOutcome(event = delivery.finishedEvent(), result = feedback.diagnosticResult())
         endPlaybackTimelineOperation()
         emitPlaybackTimelineFeedback(delivery, feedback)
@@ -999,19 +999,18 @@ class SettingsViewModel(
      * irreversible and reports its real outcome.
      */
     private fun stopPlaybackTimelineForDisabledCollection() {
-        when (_state.value.playbackTimelineActivity) {
-            PlaybackTimelineActivity.Preparing -> {
+        when (val operation = playbackTimelineOperation) {
+            is TimelineOperation.Preparing -> {
                 playbackTimelineJob?.cancel()
                 finishPlaybackTimelineOperation(PlaybackTimelineFeedback.CollectionDisabled)
             }
-            PlaybackTimelineActivity.Saving -> pendingPlaybackTimeline = null
-            PlaybackTimelineActivity.Sending, null -> Unit
+            is TimelineOperation.Saving -> playbackTimelineOperation = operation.copy(timeline = null)
+            is TimelineOperation.Sending, null -> Unit
         }
     }
 
     private fun endPlaybackTimelineOperation() {
-        activePlaybackTimelineOperation = null
-        pendingPlaybackTimeline = null
+        playbackTimelineOperation = null
         playbackTimelineJob = null
         reduce(SettingsChange.TimelineFinished)
     }
@@ -1386,3 +1385,26 @@ private fun PlaybackTimelineFeedback.diagnosticResult(): String =
 
 private val settingsViewModelLogger = diagnosticLogger(DiagnosticTag.SettingsViewModel)
 private val playbackTimelineLogger = diagnosticLogger(DiagnosticTag.PlaybackTimeline)
+
+private sealed interface TimelineOperation {
+    val id: Long
+    val delivery: PlaybackTimelineDelivery
+
+    data class Preparing(
+        override val id: Long,
+        override val delivery: PlaybackTimelineDelivery,
+    ) : TimelineOperation
+
+    data class Saving(
+        override val id: Long,
+        val timeline: PlaybackTimeline?,
+    ) : TimelineOperation {
+        override val delivery: PlaybackTimelineDelivery get() = PlaybackTimelineDelivery.Save
+    }
+
+    data class Sending(
+        override val id: Long,
+    ) : TimelineOperation {
+        override val delivery: PlaybackTimelineDelivery get() = PlaybackTimelineDelivery.Send
+    }
+}

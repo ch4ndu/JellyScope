@@ -41,9 +41,25 @@ class AccountViewModel(
 ) : ViewModel() {
     private val _state = MutableStateFlow(AccountUiState())
     val state: StateFlow<AccountUiState> = _state.asStateFlow()
-    private var removalScope: SessionRemovalScope.Account? = null
+    private var removal: AccountRemoval? = null
 
     private fun reduce(change: AccountChange) {
+        removal =
+            removal?.let { current ->
+                when (change) {
+                    is AccountChange.RemovalStarted -> current.copy(phase = AccountRemovalPhase.ReadingPreview)
+                    AccountChange.PreviewFinished ->
+                        current.copy(phase = AccountRemovalPhase.Authorizing(current.phase.confirmation))
+                    AccountChange.RemovalConfirmed -> current.copy(phase = AccountRemovalPhase.Authorizing())
+                    is AccountChange.PreviewLoaded ->
+                        current.copy(phase = AccountRemovalPhase.AwaitingConfirmation(change.accountId, change.preview))
+                    is AccountChange.PreviewRefreshed ->
+                        current.copy(phase = AccountRemovalPhase.AwaitingConfirmation(change.accountId, change.preview))
+                    is AccountChange.RemovalFinished -> current.copy(phase = AccountRemovalPhase.Finished)
+                    AccountChange.RemovalDismissed -> null
+                    else -> current
+                }
+            }
         _state.update { current -> reduceAccount(current, change) }
     }
 
@@ -109,7 +125,7 @@ class AccountViewModel(
         val scope = SessionRemovalScope.Account(accountIdentity(account))
         val previewUseCase = getDownloadRemovalPreviewUseCase
         val issueAuthorization = issueDownloadRemovalAuthorizationUseCase
-        removalScope = scope
+        removal = AccountRemoval(accountId, scope, AccountRemovalPhase.ReadingPreview)
         viewModelScope.launch {
             reduce(AccountChange.RemovalStarted(accountId, previewUseCase != null))
             if (previewUseCase == null || issueAuthorization == null) {
@@ -144,10 +160,12 @@ class AccountViewModel(
     }
 
     private fun confirmPendingRemoval() {
-        val accountId = _state.value.removalPreviewAccountId ?: return
+        val transaction = removal ?: return
+        val pending = transaction.phase.confirmation ?: return
+        val accountId = pending.accountId
         val issueAuthorization = issueDownloadRemovalAuthorizationUseCase ?: return
-        val preview = _state.value.removalPreview ?: return
-        val scope = removalScope ?: return
+        val preview = pending.preview
+        val scope = transaction.scope
         if (_state.value.signingOutAccountId == null) return
         viewModelScope.launch {
             reduce(AccountChange.RemovalConfirmed)
@@ -171,18 +189,18 @@ class AccountViewModel(
     }
 
     private fun dismissPendingRemoval() {
-        val preview = _state.value.removalPreview
-        val scope = removalScope
+        val transaction = removal
+        val preview = transaction?.phase?.confirmation?.preview
+        val scope = transaction?.scope
         val release = releaseDownloadRemovalPreviewUseCase
         if (preview == null || scope == null || release == null) {
-            removalScope = null
+            removal = null
             reduce(AccountChange.RemovalDismissed)
             return
         }
 
-        // Start synchronously so the bounded non-cancellable release captures the only scope and
-        // preview handles before ViewModel cancellation can run. The logical guard release must
-        // finish; a host wake failure/cancellation is best effort and never keeps the dialog open.
+        // Capture this dismissal's cleanup obligation before ViewModel cancellation can run.
+        // Keep the preview published until finally: confirmation and repeated dismissal remain admitted.
         viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 withContext(NonCancellable + workDispatcher) { release(scope, preview) }
@@ -193,7 +211,7 @@ class AccountViewModel(
                 // The row is already in a resumable state; lifecycle recovery can retry
                 // scheduling without keeping the destructive dialog visible.
             } finally {
-                removalScope = null
+                removal = null
                 reduce(AccountChange.RemovalDismissed)
             }
         }
@@ -203,6 +221,7 @@ class AccountViewModel(
         accountId: String,
         authorization: SessionRemovalAuthorization,
     ) {
+        removal = removal?.let { it.copy(phase = AccountRemovalPhase.Removing(it.phase.confirmation)) }
         val result: Result<Unit> =
             try {
                 withContext(workDispatcher) { signOutAccountAction(accountId, authorization) }
@@ -213,9 +232,9 @@ class AccountViewModel(
             }
         reduce(AccountChange.RemovalFinished(result.exceptionOrNull()?.toUiError()))
         if (result.exceptionOrNull() is SessionRemovalError.ConfirmationStale) {
-            showFreshRemovalPreview(accountId, removalScope ?: return)
+            showFreshRemovalPreview(accountId, removal?.scope ?: return)
         } else if (result.isSuccess) {
-            removalScope = null
+            removal = null
         }
     }
 
@@ -279,3 +298,34 @@ private fun Throwable.toUiError(): AccountUiError =
         is SessionRemovalError -> AccountUiError.RemovalFailed
         else -> AccountUiError.ServerError
     }
+
+private data class AccountRemoval(
+    val accountId: String,
+    val scope: SessionRemovalScope.Account,
+    val phase: AccountRemovalPhase,
+)
+
+private sealed interface AccountRemovalPhase {
+    val confirmation: AwaitingConfirmation? get() = null
+
+    data object ReadingPreview : AccountRemovalPhase
+
+    data class AwaitingConfirmation(
+        val accountId: String,
+        val preview: DownloadRemovalPreview,
+    ) : AccountRemovalPhase {
+        override val confirmation: AwaitingConfirmation get() = this
+    }
+
+    // Overlapping callbacks may leave an earlier confirmation visible during authorization/removal.
+    data class Authorizing(
+        override val confirmation: AwaitingConfirmation? = null,
+    ) : AccountRemovalPhase
+
+    data class Removing(
+        override val confirmation: AwaitingConfirmation?,
+    ) : AccountRemovalPhase
+
+    // Failures keep the scope available to the existing stale-preview path.
+    data object Finished : AccountRemovalPhase
+}

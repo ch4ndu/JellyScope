@@ -46,9 +46,7 @@ class TvAccountsPresenter(
     val state: StateFlow<TvAccountsState> = _state.asStateFlow()
 
     private var accountsById: Map<String, AccountSession> = emptyMap()
-    private var removalScope: SessionRemovalScope.Account? = null
-    private var removalPreview: DownloadRemovalPreview? = null
-    private var removalAccount: AccountSession? = null
+    private var removal: TvAccountRemoval? = null
     private var removalCancelRequested = false
     private var closed = false
 
@@ -116,34 +114,33 @@ class TvAccountsPresenter(
         }
 
         val scopeSnapshot = SessionRemovalScope.Account(account.identity())
-        removalScope = scopeSnapshot
-        removalAccount = account
-        removalPreview = null
+        removal = TvAccountRemoval(account, scopeSnapshot, TvAccountRemovalPhase.ReadingPreview)
         removalCancelRequested = false
         reduce(TvAccountsChange.RemovalStarted(accountId))
         scope.launch {
             val preview = readPreview(scopeSnapshot, reader, releaser)
             if (preview == null) {
-                val wasCancelled = closed || removalCancelRequested || removalScope != scopeSnapshot
+                val wasCancelled = closed || removalCancelRequested || removal?.scope != scopeSnapshot
                 finishRemoval(error = if (wasCancelled) null else TvAccountError.Server)
                 return@launch
             }
-            if (closed || removalCancelRequested || removalScope != scopeSnapshot) {
+            if (closed || removalCancelRequested || removal?.scope != scopeSnapshot) {
                 releasePreview(scopeSnapshot, preview, releaser)
                 finishRemoval()
                 return@launch
             }
-            removalPreview = preview
+            removal = removal?.copy(phase = TvAccountRemovalPhase.AwaitingConfirmation(preview))
             continueWithPreview(account, scopeSnapshot, preview, refreshedAfterStale = false)
         }
     }
 
     private fun confirmPendingRemoval() {
-        val account = removalAccount ?: return
-        val scopeSnapshot = removalScope ?: return
-        val preview = removalPreview ?: return
+        val account = removal?.account ?: return
+        val scopeSnapshot = removal?.scope ?: return
+        val preview = removal?.phase?.preview ?: return
         val issuer = issueDownloadRemovalAuthorization ?: return
         if (state.value.removalConfirmation?.accountId != account.accountId) return
+        removal = removal?.copy(phase = TvAccountRemovalPhase.Authorizing(preview))
         reduce(TvAccountsChange.RemovalConfirmed)
         scope.launch {
             if (!ownsPreview(scopeSnapshot, preview)) return@launch
@@ -163,13 +160,13 @@ class TvAccountsPresenter(
     }
 
     private fun dismissPendingRemoval() {
-        val scopeSnapshot = removalScope
-        val preview = removalPreview
+        val scopeSnapshot = removal?.scope
+        val preview = removal?.phase?.preview
         val releaser = releaseDownloadRemovalPreview
         removalCancelRequested = true
         reduce(TvAccountsChange.RemovalDismissed(preview == null))
         if (scopeSnapshot == null || preview == null || releaser == null) return
-        removalPreview = null
+        removal = removal?.copy(phase = TvAccountRemovalPhase.ReadingPreview)
         scope.launch {
             releasePreview(scopeSnapshot, preview, releaser)
             finishRemoval()
@@ -180,10 +177,10 @@ class TvAccountsPresenter(
         if (closed) return
         closed = true
         removalCancelRequested = true
-        val scopeSnapshot = removalScope
-        val preview = removalPreview
+        val scopeSnapshot = removal?.scope
+        val preview = removal?.phase?.preview
         val releaser = releaseDownloadRemovalPreview
-        removalPreview = null
+        removal = removal?.copy(phase = TvAccountRemovalPhase.ReadingPreview)
         if (scopeSnapshot != null && preview != null && releaser != null) {
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 releasePreview(scopeSnapshot, preview, releaser)
@@ -224,10 +221,10 @@ class TvAccountsPresenter(
     ) {
         val releaser = releaseDownloadRemovalPreview ?: return finishRemoval(error = TvAccountError.Server)
         if (stalePreview != null) {
-            if (removalPreview === stalePreview) removalPreview = null
+            if (removal?.phase?.preview === stalePreview) removal = removal?.copy(phase = TvAccountRemovalPhase.ReadingPreview)
             releasePreview(scopeSnapshot, stalePreview, releaser)
         }
-        if (closed || removalCancelRequested || removalScope != scopeSnapshot) {
+        if (closed || removalCancelRequested || removal?.scope != scopeSnapshot) {
             finishRemoval()
             return
         }
@@ -237,12 +234,12 @@ class TvAccountsPresenter(
             finishRemoval(error = TvAccountError.Server)
             return
         }
-        if (closed || removalCancelRequested || removalScope != scopeSnapshot) {
+        if (closed || removalCancelRequested || removal?.scope != scopeSnapshot) {
             releaseDownloadRemovalPreview?.let { releaser -> releasePreview(scopeSnapshot, freshPreview, releaser) }
             finishRemoval()
             return
         }
-        removalPreview = freshPreview
+        removal = removal?.copy(phase = TvAccountRemovalPhase.AwaitingConfirmation(freshPreview))
         continueWithPreview(account, scopeSnapshot, freshPreview, refreshedAfterStale = true)
     }
 
@@ -253,7 +250,7 @@ class TvAccountsPresenter(
         authorization: SessionRemovalAuthorization,
     ) {
         if (!ownsPreview(scopeSnapshot, preview)) return
-        removalPreview = null
+        removal = removal?.copy(phase = TvAccountRemovalPhase.Removing)
         var actionStarted = false
         val result =
             try {
@@ -272,7 +269,7 @@ class TvAccountsPresenter(
                 }
                 Result.failure(error)
             }
-        if (closed || removalCancelRequested || removalScope != scopeSnapshot) {
+        if (closed || removalCancelRequested || removal?.scope != scopeSnapshot) {
             finishRemoval()
             return
         }
@@ -280,7 +277,7 @@ class TvAccountsPresenter(
         when (failure) {
             SessionRemovalError.ConfirmationStale -> {
                 publishError(TvAccountError.RemovalConfirmationStale, keepOperation = true)
-                val account = removalAccount
+                val account = removal?.account
                 if (account == null) {
                     finishRemoval(error = TvAccountError.Server)
                 } else {
@@ -361,7 +358,7 @@ class TvAccountsPresenter(
         preview: DownloadRemovalPreview,
         error: TvAccountError?,
     ) {
-        if (removalPreview === preview) removalPreview = null
+        if (removal?.phase?.preview === preview) removal = removal?.copy(phase = TvAccountRemovalPhase.ReadingPreview)
         releaseDownloadRemovalPreview?.let { releaser -> releasePreview(scopeSnapshot, preview, releaser) }
         finishRemoval(error)
     }
@@ -372,8 +369,8 @@ class TvAccountsPresenter(
     ): Boolean =
         !closed &&
             !removalCancelRequested &&
-            removalScope == scopeSnapshot &&
-            removalPreview === preview
+            removal?.scope == scopeSnapshot &&
+            removal?.phase?.preview === preview
 
     private fun runSimpleOperation(
         accountId: String,
@@ -398,9 +395,7 @@ class TvAccountsPresenter(
     }
 
     private fun finishRemoval(error: TvAccountError? = null) {
-        removalScope = null
-        removalPreview = null
-        removalAccount = null
+        removal = null
         removalCancelRequested = false
         reduce(TvAccountsChange.OperationFinished(error))
     }
@@ -450,3 +445,25 @@ private fun logAccountFailure(
 }
 
 private val tvAccountsLogger = diagnosticLogger(DiagnosticTag.TvSettingsPresenter)
+
+private data class TvAccountRemoval(
+    val account: AccountSession,
+    val scope: SessionRemovalScope.Account,
+    val phase: TvAccountRemovalPhase,
+)
+
+private sealed interface TvAccountRemovalPhase {
+    val preview: DownloadRemovalPreview? get() = null
+
+    data object ReadingPreview : TvAccountRemovalPhase
+
+    data class AwaitingConfirmation(
+        override val preview: DownloadRemovalPreview,
+    ) : TvAccountRemovalPhase
+
+    data class Authorizing(
+        override val preview: DownloadRemovalPreview,
+    ) : TvAccountRemovalPhase
+
+    data object Removing : TvAccountRemovalPhase
+}

@@ -138,7 +138,7 @@ class SeerrViewModel(
                 if (!detail.selectionEnabled || (intent.quality == SeerrQuality.FourK && !detail.showFourK)) return
                 cancelLibrary()
                 updateDetail {
-                    it.copy(quality = intent.quality, selectedSeasons = emptySet(), confirmation = null, error = null)
+                    it.copy(quality = intent.quality, selectedSeasons = emptySet(), mutation = SeerrMutation.None, error = null)
                 }
             }
             is SeerrIntent.ToggleSeason ->
@@ -160,7 +160,11 @@ class SeerrViewModel(
                 }
             SeerrIntent.ConfirmRequest ->
                 updateDetail {
-                    if (it.canSubmit) it.copy(confirmation = SeerrRequestIntent(it.key, it.quality, it.selectedSeasons.sorted())) else it
+                    if (it.canSubmit) {
+                        it.copy(mutation = SeerrMutation.Confirming(SeerrRequestIntent(it.key, it.quality, it.selectedSeasons.sorted())))
+                    } else {
+                        it
+                    }
                 }
             SeerrIntent.SubmitRequest -> submit()
             SeerrIntent.Reconcile -> reconcile()
@@ -560,7 +564,7 @@ class SeerrViewModel(
         if (!catalogAllowed() || state.value.detail?.submitting == true) return
         cancelReads()
         val generation = detailGeneration
-        updateDetail { it.copy(loading = true, reconciling = false, admissionFresh = false, error = retainedError, confirmation = null) }
+        updateDetail { it.copy(loading = true, admissionFresh = false, error = retainedError, mutation = SeerrMutation.None) }
         detailJob =
             viewModelScope.launch {
                 publish(getDetail(captured, key), true, { generation == detailGeneration && state.value.detail?.key == key }, { error ->
@@ -589,7 +593,7 @@ class SeerrViewModel(
         val detail = state.value.detail ?: return
         if (detail.submitting) return
         if (detail.confirmation != null) {
-            updateDetail { it.copy(confirmation = null) }
+            updateDetail { it.copy(mutation = SeerrMutation.None) }
             reduce(SeerrChange.Focus("request"))
         } else {
             cancelReads()
@@ -605,7 +609,14 @@ class SeerrViewModel(
         if (!catalogAllowed() || !detail.canSubmit || detail.submitting || mutationJob?.isActive == true) return
         val generation = detailGeneration
         cancelLibrary()
-        updateDetail { it.copy(submitting = true, admissionFresh = false, error = null, notice = null) }
+        updateDetail {
+            it.copy(
+                mutation = SeerrMutation.Submitting(intent, generation),
+                admissionFresh = false,
+                error = null,
+                notice = null,
+            )
+        }
         mutationJob =
             viewModelScope.launch {
                 publish(
@@ -618,9 +629,8 @@ class SeerrViewModel(
                     { error ->
                         updateDetail {
                             it.copy(
-                                submitting = false,
                                 admissionFresh = false,
-                                confirmation = null,
+                                mutation = SeerrMutation.None,
                                 error = error,
                                 uncertain =
                                     error == SeerrError.ReconciliationRequired || it.uncertain,
@@ -628,7 +638,7 @@ class SeerrViewModel(
                         }
                     },
                 ) {
-                    updateDetail { it.copy(submitting = false, confirmation = null, notice = SeerrNotice.Created) }
+                    updateDetail { it.copy(mutation = SeerrMutation.None, notice = SeerrNotice.Created) }
                     // Reads after proven creation are safe; the POST itself is never retried.
                 }
                 if (generation == detailGeneration) {
@@ -653,12 +663,12 @@ class SeerrViewModel(
         }
         cancelReads()
         val generation = detailGeneration
-        updateDetail { it.copy(reconciling = true, admissionFresh = false, confirmation = null, error = null) }
+        updateDetail { it.copy(mutation = SeerrMutation.Reconciling(generation), admissionFresh = false, error = null) }
         detailJob =
             viewModelScope.launch {
                 var reconciled = false
                 publish(reconcileRequest(captured), true, { generation == detailGeneration }, { error ->
-                    updateDetail { it.copy(reconciling = false, admissionFresh = false, error = error, uncertain = true) }
+                    updateDetail { it.copy(mutation = SeerrMutation.None, admissionFresh = false, error = error, uncertain = true) }
                 }) { detail ->
                     reconciled = !detail.reconciliationRequired
                     if (reconciled) connection { it.copy(connection = it.connection.copy(unresolvedRequest = null)) }
@@ -668,7 +678,7 @@ class SeerrViewModel(
                             detail = if (it.key == detail.media.key) detail else it.detail,
                             admissionFresh = reconciled && it.key == detail.media.key,
                             uncertain = !reconciled,
-                            reconciling = false,
+                            mutation = SeerrMutation.None,
                             notice = if (reconciled) SeerrNotice.Reconciled else null,
                         )
                     }

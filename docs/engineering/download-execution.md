@@ -71,7 +71,11 @@ and retains their engines, account admission, attempts and lifecycle policy.
   registered once before submission; the plist wildcard supplies permission.
   Registration or scheduling rejection retains foreground downloading, with
   generation-correlated scheduler diagnostics. The grant is bound to one retained
-  wake and account epoch. Screen entry, recovery, Pause/Cancel follow-up, and
+  wake and account epoch. The native active continuation pairs its task with that
+  generation; pending requests and scheduler registrations remain independent.
+  Grant rejection restores the previous active continuation, and exact-generation
+  completion detaches it before native cleanup.
+  Screen entry, recovery, Pause/Cancel follow-up, and
   removal-preview dismissal never request background time. Native Stop or
   expiration checkpoints to Paused for explicit Resume. Slow server encoding
   or Fixed preflight can show little progress and cause iOS to end execution;

@@ -272,6 +272,18 @@ this module boundary does not change cleanup ordering or credential authority.
   clear at both boundaries implements both and has a focused check for each.
   `PlaybackDiagnosticsContext`, `DiscoveryCache`, and `DetailRelatedCache` do so.
 
+Removal presentation owns the account/scope and phase-specific preview. Cleanup
+is a separate captured obligation. Shared dismissal keeps its preview published
+until release finishes, so confirmation and repeated dismissal remain admitted
+while release suspends. tvOS detaches its preview before asynchronous release and
+retains its own cancellation, close and failure cleanup. Neither presentation
+phase replaces the committed session snapshot.
+
+| Transition | Prerequisite and commit | Publication and failure ordering |
+| --- | --- | --- |
+| Login or switch | Validate admission and outgoing participant, then check caller cancellation before the non-cancellable persistence/load tail. | Advance the subtitle barrier and account epoch, publish the committed snapshot, then surface returned transition-cleanup failure; check caller cancellation after the tail. |
+| Account removal | Prepare authorization under the boundary gate, then remove credentials in the non-cancellable tail. | Aggregate post-removal mutation/cleanup failures, complete the account boundary and publish the carried snapshot before surfacing aggregated failure or cancellation. |
+
 ## Independent Android launcher state
 
 See the dedicated [launcher persistence contract](../launcher/engineering.md#independent-android-launcher-state).

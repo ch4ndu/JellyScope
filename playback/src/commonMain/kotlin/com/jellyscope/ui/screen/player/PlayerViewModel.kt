@@ -343,12 +343,8 @@ class PlayerViewModel(
     // The replan request generation and target of the Audio recovery request that actually launched.
     private var audioRecoveryRequestGeneration: Long? = null
     private var audioRecoveryRequestTarget: AudioActivationTarget? = null
-    private var replacementSeekTarget: Long? = null
-    private var queuedSeekTarget: Long? = null
-    private var replacementSeekStopPosition: Long? = null
-    private var userChangeDisplacedRecovery = false
-    private var displacedAudioRecovery: AudioActivationTarget? = null
-    private var displacedSubtitleRecovery: SubtitleActivationTarget? = null
+    private var seekReplacement = PlayerSeekReplacementState()
+    private var displacedRecovery = PlayerDisplacedRecoveryLineage()
     private var installedReportingStopped = false
 
     private data class TrackChangeProposal(
@@ -415,7 +411,7 @@ class PlayerViewModel(
     private val _softwarePlaybackRecovery = MutableStateFlow<PlayerSoftwarePlaybackRecovery?>(null)
     val softwarePlaybackRecovery: StateFlow<PlayerSoftwarePlaybackRecovery?> = _softwarePlaybackRecovery.asStateFlow()
     private var alternateBackendFallbackAttempted = false
-    private var controllerInstallInFlight = false
+    private var installationAttempt: PlayerInstallationAttempt? = null
     private val controllerInstallMutex = Mutex()
     private var stopRequestedDuringControllerInstall = false
 
@@ -602,18 +598,18 @@ class PlayerViewModel(
     private fun reduce(change: PlayerChange) {
         _state.update { current -> reducePlayer(current, change) }
         val failure = _state.value as? PlayerUiState.Error
-        if (failure != null && replacementSeekTarget != null) {
+        if (failure != null && seekReplacement.targetMs != null) {
             _playbackState.value =
                 playerController.playbackState.value
                     .copy(status = PlaybackStatus.Failed, error = failure.error)
-                    .withReplacementSeekTarget(replacementSeekTarget)
+                    .withReplacementSeekTarget(seekReplacement.targetMs)
             playbackHealthCoordinator.resumeAfterInstallation(null)
         }
     }
 
     private fun play() {
         if (_softwarePlaybackRecovery.value != null) return
-        if (replacementSeekTarget != null) {
+        if (seekReplacement.targetMs != null) {
             desiredPlayWhenReady = true
             playbackIntentRevision += 1L
             publishContent()
@@ -633,13 +629,13 @@ class PlayerViewModel(
 
     private fun pause() {
         if (_softwarePlaybackRecovery.value != null) return
-        if (replacementSeekTarget != null) {
+        if (seekReplacement.targetMs != null) {
             desiredPlayWhenReady = false
             playbackIntentRevision += 1L
             publishContent()
             return
         }
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         invalidateBackendSwitch()
         desiredPlayWhenReady = false
         playbackIntentRevision += 1L
@@ -667,7 +663,7 @@ class PlayerViewModel(
     }
 
     private fun playPrevious() {
-        if (isKidsSingleAsset || controllerInstallInFlight) return
+        if (isKidsSingleAsset || installationAttempt != null) return
         val playback = playbackState.value
         if (playback.positionMs >= PREVIOUS_ITEM_RESTART_THRESHOLD_MS) {
             seekTo(0L)
@@ -689,12 +685,12 @@ class PlayerViewModel(
     }
 
     private fun setVolume(percent: Int) {
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         (playerController as? PlayerVolumeController)?.setVolume(percent)
     }
 
     private fun toggleMute() {
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         val volumeController = playerController as? PlayerVolumeController ?: return
         volumeController.setMuted(!volumeController.volumeState.value.muted)
     }
@@ -702,16 +698,15 @@ class PlayerViewModel(
     private fun seekTo(positionMs: Long) {
         if (_softwarePlaybackRecovery.value != null) return
         val target = positionMs.coerceAtLeast(0L)
-        if (controllerInstallInFlight) {
-            if (replacementSeekTarget != null) {
-                queuedSeekTarget = target
-                replacementSeekTarget = target
+        if (installationAttempt != null) {
+            if (seekReplacement.targetMs != null) {
+                seekReplacement = seekReplacement.queueLatest(target)
                 publishContent()
             }
             return
         }
         if (queueSwitchInFlight) return
-        val wasHeld = replacementSeekTarget != null
+        val wasHeld = seekReplacement.targetMs != null
         if (wasHeld) {
             replanJob?.cancel()
             replanJob = null
@@ -728,16 +723,18 @@ class PlayerViewModel(
             !isWithinTranscodedWindow(target, currentPlan)
         ) {
             // Restart when the target lies outside the server-produced HLS window.
-            if (!wasHeld) replacementSeekStopPosition = playerController.playbackState.value.positionMs
-            replacementSeekTarget = target
+            if (!wasHeld) {
+                val stopPositionMs = playerController.playbackState.value.positionMs
+                seekReplacement = seekReplacement.copy(stopPositionMs = stopPositionMs)
+            }
+            seekReplacement = seekReplacement.copy(targetMs = target)
             playbackHealthCoordinator.suspendForInstallation()
             playerController.pause()
             publishContent()
             replanAtPosition(target, userSeek = true)
             return
         }
-        replacementSeekTarget = null
-        replacementSeekStopPosition = null
+        seekReplacement = seekReplacement.clearHold()
         playerController.seekTo(target)
         if (wasHeld && desiredPlayWhenReady) playerController.play()
         if (wasHeld) playbackHealthCoordinator.resumeAfterInstallation(playerController.playbackState.value)
@@ -761,9 +758,9 @@ class PlayerViewModel(
     private fun retry() {
         if (disposed) return
         if (_softwarePlaybackRecovery.value != null) return
-        if (controllerInstallInFlight) return
-        replacementSeekTarget?.let { target ->
-            queuedSeekTarget = null
+        if (installationAttempt != null) return
+        seekReplacement.targetMs?.let { target ->
+            seekReplacement = seekReplacement.copy(queuedTargetMs = null)
             replanAtPosition(target)
             return
         }
@@ -1002,9 +999,7 @@ class PlayerViewModel(
         allowCurrentTargetRetry: Boolean,
         launchOptions: PlayerLaunchOptions?,
     ): Boolean {
-        replacementSeekTarget = null
-        replacementSeekStopPosition = null
-        queuedSeekTarget = null
+        seekReplacement = PlayerSeekReplacementState()
 
         if (!isKidsSingleAsset || !canAcceptPlaybackStart()) {
             return false
@@ -1255,7 +1250,7 @@ class PlayerViewModel(
         auto: Boolean = false,
         expectedGeneration: Long? = null,
     ): Boolean {
-        if (isKidsSingleAsset || controllerInstallInFlight) return false
+        if (isKidsSingleAsset || installationAttempt != null) return false
         return playNext(
             auto = auto,
             stopPositionMs = playerController.playbackState.value.positionMs,
@@ -1292,13 +1287,13 @@ class PlayerViewModel(
     }
 
     private fun skipCurrentSegment() {
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         val segment = playbackState.value.currentSegment ?: return
         seekTo(segment.endMs)
     }
 
     private fun setResizeMode(mode: PlayerResizeMode) {
-        if (controllerInstallInFlight || !playerController.supportsVideoSizing) return
+        if (installationAttempt != null || !playerController.supportsVideoSizing) return
         invalidateBackendSwitch()
         resizeMode = mode
         if (state.value is PlayerUiState.Content) {
@@ -1356,7 +1351,7 @@ class PlayerViewModel(
         clearPlayingPositionProof()
         invalidateBackendSwitch()
         timingCoordinator.cancelLoad()
-        if (controllerInstallInFlight || controllerInstallMutex.isLocked) {
+        if (installationAttempt != null || controllerInstallMutex.isLocked) {
             stopRequestedDuringControllerInstall = true
             return
         }
@@ -1364,9 +1359,7 @@ class PlayerViewModel(
     }
 
     private fun performStop(stopController: Boolean) {
-        replacementSeekTarget = null
-        replacementSeekStopPosition = null
-        queuedSeekTarget = null
+        seekReplacement = PlayerSeekReplacementState()
 
         recoveryClosedByStop = true
         clearSoftwarePlaybackRecovery(SoftwarePlaybackRecoveryDecision.Stopped)
@@ -1416,7 +1409,7 @@ class PlayerViewModel(
         if (
             disposed ||
             backendSwitchInProgress ||
-            controllerInstallInFlight ||
+            installationAttempt != null ||
             queueSwitchInFlight ||
             currentPlan.streamMode == StreamMode.Offline ||
             playbackState.value.status in backendSwitchTerminalStatuses ||
@@ -1429,16 +1422,16 @@ class PlayerViewModel(
         }
 
         val wasActiveAtRequest = canKeepInstalledPlayback()
-        if (replacementSeekTarget != null && !wasActiveAtRequest) return false
+        if (seekReplacement.targetMs != null && !wasActiveAtRequest) return false
         val wasPaused =
-            if (replacementSeekTarget != null) {
+            if (seekReplacement.targetMs != null) {
                 !desiredPlayWhenReady
             } else {
                 playerController.playbackState.value.status == PlaybackStatus.Paused || !desiredPlayWhenReady
             }
         replanJob?.cancel()
         replanJob = null
-        if (replacementSeekTarget != null) {
+        if (seekReplacement.targetMs != null) {
             settleCancelledSeekHold(restorePlayback = wasActiveAtRequest)
             publishContent()
         }
@@ -1554,7 +1547,7 @@ class PlayerViewModel(
     }
 
     private fun selectAudio(streamIndex: Int) {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         invalidateBackendSwitch()
         val option =
             audioOptions(mediaStreams)
@@ -1706,7 +1699,7 @@ class PlayerViewModel(
     }
 
     private fun selectOfflineSidecar() {
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         invalidateBackendSwitch()
         val currentPlan = plan ?: return
         val option = offlineSidecarOption ?: return
@@ -1797,7 +1790,7 @@ class PlayerViewModel(
     }
 
     private fun selectSubtitle(streamIndex: Int?) {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         invalidateBackendSwitch()
         val option =
             streamIndex?.let { selectedIndex ->
@@ -1838,7 +1831,7 @@ class PlayerViewModel(
                 ) ||
                 canSwitchApprovedEmbeddedSubtitle
         if (canSwitchInPlayer) {
-            if (replacementSeekTarget != null) {
+            if (seekReplacement.targetMs != null) {
                 if (!canKeepInstalledPlayback()) {
                     reduce(PlayerChange.Failed(PlayerUiState.Error(error = PlaybackError.Unknown)))
                     return
@@ -1913,7 +1906,7 @@ class PlayerViewModel(
     }
 
     private fun selectLocalSubtitle(assetId: String) {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val sourceId = selectedMediaSourceId?.takeIf(String::isNotBlank) ?: return
@@ -1951,7 +1944,7 @@ class PlayerViewModel(
                     playerController !== controller ||
                     installedPlan !== installed ||
                     selectedMediaSourceId != sourceId ||
-                    controllerInstallInFlight
+                    installationAttempt != null
                 ) {
                     return@launch
                 }
@@ -1983,17 +1976,15 @@ class PlayerViewModel(
 
     private fun canKeepInstalledPlayback(): Boolean =
         canRejectPlaybackChange(
-            playerControllerFieldOwned && installedPlan != null && !controllerInstallInFlight,
+            playerControllerFieldOwned && installedPlan != null && installationAttempt == null,
             !installedReportingStopped,
-            userChangeDisplacedRecovery,
+            displacedRecovery.isDisplacing,
             _state.value is PlayerUiState.Error,
             playerController.playbackState.value.status,
         )
 
     private fun settleCancelledSeekHold(restorePlayback: Boolean = true) {
-        replacementSeekTarget = null
-        replacementSeekStopPosition = null
-        queuedSeekTarget = null
+        seekReplacement = PlayerSeekReplacementState()
         if (!restorePlayback) return
         if (desiredPlayWhenReady) playerController.play() else playerController.pause()
         playbackHealthCoordinator.resumeAfterInstallation(playerController.playbackState.value)
@@ -2013,13 +2004,13 @@ class PlayerViewModel(
             playerController !== controller ||
             installedPlan !== installed ||
             selectedMediaSourceId != sourceId ||
-            controllerInstallInFlight
+            installationAttempt != null
         ) {
             return
         }
         replanJob = null
         if (canKeepInstalledPlayback()) {
-            if (replacementSeekTarget != null) settleCancelledSeekHold()
+            if (seekReplacement.targetMs != null) settleCancelledSeekHold()
             publishPlaybackChangeRejection(PlayerPlaybackChangeOperation.Subtitle, error)
         } else {
             reduce(PlayerChange.Failed(PlayerUiState.Error(error = error)))
@@ -2027,14 +2018,14 @@ class PlayerViewModel(
     }
 
     private fun selectQuality(maxBitrateBps: Long?) {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         requestQualityChange(qualitySession.selectFixedOrOriginal(maxBitrateBps))
     }
 
     private fun selectQuality(policy: PlaybackQualityPolicy) {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val normalized = policy.normalized()
@@ -2048,14 +2039,14 @@ class PlayerViewModel(
     }
 
     private fun acceptAutoPlayback() {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         requestQualityChange(qualitySession.selectAuto())
     }
 
     private fun clearQualityOverride() {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val inheritedPolicy = activePlaybackPreferences.effectiveDefaultQualityPolicy(backend)
@@ -2063,7 +2054,7 @@ class PlayerViewModel(
     }
 
     private fun keepRecoveredQualityForSession() {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         val bitrate = autoRecoveryState.runtimeQualityCapBps ?: qualitySession.maximumBitrateBps ?: return
@@ -2071,7 +2062,7 @@ class PlayerViewModel(
     }
 
     private fun tryHigherQualityOrOriginal() {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         invalidateBackendSwitch()
         if (plan?.streamMode == StreamMode.Offline) return
         requestQualityChange(
@@ -2081,13 +2072,20 @@ class PlayerViewModel(
     }
 
     private fun captureUserChangeRecovery() {
-        if (!userChangeDisplacedRecovery) {
-            displacedAudioRecovery = audioRecoveryTarget
-            displacedSubtitleRecovery = subtitleFallbackTarget
+        if (!displacedRecovery.isDisplacing) {
+            displacedRecovery =
+                displacedRecovery.copy(
+                    audioTarget = audioRecoveryTarget,
+                    subtitleTarget = subtitleFallbackTarget,
+                )
         }
-        userChangeDisplacedRecovery = userChangeDisplacedRecovery ||
-            displacedAudioRecovery != null ||
-            (displacedSubtitleRecovery != null && replanJob?.isActive == true)
+        displacedRecovery =
+            displacedRecovery.copy(
+                isDisplacing =
+                    displacedRecovery.isDisplacing ||
+                        displacedRecovery.audioTarget != null ||
+                        (displacedRecovery.subtitleTarget != null && replanJob?.isActive == true),
+            )
     }
 
     private fun requestQualityChange(
@@ -2124,7 +2122,7 @@ class PlayerViewModel(
     }
 
     private fun handlePlaybackAction(action: PlaybackAction) {
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         when (action) {
             PlaybackAction.AcceptAuto -> acceptAutoPlayback()
             PlaybackAction.ClearQualityOverride -> clearQualityOverride()
@@ -2161,7 +2159,7 @@ class PlayerViewModel(
     }
 
     private fun setPlaybackSpeed(speed: Float) {
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         invalidateBackendSwitch()
         if (!speed.isFinite()) {
             return
@@ -2176,7 +2174,7 @@ class PlayerViewModel(
     }
 
     private fun setSubtitleStyle(style: SubtitleStyle) {
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         invalidateBackendSwitch()
         subtitleStyle = style
         plan = plan?.copy(subtitleStyle = subtitleStyle)
@@ -2206,7 +2204,7 @@ class PlayerViewModel(
         kind: PlaybackTimingKind,
         deltaMs: Long,
     ) {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         timingCoordinator.adjust(kind, deltaMs)
     }
 
@@ -2214,7 +2212,7 @@ class PlayerViewModel(
         kind: PlaybackTimingKind,
         offsetMs: Long,
     ) {
-        if (controllerInstallInFlight || queueSwitchInFlight) return
+        if (installationAttempt != null || queueSwitchInFlight) return
         timingCoordinator.set(kind, offsetMs)
     }
 
@@ -2245,9 +2243,7 @@ class PlayerViewModel(
     }
 
     fun dispose() {
-        replacementSeekTarget = null
-        replacementSeekStopPosition = null
-        queuedSeekTarget = null
+        seekReplacement = PlayerSeekReplacementState()
 
         recoveryClosedByStop = true
         externalLaunchEpoch += 1L
@@ -2325,10 +2321,8 @@ class PlayerViewModel(
         retainedKidsSelection: RetainedKidsPlaybackSelection? = null,
     ): Boolean {
         desiredPlayWhenReady = true
-        replacementSeekTarget = null
-        queuedSeekTarget = null
-        replacementSeekStopPosition = null
-        userChangeDisplacedRecovery = false
+        seekReplacement = PlayerSeekReplacementState()
+        displacedRecovery = displacedRecovery.copy(isDisplacing = false)
         if (!isKidsSingleAsset && currentOfflineDownloadId == null) {
             launchIntentTarget = PlayerPlaybackTarget(itemId, null)
             launchIntent =
@@ -2704,7 +2698,12 @@ class PlayerViewModel(
                 }
                 if (!ownsRestore()) return@withLock false
 
-                controllerInstallInFlight = true
+                installationAttempt =
+                    PlayerInstallationAttempt(
+                        launchGeneration = launchGeneration,
+                        itemId = itemId,
+                        operation = PlayerInstallationOperation.TimingRestore,
+                    )
                 playbackHealthCoordinator.suspendForInstallation()
                 try {
                     val loaded = loadTimingOffsets()
@@ -2733,7 +2732,7 @@ class PlayerViewModel(
             }
         // Unlocking can run a queued owner; nothing may suspend between this check and prepare.
         currentCoroutineContext().ensureActive()
-        if (!restored || !ownsRestore() || controllerInstallInFlight || controllerInstallMutex.isLocked) return false
+        if (!restored || !ownsRestore() || installationAttempt != null || controllerInstallMutex.isLocked) return false
         excludeSoftwarePlaybackProgress()
         markPlaybackHealthExclusion(PlaybackHealthExclusionReason.Prepare)
         playerDiagnosticsRecorder.recordPrepareRequested(playerDiagnosticContext())
@@ -3454,7 +3453,7 @@ class PlayerViewModel(
     ): Boolean =
         installedPlan != null &&
             isCurrentReplan(requestGeneration, launchGeneration, itemId) &&
-            !controllerInstallInFlight &&
+            installationAttempt == null &&
             playerController === controller &&
             this.installedPlan === installedPlan
 
@@ -3471,7 +3470,7 @@ class PlayerViewModel(
     ): Boolean =
         !disposed &&
             !recoveryClosedByStop &&
-            !controllerInstallInFlight &&
+            installationAttempt == null &&
             !controllerInstallMutex.isLocked &&
             offlineReprepareGeneration == null &&
             playerController === controller &&
@@ -3946,7 +3945,12 @@ class PlayerViewModel(
                 return@withLock null
             }
 
-            controllerInstallInFlight = true
+            installationAttempt =
+                PlayerInstallationAttempt(
+                    launchGeneration = expectedGeneration,
+                    itemId = expectedItemId,
+                    operation = PlayerInstallationOperation.Controller,
+                )
             playbackHealthCoordinator.suspendForInstallation()
             val previousReportingJob = reportingJob
             val currentJob = currentCoroutineContext()[Job]
@@ -4089,7 +4093,7 @@ class PlayerViewModel(
      * rearms health instead. Never reenters [handlePlaybackState] and its failure handling.
      */
     private fun finishControllerInstallation(ownerLaunchGeneration: Long) {
-        controllerInstallInFlight = false
+        installationAttempt = null
         val currentPlaybackState =
             if (
                 !disposed &&
@@ -4122,7 +4126,7 @@ class PlayerViewModel(
     private fun canOpenBackendPicker(): Boolean =
         !disposed &&
             !backendSwitchInProgress &&
-            !controllerInstallInFlight &&
+            installationAttempt == null &&
             !queueSwitchInFlight &&
             hasBackendSwitchTarget()
 
@@ -4147,7 +4151,7 @@ class PlayerViewModel(
 
     private fun invalidateBackendSwitch() {
         backendSwitchGeneration += 1L
-        if (!controllerInstallInFlight) {
+        if (installationAttempt == null) {
             backendSwitchJob?.cancel()
         }
         backendSwitchJob = null
@@ -4354,7 +4358,7 @@ class PlayerViewModel(
         if (
             !isCurrentBackendSwitch(switch) ||
             stopRequestedDuringControllerInstall ||
-            controllerInstallInFlight ||
+            installationAttempt != null ||
             controllerInstallMutex.isLocked ||
             offlineReprepareGeneration != null ||
             playerController !== switch.activeController ||
@@ -4380,7 +4384,12 @@ class PlayerViewModel(
                 return@withLock false
             }
 
-            controllerInstallInFlight = true
+            installationAttempt =
+                PlayerInstallationAttempt(
+                    launchGeneration = switch.launchGeneration,
+                    itemId = switch.itemId,
+                    operation = PlayerInstallationOperation.BackendSwitch,
+                )
             playbackHealthCoordinator.suspendForInstallation()
             var previousReportingJob: Job? = null
             val currentJob = currentCoroutineContext()[Job]
@@ -4733,7 +4742,7 @@ class PlayerViewModel(
     }
 
     private suspend fun handlePlaybackState(playbackState: PlaybackState) {
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         if (offlineReprepareGeneration != null) return
         // Stop closed recovery: drop this failure before publication or a suspending capture.
         if (recoveryClosedByStop && playbackState.status == PlaybackStatus.Failed) return
@@ -4745,33 +4754,31 @@ class PlayerViewModel(
         val selectionGenerationAtState = selectedPlaybackGeneration
         val installedPlanAtState = installedPlan
         val terminalStopPosition =
-            if (replacementSeekTarget != null) {
-                replacementSeekStopPosition ?: playbackState.positionMs
+            if (seekReplacement.targetMs != null) {
+                seekReplacement.stopPositionMs ?: playbackState.positionMs
             } else {
                 playbackState.positionMs
             }
         val visiblePlaybackState =
-            if (replacementSeekTarget != null && _state.value is PlayerUiState.Error) {
+            if (seekReplacement.targetMs != null && _state.value is PlayerUiState.Error) {
                 playbackState.copy(status = PlaybackStatus.Failed)
             } else {
                 playbackState
             }
-        val enrichedPlaybackState = visiblePlaybackState.withPlaybackMetadata().withReplacementSeekTarget(replacementSeekTarget)
+        val enrichedPlaybackState = visiblePlaybackState.withPlaybackMetadata().withReplacementSeekTarget(seekReplacement.targetMs)
         _playbackState.value = enrichedPlaybackState
-        if (userChangeDisplacedRecovery) {
+        if (displacedRecovery.isDisplacing) {
             val audioResolved =
-                displacedAudioRecovery == null ||
-                    (playbackState.audioActivation as? AudioActivationState.Active)?.target == displacedAudioRecovery
+                displacedRecovery.audioTarget == null ||
+                    (playbackState.audioActivation as? AudioActivationState.Active)?.target == displacedRecovery.audioTarget
             val subtitleResolved =
-                displacedSubtitleRecovery == null ||
-                    (playbackState.subtitleActivation as? SubtitleActivationState.Active)?.target == displacedSubtitleRecovery
+                displacedRecovery.subtitleTarget == null ||
+                    (playbackState.subtitleActivation as? SubtitleActivationState.Active)?.target == displacedRecovery.subtitleTarget
             if (audioResolved && subtitleResolved) {
-                userChangeDisplacedRecovery = false
-                displacedAudioRecovery = null
-                displacedSubtitleRecovery = null
+                displacedRecovery = PlayerDisplacedRecoveryLineage()
             }
         }
-        if (replacementSeekTarget != null && playbackState.status != PlaybackStatus.Failed) {
+        if (seekReplacement.targetMs != null && playbackState.status != PlaybackStatus.Failed) {
             publishContent(playbackState)
             return
         }
@@ -5103,7 +5110,7 @@ class PlayerViewModel(
 
     private fun handleAutomaticRecoveryTrigger(trigger: AutoPlaybackRecoveryTrigger): AutomaticRecoveryDiagnostic? {
         // An owned install or unsettled queue identity rejects before spending recovery state or the PiP slot.
-        if (controllerInstallInFlight || queueSwitchInFlight) return null
+        if (installationAttempt != null || queueSwitchInFlight) return null
         if (recoveryClosedByStop) return null
         if (_softwarePlaybackRecovery.value != null) return null
         if (plan?.streamMode == StreamMode.Offline) return null
@@ -5314,7 +5321,7 @@ class PlayerViewModel(
      */
     private fun canAcceptPlaybackStart(): Boolean =
         !disposed &&
-            !controllerInstallInFlight &&
+            installationAttempt == null &&
             !controllerInstallMutex.isLocked &&
             !stopRequestedDuringControllerInstall
 
@@ -5577,7 +5584,7 @@ class PlayerViewModel(
         trackProposal: TrackChangeProposal? = null,
     ) {
         replanAtPosition(
-            targetPositionMs = replacementSeekTarget ?: playerController.playbackState.value.positionMs,
+            targetPositionMs = seekReplacement.targetMs ?: playerController.playbackState.value.positionMs,
             proposedQualitySessionState = proposedQualitySessionState,
             preserveRecoveryBudgetOnQualityCommit = preserveRecoveryBudgetOnQualityCommit,
             trackProposal = trackProposal,
@@ -5598,7 +5605,7 @@ class PlayerViewModel(
         trackProposal: TrackChangeProposal? = null,
         userSeek: Boolean = false,
     ) {
-        if (controllerInstallInFlight) return
+        if (installationAttempt != null) return
         invalidateBackendSwitch()
         // Offline plans never enter the remote replan path.
         if (plan?.streamMode == StreamMode.Offline) return
@@ -5613,7 +5620,7 @@ class PlayerViewModel(
         val controllerAtRequest = playerController
         val installedPlanAtRequest = installedPlan
         val nativePausedAtRequest =
-            replacementSeekTarget == null && controllerAtRequest.playbackState.value.status == PlaybackStatus.Paused
+            seekReplacement.targetMs == null && controllerAtRequest.playbackState.value.status == PlaybackStatus.Paused
         val playbackShouldPlayAtRequest =
             desiredPlayWhenReady &&
                 !(pausedAtRequestOverride ?: (nativePausedAtRequest && !forcePlay))
@@ -5683,7 +5690,7 @@ class PlayerViewModel(
                         restartPlaybackStateObservation()
                     }
                 }
-                if (controllerInstallInFlight) return@launch
+                if (installationAttempt != null) return@launch
                 if (forcePlay) {
                     reduce(PlayerChange.Loading)
                 }
@@ -5735,7 +5742,7 @@ class PlayerViewModel(
                                 canRejectPlaybackChange(
                                     true,
                                     !installedReportingStopped,
-                                    userChangeDisplacedRecovery,
+                                    displacedRecovery.isDisplacing,
                                     _state.value is PlayerUiState.Error,
                                     controllerAtRequest.playbackState.value.status,
                                 ) &&
@@ -5746,9 +5753,8 @@ class PlayerViewModel(
                                     controller = controllerAtRequest,
                                     installedPlan = installedPlanAtRequest,
                                 )
-                        if (canPreserveQualityFailure && replacementSeekTarget != null) {
-                            replacementSeekTarget = null
-                            replacementSeekStopPosition = null
+                        if (canPreserveQualityFailure && seekReplacement.targetMs != null) {
+                            seekReplacement = seekReplacement.clearHold()
                             if (desiredPlayWhenReady) controllerAtRequest.play()
                             playbackHealthCoordinator.resumeAfterInstallation(controllerAtRequest.playbackState.value)
                         }
@@ -5802,7 +5808,7 @@ class PlayerViewModel(
 
                 if (!isCurrentReplan(requestGeneration, replanGeneration, replanItemId)) return@launch
 
-                if (controllerInstallInFlight) return@launch
+                if (installationAttempt != null) return@launch
 
                 if (nonFatalSubtitleFallback != null) {
                     if (
@@ -5912,7 +5918,7 @@ class PlayerViewModel(
                             return@withLock false
                         }
                         if (
-                            controllerInstallInFlight ||
+                            installationAttempt != null ||
                             !isCurrentReplan(requestGeneration, replanGeneration, replanItemId) ||
                             playerController !== controllerAtRequest ||
                             installedPlan !== installedPlanAtRequest
@@ -5932,13 +5938,18 @@ class PlayerViewModel(
                             return@withLock false
                         }
 
-                        controllerInstallInFlight = true
+                        installationAttempt =
+                            PlayerInstallationAttempt(
+                                launchGeneration = replanGeneration,
+                                itemId = replanItemId,
+                                operation = PlayerInstallationOperation.Replan,
+                            )
                         playbackHealthCoordinator.suspendForInstallation()
                         try {
                             installedReportingStopped = true
                             playbackReportingCoordinator.stopNow(
                                 positionMs =
-                                    replacementSeekStopPosition ?: controllerAtRequest.playbackState.value.positionMs,
+                                    seekReplacement.stopPositionMs ?: controllerAtRequest.playbackState.value.positionMs,
                             )
                             currentCoroutineContext().ensureActive()
                             if (stopRequestedDuringControllerInstall) {
@@ -5981,7 +5992,7 @@ class PlayerViewModel(
                                 rememberSelection(persistDurable = proposal.operation == PlayerPlaybackChangeOperation.Audio)
                             }
                             playbackChangeNotice = null
-                            userChangeDisplacedRecovery = false
+                            displacedRecovery = displacedRecovery.copy(isDisplacing = false)
                             // An accepted install settles any pending Audio ownership.
                             clearAudioRecoveryRequest()
                             installPlan(playbackPlanWithMetadata, resetReporting = true, stabilizesQueueSwitch = false)
@@ -6020,14 +6031,13 @@ class PlayerViewModel(
                             if (playbackIntentRevision == playbackIntentRevisionAtRequest) {
                                 desiredPlayWhenReady = playbackShouldPlayAtRequest
                             }
-                            if (desiredPlayWhenReady && queuedSeekTarget == null) {
+                            if (desiredPlayWhenReady && seekReplacement.queuedTargetMs == null) {
                                 playerController.play()
                             } else {
                                 playerController.pause()
                             }
-                            if (queuedSeekTarget == null) {
-                                replacementSeekTarget = null
-                                replacementSeekStopPosition = null
+                            if (seekReplacement.queuedTargetMs == null) {
+                                seekReplacement = seekReplacement.clearHold()
                             }
                             publishContent(pickerVisible = PlayerPicker.None)
                             if (stopRequestedDuringControllerInstall) {
@@ -6040,10 +6050,11 @@ class PlayerViewModel(
                             finishControllerInstallation(replanGeneration)
                         }
                     }
-                if (replacementInstalled && queuedSeekTarget != null) {
-                    val newest = queuedSeekTarget
-                    queuedSeekTarget = null
-                    replacementSeekStopPosition = playerController.playbackState.value.positionMs
+                if (replacementInstalled && seekReplacement.queuedTargetMs != null) {
+                    val newest = seekReplacement.queuedTargetMs
+                    seekReplacement = seekReplacement.copy(queuedTargetMs = null)
+                    val stopPositionMs = playerController.playbackState.value.positionMs
+                    seekReplacement = seekReplacement.copy(stopPositionMs = stopPositionMs)
                     replanJob = null
                     newest?.let(::seekTo)
                     return@launch
@@ -6293,12 +6304,12 @@ class PlayerViewModel(
         pickerVisible: PlayerPicker = currentPicker(),
     ) {
         val visiblePlaybackState =
-            if (replacementSeekTarget != null && _state.value is PlayerUiState.Error) {
+            if (seekReplacement.targetMs != null && _state.value is PlayerUiState.Error) {
                 playbackState.copy(status = PlaybackStatus.Failed)
             } else {
                 playbackState
             }
-        val enrichedPlaybackState = visiblePlaybackState.withPlaybackMetadata().withReplacementSeekTarget(replacementSeekTarget)
+        val enrichedPlaybackState = visiblePlaybackState.withPlaybackMetadata().withReplacementSeekTarget(seekReplacement.targetMs)
         val subtitleRenderInfo = currentSubtitleRenderInfo(enrichedPlaybackState)
         val subtitleStyleable = subtitleRenderInfo.styleable && playerController.appliesSubtitleStyle
         val upNext = if (isKidsSingleAsset) null else upNextFor(enrichedPlaybackState)
@@ -6307,7 +6318,7 @@ class PlayerViewModel(
         val content =
             PlayerUiState.Content(
                 playbackState = enrichedPlaybackState,
-                pendingSeekPlayWhenReady = desiredPlayWhenReady.takeIf { replacementSeekTarget != null },
+                pendingSeekPlayWhenReady = desiredPlayWhenReady.takeIf { seekReplacement.targetMs != null },
                 volumeControl = volumeControl,
                 audioUnavailable = enrichedPlaybackState.audioUnavailable,
                 metadata = metadata,
@@ -6767,9 +6778,7 @@ class PlayerViewModel(
         stopPositionMs: Long,
         explicitPlaybackAction: Boolean,
     ) {
-        replacementSeekTarget = null
-        replacementSeekStopPosition = null
-        queuedSeekTarget = null
+        seekReplacement = PlayerSeekReplacementState()
 
         if (queueIds.size <= 1 || index !in queueIds.indices) {
             return

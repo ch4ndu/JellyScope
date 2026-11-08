@@ -202,7 +202,11 @@ There is no converter, automatic upload, or automatic network fallback after
 save fails. Missing Android TV document providers produce a visible result.
 
 Only one operation is active per Settings owner. Payloads stay in memory, never
-saved state; collection disable and screen disposal invalidate pending work.
+saved state. The operation carries preparation, saving or sending identity.
+Disabling collection during preparation finishes the operation; during saving it
+drops the payload but retains the busy operation until the picker returns.
+Screen disposal cancels current work. Sending retains the final collection check
+and reports the actual outcome of an issued upload.
 Live collection/segment checks precede native write or upload handoff. An Android
 picker result restored without its live payload reports interruption and writes
 no bytes; it never regenerates a report or deletes the selected document. A

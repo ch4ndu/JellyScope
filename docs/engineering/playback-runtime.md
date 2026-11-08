@@ -526,6 +526,14 @@ suppresses interactive recovery until it is safe to show the consequence.
   and Transcode publish their response-selected audio as Active without native
   mapping.
 
+Installation records capture each owner's admitted operation and identity; their
+presence preserves the existing install guards. Locks, queued Stop, backend-switch
+state and health suspension remain independently owned. Shared and tvOS installer
+paths retain their distinct health boundaries. Replacement-seek target, outgoing
+Stop position and queued target can clear independently. Displaced recovery retains
+independent audio and subtitle roots even when its displacement flag alone clears;
+proposal cancellation does not undo an already-admitted reporting Stop.
+
 ## Progress Reporting
 
 - Report playback start, periodic progress, pause, seek, stop, completion, and
@@ -536,6 +544,11 @@ suppresses interactive recovery until it is safe to show the consequence.
   disposal for both `PlayerViewModel` and the tvOS playback presenter. Compose
   supplies its stable shared playback-state projection across controller
   replacement; the coordinator never retains a replaceable controller flow.
+  Its lifecycle distinguishes installed, starting, started, Stop-admitted and
+  disposed phases. Stop admission precedes synchronous enqueue; the independent
+  receipt attaches afterward and remains awaitable after disposal. Reentrant
+  calls before attachment see admission without a receipt. Pending Start still
+  admits progress, and stale Start completion cannot reopen a stopped session.
 - `PlaybackReportingQueue` owns ordered ingress and local settlement, plus a
   separate ordered remote drain. Offline Start/Progress/Stopped acknowledge the
   durable local write without waiting for optional Jellyfin reporting. Online

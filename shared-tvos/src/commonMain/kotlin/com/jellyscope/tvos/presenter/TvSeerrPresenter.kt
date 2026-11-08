@@ -84,6 +84,7 @@ class TvSeerrPresenter(
     private var listJob: Job? = null
     private var detailJob: Job? = null
     private var mutationJob: Job? = null
+    private var mutation: TvSeerrMutation = TvSeerrMutation.None
     private var libraryJob: Job? = null
     private var managementGeneration = 0L
     private var listGeneration = 0L
@@ -190,6 +191,11 @@ class TvSeerrPresenter(
         mutableState.update { reduceTvSeerr(it, change) }
     }
 
+    private fun setMutation(value: TvSeerrMutation) {
+        mutation = value
+        reduce(TvSeerrChange.Confirmation(value.confirmation))
+    }
+
     private fun ownerMatches(): Boolean {
         val live = sessions.value as? SessionState.LoggedIn ?: return false
         return !closed &&
@@ -242,6 +248,7 @@ class TvSeerrPresenter(
         selectedSeasons = emptySet()
         page = 0
         nextSkip = 0
+        mutation = TvSeerrMutation.None
         reduce(TvSeerrChange.ClearContent)
     }
 
@@ -479,7 +486,7 @@ class TvSeerrPresenter(
     }
 
     private fun disconnectConnection() {
-        if (state.value.confirmation?.submitting == true) return
+        if (mutation is TvSeerrMutation.Submitting) return
         val capturedAuth = authToken
         authToken = null
         validatedEndpoint = null
@@ -492,7 +499,7 @@ class TvSeerrPresenter(
     }
 
     private fun selectSection(section: TvSeerrSection) {
-        if (state.value.confirmation?.submitting == true) return
+        if (mutation is TvSeerrMutation.Submitting) return
         if (section == state.value.section) {
             if (detailKey != null) back()
             return
@@ -502,6 +509,7 @@ class TvSeerrPresenter(
         detail = null
         detailAdmitted = false
         detailKey = null
+        mutation = TvSeerrMutation.None
         reduce(TvSeerrChange.Section(section))
         if (section != TvSeerrSection.Connection) {
             cards = emptyList()
@@ -515,13 +523,14 @@ class TvSeerrPresenter(
         catalog: SeerrCatalog,
         query: String,
     ) {
-        if (state.value.confirmation?.submitting == true || !canShowCatalog()) return
+        if (mutation is TvSeerrMutation.Submitting || !canShowCatalog()) return
         cancelReads()
         detailKey = null
         detail = null
         detailAdmitted = false
         cards = emptyList()
         requests = emptyList()
+        mutation = TvSeerrMutation.None
         reduce(TvSeerrChange.Section(TvSeerrSection.Discover))
         reduce(TvSeerrChange.Browse(TvSeerrBrowseState(catalog = catalog, query = query)))
         loadList(append = false)
@@ -598,7 +607,7 @@ class TvSeerrPresenter(
     }
 
     private fun openDetail(id: String) {
-        if (!canShowCatalog() || state.value.confirmation?.submitting == true) return
+        if (!canShowCatalog() || mutation is TvSeerrMutation.Submitting) return
         val card = cards.firstOrNull { it.key.stableId() == id } ?: return
         cancelReads()
         reduce(TvSeerrChange.Browse(state.value.browse.copy(loading = false, focusedCardId = id)))
@@ -614,12 +623,12 @@ class TvSeerrPresenter(
     private fun loadDetail(notice: String? = state.value.detail?.noticeKey) {
         val captured = token ?: return
         val key = detailKey ?: return
-        if (!canShowCatalog() || state.value.confirmation?.submitting == true) return
+        if (!canShowCatalog() || mutation is TvSeerrMutation.Submitting) return
         detailJob?.cancel()
         cancelLibrary()
         val generation = ++detailGeneration
         detailAdmitted = false
-        reduce(TvSeerrChange.Confirmation(null))
+        setMutation(TvSeerrMutation.None)
         state.value.detail?.let {
             reduce(TvSeerrChange.Detail(it.copy(loading = true, errorKey = null, canRequest = false, selectionEnabled = false)))
         }
@@ -640,7 +649,7 @@ class TvSeerrPresenter(
 
     private fun detailFailure(key: String) {
         detailAdmitted = false
-        reduce(TvSeerrChange.Confirmation(null))
+        setMutation(TvSeerrMutation.None)
         state.value.detail?.let {
             reduce(
                 TvSeerrChange.Detail(
@@ -678,7 +687,7 @@ class TvSeerrPresenter(
     }
 
     private fun selectQuality(fourK: Boolean) {
-        if (!canShowCatalog() || !detailAdmitted || state.value.detail?.loading != false || state.value.confirmation != null) return
+        if (!canShowCatalog() || !detailAdmitted || state.value.detail?.loading != false || mutation.confirmation != null) return
         quality = if (fourK) SeerrQuality.FourK else SeerrQuality.Standard
         selectedSeasons = emptySet()
         cancelLibrary()
@@ -686,7 +695,7 @@ class TvSeerrPresenter(
     }
 
     private fun toggleSeason(number: Int) {
-        if (!canShowCatalog() || !detailAdmitted || state.value.detail?.loading != false || state.value.confirmation != null) return
+        if (!canShowCatalog() || !detailAdmitted || state.value.detail?.loading != false || mutation.confirmation != null) return
         val season =
             state.value.detail
                 ?.seasons
@@ -700,8 +709,9 @@ class TvSeerrPresenter(
         val title = current.card.title ?: return
         if (!canShowCatalog() || !detailAdmitted || !current.canRequest || current.loading) return
         cancelLibrary()
-        reduce(
-            TvSeerrChange.Confirmation(
+        setMutation(
+            TvSeerrMutation.Confirming(
+                SeerrRequestIntent(detailKey ?: return, quality, selectedSeasons.sorted()),
                 TvSeerrConfirmation(
                     title,
                     current.card.typeKey,
@@ -716,17 +726,17 @@ class TvSeerrPresenter(
     private fun submitRequest() {
         val captured = token ?: return
         val key = detailKey ?: return
-        val confirmation = state.value.confirmation ?: return
-        if (!canShowCatalog() || confirmation.submitting || state.value.detail?.canRequest != true) return
+        val confirming = mutation as? TvSeerrMutation.Confirming ?: return
+        if (!canShowCatalog() || state.value.detail?.canRequest != true) return
         val generation = detailGeneration
-        val intent = SeerrRequestIntent(key, quality, selectedSeasons.sorted())
-        reduce(TvSeerrChange.Confirmation(confirmation.copy(submitting = true)))
+        val intent = confirming.intent
+        setMutation(TvSeerrMutation.Submitting(intent, generation, confirming.confirmation))
         mutationJob =
             scope.launch {
                 var refresh = false
                 var notice: String? = null
                 publishResult(requestMedia(captured, intent), true, { generation == detailGeneration && key == detailKey }, { error ->
-                    reduce(TvSeerrChange.Confirmation(null))
+                    setMutation(TvSeerrMutation.None)
                     detailFailure(error)
                     val uncertain = state.value.reconciliationRequired || error == SeerrError.ReconciliationRequired.copyKey()
                     reduce(TvSeerrChange.Reconciliation(uncertain))
@@ -739,7 +749,7 @@ class TvSeerrPresenter(
                 }) {
                     detailAdmitted = false
                     state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(canRequest = false, loading = true))) }
-                    reduce(TvSeerrChange.Confirmation(null))
+                    setMutation(TvSeerrMutation.None)
                     notice = "seerr.request.created"
                     refresh = true
                 }
@@ -751,7 +761,7 @@ class TvSeerrPresenter(
         val captured = token ?: return
         if (!canShowCatalog() ||
             !state.value.reconciliationRequired ||
-            state.value.confirmation?.submitting == true ||
+            mutation is TvSeerrMutation.Submitting ||
             state.value.detail?.loading == true ||
             state.value.browse.loading
         ) {
@@ -759,15 +769,18 @@ class TvSeerrPresenter(
         }
         cancelReads()
         val generation = detailGeneration
+        mutation = TvSeerrMutation.Reconciling(generation, mutation as? TvSeerrMutation.Confirming)
         detailAdmitted = false
         reduce(TvSeerrChange.Browse(state.value.browse.copy(loading = true, errorKey = null)))
         state.value.detail?.let { reduce(TvSeerrChange.Detail(it.copy(loading = true, canRequest = false, errorKey = null))) }
         detailJob =
             scope.launch {
                 publishResult(reconcileRequest(captured), true, { generation == detailGeneration }, { error ->
+                    mutation = (mutation as? TvSeerrMutation.Reconciling)?.confirming ?: TvSeerrMutation.None
                     reduce(TvSeerrChange.Browse(state.value.browse.copy(loading = false)))
                     if (detailKey != null) detailFailure(error) else listFailure(error)
                 }) { refreshed ->
+                    mutation = (mutation as? TvSeerrMutation.Reconciling)?.confirming ?: TvSeerrMutation.None
                     reduce(TvSeerrChange.Browse(state.value.browse.copy(loading = false)))
                     reduce(TvSeerrChange.Reconciliation(false))
                     detailKey = refreshed.media.key
@@ -785,7 +798,7 @@ class TvSeerrPresenter(
         val key = detailKey ?: return
         if (!canShowCatalog() ||
             state.value.detail?.loading != false ||
-            state.value.confirmation != null ||
+            mutation.confirmation != null ||
             state.value.detail?.resolvingLibrary == true ||
             pendingLibrary != null
         ) {
@@ -813,9 +826,10 @@ class TvSeerrPresenter(
     }
 
     private fun back() {
-        if (state.value.confirmation?.submitting == true) return
-        if (state.value.confirmation != null) {
-            reduce(TvSeerrChange.Confirmation(null))
+        if (mutation is TvSeerrMutation.Submitting) return
+        if (mutation.confirmation != null) {
+            val reconciling = mutation as? TvSeerrMutation.Reconciling
+            setMutation(reconciling?.copy(confirming = null) ?: TvSeerrMutation.None)
         } else if (detailKey != null) {
             cancelReads()
             detailKey = null
@@ -853,3 +867,29 @@ private data class PendingSeerrLibrary(
     val item: SeerrLibraryItem,
     val generation: Long,
 )
+
+private sealed interface TvSeerrMutation {
+    val confirmation: TvSeerrConfirmation? get() = null
+
+    data object None : TvSeerrMutation
+
+    data class Confirming(
+        val intent: SeerrRequestIntent,
+        override val confirmation: TvSeerrConfirmation,
+    ) : TvSeerrMutation
+
+    data class Submitting(
+        val intent: SeerrRequestIntent,
+        val detailGeneration: Long,
+        private val presentation: TvSeerrConfirmation,
+    ) : TvSeerrMutation {
+        override val confirmation: TvSeerrConfirmation get() = presentation.copy(submitting = true)
+    }
+
+    data class Reconciling(
+        val detailGeneration: Long,
+        val confirming: Confirming?,
+    ) : TvSeerrMutation {
+        override val confirmation: TvSeerrConfirmation? get() = confirming?.confirmation
+    }
+}

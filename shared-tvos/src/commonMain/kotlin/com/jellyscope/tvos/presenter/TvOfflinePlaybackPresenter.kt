@@ -66,8 +66,9 @@ class TvOfflinePlaybackPresenter(
 
     private val persistenceScope = CoroutineScope(SupervisorJob() + dispatchers.work)
     private val persistenceCommands = Channel<TvOfflinePersistenceCommand>(Channel.UNLIMITED)
-    private var installedController: PlayerController? = null
-    private var controllerOwned = false
+    private var ownedController: TvOfflineOwnedController? = null
+    private val installedController: PlayerController?
+        get() = ownedController?.controller
     private var preparedSource: TvOfflinePreparedSource? = null
     private var plan: PlaybackPlan? = null
     private var startJob: Job? = null
@@ -192,8 +193,7 @@ class TvOfflinePlaybackPresenter(
                     currentCoroutineContext().ensureActive()
                     if (closed || expectedGeneration != launchGeneration) return@launch
                     candidateOwner.transferTo { controller ->
-                        installedController = controller
-                        controllerOwned = true
+                        ownedController = TvOfflineOwnedController(controller)
                     }
                     preparedSource = source
                     plan = offlinePlan
@@ -417,7 +417,7 @@ class TvOfflinePlaybackPresenter(
                     val expectedReprepareIntent = reprepareIntent
                     val resumedFromReprepare = expectedReprepareIntent?.hasResumed(playbackState) == true
                     val contentPlaybackState = expectedReprepareIntent?.project(playbackState) ?: playbackState
-                    val playerInstalled = controllerOwned
+                    val playerInstalled = ownedController != null
                     val backend = controller.activeBackend
                     val subtitleStyleSupported = controller.appliesSubtitleStyle
                     val projectedState =
@@ -644,7 +644,7 @@ class TvOfflinePlaybackPresenter(
             source.project(
                 playbackState = contentPlaybackState,
                 plan = currentPlan,
-                playerInstalled = controllerOwned,
+                playerInstalled = ownedController != null,
                 playerIdentity = playerIdentity,
                 backend = controller.activeBackend,
                 subtitleStyleSupported = controller.appliesSubtitleStyle,
@@ -661,14 +661,17 @@ class TvOfflinePlaybackPresenter(
     }
 
     private fun releaseController() {
-        val controller = installedController
-        installedController = null
-        if (!controllerOwned || controller == null) return
-        controllerOwned = false
+        val owned = ownedController
+        ownedController = null
+        val controller = owned?.controller ?: return
         controller.stop()
         controller.release()
     }
 }
+
+private data class TvOfflineOwnedController(
+    val controller: PlayerController,
+)
 
 private data class TvOfflineReprepareIntent(
     val positionMs: Long,

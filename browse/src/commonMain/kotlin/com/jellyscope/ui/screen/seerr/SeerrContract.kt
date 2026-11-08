@@ -80,6 +80,23 @@ data class SeerrSeasonUi(
     val availability: SeerrAvailability,
 )
 
+sealed interface SeerrMutation {
+    data object None : SeerrMutation
+
+    data class Confirming(
+        val intent: SeerrRequestIntent,
+    ) : SeerrMutation
+
+    data class Submitting(
+        val intent: SeerrRequestIntent,
+        val detailGeneration: Long,
+    ) : SeerrMutation
+
+    data class Reconciling(
+        val detailGeneration: Long,
+    ) : SeerrMutation
+}
+
 @Immutable
 data class SeerrDetailUi(
     val key: SeerrMediaKey,
@@ -91,15 +108,23 @@ data class SeerrDetailUi(
     val seasons: List<SeerrSeasonUi> = emptyList(),
     val showFourK: Boolean = false,
     val canSubmit: Boolean = false,
-    val submitting: Boolean = false,
     val resolvingLibrary: Boolean = false,
-    val reconciling: Boolean = false,
     val uncertain: Boolean = false,
-    val confirmation: SeerrRequestIntent? = null,
+    val mutation: SeerrMutation = SeerrMutation.None,
     val notice: SeerrNotice? = null,
     val scroll: SeerrScrollPosition = SeerrScrollPosition(),
     val admissionFresh: Boolean = false,
 ) {
+    val submitting: Boolean get() = mutation is SeerrMutation.Submitting
+    val reconciling: Boolean get() = mutation is SeerrMutation.Reconciling
+    val confirmation: SeerrRequestIntent?
+        get() =
+            when (val current = mutation) {
+                is SeerrMutation.Confirming -> current.intent
+                is SeerrMutation.Submitting -> current.intent
+                else -> null
+            }
+
     val option: SeerrRequestOption? get() = if (quality == SeerrQuality.Standard) detail?.standard else detail?.fourK
     val selectionEnabled: Boolean
         get() =
