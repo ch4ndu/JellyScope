@@ -128,761 +128,110 @@ Review replay, fan-out, buffering, `.value`, atomicity, stable sharing, and even
 loss. Plain content must remain independent of ViewModels, repositories, and
 navigation controllers.
 
-### Presentation MVI coverage and boundaries
-
-Screen actions enter typed intents across shared Compose, Android TV, the Android
-launcher, and native tvOS. ViewModels/presenters own effects and cancellation;
-reducers update their presentation state. The coverage inventory comprises 23
-ViewModels and 22 concrete native tvOS presenters (excluding the lifecycle base):
-
-| Owners | Covered presentation paths |
-| --- | --- |
-| Shared authentication | Server entry, login, Quick Connect |
-| Shared browsing | Home, Find, Discover, Seerr Requests, grid, collection, person, library browse/hub/tab |
-| Shared details and downloads | Detail, Series, subtitle search, downloads |
-| Shared settings and playback | Account, settings, Player, Kids catalogue |
-| Android-specific | TV preferences and launcher |
-| Native tvOS | Home/view-all, libraries/browse/hub, search, Seerr Requests, person, detail/series helper, login/accounts/session, settings/appearance/device/subtitle settings, downloads/request/artwork, subtitles, online/offline playback |
-
-Player asset selection is a Boolean `PlayerIntent.Request`; Kids launch uses a
-separate suspending `PlayerIntent.Admission`. Callers publish catalogue selection
-or consume a launch request only after acceptance. Admission remains suspending
-through the existing install barrier, so it cannot silently become fire-and-forget.
-
-MVI applies to presentation mutations, not every object in the application.
-Read-only playback-selection and artwork queries, observation handles, native
-surface access, disposal, domain/repository operations, and controller/resource
-ownership remain direct. UI-local focus, scroll, animation, modal and navigation
-state—including the Kids playback host's route/store lifetime—remain local to
-their owners. Internal persistence helpers and pure projection helpers are not
-additional screen stores. A single screen state does not require every child to
-observe it; the workflow requires narrow inputs and appropriately scoped reads.
-
-Operation phases carry data whose lifetime follows that phase. Independent
-lifetimes remain separate: a coroutine job, lock, generation, cleanup obligation,
-or queued receipt does not become mutually exclusive merely because the UI shows
-one activity. Keep one owner for admission and project existing UI fields from it;
-state records do not replace synchronization or callback identity checks.
-
-### Find MVI pilot
-
-Shared Find and Android TV Find send `FindIntent` values to
-`FindViewModel.accept`. `FindContract.kt` owns those inputs and `FindUiState`;
-`FindReducer.kt` owns the pure `reduceFind(state, change)` transitions. The
-ViewModel owns coroutine jobs, request identities, UseCases/Actions, and
-off-Main projections. Its single state writer applies `FindChange` values
-through the reducer. No MVI library or app-wide store is required.
-The shared search header consumes only query text; its questionnaire consumes
-only genre, runtime, and watched filters. Unrelated state changes retain those
-inputs, allowing the children to skip without splitting screen-state ownership.
-
-For example, typing emits `QueryChanged(text)`. The ViewModel cancels the old
-search, reduces the input change, and debounces for 400 ms. An active query
-produces `SearchStarted(token)`, executes the existing search operations, and
-returns `SearchSucceeded` or `SearchFailed`. The reducer accepts completion
-only for the active token. Cancellation and token admission are complementary;
-the reducer never launches work or persists history.
-
-`accept(FindIntent.Submission)` returns a non-null token synchronously. Android
-TV retains that receipt in UI-local focus state and waits for the matching
-completion before moving focus. Shared IME submission still commits recent
-history while typing drives search; TV IME submission explicitly executes a
-search. `Refresh` reloads only suggestions/history, preserving the active query
-and results. Navigation, keyboard dismissal, scroll, and focus remain UI-owned.
-Native tvOS keeps its separate presenter outside this pilot.
-
-### Library browse MVI slice
-
-Shared library grid/list routes and Android TV browse routes send
-`LibraryBrowseIntent` values to `LibraryBrowseViewModel.accept`.
-`LibraryBrowseContract.kt` owns state, inputs, and the existing buffered shuffle
-events; `LibraryBrowseReducer.kt` owns pure state transitions. Recommendation
-hubs and native tvOS presenters retain their separate contracts.
-
-The ViewModel retains the paginator, atomic page generation, saved-sort restore
-guard, serialized/conflated sort writes, shuffle cancellation, and silent
-refresh window cap. Unlike Find's Main-owned requests, paginator work runs on
-the work dispatcher. The single state writer samples the atomic generation
-inside each update attempt and supplies it to the reducer; page success,
-failure, and silent-refresh completion are admitted only for that generation.
-The reducer performs no I/O. Shuffle launch/empty/unavailable events remain
-buffered one-shot outputs, separate from durable loading state.
-Shuffle generation, event admission, and completion cleanup are Main-confined;
-only the queue fetch runs on the work dispatcher, returning to Main before its
-generation is checked.
-
-Shared card grid/list children consume items and paging flags, while the TV
-header consumes scalar count, availability, sort, filter-count, and shuffle
-values. Unrelated facet or shuffle updates therefore need not invalidate card
-content. The TV body/grid also consume only cards, paging flags, and sort/filter
-values needed to reset focus; the focus-entry helper consumes only cards.
-Sort/filter changes still reset the grid as intended. Existing controls retain
-narrow inputs; focus/scroll and modal state
-remain UI-owned. These boundaries permit skipping, without claiming measured
-frame-time gains.
-
-### Library hub MVI slice
-
-Shared and Android TV library hubs send `LibraryHubIntent` values for tab
-selection, section retry, and silent recommendation refresh.
-`LibraryHubContract.kt` owns state and inputs; `LibraryHubReducer.kt` owns view
-selection and section loading/content/empty/error transitions. A section update
-preserves the other section values, available-view list, and selected view.
-Silent refresh retains existing content through loading and failure; explicit
-retry exposes loading/error. A successful empty response replaces old content.
-
-The ViewModel retains the saved-view restore generation and serialized,
-conflated preference writes. One cancellable job per recommendation section
-fetches and maps cards on the work dispatcher, then returns to Main before
-reducing the result. Replacing that job cancels the old work at the dispatcher
-boundary. No repository policy or native tvOS presenter changes are required.
-
-Shared tab content captures only available views and selection, not the full hub
-state. The TV recommendation wrapper takes selection and section states; shelf
-composables retain narrow row/card inputs and section-qualified lazy keys.
-Focus, ambient presentation, and retained scroll state remain UI-owned.
-
-### Library selection MVI slice
-
-The shared outer Library tab sends `LibraryTabIntent.Retry` and `SelectLibrary`.
-`LibraryTabContract.kt` owns its loading/error/loaded state and inputs;
-`LibraryTabReducer.kt` owns state transitions. The ViewModel validates selections,
-resolves saved selection or first-library fallback off Main, and retains the
-serialized, conflated account-scoped preference writer. Empty libraries select
-nothing; invalid selection intents neither change state nor write preferences.
-
-Selection copies retain the library list. The dropdown takes that list and the
-selected library; the hub takes only its selected library. The top-bar lambda
-captures the list rather than the whole outer state. Existing per-library
-saveable state and ViewModel keys remain unchanged. Android TV and native tvOS
-use separate library selection owners and are outside this slice.
-
-### Player controls and presentation MVI slice
-
-Shared, Kids, and Android TV player controls send `PlayerIntent` through
-`PlayerViewModel.accept`. The `Request` overload returns acceptance for Next and
-Replay, preserving Up Next dismissal and completed-item behavior. Account-scoped
-Kids launch admission remains suspending and cancellable; asset selection retains
-its acceptance result. Disposal stays a lifecycle operation. Navigation stays in
-the screen, after the existing stop command.
-
-`PlayerReducer.kt` owns loading, error, content publication, seek invalidation,
-and queue-switch presentation transitions. The ViewModel constructs content
-snapshots outside the atomic update, then reduces them through one writer.
-Playback planning, controller installation, generation checks, recovery,
-diagnostics, persistence, and reporting remain with their existing owners.
-
-The screen-state publication gate still excludes position-only updates. Live
-position and diagnostics retain separate flows; controls consume them at their
-existing narrow scopes. Shared and Kids picker sheets take only picker values,
-not the complete content state, preserving option-list references and chapter
-position observation. This is a source-level boundary, not measured frame-time
-improvement. Native tvOS keeps its separate presenter.
-
-### Browse destinations MVI slice
-
-Home, Discover, View All (`Grid`), Collection, and Person expose screen-specific
-intents and pure reducers. Shared and Android TV callbacks, including resume
-refresh, use `accept`; Grid shuffle retains its synchronous queue result.
-Contracts keep their existing state shapes and effect ownership.
-
-Home retains per-row generations, equal-row identity reuse, and featured cards
-derived from Recently Added. Discover retains independent section jobs, one
-transient retry, and content-preserving silent refresh. Grid keeps separate
-state/sort-intent generations and serialized sort persistence; the current
-atomic generation is read inside each reducer update attempt. Collection and
-Person preserve paginator serialization, offsets, cancellation, append failures,
-and their distinct explicit/automatic retry paths. Card mapping stays outside
-state-update lambdas.
-
-Unchanged row/card references and existing narrow shelf inputs remain intact.
-The TV Collection header consumes only its count; the body consumes cards and
-paging flags, excluding collection identity, offset, and total count. Existing
-focus, lazy keys, scroll, and ambient ownership remain unchanged. No runtime
-recomposition gain is asserted.
-
-### Seerr Requests MVI slice
-
-`SeerrViewModel` and `TvSeerrPresenter` own connection, catalog, detail, selection
-and request effects through typed intents and reducers. Shared Compose and
-Android TV consume the ViewModel; native tvOS uses a Swift adapter and native
-controls. Account/epoch plus connection and request generations guard results;
-actual library navigation is guarded again when consumed. Both owners observe
-live parental policy, clear external content when restricted, and keep connection
-management available. The [Seerr protocol contract](api-and-caching.md#seerr-requests)
-owns admission, transport and identity rules.
-
-### Detail, Series, and subtitle search MVI slice
-
-Shared/adaptive Detail and Series screens dispatch `DetailIntent` and
-`SeriesIntent`; the TV adapters reuse those screens. The navigation-owned season
-callback uses the same Series input. OpenSubtitles search/install use an internal
-intent contract that carries the existing subtitle-selection token.
-
-Detail's reducer preserves optimistic watched/favorite rollback, item/source
-checks, local subtitle merges, and Related shelves during silent refresh. The
-ViewModel supplies current load/source authority on every atomic update attempt;
-the load continuation proceeds only when its transition was applied. Download
-preview and entry state remain separate projections with one publication point
-each, preserving their existing admission and preview-generation checks.
-
-Series reducers apply existing pure episode/header transforms while cache and
-settlement effects remain ViewModel-owned. Season replacement still clears the
-separate focused-episode flow; focus changes do not rebuild the screen state.
-OpenSubtitles retains cancellable searches, single-install admission, quota/error
-state, and buffered token-qualified installation acknowledgements.
-
-Existing child parameters, list references, download projections, and the
-focused-episode flow retain their update boundaries. No combined screen state,
-new stability annotation, or measured recomposition claim is introduced.
-
-### Downloads MVI slice
-
-Shared and TV Downloads list/detail screens send `DownloadsIntent` for refresh,
-resume wake, quota changes, individual commands, and bulk resume. The ViewModel
-retains command admission, account-qualified effects, cancellation, safe
-failure diagnostics, conflated/cooled usage refresh, and artifact-lease reads.
-`DownloadsReducer.kt` owns records, quota/usage, leases, busy flags, and error
-transitions through one state writer. Record/card projection stays off Main.
-Artwork remains a suspending read owned by the composable lifecycle.
-
-The shared usage card consumes only usage; the TV card also consumes its refresh
-flag. Transfer-record and command updates therefore do not change those inputs.
-Existing card identity, semantic indices, focus restoration, deletion dialogs,
-and playback routing remain intact; runtime performance is not measured.
-
-### Settings and account MVI slice
-
-Shared and TV settings send `SettingsIntent` and `AccountIntent`; TV-only
-preferences accept `TvSettingsPreferencesIntent` while retaining their existing
-persisted flows. Settings and account reducers own screen state transitions.
-The ViewModels retain persistence, latest-value writes, account removal admission,
-cancellation, diagnostics, and completion callbacks. Generation checks use current
-authority inside state updates; credential-bearing intents avoid generated string
-representations. Timeline export handoff remains a lifecycle acknowledgement.
-
-Account settings consumes only session labels and logout status from Settings;
-the TV subtitle-clear dialog consumes only clearing, completion, and error values.
-Unrelated preference updates preserve those inputs. Existing preference flows and
-unchanged state references are retained; runtime recomposition gains are unmeasured.
-
-### Authentication MVI slice
-
-Login, Quick Connect, and Server Entry accept typed intents from shared and TV
-screens. Their contracts define UI state and pure transitions; ViewModels retain
-login/validation effects, buffered navigation events, polling-job cancellation,
-and discovery scan ownership. Credential input intents use plain classes to avoid
-generated string representations. Discovery still deduplicates server IDs and
-only the current scan clears its scanning flag.
-
-The server URL field consumes input, validation status, and error presence;
-discovery-list updates preserve those inputs. Quick Connect remains a separately
-observed state owner. Focus, keyboard submission, password visibility, and
-navigation callbacks remain in the UI; no runtime performance gain is claimed.
-
-### Kids catalogue MVI slice
-
-`KidsWatchIntent` covers retries, accepted external launches and selections, and
-unavailable offline targets. The player still admits playback before the screen
-sends an accepted-selection intent. `KidsWatchContract.kt` owns catalogue state
-and pure transitions through one ViewModel writer. Account/session boundaries,
-shuffled order, qualification caches, generation checks, cancellation, and
-background card projection remain ViewModel responsibilities.
-
-The recommendation grid consumes catalogue/offline status and the two projected
-lists, excluding selected item identity. Selection alone preserves those inputs
-until a valid projection arrives. Grid keys and layout remain unchanged; runtime
-recomposition and playback behavior require separate device validation.
-
-### Android launcher MVI slice
-
-The launcher routes UI and Activity lifecycle actions through `LauncherIntent`.
-Its typed app-opening overload returns the admitted component synchronously.
-`LauncherReducer.kt` owns screen transitions and pure app-focus helpers; the
-single writer returns the previous committed state so login origin is consumed
-once even when session publication precedes action completion. Current media and
-suppression authority are read inside the atomic update.
-
-Authentication mutex/generations, account cleanup, refresh jobs, persisted tab
-restoration eligibility, and app-order writes remain ViewModel-owned. The login
-screen receives only login fields and focus/dialog state, excluding media and
-app catalogue refreshes. Remote focus and launch behavior remain device checks.
-
-### Native tvOS entry screens MVI slice
-
-Swift Home, Libraries, and Search models send Kotlin intents to their presenters.
-Typed watch handles and explicit `close` remain the lifecycle bridge. Pure reducers
-own row/library/search transitions; Home checks each row generation inside its
-single state update. Search retains debounce, request and suggestion generations,
-recent-search mutation ordering, cancellation, and work-dispatcher projection.
-
-The Swift search questionnaire receives only genre, runtime, and watched filters,
-excluding query/result/loading changes. Home continues to preserve unchanged rows
-and returns the same state for equal row projections. SwiftUI rendering and remote
-focus require device validation; host tests and framework/app builds cover the
-intent bridge and existing deterministic behavior.
-
-### Native tvOS browse MVI slice
-
-Home View All, Library Browse, Library Hub, and Person models dispatch typed
-intents through their presenters. Pure reducers own UI transitions; presenters
-retain load jobs, admission, saved-sort/view writes, filter drafts, and off-Main
-projection. Library and Person page guards read live generation authority inside
-the atomic update, including silent-refresh and filter-projection guards.
-Pagination still advances by raw server counts and continues duplicate-only full
-pages; refresh failures retain prior content.
-
-Person headers receive only header data and its loading flag, excluding paged
-filmography state. Existing row/card identities and unchanged references remain
-intact. This narrows dependencies without claiming measured SwiftUI redraw gains.
-
-### Native tvOS authentication and accounts MVI slice
-
-Login and Account Swift models dispatch presenter intents; reducers own their
-screen transitions. Login retains discovery, server-intent, validation,
-credentials, and Quick Connect generations and cancellation. Credentials and
-server-input intents avoid generated string representations. Watch/close remain
-lifecycle APIs.
-
-Accounts retains operation admission, account snapshots, removal preview scope,
-authorization, stale-confirmation refresh, cancellation, and non-cancellable lease
-release. Confirmation data is projected before the pure state transition. The
-Swift credentials form takes phase and error rather than all login state, keeping
-Quick Connect code and discovery updates outside its inputs.
-
-### Native tvOS settings MVI slice
-
-Settings, Appearance, Device Settings, and Subtitle Settings expose typed intents
-to Swift. Reducers own their state transitions; presenters retain serialized or
-conflated writes, optimistic intent reconciliation, failed-value retries, stored
-value recovery, policy refresh, diagnostic delivery, and generation guards.
-Private change factories evaluate live stored values inside atomic update retries;
-reducers receive values and remain pure. Existing toggle projection functions
-remain pure inputs to Settings transitions.
-
-Subtitle API-key intent values avoid generated string representations. State
-continues to expose only whether the key is configured. The account section takes
-server/user labels and loading state rather than the entire Settings state, so
-preference/diagnostic changes do not change those inputs. Appearance stays a
-separate observable owner; no runtime redraw reduction is claimed.
-
-### Native tvOS downloads MVI slice
-
-Downloads, Download Request, and saved-artwork Swift models dispatch typed intents.
-Reducers own list/command/storage transitions, request load resets and admission
-outcomes, and artwork read states. Presenters retain account-qualified commands,
-attempt-generation checks, artifact leases, queue wake/bulk admission, usage
-refresh coalescing, draft identity, subtitle confirmations, and work dispatch.
-
-Artwork stays a per-view state owner: cancel clears bytes and invalidates the read,
-while close also cancels its scope. Download sections retain narrow section/command
-inputs and stable keys; artwork bytes never enter the list state. Kotlin and Swift
-host builds do not establish offline transfer or device rendering behavior.
-
-### Native tvOS detail and subtitles MVI slice
-
-Detail and subtitle-search Swift models dispatch typed mutation intents. Detail's
-reducer owns both item and series transitions; the series helper observes read-only
-state and publishes changes through that owner. Reducers preserve generation checks
-inside atomic updates, optimistic played/favorite rollback, and independent related
-shelves. Read-only playback-selection and episode-presentation queries remain direct.
-
-Subtitle reducers preserve context/search/selection generations, durable selection
-acknowledgement, install quota, deletion and sync outcomes. The Swift model consumes
-selection revisions once; closing still cancels observation and presenter work.
-Search content takes only search/language/install/quota values and callbacks, excluding
-local selection, deletion and sync state. This narrows source dependencies without a
-claim of measured SwiftUI rendering gains or device playback validation.
-
-### Native tvOS offline playback and session MVI slice
-
-Offline playback controls and session sign-out dispatch typed intents from Swift.
-Offline state reduction preserves diagnostics during controller projection, resets
-all fields on retry, and evaluates controller/plan reads inside atomic update retries.
-Controller acquisition/release, account-qualified artifact preparation, track
-activation, subtitle re-preparation, and serialized progress persistence remain in
-the presenter. Session state stays a projection of the shared session owner; sign-out
-does not optimistically change routing before that owner publishes.
-
-The diagnostics panel consumes only diagnostic rows and visibility/close callbacks,
-not the full playback model. Native surfaces and lifecycle closure remain direct.
-This dependency narrowing is source-backed; device playback and frame behavior need
-separate runtime validation.
-
-### Native tvOS online playback MVI slice
-
-Online playback controls, quality policies, queue actions, and native observation
-callbacks dispatch `TvPlaybackSessionIntent`. Video-output observations carry the
-explicit prepare generation supplied by the native host; playback-intent callbacks
-retain player/plan/item qualification. The reducer owns state transitions and keeps
-current diagnostics when publishing a controller projection. Projection factories
-retain live controller, plan, queue, preference and recovery reads inside atomic
-update retries.
-
-Preparation, cancellation, controller/reporting ownership, recovery, track activation,
-subtitle persistence, and autoplay/still-watching policies stay in the presenter and
-existing collaborators. Native surface access, observation and close remain direct.
-The queue panel receives queue state and actions only, excluding playback position
-and diagnostics; focus keys and current-item focus restoration stay unchanged.
-Host checks establish wiring and deterministic contracts, not native playback or
-measured rendering performance.
+<a id="presentation-mvi-coverage-and-boundaries"></a>
+<a id="find-mvi-pilot"></a>
+<a id="library-browse-mvi-slice"></a>
+<a id="library-hub-mvi-slice"></a>
+<a id="library-selection-mvi-slice"></a>
+<a id="player-controls-and-presentation-mvi-slice"></a>
+<a id="browse-destinations-mvi-slice"></a>
+<a id="seerr-requests-mvi-slice"></a>
+<a id="detail-series-and-subtitle-search-mvi-slice"></a>
+<a id="downloads-mvi-slice"></a>
+<a id="settings-and-account-mvi-slice"></a>
+<a id="authentication-mvi-slice"></a>
+<a id="kids-catalogue-mvi-slice"></a>
+<a id="android-launcher-mvi-slice"></a>
+<a id="native-tvos-entry-screens-mvi-slice"></a>
+<a id="native-tvos-browse-mvi-slice"></a>
+<a id="native-tvos-authentication-and-accounts-mvi-slice"></a>
+<a id="native-tvos-settings-mvi-slice"></a>
+<a id="native-tvos-downloads-mvi-slice"></a>
+<a id="native-tvos-detail-and-subtitles-mvi-slice"></a>
+<a id="native-tvos-offline-playback-and-session-mvi-slice"></a>
+<a id="native-tvos-online-playback-mvi-slice"></a>
+### Presentation ownership
+
+Shared Compose, Android TV, launcher and native tvOS presentation accept typed
+inputs and use pure reducers for state transitions. Credential-bearing inputs must
+not generate string representations exposing their payloads; retain a plain-class
+or explicitly redacted representation. ViewModels/presenters retain
+jobs, request generations, locks, persistence, effects and cancellation; reducers
+perform no I/O. Evaluate live admission facts inside atomic update retries.
+Independent lifetimes remain independent even when UI projects one operation
+phase: a state record cannot replace synchronization, cleanup or queued receipts.
+
+Player asset selection returns synchronous acceptance; Kids launch admission
+remains typed, suspending and cancellable through installation. Catalogue selection
+and launch consumption follow acceptance, so rejection cannot advance selection.
+Read-only queries, observation handles, surfaces and lifecycle disposal remain
+direct. UI owns navigation, focus, scroll, animation and local modal state.
+
+Keep coherent screen state while passing children narrow inputs and preserving
+unchanged lists. Source-level skipping opportunities require runtime measurement
+before claiming performance gains. Player position and diagnostics remain separate
+hot observations; controller projection preserves current diagnostics.
+
+Async completion must match its request/item/account authority. Cancellation alone
+is insufficient where callbacks or atomic retries can overlap. Persist against
+latest user intent; independently loaded shelves and optimistic mutations must
+survive unrelated refreshes. Pagination retains consumed server offsets and retry
+latches. Silent refresh preserves content during loading/failure and replaces it
+on successful empty results. Feature-specific contracts belong to [UI](ui.md),
+[accounts](accounts-and-persistence.md), [API/cache](api-and-caching.md),
+[downloads](downloads.md), [Kids](kids-viewing.md) and [runtime](playback-runtime.md).
+
+Find submission returns a synchronous receipt used by Android TV's request-qualified
+focus handoff. Shared typing drives search and IME commits history; TV submission
+executes search. Refresh preserves query/results. Library shuffle remains a
+buffered one-shot; its generation/admission/cleanup is Main-confined while fetching
+runs on the work dispatcher. Native tvOS retains its separate presenters and
+owner-controlled observation closure. Session routing follows committed session
+state rather than optimistic sign-out. Subtitle install acknowledgements retain
+selection revisions even across dismissal; artwork reads retain separate view
+lifetimes so bytes never enter transfer-list state.
 
 ## Source Layout Target
 
-```text
-core-model/src/commonMain/kotlin/.../
-+-- domain/model/        # stable values, preferences and pure invariants
-+-- domain/playback/     # playback plans and value vocabulary
-+-- data/local/          # validated opaque artifact part names (package retained)
+Dependencies point from shells/presentation toward application coordination and
+lower contracts. Lower modules never depend on the app aggregate.
 
-diagnostics/src/commonMain/kotlin/.../
-+-- util/                 # safe logging and capture validation
-+-- domain/playback/      # closed diagnostic field and platform vocabulary
-+-- data/local/           # log-collection preference contract
+| Owner | Responsibility |
+| --- | --- |
+| `core-model` | Immutable domain values, plans and pure value/queue/quota rules; no runtime, transport or persistence |
+| `diagnostics`, `platform`, `network` | Safe vocabulary, dispatcher/environment services and credential-origin policy |
+| `player`, `playback-policy` | Controller/lease contracts; concrete-backend capability, selection and recovery decisions |
+| `jellyfin-api`, `transport` | Wire DTOs/profile mapping; HTTP execution over injected configured clients |
+| `storage`, `auth-session` | Durable stores/Room schemas; credentials, account leases and session transitions |
+| `player-runtime`, `diagnostics-runtime` | Native execution/probes; bounded capture/report preparation |
+| `shared-core` | Planning, repositories, reporting, account-qualified offline validation and root DI |
+| `ui-focus-scroll`, `android-hero-ui` | Independent focus/ribbon and Android artwork rendering leaves; no client aggregate or playback dependency |
+| `ui-foundation` | One shared resource/theme/component owner, input/focus contracts and selection memory |
+| `settings-account`, `browse`, `playback`, `detail`, `auth`, `downloads` | Cohesive presentation features over foundation/core |
+| `shared-ui` | App composition, navigation, DI and generated configuration |
+| Android/desktop/iOS shells, `shared-tvos`/`tvos-app` | Platform lifecycle, input, packaging; native tvOS presentation/SwiftUI |
 
-platform/src/commonMain/kotlin/.../
-+-- coroutines/           # shared IO dispatcher contract with platform actuals
-+-- domain/platform/      # device/environment services and native-log cleanup port
-+-- util/                 # cancellation-safe result handling
+Share code in the highest valid source set (`commonMain`, `appleMain`, `iosMain`,
+`tvosMain`, `androidMain`, `jvmMain`). Use narrow `expect`/`actual` only where
+common code cannot own behavior. Group by cohesive ownership; the roughly
+500-line review trigger does not justify splitting cohesive state or adding wrappers.
 
-platform/src/jvmMain/kotlin/.../
-+-- data/local/           # existing app-directory and serialized-writer primitives
+`storage` owns Room generation and committed schemas. `auth-session` sits above
+storage/transport without native players; launcher can consume it independently.
+App composition owns singleton construction, cleanup membership, configured
+HTTP-client lifetimes and native startup. Internal engine test seams remain with
+their client factories; test-only upward dependencies do not permit production cycles.
+Native implementations, cinterop and inseparable suites stay with their runtime owner.
+Validated values retain private invariants; Kotlin production bridges must not
+widen Objective-C APIs or expose trusted artifact paths to UI or diagnostics.
 
-network/src/commonMain/kotlin/.../
-+-- data/remote/          # auth-header contracts/encoding and server-URL normalization
-+-- security/             # credential-origin policy
-
-player/src/commonMain/kotlin/.../
-+-- domain/playback/      # controller contracts, state and runtime observations
-+-- data/local/           # existing subtitle-file port
-+-- playback/             # offline artifact leases and deletion guards
-
-player/src/jvmMain/kotlin/.../
-+-- data/local/           # existing desktop-volume port
-+-- util/                 # positive process-local generation helper
-
-playback-policy/src/commonMain/kotlin/.../
-+-- domain/playback/      # capabilities, selection, diagnostics and session policy
-+-- data/local/           # device-setting port over policy-owned values
-
-diagnostics-runtime/src/commonMain/kotlin/.../
-+-- util/                 # capture actor, timeline encoder, reports and failure hooks
-+-- data/local/           # breadcrumb/previous-run contracts and shared bounds
-+-- domain/action/        # collection toggle and explicit timeline preparation
-+-- domain/model/         # prepared timeline and delivery result values
-+-- playback/             # diagnostic snapshot values and source projection
-
-jellyfin-api/src/commonMain/kotlin/.../
-+-- data/remote/          # Jellyfin wire DTOs, profile mapping and typed API failures
-+-- domain/model/         # Jellyfin-to-domain media projections
-
-player-runtime/src/*Main/kotlin/.../
-+-- playback/             # native controllers, surfaces and inseparable helpers
-+-- domain/playback/      # native probes, audio routing and runtime diagnostics
-
-player-runtime/src/nativeInterop/cinterop/
-+-- vlckit.def            # existing VLCKit foreign package and matching Apple slices
-
-storage/src/*Main/kotlin/.../
-+-- data/local/           # file/preferences stores, Room databases and cleanup contracts
-+-- di/                   # existing persistence registration bodies
-
-storage/schemas/         # committed Room schemas; KSP runs in storage
-
-transport/src/commonMain/kotlin/.../
-+-- data/remote/          # API execution and bounded HTTP response contracts
-
-shared-core/src/commonMain/kotlin/.../
-+-- data/                 # remote, local, repository
-+-- domain/               # adapters, usecase, action, planning and runtime
-+-- di/
-
-ui-foundation/src/commonMain/kotlin/.../
-+-- component/
-+-- adaptive/
-+-- image/
-+-- theme/
-+-- focus/                # shared restoration and bring-into-view policies
-+-- platform/             # shell-provided input/permission callbacks
-+-- screen/               # shared selection, formatting and backdrop contracts
-
-settings-account/src/commonMain/kotlin/.../
-+-- screen/settings/
-+-- screen/account/
-
-browse/src/commonMain/kotlin/.../
-+-- screen/               # home, discover, find, library, grid, collection, person
-+-- paging/
-
-playback/src/commonMain/kotlin/.../
-+-- screen/player/        # player state and presentation
-
-detail/src/commonMain/kotlin/.../
-+-- screen/detail/        # media/series/season state and presentation
-
-auth/src/commonMain/kotlin/.../
-+-- screen/login/
-+-- screen/serverentry/
-
-downloads/src/commonMain/kotlin/.../
-+-- screen/downloads/
-
-shared-ui/src/commonMain/kotlin/.../
-+-- screen/               # app-shell scaffolding
-+-- navigation/
-+-- di/
-
-android-libmpv/           # project-owned Kotlin/JNI bridge over pinned AAR input
-android-app/              # shared UI shell and selectable Android playback
-android-tv-app/           # D-pad shell, TV screens/player, Watch Next
-desktop-app/              # JVM Compose shell and libmpv/LibVLC bridges
-ios-framework/            # narrow Swift API and static SharedUi framework
-ios-app/                  # shared Compose shell and Apple playback
-shared-tvos/              # Kotlin presenters, Swift bridge, static SharedTv
-tvos-app/                 # native SwiftUI shell with AVKit/VLC hosts
-```
-
-Platform source sets include `androidMain`, `appleMain`, `iosMain`, `tvosMain`,
-and `jvmMain`. Share in the highest valid set; use `expect`/`actual` only when
-common code cannot own the behavior. Prefer feature grouping after a feature
-owns enough data, domain, presentation, and DI to justify it.
-
-`ios-framework` depends on `shared-ui` and `shared-core` without framework
-exports. Swift consumes its `MainViewController` entry point and download
-bridge. The entry calls the iOS factory in `shared-ui`, where Koin startup
-and generated configuration remain. The fullscreen callback composition local
-is shared through foundation; its provider remains in the root factory.
-Keep one static `SharedUi` binary; Kotlin consumers continue using `shared-ui`.
-
-`core-model` owns domain values and playback-plan vocabulary, including raw
-launch inputs and subtitle intents, without runtime, persistence, transport or
-presentation dependencies. `shared-core` exposes it
-through an API dependency and retains application orchestration. Existing Kotlin
-packages stay stable.
-Pure value validation, download transition, quota, estimate and queue decisions,
-and offline detail/artwork projections stay with their model values and private
-helpers. The saturating-add and offline projection helpers are Kotlin production
-bridges hidden from Objective-C for existing database and admission callers;
-persistence and queue execution stay above. Mixed admission tests stay upper.
-Consumers snapshot model properties into local values when a null or type check
-needs a smart cast across module boundaries.
-`shared-tvos` depends directly on and explicitly exports `core-model` from both
-framework targets because Swift names these values. The narrow iOS facade does
-not export it.
-
-`diagnostics` owns safe producer tags, operation tokens, wire-field schemas,
-platform vocabulary, formatting, capture validation and log-writer configuration.
-It depends only on Kermit and coroutines. Collection preferences remain an injected
-interface;
-capture actors and reports belong to `diagnostics-runtime`, playback policy to
-`playback-policy`, persistence to `storage` and uploads to `shared-core`. Internal scrubber policy and its existing tests stay together.
-The wire-field enum and sanitized-marker formatter bridge are public to Kotlin
-consumers and hidden from Objective-C; field-name sets remain internal.
-`shared-core` exposes the module through API, and both tvOS frameworks explicitly
-export it to preserve the existing Swift surface. The narrow iOS facade does not.
-
-`platform` owns reusable IO dispatching, device/environment services, the native-log
-cleanup contract and cancellation-safe result handling. Its existing actuals stay
-in Android, JVM and Apple source sets; it depends on coroutines and the diagnostic
-platform vocabulary. The Apple dispatcher remains `Default`; Android and JVM use
-`IO`. Application DI and private Apple/Desktop device providers stay in
-`shared-core`; the Android mpv native-log source belongs to `player-runtime`.
-The existing public enum keeps its Kotlin package
-and Objective-C exposure in `diagnostics`; no visibility is expanded. Core exposes
-platform through API, and both tvOS frameworks explicitly export it to preserve
-existing Swift declarations. The narrow iOS facade keeps no exports.
-
-`network` owns authorization-header contracts and encoding, server-URL
-normalization and credential-origin policy. It exposes the existing `platform`
-interface dependency and uses Ktor HTTP internally, without a client engine.
-The encoder remains internal; the credential-query constant is a Kotlin bridge
-hidden from Objective-C for the existing Apple player. Session-backed device-ID
-reads belong to `auth-session`; configured HTTP clients, feature repositories
-and DI stay in `shared-core`. The session provider retains its public class. Core exposes network
-through API, and both tvOS frameworks explicitly export it; the iOS facade keeps
-no exports.
-
-`player` owns controller/state, timing/volume and subtitle-file
-ports, offline artifact leases and deletion guards, runtime observations and
-progress contracts over `core-model` and coroutines. Atomicfu synchronizes lease
-bookkeeping. The existing JVM volume port and generation helper also live here.
-The validated opaque artifact part name, its private validation and two canonical
-member values belong to `core-model`, retaining their Kotlin package. Concrete
-file stores belong to `storage`; account-qualified artifact validation and
-download deletion actions remain in `shared-core`; the lease registry coordinates their existing shared exclusion.
-Fourteen necessary production declarations cross Kotlin module boundaries hidden
-from Objective-C; trusted paths remain excluded from UI models, persistence and
-diagnostics. Lease construction and private validation retain their restrictions.
-Defaults and sealed families stay with their declarations. Native execution and
-polling live in `player-runtime`; split reporting routes, planning and
-account-qualified offline validation remain in `shared-core`. The output-color factory and shared frame-rate helper are
-Kotlin bridges hidden from Objective-C; private constructors, private copy
-visibility and validation remain intact. Core exposes player through API, and
-both tvOS frameworks explicitly export it to retain the existing public surface.
-The narrow iOS facade keeps no exports.
-
-`playback-policy` owns capability declarations and pure capability factories,
-backend/device policy, stream/track/URL decisions, playback diagnostic vocabulary
-and formatting, typed planning failures, and recovery/health/session policy.
-Its device-setting port uses the policy-owned settings values. The module
-depends on `core-model`, `diagnostics`, `player` and coroutines. Native probes,
-planner/repository execution, diagnostic capture/upload, persistence, navigation
-and presentation lifetime stay above. Private helpers, sealed families, defaults
-and public file facades stay with their declarations. Necessary Kotlin bridges
-for existing upper production callers use `HiddenFromObjC`; other internals stay
-internal. Core exposes the module through API, and both tvOS frameworks export
-it; the iOS facade keeps no exports. Pure capability cases follow policy;
-wire-profile mapping tests follow `jellyfin-api`, without a test-only API.
-The [playback policy guide](playback-policy.md) covers the broader quality and wire contracts.
-
-`player-runtime` owns native controllers, surfaces, device probes and their
-inseparable timing, activation, routing, network and diagnostic helpers. It
-exposes existing network and playback-policy contracts; native libraries remain
-implementation dependencies. The existing Android backend-specific Koin factory
-moves with its construction policies; root composition and account-scoped
-resolver injection retain their application lifecycle. Apple expect/actual
-factories and the existing `org.videolan.vlckit` interop package stay together.
-Core exposes runtime through API and both tvOS frameworks explicitly export it;
-the narrow iOS facade keeps no exports. JVM startup and upper DI use necessary
-production bridges; Apple-only bridges remain hidden from Objective-C. Other
-controller constructors, native internals and test fixtures remain internal.
-
-The existing JVM app-directory function and serialized latest-value writer belong
-to `platform`, retaining their package and behavior. Concrete Room/preferences
-stores belong to `storage` and use those same primitives. Whole native suites move
-with runtime; persistence suites follow storage, and mixed account/reporting suites stay with core.
-No test-only production API or friend relationship is required.
-
-`jellyfin-api` owns Jellyfin wire DTOs, metadata-to-domain projections,
-device-profile mapping and the typed API failure family. It exposes existing playback-policy inputs and the serialization
-runtime; Ktor HTTP is an implementation dependency for parsing transcode reasons.
-JSON encoding and metadata-mapping tests follow the wire owner. Public mapper
-packages and filenames retain their existing DTO extension identities.
-HTTP execution belongs to `transport`; client factories,
-feature repositories and DI remain in `shared-core`; sessions belong to
-`auth-session`. Six necessary request and
-response-mapping Kotlin bridges are hidden from Objective-C. Core exposes the
-module through API, and both tvOS frameworks explicitly export it to preserve
-existing Swift declarations; the narrow iOS facade keeps no exports.
-
-`diagnostics-runtime` owns the bounded capture actor, report rendering, timeline
-encoder and preparation, collection toggle, previous-run contracts and process
-failure hooks. It exposes existing `platform` and `playback-policy` contracts;
-atomicfu and JSON remain implementation dependencies. The two shared capture
-bounds, three marker helpers and three delivery checks are production Kotlin
-bridges hidden from Objective-C. Timeline construction, actor bookkeeping,
-encoding internals and platform installer hooks remain internal. Existing whole
-suites follow these owners. Concrete Room/file stores belong to `storage`.
-Account-scoped failure context, upload execution and root DI stay in `shared-core`; its retained class file
-has no top-level facade, while the lower public values and source extension keep
-the original package and filename. Core exposes runtime through API and both
-tvOS frameworks explicitly export it; the narrow iOS facade keeps no exports.
-
-`storage` owns durable preference, subtitle and download stores, Room databases,
-DAOs, migrations and schemas, plus their existing platform registration bodies.
-It exposes `diagnostics-runtime`, Koin, Room and serialization contracts without
-HTTP execution or native-player dependencies. Core includes the storage modules
-while retaining database singleton construction, cleanup composition and eager
-desktop native startup. Credentials, session/account coordination, account leases
-and their mutation registry belong to `auth-session`, above storage.
-Necessary Kotlin bridges are hidden from Objective-C on common/Apple targets;
-DAOs, entities and implementation constructors remain internal. Core exposes
-storage through API; both tvOS frameworks explicitly export it, and the narrow
-iOS facade keeps no exports. Only storage Android host tests depend on core
-production code to preserve their existing registry case, without a production
-cycle or a test-only API.
-
-`auth-session` owns credential adapters, the secure session envelope, account
-leases and transitions, authentication repositories/actions, and session-backed
-request identity over `transport` and its lower contracts. Existing packages and
-persisted formats remain unchanged. `AccountStoreCleaner` allows each app to
-compose its durable cleanup; the existing player-app cleaner retains its store
-membership and ordering. Download participants remain in core and validate their
-private authorization payloads through narrow Kotlin-only bridges.
-
-Core re-exports this module and tvOS exports it explicitly. Its common tests
-depend on core production solely to preserve real DiscoveryCache integration;
-production has no upward dependency. Run its JVM and Android host suites, not
-native test binaries that would pull the player-runtime test closure. The
-launcher consumes the production module without core or native players.
-
-`transport` owns Jellyfin/OpenSubtitles request execution, bounded original/fixed
-download responses and artwork HTTP reads. It consumes configured `HttpClient`
-instances and the existing `AuthHeaderProvider` contract over `network`,
-`jellyfin-api` and `storage`; artwork bounds retain their storage contract owner.
-Shared non-inline Kotlin HTTP configuration policies live in transport; they
-preserve JSON, timeout, redirect and sanitized-logging behavior without exposing
-an Objective-C API. `JellyfinClientFactory`, its internal engine overloads,
-qualifiers and existing client lifetimes stay in core. The launcher composes
-its own clients with the same ordinary policy, redirects and logging disabled.
-Session-backed identity belongs to `auth-session`. Client-factory and
-original-download integration suites stay in core with their internal engine overloads; the three standalone API
-suites follow transport with private mocks unchanged. Eight necessary Kotlin
-bridges for upper production callers are hidden from Objective-C. Request DTOs,
-HTTP helpers and stream/resource constructors retain their internal visibility.
-Core exposes transport through API and both tvOS frameworks export it; the
-narrow iOS facade keeps no exports.
-
-`ui-focus-scroll` is a project-dependency-free KMP leaf owning shared focus scroll
-specifications, vertical timing, and the centered lazy media ribbon with its
-restoration-aware reveal helper. Foundation re-exports it; Android launcher and
-TV consume it directly. `android-hero-ui` is an Android leaf with no project
-dependencies, sharing backdrop, gradient, crossfade and palette rendering between
-those apps. Image loading, authenticated requests and session ownership stay in
-each app. Neither leaf depends on the client aggregate or playback.
-
-`ui-foundation` owns shared resources, theme, adaptive layout, components, and
-image infrastructure over `shared-core`. `settings-account`,
-`browse`, `playback`, `detail`, `auth`, and
-`downloads` depend on foundation and core;
-`shared-ui` composes the UI modules and retains navigation, DI, generated configuration, and `AppInfo`.
-Lower modules never depend on the
-app aggregate. Settings receives version and revision strings from root DI.
-Keep the resource package `com.jellyscope.ui.generated.resources` public and
-defined only in foundation; all platforms consume that one asset set. Existing
-Kotlin packages remain stable across these module boundaries, including the
-shared Detail interaction locals and download byte formatter in foundation.
-
-Browsing screens, ViewModels, pagination, and their existing tests stay together
-in `browse`. Root navigation, DI, and mixed Android previews consume its
-public presentation API; preview fixtures remain with app composition.
-
-Player presentation, ViewModels, and platform UI hosts stay together in
-`playback`, including their common, Android-host, iOS, and JVM friend
-tests. Native controllers and Android backend factory bindings belong to
-`player-runtime`; backend and capability decisions belong to `playback-policy`.
-Root DI retains application composition, resolver injection and pending-controller
-startup. Neutral key-command, safe-focus,
-and iOS fullscreen callbacks live in foundation so player code has no dependency
-on app composition or Detail. Android shells and mixed app previews consume the existing public player
-presentation contracts.
-
-Media, series and season Detail screens and their ambient-color platform
-adapters share `detail` with their existing friend tests. Root navigation,
-DI, TV focus providers and mixed previews consume its public API. Shared focus
-restoration, permission callbacks and backdrop geometry live in foundation for
-Detail, Downloads and TV. The existing account-scoped playback-selection memory,
-recall precedence and duration formatter also live there; Detail has no dependency
-on the playback presentation module. Root DI still owns the single memory
-registration and its account/server cleanup boundary. The mixed focus-restoration
-suite stays with Detail because it also exercises the internal container
-constructor; foundation’s focus policies remain public.
-
-Server entry, discovery UI, credential login and Quick Connect share
-`auth` with their existing ViewModel tests. Root navigation and DI retain
-session startup and constructor parameters; core retains discovery, while
-`auth-session` owns authentication, credentials and session persistence. TV keeps its UI and consumes the same public
-state and ViewModels through app composition.
-
-Downloads list/detail state, presentation and their existing ViewModel tests
-share `downloads`. Core retains admission, execution and account-qualified offline
-validation; `storage` owns durable records and artifacts, and Detail retains
-enqueue entry points. Root navigation and TV consume the existing public API,
-and shared backdrop/formatting contracts remain in foundation.
-
-Split large files by cohesive ownership near a 500-line review trigger. Keep
-public contracts in named files and helpers/chrome/fixtures in same-package
-siblings. Do not split cohesive state or behavior to meet a number.
+The iOS facade builds one static `SharedUi` framework without re-exporting the
+implementation modules; Swift receives its entry/download bridge. tvOS explicitly
+exports the shared types its presenters expose. Root factories retain Koin startup,
+configuration and callback providers. Keep one public Compose resource package,
+`com.jellyscope.ui.generated.resources`, in foundation. Module boundaries and smaller
+framework headers do not establish faster optimized native Release builds; measure
+the edit loop before making that claim.
 
 ## Platform Bridge Rules
 
@@ -1037,6 +386,15 @@ pipeline and backend comparison. These source boundaries enforce it:
 
 ### Other bridges
 
+Concurrency primitives must match access discipline: atomics for indivisible
+updates, monitors for compound state, and cancellation/join outside locks. Native
+Objective-C calls use the typed lazy facade; features retain selectors, callbacks,
+AppKit dispatch and lifecycle. `LocalSubtitleFileStore.resolvePath` stays a bounded
+synchronous path/stat seam; byte movement and reconciliation use injected IO.
+Generalize retries/lifecycle only when their assets, timing and ownership share a
+contract.
+
+
 Shared Detail uses `AmbientColorExtractor` over Coil `Image`. Android may use
 Palette internally; other platforms may return null. Shared UI imports no Android
 graphics/resources. Model capabilities explicitly instead of inferring platform.
@@ -1091,230 +449,14 @@ assets require file-level license review. License compatibility and distribution
 gates live in
 [Licensing And Distribution](../operations/licensing-and-distribution.md).
 
-## Why
-
-- Player admission has a typed result because rejected launches must not advance
-  catalogue selection. Keeping suspending admission separate from ordinary intents
-  preserves cancellation and result consumption without another event channel.
-
-- Online playback intents expose user and native-host inputs without moving native
-  ownership into a reducer. Publishing merges current diagnostics, while narrow
-  queue inputs remove direct subscription to unrelated playback updates.
-
-- Offline MVI makes control dispatch explicit without transferring native resource
-  ownership into state. Session observation remains authoritative for routing;
-  narrow diagnostics inputs avoid a direct dependency on every playback tick.
-
-- Native detail has one state writer even when series loading and optimistic actions
-  overlap. Typed subtitle changes retain acknowledgement revisions, while narrow
-  search inputs keep unrelated local-asset operations outside search dependencies.
-
-- Native download intents preserve account and artifact ownership in presenters
-  while making UI actions explicit. Independent artwork state prevents image reads
-  from invalidating the transfer list; load resets retain their replacement semantics.
-
-- Native settings reducers separate state transitions from persistence while
-  preserving live store reads during atomic retries. Narrow account inputs avoid
-  coupling account rendering to preference saves and diagnostic counters.
-
-- Native authentication intents preserve request and removal ownership while
-  exposing user actions explicitly. Credential forms do not need polling or
-  discovery state; narrowing their inputs avoids unnecessary dependencies.
-
-- Native browse reducers retain current-generation checks and raw pagination
-  offsets so stale requests cannot replace the current query. Header input
-  narrowing keeps independently paged filmography outside header dependencies.
-
-- Native tvOS intents make Swift-to-Kotlin actions explicit while preserving typed
-  observation and owner-controlled closure. Narrow questionnaire inputs separate
-  filters from asynchronous search results without adding another state store.
-
-- Launcher transitions centralize focus and route changes while preserving atomic
-  login-origin consumption and synchronous app-opening admission. Login inputs
-  exclude independently refreshed media and app catalogues.
-
-- Kids catalogue intents describe accepted playback outcomes so recommendation
-  selection cannot imply playback admission. Projection stays off Main and narrow
-  grid inputs preserve existing lists while the replacement projection runs.
-
-- Authentication intents expose user inputs without transferring credentials,
-  polling jobs, or navigation delivery to a shared store. Narrow URL-field inputs
-  avoid coupling discovery results to form recomposition.
-
-- Settings and account intents make user actions explicit without moving persistence
-  or removal authorization into reducers. Narrow child inputs keep unrelated
-  preference and diagnostic changes out of account and subtitle-dialog inputs.
-
-- Download intents describe user commands without moving durable execution or
-  lease authority into presentation. Narrow usage inputs separate that UI from
-  transfer-record and command-state updates.
-
-- Detail and Series keep selection, download, and playback-settlement authority
-  with their effect owners. Pure reducers merge onto current presentation state
-  so concurrent shelf and subtitle observations survive refresh and rollback.
-
-- Browse reducers isolate screen transitions without replacing the existing
-  generation, request, or pagination owners. Explicit intents keep shared and
-  TV actions consistent while preserving their different focus and retry flows.
-
-- Player commands use a synchronous intent boundary so existing acceptance and
-  command ordering survive migration. Pure presentation transitions do not take
-  ownership of native controller effects or high-frequency playback observations.
-
-- Library selection keeps restore and persistence effects in its ViewModel while
-  explicit intents and pure transitions expose the outer tab contract. Narrow
-  child inputs preserve the existing Library hub and browse boundaries.
-
-### Platform strategy and sharing
-
-- Independent application shells share one credential and account-transition
-  owner without importing native players. A library above transport/storage
-  avoids a dependency cycle while retaining envelope, logout and removal
-  recovery behavior. App composition still chooses concrete cleanup stores.
-
-- Safe diagnostic production and capture schemas form one lower boundary, so
-  transport, persistence and native implementations can use the privacy gate
-  without depending on application orchestration. Capture and upload lifecycle
-  remain above that boundary; the existing wire format and admission rules stay
-  unchanged.
-- Domain values, playback plans and launch/selection contracts form a stable
-  lower dependency closure.
-  Keeping their pure invariants, offline projections and download quota/queue arithmetic together
-  separates value ownership from execution changes without moving controllers or
-  persistence contracts. Transport estimates reuse the same saturating arithmetic
-  without importing repositories or storage.
-  Existing self-contained value tests follow that owner; mixed planning tests
-  stay with their implementation. Explicit tvOS exports preserve direct Swift
-  use while the iOS facade keeps its narrow surface.
-- Authorization syntax and credential-origin policy apply across API, image and
-  native playback requests without owning a session or transport lifetime. A
-  lower network owner keeps encoding and trust helpers together; session-backed
-  persistence belongs to `auth-session` while HTTP execution belongs to transport.
-- HTTP execution has a distinct owner below application coordination. Existing
-  configured clients and session identity remain upper, preserving their
-  lifetimes and private factory test seams without new ports or wrappers.
-- Jellyfin wire models, metadata projection and profile encoding form a reusable
-  contract below HTTP execution. Keeping their serialization defaults, mappers and existing tests
-  together separates wire changes from client and repository lifetimes.
-- UI foundation, Settings/Account, browsing, playback presentation, Detail,
-  authentication and Downloads have cohesive owners below app
-  composition, so a feature edit can compile a smaller source unit. Existing tests move with
-  their internal owners. One resource module preserves generated imports and
-  packaging without duplicating assets. Module boundaries do not make optimized
-  native Release linking incremental; measure affected edit loops before
-  claiming a build-time improvement.
-- Browsing shares state projections and test internals across its screens.
-  Keeping them in one feature avoids fragmenting that ownership or duplicating
-  fixtures; its existing stateless content functions remain usable by root
-  previews.
-- Playback state and platform UI hosts share lifecycle and test internals, so
-  they move together without changing controller or application-startup owners.
-  Existing neutral input callbacks belong in foundation rather than introducing
-  an upward dependency or a second callback owner.
-- Detail and player share selection memory and formatting, not each other’s
-  platform presentation. Foundation owns these existing contracts and the focus
-  and backdrop policies used by multiple screens; root providers retain their
-  lifecycle and account cleanup responsibilities.
-- Authentication presentation shares a pre-login journey and dependency closure.
-  Keeping it separate from post-login Settings avoids coupling their screens and
-  platform adapters; credentials and session state belong to `auth-session`.
-- Downloads list/detail presentation forms one boundary over existing core
-  operations. It stays separate from transfer/storage ownership and Detail’s
-  enqueue dialog, avoiding a dependency between presentation features.
-- Reusable platform services sit below application policy so future storage and
-  player owners can use the same IO, environment and cancellation contracts.
-  The closed platform enum belongs with diagnostic vocabulary, keeping those
-  adapters independent of upper playback formatting. Private DI and concrete
-  native cleanup retain their application lifecycle owners.
-- Persistence and its Room generation share one owner below application
-  execution. Existing store bindings keep implementation types private; account
-  gates and credentials belong to `auth-session`; app composition retains explicit
-  cleanup membership.
-- Native execution depends on policy, network and platform primitives while
-  application planning, account authority and reporting retain their core owner.
-  Co-owning native factories, private helpers and whole existing suites avoids
-  dependency cycles and test-only APIs; cinterop stays with its native users.
-- Capture, timeline preparation and process hooks share bounded history and
-  privacy lifetimes. Keeping their complete tests with the runtime owner avoids
-  test-only APIs; concrete persistence belongs to storage and delivery retains application authority.
-  Runtime sits above platform and playback policy so lower diagnostic vocabulary
-  remains reusable without a dependency cycle.
-- Player contracts expose coroutine flows and shared lease exclusion, so their
-  separate owner keeps the model-value layer free of runtime dependencies.
-  Existing file/volume ports separate native playback from concrete persistence;
-  one lease registry preserves playback-versus-deletion authority across owners. Validated observation values
-  keep construction with private invariants; native polling and reporting side
-  effects remain with their existing lifecycle owners. The two production Kotlin
-  bridges preserve those invariants without adding a Swift API.
-- Capability, stream/track and recovery decisions share the same closed playback
-  vocabulary and private helpers. Keeping that closure below native execution
-  avoids upward capability, URL or sealed-reason dependencies. Typed planning
-  failures cross the boundary without importing planner execution; existing
-  production Kotlin bridges retain a narrow Swift surface. Caller-owned scope
-  and callbacks preserve presentation lifetime and side-effect authority.
-- The iOS framework boundary keeps unused presentation declarations out of the
-  Swift API and its native export roots. It preserves full Release optimization;
-  fewer exported roots can reduce the graph processed by global optimization.
-  Framework header size alone does not establish a build-time improvement.
-- Native tvOS preserves Siri Remote focus and keeps SwiftUI/AVKit outside common
-  code while sharing Kotlin presentation/domain. Platform-family implementations
-  stay in Apple source sets.
-- Downloads is installed only through platform graphs that supply real storage
-  and lifecycle contracts; cache cleanup must not own downloaded media.
-- Duplicate iOS/JVM Skia ambient-color actuals remain because an intermediate
-  source set would disable the default hierarchy and restructure every target for
-  a bounded narrow seam.
-- Nullable side interfaces keep platform-only capabilities out of
-  `PlayerController`; shared persisted decoding keeps defaults local so platform
-  policy and on-disk compatibility do not silently converge.
-
-### Android playback integration
-
-Android mpv wrapper provenance belongs to
-[Android Native Dependencies](../operations/android-native-dependencies.md).
-
-### Playback contracts
-
-- Live backend switching stays in `PlayerViewModel` because it shares launch
-  identity, controller ownership, reporting, and installer authority.
-- Launch reads are shared; memory, explicit intent, validation, reconciliation,
-  and stale-result handling remain with each caller.
-- `LocalSubtitleFileStore.resolvePath` remains a bounded synchronous stat/path
-  seam; byte movement and reconciliation use injected IO owners. No common
-  staging lifecycle exists to justify a wider suspend abstraction.
-
-### Diagnostics
-
-- Closed sanitized causal records support first-pass diagnosis without exposing
-  external data; a generic unavailable flag cannot identify the failing boundary.
-
-### Engineering discipline
-
-- Hub section transitions isolate recommendation retries from tab selection and
-  unrelated shelves. Main-owned publication keeps cancellation and state updates
-  ordered while fetch/mapping remains off Main; narrow tab captures avoid coupling
-  navigation chrome to recommendation completion.
-
-- Library browse keeps pagination admission and preference-write ordering with
-  their existing owners while making the accepted state transitions explicit.
-  Keeping shuffle events separate preserves their single-consumer delivery
-  semantics; Main-confined shuffle coordination avoids cross-dispatcher generation
-  access. Narrow card/header inputs isolate unrelated state updates.
-
-- Find's explicit inputs and pure reducer make state transitions independently
-  inspectable while existing ViewModel jobs retain cancellation and persistence
-  lifetimes. Submission receipts preserve Android TV's request-qualified focus
-  handoff. This is a feature-local pilot, not a requirement to migrate simpler
-  screens or native player ownership.
-
-- Remove obsolete compatibility fields so the compiler exposes consumers. Share
-  only real common behavior; controller retries and mutable session state remain
-  local where assets, timing, order, or lifecycle differ.
-- Native Objective-C dispatch uses one typed lazy `libobjc` facade, while each
-  feature owns selectors, callbacks, AppKit dispatch, and lifecycle.
-- Concurrency fixes match access discipline: volatile for independent reads,
-  atomics for indivisible updates, monitors for confined compound state, and
-  cancellation/join outside locks.
+<a id="why"></a>
+<a id="platform-strategy-and-sharing"></a>
+<a id="android-playback-integration"></a>
+<a id="playback-contracts"></a>
+<a id="diagnostics"></a>
+<a id="engineering-discipline"></a>
+See [state ownership](#state-and-event-modeling), [module direction](#source-layout-target)
+and [platform bridges](#platform-bridge-rules) for rules and their rationale.
 
 ## Launcher configuration ownership
 

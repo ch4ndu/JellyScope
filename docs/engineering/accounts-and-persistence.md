@@ -288,57 +288,8 @@ phase replaces the committed session snapshot.
 
 See the dedicated [launcher persistence contract](../launcher/engineering.md#independent-android-launcher-state).
 
-## Why
-
-- Secondary credentials participate in cold cleanup before the pending marker is
-  cleared. Otherwise a partially successful logout could leave an independently
-  authenticated Seerr session available after restart.
-
-### Persistence and transfer recovery
-
-- Capturing the account epoch at submission prevents delayed preference writes
-  from surviving a switch away and back. Publishing an already committed
-  boundary keeps observers aligned even when refetchable cleanup fails. Search
-  owners capture their epoch at construction because their delayed results must
-  not adopt a later login's authority.
-- Credential removal must settle before artifact failures can become cleanup
-  debt; otherwise cold restore could revive an account being removed.
-
-- Owner-only desktop replacements limit plaintext credential exposure without
-  changing the accepted Apple credential-storage policy.
-
-### Persistence
-
-- Persistence implementations and Room generation stay together without
-  importing application execution. Session/account gates and credential
-  authority belong to `auth-session`, preserving one cleanup and commit owner
-  usable by independent application shells.
-
-- **Apple application credentials remain in app-owned plaintext storage by
-  policy.** Avoiding Keychain access prevents application-triggered system
-  credential prompts, with the documented lower at-rest security tradeoff.
-  Release signing credentials are a separate concern; application code must not
-  read, migrate, or clean Keychain entries.
-- **The session envelope is the sole credential authority.** One versioned
-  commit prevents accounts, active selection, and logout-pending state from
-  mixing generations. Empty means durable logout; corrupt or unsupported
-  envelopes fail closed instead of reviving aliases.
-- **Durable Room state migrates without blanket destruction.** The full schema
-  chain preserves playback preferences, device settings, subtitle selections,
-  and local assets. Only explicitly refetchable tables may be recreated during
-  future-version recovery; transactional legacy-row claiming prevents two
-  accounts from inheriting one old preference snapshot.
-- **Persistence failures stay scoped.** Per-field launch reads preserve siblings
-  and cancellation; Room settings publish only after DAO success. Serialized,
-  coalescing writers prevent older completion from overwriting newer intent.
-
-### Accounts and lifecycle
-
-- Server-plus-user identity and one immutable session snapshot prevent requests,
-  caches, and publication from crossing account generations.
-- Presentation-policy refresh must not reauthenticate or remount an active
-  account. Comparing the durable active row as well as live state prevents a
-  stale refresh from reactivating an account or clearing a pending logout.
-- Direct persistent-store cleanup avoids lazy-DI ordering. Removal and commit
-  tails are atomic/non-cancellable because partial durable mutation cannot
-  represent an unchanged session.
+<a id="why"></a>
+<a id="persistence-and-transfer-recovery"></a>
+<a id="persistence"></a>
+<a id="accounts-and-lifecycle"></a>
+See persistence, credential authority and transition rules above.

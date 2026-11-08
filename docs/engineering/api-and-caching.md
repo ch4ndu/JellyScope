@@ -297,53 +297,5 @@ its cache key. Remote keys are versioned to exclude older cached fallback bytes.
 
 See the dedicated [launcher data and artwork contract](../launcher/engineering.md#android-launcher-queries-and-artwork).
 
-## Why
-
-- Seerr has independent credentials, permissions and identity. Origin isolation
-  prevents credential crossover; guarded publication prevents retired work from
-  reaching another account. Read reconciliation avoids duplicating a request
-  whose response was lost, and exact library matching keeps availability separate
-  from access to the current Jellyfin server.
-
-- **Transport progress is independent of presentation.** Dropped or repeated rows
-  must not shift the next server offset or duplicate lazy keys. Bounded empty-page
-  continuation preserves reachability without an unbounded request loop.
-- **Purging alone does not retire artwork work.** A completed response can still
-  be decoding during an account transition; atomic generation validation prevents
-  it from restoring entries after the purge.
-
-- HTTP execution and response contracts stay together below application
-  orchestration. Retaining configured clients and session identity in core keeps
-  credential and client lifetimes with their existing owner.
-
-- **Encoded and decoded images have different identities.** Decode dimensions
-  change memory requirements, but only a different effective URL changes the
-  requested source bytes. Both caches retain the account boundary.
-
-- **Discovery availability is a platform capability.** iOS omits the multicast
-  entitlement required by UDP discovery, so marking discovery unavailable
-  prevents futile network work while preserving manual URLs and restored
-  sessions under the platform ATS policy. Bonjour and permission probes are not
-  equivalent to the Jellyfin broadcast protocol.
-
-- **Related shelves and Find use deterministic ordering.** Priority-gated joins,
-  per-kind limits, ID de-duplication, and all-or-nothing failure prevent latency
-  from reordering shelves or making failed categories look empty.
-
-- **Public server identity is authoritative.** `/System/Info/Public` binds
-  credentials before persistence; optional display/auth-result fields cannot
-  replace it. Password bytes remain untouched, while authorization syntax uses
-  the shared CR/LF-safe RFC 3986 encoder.
-
-- **The API facade owns transport and wire-format drift.** Mapping transport
-  failures below presentation keeps retryability stable if the HTTP stack
-  changes. The hand-rolled Ktor client avoids an SDK dependency but requires
-  explicit wire and behavior verification for each supported server release.
-
-- **Source identity remains exact and session-scoped.** Version changes reproject
-  source-owned fields together; persisting transient response IDs risks mixed
-  state.
-
-- Watch Next outage artwork uses a separate cache identity. Otherwise a temporary
-  failure remains a successful cache hit and prevents the real image
-  from being retried.
+<a id="why"></a>
+See protocol, pagination, cache and source-identity rules above.

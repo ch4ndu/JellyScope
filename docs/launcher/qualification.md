@@ -3,15 +3,18 @@
 The launcher targets Android TV/Google TV and Android-based Fire OS at API 25 or
 newer. Vega OS, Fire OS 5/API 22, and older Android are excluded. These are support
 targets, not a list of qualified devices. An authorized TiVo installation and cold launch passed after user removal of
-CoreService; full ordinary-app and replacement-Home behavior remain unqualified. Local APKs are debug-signed verification artifacts, not releases.
+CoreService. Later dated entries record authenticated handoff and targeted focus
+checks; the user also confirmed one physical Home-helper path. Saved Home selection
+still disagreed with effective system routing. Full ordinary-app and replacement-Home
+qualification remains incomplete. Local APKs are debug-signed verification artifacts, not releases.
 
 ## Evidence levels
 
 | Level | What must be established | Current device result |
 | --- | --- | --- |
-| Installation | Install/update on the identified API/ABI/firmware | TiVo: install and Ocean update passed after CoreService removal; reboot not tested |
-| Ordinary app | Login, Apps/order, media/cache, remote focus, settings and playback handoff | Ocean startup, Apps/Move and targeted ADB navigation passed; authenticated media/playback and physical remote remain unqualified |
-| Replacement Home | Selector support, actual default, cold/repeated Home and Back/task behavior | Not run |
+| Installation | Install/update on the identified API/ABI/firmware | TiVo: installation and subsequent updates passed after CoreService removal; reboot not tested |
+| Ordinary app | Login, Apps/order, media/cache, remote focus, settings and playback handoff | Bounded authenticated Details/Series handoff, paused Resume at 0:41, Apps/Move and ADB focus paths observed; sustained playback and general physical-remote behavior remain unqualified |
+| Replacement Home | Selector support, actual default, cold/repeated Home and Back/task behavior | Saved selection disagrees with effective routing (2026-10-24); physical Home helper observed separately; whole replacement-Home qualification incomplete |
 
 Device identity and artifact details for the first attempt are recorded below;
 remote model remains unknown. Record these values alongside each future result;
@@ -28,9 +31,8 @@ also confirmed the launcher as Android's resumed Activity. A Series-entry
 recording sampled at 3 fps showed launcher, neutral loading and Series, with no
 JellyScope Home visible in the sampled frames. This is not frame-perfect proof.
 
-Formatting, existing TV unit tests, Debug compilation, Release lint, minified
-assembly, independent code review and final verification passed. Account sessions
-were preserved. Legacy `/play` and Watch Next ingress, nested Back, actual resumed
+Host checks, existing TV tests and review passed for this historical candidate;
+account sessions were preserved. Legacy `/play` and Watch Next ingress, nested Back, actual resumed
 playback ticks, rapid links, loading cancellation, failure/recreation, ordinary
 warm relaunch and account rejection remain source-reviewed only for this slice.
 The prior handoff observation below describes superseded Back behavior; standalone
@@ -38,8 +40,7 @@ entry now finishes the TV Activity at its root.
 
 ## Earlier details handoff qualification
 
-Both Release apps installed successfully on the TiVo on 2026-10-24. Source review,
-final verification, formatting, compilation, Release lint and assembly passed.
+Both host-checked Release apps installed on the TiVo on 2026-10-24.
 The new launcher against the old TV receiver showed Update JellyScope without
 playback. After updating TV, a media selection opened Details with Resume from
 0:41; choosing it reached the player paused at 0:41. A Recently Added series
@@ -55,8 +56,7 @@ No parser test was added. Both app sessions were preserved.
 The current source replaces account/Login pages with focus-isolated dialogs,
 removes the redundant account buttons and Apps grid, and hides Fresh ribbon
 status labels. Tile titles use one line with ellipsis; media rows have a 24 dp gap.
-Debug compilation, formatting, independent review, Release lint/assembly and final
-source verification passed. The Release update installed on the TiVo. Device
+The host-checked Release update installed on the TiVo. Device
 checks confirmed account-dialog focus after Refresh/Right, Close restoring the
 account icon, and single-line media titles with clearance beside a focused
 landscape card. Login field entry/IME/Back and Connect-origin cancellation remain
@@ -67,8 +67,7 @@ Earlier Dusk tests established form visibility only, not editable-field behavior
 ## Dusk header refinement (before dialogs)
 
 Dusk replaces the Ocean background and the gear opens Android System settings
-directly; the Jellyfin icon retains launcher account/settings entry. Source review,
-formatting, debug compilation, Release lint and minified assembly passed. The
+directly; the Jellyfin icon retains account/settings entry. The host-checked
 Release installed successfully on the same TiVo on 2026-10-24; APK SHA-256:
 `c588b330899d105ef18897ed44687b82a31359cd428a46e16aeba2060ef3b141`.
 
@@ -91,7 +90,7 @@ The reviewed minified Release installed with `adb install -r` on the TiVo descri
 below on 2026-10-24. APK SHA-256:
 `954f070647c376f7f3c750454b4d35ebc507d221151a47b64318c83a9df90d99`.
 Cold launch reported 846 ms; this is a single observation, not a performance result.
-Source review, formatting, debug compilation, Release lint and assembly passed.
+Host checks and review passed.
 
 ADB D-pad input and screenshots confirmed:
 
@@ -260,8 +259,7 @@ install/launch/input/log collection require explicit authorization before use.
 
 ## Optional Home helper
 
-The separate SDK-only helper passed debug compilation, Release lint, minified
-Release packaging and independent code review. Its Release APK was installed on
+The separate SDK-only helper passed host checks and review. Its Release APK was installed on
 the TiVo; the setup screen rendered, and enabling it through Android accessibility
 settings produced a bound service with key-filter capability and no accessibility
 event subscription. The user confirmed that pressing Home on the physical TiVo
@@ -274,8 +272,7 @@ are part of this qualification. See [setup](home-button-helper.md).
 
 ## Background refresh and tab reset
 
-The minified Release passed compilation, lint, independent review and final
-verification, then installed and launched on the TiVo. Scrolling Apps and a
+The host-checked minified Release installed and launched on the TiVo. Scrolling Apps and a
 Jellyfin media ribbon, switching tabs and returning reset each ribbon to its
 first item; Down focused that first item. WorkManager logged one successful
 launcher refresh after installation and registered a network-constrained job

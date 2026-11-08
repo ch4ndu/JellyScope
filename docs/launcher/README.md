@@ -15,7 +15,7 @@ Technical contracts: [engineering](engineering.md) and [plugin reference](plugin
 - See [qualification](qualification.md) for host, device and server evidence.
 - Current APKs are debug-signed local verification artifacts. They lack release
   license/readiness wiring and are not collected by `scripts/build-release-artifacts.sh`.
-  See [device qualification](qualification.md) for tested paths and current Dusk status.
+  See [device qualification](qualification.md) for installation, authenticated handoff, physical Home helper observations and the unresolved default-routing mismatch.
 
 Optional [Home-button helper setup](home-button-helper.md) covers firmware that ignores Home selection.
 
@@ -28,17 +28,15 @@ Optional [Home-button helper setup](home-button-helper.md) covers firmware that 
 | Jellyfin account panel | Refresh library, Connection details, Launcher preferences and sign-out |
 | Sign-in dialog | Server URL, username and password |
 
-Tabs select after 250 ms of focus; Center selects immediately. Left/Right traverses
-tabs and icons; Down enters content. Switching tabs resets ribbon scroll and focus
-to the beginning. Cached rows remain visible while fresh data loads; rows update
-as responses arrive. Refresh also runs roughly every 30 minutes, including in
-the background when Android permits and a network is available. The Jellyfin icon opens account controls;
-the gear opens Android **System settings**. The right-side account panel keeps
-focus inside. Back leaves a subsection; Close returns to its invoking control.
+Focus a tab or press Center to select it; Left/Right traverses tabs and icons,
+and Down enters content. Tab changes return ribbons to their beginning. The
+Jellyfin icon opens account controls; the gear opens Android **System settings**.
+Back leaves a subsection; Close returns to its invoking control.
 
-Cinematic media previews work on both tabs. Disable them in **Jellyfin account →
-Launcher preferences → Show cinematic hero**. The preference has a visible switch;
-action rows have a background and border even without focus. Apps focus uses Dusk.
+Disable cinematic previews in **Jellyfin account → Launcher preferences → Show
+cinematic hero**. Media refreshes on entry, manually and when Android permits
+background work; [engineering](engineering.md#android-launcher-queries-and-artwork)
+owns refresh/caching behavior.
 
 **Apps** automatically lists every launchable app. Long-press for Open or **Move**;
 Left/Right reorders inline, and Select or Back finishes with each step saved.
@@ -160,18 +158,11 @@ user. Changes take effect after **Save** and launcher **Refresh**.
 | Playback app | JellyScope only; other players are not supported |
 
 **Play Next** uses resumable media; **Up Next** excludes resumable episodes.
-**Recently Added** uses Jellyfin's Latest endpoint and its episode grouping.
-**Recently Added Movies**, **Recently Added Episodes** and **Recently Added Series**
-filter to that type, newest-first by creation date. Episodes appear individually;
-Series means newly added series, not older shows with new episodes. Each can use
-all available libraries or one selected library. **Favorites** filters favorite
-items. **Newest items in library** (the `library` query) requires a library and
-lists its movies/episodes recursively, newest-first by creation date. These are Jellyfin queries, not Android's
-cross-app Watch Next feed.
-
-**Recently Released** sorts the selected library by premiere date, excluding
-unknown/future dates. Series uses its own premiere. Rows may underfill.
-See [query semantics](plugin-reference.md#wire-schema).
+Recently Added uses server addition dates; Recently Released uses the selected
+library's premiere dates and excludes unknown/future dates. Series rows describe
+series, not newly added/released child episodes. Released rows may underfill.
+These are Jellyfin queries rather than Android's cross-app Watch Next feed; see
+[query semantics](plugin-reference.md#wire-schema) for exact behavior.
 
 New rows start on Jellyfin with Recently Added, landscape artwork and limit 20.
 Changing Query preserves an explicitly selected Tab. **Refresh libraries** updates

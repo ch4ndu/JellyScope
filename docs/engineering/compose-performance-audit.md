@@ -23,6 +23,10 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
 - Before accepting a product tradeoff, check for an unnecessarily expensive
   implementation of the same feature. Attribution alone does not justify
   degrading the feature.
+- Performance evidence is platform-specific. Shared player frame-timing claims
+  need a demonstrated mechanism and an authorized iOS release check; iOS has no
+  equivalent recomposition counter/frame-stats dump. A clean result elsewhere
+  does not certify iOS.
 - Recommend only optimizations that preserve UI, focus, playback, and state.
   Use `Measurement needed` and the smallest release-mode measurement when
   runtime evidence must distinguish a real cost from harmless work.
@@ -119,12 +123,7 @@ searchable labels: `[RECOMPOSITION]`, `[STABILITY]`, `[HOT_STATE_READ]`,
   optional Baseline Profile or benchmark coverage as a `[BUILD_PERF]`
   `Suggestion` or `Measurement needed`, not as confirmed app slowness.
 
-## Why
-
-- **Performance evidence is platform-specific:** a clean measurement elsewhere
-  cannot certify iOS. Shared player frame-timing fixes require a demonstrated
-  mechanism and an iOS release-build check; the iOS integration has no equivalent
-  recomposition counter or frame-stats dump.
+<a id="why"></a>
 
 Primary references:
 

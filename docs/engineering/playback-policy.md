@@ -178,6 +178,13 @@ can play every source. A forced-transcode sentinel probe must be recorded in
 the server-behavior evidence before release promotion; an unsafe result blocks
 promotion rather than authorizing a hidden finite replacement.
 
+Jellyfin 10.11 probes established two server defaults that must remain qualified
+by that version: omitted streaming/static bitrate fields deserialize to 8 Mbps,
+which can deny direct play (`ContainerBitrateExceedsLimit`) and cap transcodes;
+unknown item bitrate is substituted with 40 Mbps, so a lower numeric cap can force
+conversion even when the real source would fit. Neither is learned client capacity.
+Re-probe these behaviors for a new server major.
+
 Quality has exactly two durable settings and one ephemeral scope:
 
 - `PlaybackPreferences.defaultQualityPolicy` is a local installation's default
@@ -479,6 +486,31 @@ rather than porting code. When probing a live server:
   claiming that it limited the delivered stream. App policy never modifies the
   server's `transcodeReasons`.
 
+### PCM declaration qualifications
+
+- **Media3 PCM admission is container-specific.** Media3 1.9.0's Matroska
+  extractor and PCM output pipeline qualify unsigned 8-bit, signed 16/24/32-bit
+  little- and big-endian, and little-endian float32 input names. Only the MKV
+  profile advertises these eight names. MOV/MP4 codec names cannot distinguish
+  supported sample entries from unsupported ones; TS has no LPCM reader and
+  WebM excludes PCM. Signed 8-bit, wider unsigned integers, float64, planar and
+  special PCM families remain unadvertised. Requalify extraction and output
+  paths when the Media3 pin changes; source support does not establish audible
+  playback or channel mapping on a device.
+  Qualification covers supported explicit-width `A_PCM/INT/LIT`,
+  `A_PCM/INT/BIG` and `A_PCM/FLOAT/IEEE` routes. A_MS/ACM IEEE-float tracks
+  and absent or unsupported Matroska BitDepth can share these codec names
+  while Media3 rejects extraction; MKV plus codec name cannot distinguish
+  these variants.
+
+Android mpv's exact FFmpeg metadata names and compiled registrations are owned
+by the [native runbook](../operations/android-native-dependencies.md#pinned-inputs);
+`pcm` is not a wildcard and decoder symbols are not necessarily wire names (DTS
+uses dca). Desktop's separately qualified declarations belong to
+[desktop provenance](desktop-playback.md#desktop). Media3 DTS still requires a
+confirmed decoder or active passthrough route; FFmpeg E-AC-3 augments Media3 only.
+Registered decoders do not establish audible output or channel mapping.
+
 ## Representative direct-play declarations
 
 These are representative formats each player requests directly. Device
@@ -501,87 +533,7 @@ On Android, support depends on the selected player and device decoders. On
 Apple devices, the hardware AV1 check applies to AVPlayer. VLCKit declares AV1
 without that hardware gate and does not claim HDR support.
 
-## Why
-
-- **Rejected changes need an intact installed session.** Both shells defer mutation
-  until proposal commit so rejected planning cannot leave menus, persistence
-  or recovery credit describing a stream that was never installed. Recovery
-  displacement survives replacement proposals because a still-Playing native
-  state can hide an unresolved Audio or Subtitle activation gap.
-
-### Server contract and capability modeling
-
-- **Media3 PCM admission is container-specific.** Media3 1.9.0's Matroska
-  extractor and PCM output pipeline qualify unsigned 8-bit, signed 16/24/32-bit
-  little- and big-endian, and little-endian float32 input names. Only the MKV
-  profile advertises these eight names. MOV/MP4 codec names cannot distinguish
-  supported sample entries from unsupported ones; TS has no LPCM reader and
-  WebM excludes PCM. Signed 8-bit, wider unsigned integers, float64, planar and
-  special PCM families remain unadvertised. Requalify extraction and output
-  paths when the Media3 pin changes; source support does not establish audible
-  playback or channel mapping on a device.
-  Qualification covers supported explicit-width `A_PCM/INT/LIT`,
-  `A_PCM/INT/BIG` and `A_PCM/FLOAT/IEEE` routes. A_MS/ACM IEEE-float tracks
-  and absent or unsupported Matroska BitDepth can share these codec names
-  while Media3 rejects extraction; MKV plus codec name cannot distinguish
-  these variants.
-
-- **Android mpv input codecs use exact metadata names.** The pinned FFmpeg
-  registers decoders for 35 PCM codec IDs, ALAC and MLP. Their descriptor names
-  match the `codec_name` vocabulary used by ffprobe; a literal `pcm` is not a
-  wildcard for `pcm_*`. [Desktop runtime provenance](desktop-playback.md#desktop)
-  scopes the independently qualified mpv and LibVLC declarations. Decoder symbols
-  are not generally wire names (DTS uses dca).
-  The [native runbook](../operations/android-native-dependencies.md#pinned-inputs)
-  owns the registration evidence and its limits. This expands input decoding
-  declarations and the finite diagnostic vocabulary, without changing channel
-  limits, encoded output or HLS output codecs.
-
-- **Trickplay is source- and delivery-qualified.** Resolution alone can pair a
-  tile sheet with the wrong media version, and advertised metadata does not
-  prove a tile can be fetched and decoded. Source identity therefore participates
-  in URL/cache keys, while preview chrome appears only after image delivery.
-
-- **DTS claims remain backend-specific.** Media3 advertises DTS only with a
-  confirmed decoder or active passthrough route, while Android mpv retains its
-  pinned dca/DTS declaration. The bundled FFmpeg E-AC-3 result augments only
-  Media3, and an active route's channel count remains separate from local
-  decode/downmix capability.
-
-- **Profile and URL rewrites preserve intent.** Wire spellings stay exact while
-  local mapping canonicalizes aliases. Both dimension parameter sets are capped,
-  and conflicting server-attached subtitle parameters are stripped because
-  `SubtitleStreamIndex=-1` alone is insufficient.
-
-### Quality policy
-
-- **A named quality rung carries an absolute resolution cap.** Bitrate-only
-  enforcement can produce source-resolution video that contradicts the visible
-  rung and exceeds the decoder. Canonical dimensions are derived centrally;
-  custom and unrelated automatic bitrate limits remain bitrate-only.
-
-- **Quality has one precedence chain and no learned capacity.** A current-player
-  choice outranks the active VLC-family Fixed default, which outranks the
-  general server default. Session scope prevents stale experiments from
-  overriding current policy and keeps inherited Auto distinct from explicit
-  Auto. A choice commits only after planning succeeds, so rejection or
-  cancellation cannot alter the installed stream or its reporting. The
-  no-client-limit sentinel is required because both omission and a finite
-  stand-in can impose a server cap.
-
-- **Original has one manual failure contract.** Decoder, unsupported-media,
-  missing-output, buffering, stall, and dropped-frame triggers all preserve the
-  source and present the same actions. Independent exact-target Audio activation
-  recovery retains Original's policy and limits but can change delivery mode;
-  keeping this exception explicit avoids treating it as a hidden quality replan.
-
-- **Capability facts remain concrete-backend owned.** Combining unrelated
-  decoder maxima, platform probes, static declarations, or extension support
-  can describe a nonexistent path. Closed provenance preserves what was measured
-  or declared without creating a capability or sharing Media3 FFmpeg support.
-
-- **Desktop and iOS product envelopes are scoped policy.** The macOS LibVLC
-  4K60-equivalent and iOS 4K30-equivalent Standard envelopes prevent known
-  unsafe inputs without claiming a universal hardware ceiling. Unrestricted
-  removes only that envelope; backend facts remain active. Screen geometry,
-  guessed machine tables, and sparse model catalogs are not decoder evidence.
+<a id="why"></a>
+<a id="server-contract-and-capability-modeling"></a>
+<a id="quality-policy"></a>
+See the product, wire and server contracts above.

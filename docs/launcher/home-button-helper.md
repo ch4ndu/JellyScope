@@ -40,8 +40,9 @@ Updates may require rechecking accessibility enablement.
 
 Disable this helper in Accessibility to restore normal key routing, or uninstall
 only **JellyScope Home Helper**. The launcher and its session remain separate.
-Reboot persistence and physical-remote behavior are unqualified until observed;
-see [qualification](qualification.md).
+The user confirmed one physical TiVo Home path. Its origin app was unspecified;
+held/repeated Home, other-app origins, fallback and reboot persistence remain
+unqualified. See the [bounded observation](qualification.md#optional-home-helper).
 
 ## Build locally
 

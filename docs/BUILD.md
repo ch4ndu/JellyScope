@@ -209,18 +209,11 @@ The shared environment selects `~/Private/JellyScopeData/caches/desktop-mpv-meta
 `JELLYSCOPE_DATA_ROOT` changes the shared data root used by Gradle, VLC, source
 retention, and the older experiment helper. Direct source builds require the
 matching Standard/Metal cache environment variables.
-The builder downloads only declared source archives and retains matching source,
-license, patch, configuration and native graph records. Standard and Metal caches
-have separate ownership markers and cannot substitute for each other.
-The Metal recipe also records its exact libplacebo static-glslang lookup
-correction; the original source archive and retained recipe reproduce that edit.
-
-The older `prepare-desktop-mpv-metal-experiment.py` remains a local investigation
-recipe for retained MPVKit binary candidates. Those candidates are not accepted
-by the source-built packaging validator. See the
-[recipe notes](../scripts/desktop-mpv-metal/METAL-EXPERIMENT.md).
-Its output remains task-local; read-only inputs may also come from the shared
-data root. Input and output path checks continue rejecting symlink traversal.
+Standard and Metal caches have separate ownership and cannot substitute for each
+other. The [experiment notes](../scripts/desktop-mpv-metal/METAL-EXPERIMENT.md)
+retain the older MPVKit binary investigation, which is not accepted by the
+source-built package validator. Keep experiment outputs task-local and path checks
+intact; the builder retains matching sources, licenses, patches and build records.
 
 Both properties are required and also work with `:desktop-app:hotRun`. Select
 mpv and do not combine them with `jellyscope.desktop.forceMpvOpenGlSurface`.
@@ -299,14 +292,9 @@ only after the full app links successfully with the selected toolchain, rather
 than using a framework-only result. Do not clear shared toolchain caches or
 change dependency versions to work around this symptom.
 
-`ios-framework` produces the static `SharedUi` framework consumed by Xcode.
-It owns the Swift entry point and download bridge. App composition, DI, and
-generated developer configuration remain in `shared-ui`; shared resources belong
-to `ui-foundation`, Settings/Account belongs to `settings-account`, and
-browsing screens and state belong to `browse`. Player presentation and
-platform UI hosts belong to `playback`; media and series details belong
-to `detail`; server connection and login belong to `auth`.
-Downloads list/detail presentation belongs to `downloads`.
+`ios-framework` produces the static `SharedUi` framework and narrow Swift entry/
+download bridge. [Architecture](engineering/architecture.md#source-layout-target)
+owns composition, resource and feature boundaries.
 Keep UI dependencies unexported from the framework. The existing
 `:shared-ui:link{Debug,Release}FrameworkIos{Arm64,SimulatorArm64}` commands
 remain compatibility aliases; their framework output is under
@@ -397,79 +385,5 @@ to UI, playback, and platform changes.
 
 ## Module map
 
-- `core-model`: standard-library-only domain values, preferences, playback plans,
-  launch inputs, subtitle intents, pure download quota/queue decisions and offline
-  detail/artwork projections, shared by core and exported by the tvOS framework.
-- `diagnostics`: safe diagnostic tags, operation tokens, field schemas, failure
-  formatting, capture validation and application log-writer configuration.
-- `platform`: reusable IO dispatching, device/environment services, native-log
-  cleanup contracts, JVM app-directory resolution and serialized latest-value
-  writing over `diagnostics`.
-- `network`: authorization-header contracts and encoding, credential-origin
-  policy and server-URL normalization over `platform` and Ktor HTTP.
-- `player`: controller/state, timing/volume and subtitle-file ports,
-  offline artifact leases and deletion guards, runtime observations and progress
-  contracts over `core-model`; atomicfu keeps lease bookkeeping synchronized.
-- `playback-policy`: capability declarations, backend/device and stream/track
-  decisions, playback diagnostic vocabulary/formatting, recovery/health/session
-  policy, the device-setting port and selection inputs over `core-model`,
-  `diagnostics` and `player`.
-- `jellyfin-api`: Jellyfin wire DTOs, metadata-to-domain mapping, device profiles
-  and typed API failures over `playback-policy` and serialization; Ktor HTTP is
-  internal.
-- `diagnostics-runtime`: bounded capture, reports, timeline preparation, collection
-  control and process failure hooks over `platform` and `playback-policy`.
-- `player-runtime`: native controllers, surfaces, timing/activation helpers and
-  device probes over `network` and `playback-policy`; existing Android backend
-  factory bindings and Apple VLCKit interop stay with their implementations.
-- `storage`: file/preferences stores, Room databases, migrations and schemas over
-  `diagnostics-runtime`, with existing platform persistence bindings. KSP runs
-  here; committed Room schemas live in `storage/schemas`. Account/session
-  coordination and credential adapters belong to `auth-session`.
-- `transport`: Jellyfin/OpenSubtitles HTTP execution and bounded download/artwork
-  responses over `network`, `jellyfin-api`, `storage` and Ktor client core.
-  Configured client factories and engines stay in core; session-backed identity
-  belongs to `auth-session`.
-- `auth-session`: secure credentials, session/account boundaries, authentication
-  and session-backed headers over transport; independent from native players.
-- `shared-core`: shared data, domain orchestration, root DI, configured HTTP clients,
-  playback planning/reporting and account-qualified offline validation over the
-  lower model, policy, platform, network, wire, runtime, storage and transport modules.
-- `ui-foundation`: shared Compose resources, theme, adaptive layout, reusable
-  components, shared input/focus contracts, account-scoped image and playback
-  selection memory, and shared presentation helpers over `shared-core`.
-- `settings-account`: Settings/Account state, screens, and platform
-  adapters over `ui-foundation` and `shared-core`.
-- `browse`: Home, Discover, Find, Library, Grid, Collection, and Person
-  presentation and pagination over `ui-foundation` and `shared-core`.
-- `playback`: player presentation, state, platform UI hosts, and their
-  existing tests over `ui-foundation` and `shared-core`.
-- `detail`: media, series and season details, subtitle dialogs, download
-  entry points, and ambient-color platform adapters over foundation and core.
-- `auth`: server entry/discovery, credential login, and Quick Connect
-  presentation over foundation and core.
-- `downloads`: Downloads list/detail state and presentation over
-  foundation and core; transfer execution stays in core and persistence in storage.
-- `shared-ui`: app composition, navigation, DI, generated build metadata, and
-  platform entry points over the UI modules for mobile, desktop, and iOS.
-- `ios-framework`: static `SharedUi` framework with the Swift entry point and
-  background-download bridge over the shared Compose implementation.
-- `android-app`: Android mobile application shell over the shared app root.
-- `android-tv-app`: Android TV shell with TV-native navigation, focus, player,
-  and Watch Next integration.
-- `android-libmpv`: project-owned Android mpv JNI bridge and extraction of the
-  pinned native build inputs.
-- `desktop-app`: Compose Desktop shell and JVM/libmpv playback path.
-- `ios-app`: SwiftUI host for the shared Compose iOS app.
-- `shared-tvos`: tvOS Kotlin presentation layer (presenters, Swift bridge,
-  `SharedTv` framework) over `shared-core` and explicitly exported `core-model`,
-  `diagnostics`, `platform`, `network`, `player`, `playback-policy`, `jellyfin-api` and
-  `diagnostics-runtime`, `player-runtime`, `storage` and `transport`.
-- `tvos-app`: native SwiftUI Apple TV shell driven by `shared-tvos`.
-
-Layers, platform seams, and source-layout rules are owned by
-[`guides/architecture.md`](engineering/architecture.md).
-
-Change requirements are in [`../CONTRIBUTING.md`](../CONTRIBUTING.md). Detailed
-code conventions live in the
-[development workflow](engineering/workflow.md#4-write-clear-maintainable-code).
+See the [architecture ownership map](engineering/architecture.md#source-layout-target)
+for modules and dependency direction.

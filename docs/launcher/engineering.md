@@ -16,17 +16,9 @@ The player receiver owns the cross-app [playback link contract](../engineering/t
 | `jellyfin-launcher-plugin` | Independent .NET server build and dashboard layout; no Android server dependency |
 | `android-tv-app` | Separate JellyScope playback receiver and native player ownership |
 
-Launcher production files live under
-`android-launcher-app/src/main/kotlin/com/jellyscope/launcher/`:
-`MainActivity` owns Android entry/Home handling, `LauncherApplication` composes
-DI, `LauncherViewModel` owns UI/session operations, and `LauncherShell` routes
-Home with Settings and Login dialogs. `LauncherLayout` and
-`LauncherConfigurationRepository` own layout validation/fetching;
-`LauncherMediaRepository`, `LauncherSnapshotStore` and `LauncherImages` own media,
-durable snapshots and artwork respectively. `LauncherAppsRepository` owns app
-inventory/order; `MainActivity` and the vendored `JellyScopePlaybackContract`
-own the outbound handoff. `LauncherFocus` supports the independent tab focus owners.
-The launcher does not import the player UI or native playback runtime.
+Launcher source is under `android-launcher-app/src/main/kotlin/com/jellyscope/launcher/`.
+Android entry, presentation, layout/media snapshots and app order have separate
+owners. Keep them independent of the player UI and native playback runtime.
 
 ## Independent Android launcher
 
@@ -323,14 +315,8 @@ fetches the bounded schema, `LauncherLayout` validates it, and the existing
 [schema](plugin-reference.md#wire-schema) and [server baseline](README.md#requirements-and-current-status) have one
 owner; shared transport and authentication remain unchanged by this integration.
 
-## Why
-
-- Launcher row identity and explicit invoker restoration keep Apps and recovery
-  controls usable without importing the player UI or its navigation drawer.
-
-- Launcher snapshot files keep the small bounded row cache independent of the
-  player database. Shared account leases preserve cleanup ordering without
-  coupling local app order to a media account.
+<a id="why"></a>
+See navigation, snapshot and account ownership above.
 
 ## Optional Home helper boundary
 

@@ -106,14 +106,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   focus shortcut path is used only without the bridge. The desktop cursor bridge
   must apply visibility to the embedded Compose AWT component tree, not only the
   outer window, because child components can own the effective pointer cursor.
-  On macOS, controls are composed only in the parent scene. A
-  `BlendMode.Clear` cutout exposes the native video through that scene, and a
-  1dp `SwingPanel` supplies only the AWT peer anchor while Compose layout drives
-  the real native extent. mpv and LibVLC views stay below Compose through
-  negative layer `zPosition` and return nil from AppKit `hitTest:`, leaving
-  hover, click, double-click, and control hit testing on the normal
-  AWT-to-Compose path. mpv uses OpenGL swap interval zero so presentation does
-  not block its render executor on display refresh.
+  Native view layering and the single Compose input scene belong to
+  [desktop presentation](desktop-playback.md#desktop-libmpv-boundary).
 - **[all]** Picker sheets are bottom-centered and capped on wide windows. Use a
   dark flat-row panel with title divider and selected checkmarks, not full-width
   chip grids.
@@ -135,6 +129,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   advances across chapter timestamps without reopening the picker.
 
 ## Seek bar
+
+Keep approximate constant-bitrate seeking disabled without a demonstrated need.
 
 - **[all]** Taps/scrubs commit on release (`onValueChangeFinished`), not
   continuously.
@@ -229,14 +225,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   calls `playNext`, never opens Up Next early, and cannot bypass the Still
   Watching gate — completion always arrives through the normal path.
 
-## Transcode seeking
-
-- **[all]** Seeking within `[transcode start, buffered-ahead]` is an in-stream
-  seek. Direct-play seeks are always in-stream.
-- **[ios]** Seeking outside the produced transcode window re-plans at the target
-  because AVPlayer otherwise requests an unavailable HLS segment and can wedge.
-  `transcodeSeekRestartsStream` gates this to AVPlayer; concurrent restarts
-  share one cancellable re-plan job.
+<a id="transcode-seeking"></a>
+See [transcode seeking and completion](#transcode-seeking-and-completion).
 
 ## End of playback
 
@@ -268,24 +258,6 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   remains available with one real track because Off is an additional selectable
   state.
 
-## Why
-
-### Player UX
-
-- **Android brightness borrows window state.** Ownership captures the exact
-  restore value, while each gesture begins from the live override so repeated
-  swipes remain continuous.
-- **Seek policy stays evidence-based.** Approximate constant-bitrate seeking is
-  disabled without a demonstrated need, and hold-to-seek velocity is reduced by
-  gating repeat advancement rather than changing tap granularity.
-- **Playback speed is a system-publication edge.** A speed-only change updates
-  transport rate even when metadata and position are unchanged; paused playback
-  still publishes a zero rate.
-- **Overlay and navigation actions keep their existing scope.** Pointer movement
-  reveals desktop controls; Back retains its platform exit behavior. **Not now**
-  dismisses only the current Up Next identity, and new item/queue/generation
-  state re-arms it.
-- **Settings expose only effective behavior.** The contradictory resume override
-  was removed, while Still Watching remains independent from Autoplay next.
-  Inactive controls are hidden; audio offset remains available with one audio
-  track because A/V synchronization is still meaningful.
+<a id="why"></a>
+<a id="player-ux"></a>
+See the input and completion rules above.

@@ -8,7 +8,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 `diagnostics` owns safe vocabulary, formatting, capture admission and the
 collection preference interface. `diagnostics-runtime` owns bounded capture,
 report rendering, timeline preparation, collection toggling, previous-run marker
-contracts and process hooks. `shared-core` supplies concrete persistence,
+contracts and process hooks. `storage` supplies concrete persistence; `shared-core` owns
 account-scoped failure context, upload execution and DI. These boundaries do not
 change collection consent, privacy, retention or delivery behavior.
 
@@ -38,25 +38,15 @@ change collection consent, privacy, retention or delivery behavior.
   controls through their native settings surfaces. This allowlist-first capture
   boundary remains defense in depth; console-safe failure formatting is required
   independently for every Kermit writer.
-- Playback diagnostics preserve a closed causal chain without media identity:
-  planner resolution records the concrete backend, request policy, capability
-  conclusion, quality mode/cap origin, and request cap separately from the
-  effective transcode cap; player events record backend fallback, process-local
-  diagnostic session/prepare sequences (including request before the synchronous prepare
-  boundary), first-output availability/observation, qualified health evidence,
-  bounded Auto recovery decisions/budgets, persistence read/write outcomes,
-  and terminal native outcomes. A cancelled asynchronous persistence write is
-  `Cancelled`, not `Failed`, so teardown races do not masquerade as storage
-  failures. The
-  first-output and health-summary records include bounded runtime resolution,
-  frame rate, decoder token, active decoding mode where available, source bitrate,
-  bandwidth estimate, and available
-  presentation/drop counters so a report can distinguish planning, decode,
-  delivery, and rendering symptoms without media identity. Media3 may include
-  its safe exception class and numeric error code;
-  LibVLC `EncounteredError` remains `Unknown` because its callback exposes no
-  safe structured cause. LibVLC has no Media3-equivalent periodic aggregate, so
-  shared health summaries are the authoritative common evidence.
+- Preserve a closed causal chain from planning through admission, construction,
+  prepare, native state, reporting, recovery and outcome. Correlate with process-local
+  session/prepare sequences, recording prepare request before synchronous dispatch.
+  Distinguish request cap from effective transcode cap, requested from confirmed
+  tracks, capability provenance from actual output, and cancelled persistence
+  from failure. Include bounded resolution/rate/buffer/drop facts when available
+  to distinguish delivery, decode and rendering without media identity. Media3
+  may supply a safe exception class/code; LibVLC EncounteredError stays Unknown.
+  Shared health summaries remain the common source where native aggregates are absent.
 - A user-visible player fallback or fatal error is never allowed to be the first
   evidence of its cause. The catching boundary emits enough closed breadcrumbs
   for a first diagnosis from logs alone: requested/active backend, availability
@@ -255,24 +245,12 @@ never JSON, destinations, filenames or native error text.
   upload proceeds even with an empty safe history, carrying the capability and
   failure snapshot alone. The separate timeline actions above export only
   admitted timeline events and require timed history.
-- Playback/API crash context must be reduced to sanitized feature area, stream
-  mode, capability flags, HTTP status class, exception type, and app/platform
-  version.
-- Playback repository/planner, native-player, PiP, mapping, subtitle activation,
-  OpenSubtitles, and Jellyfin subtitle-sync failures use structured diagnostics.
-  General repository and presentation failures use the shared safe-failure
-  formatter and expose only fixed stage/event tokens plus exception class.
-  Playback diagnostics admit only closed stage, event, platform, backend,
-  request-policy, trigger, quality-cap, transcode-reason, video-range,
-  delivery, mapping, reporting-result, recovery, and terminal values; numeric
-  native/HTTP, stream, buffer, cache, output, health, and TV-display facts; and
-  identity-free requested-versus-confirmed track and subtitle-render state.
-  Session and prepare correlation joins planning, dispatch, backend, reporting,
-  health, recovery, controller-failure, and terminal records into one causal
-  chain, including the tvOS presenter path. iOS and tvOS use distinct fixed
-  platform values. Logs must omit
-  item/source/stream identifiers, media titles, local paths, remote URLs,
-  headers, API keys, tokens, raw native fields, and raw throwable text.
+- Reduce crash context to sanitized feature, stream mode, capability flags,
+  HTTP status class, exception type and app/platform version. Use the shared
+  safe-failure or playback formatter at repositories, native-player, PiP, mapping,
+  subtitle, sync and presentation boundaries. Admit only closed vocabulary and
+  bounded numbers through the schema; iOS and tvOS keep distinct platform tokens.
+  No raw identities, titles, paths, URLs, headers, native fields or throwable text.
 - `LogScrubber.allowedFields` must remain a superset of every field
   `formatPlaybackDiagnostic` can emit; a common test enforces this contract. New
   diagnostic fields must carry closed enum-like or numeric values, never free
@@ -284,20 +262,13 @@ never JSON, destinations, filenames or native error text.
   `StateFlow<PlaybackRuntimeDiagnostics>`, separate from `PlaybackState` so
   normal playback updates do not churn for debug-only data. Debug overlays
   collect it only while their visible panel is composed.
-- Decoder name, runtime width/height/frame rate, cumulative dropped video
-  frames, and bandwidth estimate are nullable observational values. Optional
-  debug-only attribution also includes a nullable presentation-path label,
-  cumulative decoder drops, cumulative output drops, recent video-render p95,
-  recent presented-frame rate, and cumulative app-presentation gaps. The
-  dropped-frame rate for the most recent reported interval is a diagnostic
-  observation but is not part of the compact in-player overlay. The quality
-  detector never reads the snapshot; it consumes `droppedFrameMeasurements`
-  instead, because a snapshot persists until replaced and so cannot express
-  "a new measurement happened". Null means the
-  active platform or stream cannot provide that value; invalid native sentinels
-  are also null, never zero. A non-null dropped-frame count is cumulative for
-  the prepared item, so zero means diagnostics are available and no frames have
-  dropped. Bandwidth is always bits per second.
+- Runtime facts are nullable observations: decoder, dimensions/rate, cumulative
+  drops, bandwidth and optional presentation-path/cadence attribution. Null or an
+  invalid native sentinel means unavailable; zero cumulative drops means the
+  measurement exists and none dropped. Bandwidth is bits/second only when its
+  native unit is known. The quality detector consumes duration-qualified
+  occurrences, never a retained diagnostics snapshot, which cannot establish
+  that a new measurement happened.
 - Controllers reset diagnostics to `EMPTY` on every `prepare()` and `release()`
   so values never cross item boundaries. Android reacts to Media3 analytics, iOS
   uses access-log/presentation information on its existing observer cadence, and
@@ -448,50 +419,6 @@ mapper tests do not prove native property availability or physical HDR output.
   position is retained in structured planning diagnostics so track or fallback
   replans can be checked for accidental restart.
 
-## Why
-
-- **Closed transition reasons preserve privacy and causal ownership.** Existing
-  structured fields distinguish deferral, rejection and settlement without
-  logging the account, media, selection or timing key behind the decision.
-  Keeping pure projections silent also avoids per-render diagnostic noise.
-
-### Diagnostic privacy rationale
-
-- **Trust and credential attachment are one project-owned decision.** A
-  credential-free decision lets native transports attach only current
-  same-origin authorization. Per-adapter checks can authorize one URL and load
-  another; redirect residuals stay explicit.
-- **Native authorization uses one backward-compatible form.** Verified modern
-  Jellyfin releases accept the comma-free token or guarded `ApiKey` form, while
-  legacy fallbacks preserve insecure or disabled routes. Broad inbound query
-  stripping remains only to sanitize stale URLs.
-- **Diagnostics never leave automatically.** Bounded, sanitized history and
-  typed snapshots leave only through explicit save or server-send actions. Raw native
-  files stay local because free-form text cannot be proven identity-free.
-- **Timing preserves uncertainty.** Capture/session identities correlate safe
-  events without media identity. Missing boundaries cannot justify durations;
-  local lane remapping and coverage markers make partial history interpretable.
-  Seek assignment and tolerance observations are not native arrival, so their
-  labels preserve that distinction instead of fabricating completion durations.
-- **Native export keeps delivery accessible.** Users need no offline converter.
-  TV offers explicit server delivery where a native destination picker may be
-  absent; failed local saving never silently grants network consent.
-- **Renderer evidence has a defined limit.** Source HDR does not establish
-  renderer HDR, and a renderer target does not establish the physical display's
-  output. Separate observations preserve these distinctions without changing
-  playback policy.
-- **Failure boundaries preserve causal evidence.** Native errors need backend
-  and attempt correlation before generic state or recovery hides their origin.
-  Download execution can finish after its caller returns, so retained wake,
-  recovery, and durable settlement outcomes must survive in client reports.
-- **Formatting and admission share one closed schema.** The scrubber allowlist
-  covers structured formatter fields, preventing silent loss. Playback,
-  download, persistence, and native-stage records preserve causal decisions
-  before generic projection without raw requests or external data.
-- **Platform logs supplement the safe upload path.** Desktop probes use typed
-  records; iOS uses Kermit-to-OSLog plus bounded in-app history rather than a
-  second logger. Unified logs remain available through Console, `log collect
-  --device`, or sysdiagnose.
-
-- Android no-backup logs limit exposure of raw native diagnostics; they do not
-  change the accepted Apple credential-storage policy.
+<a id="why"></a>
+<a id="diagnostic-privacy-rationale"></a>
+See privacy, timing, delivery and renderer evidence rules above.

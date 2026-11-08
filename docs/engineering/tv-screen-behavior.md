@@ -305,16 +305,10 @@ Transfer and storage semantics belong to
 - Quick Connect shows a large code and polls without rendering/logging its
   Secret. Settings supports switch/add account, Logout, and playback preferences;
   TV has no per-account Sign out.
-- `TvSettingsTileId` defines seven rows: Account; Appearance; Playback; Skip
-  segments; **Advanced playback**; Services & About; Diagnostics. Rows are fully
-  composed horizontal lists inside one vertical scroller. Standard rows have
-  five tiles. Appearance has a sixth tile for Image quality; Playback extends
-  to eleven for backend, autoplay, and the device-wide Player clock; Advanced
-  playback has a sixth tile for mpv video output. Account is Server, Signed in
-  user, Switch Users, Add account, and Logout. Diagnostics contains
-  Collect diagnostic logs, Send
-  diagnostics to server, Verbose system logging, and Show playback info at start.
-  Every tile, including read-only detail, is focusable.
+- `TvSettingsTileId` owns inventory/order. Account, Appearance, Playback, Skip
+  segments, Advanced playback, Services & About and Diagnostics remain fully
+  composed horizontal rows in one scroller. Every tile, including read-only
+  details, is focusable; do not duplicate inventory in rendering code or guides.
 - Tile circles hold only the glyph; centered single-line title/value sit below.
   Focused overflow marquees; unfocused text ellipsizes. Border/glow/zoom affect
   only the circle, with fixed reserve so metadata does not move or clip.
@@ -346,14 +340,10 @@ Transfer and storage semantics belong to
   password keyboard; server URLs use the URL keyboard.
 - The device-global OpenSubtitles key is masked and survives Jellyfin logout.
   Clear downloaded subtitles is separate from watch state.
-- Dialogs expose persisted option sets: Ocean/Midnight/Ember; Small/Medium/Large;
-  On/Off; shared eight quality rungs plus Auto, Original, and exact Fixed Custom;
-  ExoPlayer/mpv/LibVLC (beta); optional VLC default quality; autoplay
-  Immediately/5/10/15/30/60; Still Watching; Auto/Stereo PCM/Passthrough;
-  Auto-skip/Ask/Ignore; Auto HDR/Prefer SDR. In-player quality adds Use playback
-  default and its active inherited source. Backend choices follow the
-  [shared Android policy](playback-runtime.md#backend-selection); TV exposes no Auto,
-  and changes apply next session. Read-only tiles open detail dialogs.
+- Settings choices use their shared policy/resource owners. Backend order and
+  availability follow [Android policy](playback-runtime.md#backend-selection),
+  without Auto and applying next session. In-player quality additionally exposes
+  Use playback default and its inherited source. Read-only tiles open details.
 - Focus zoom follows the existing preference (1.1 or 1.0). Theme glow is 4 dp at
   14% accent opacity, and theme choices show shared swatches.
 
@@ -373,45 +363,17 @@ Switch, Continue, Stop order. Transport keys cannot resume playback beneath it;
 normal player Back navigation is available once Switch closes the dialog and
 starts planning. Preserve the shared action and failure semantics.
 
-## Why
+<a id="why"></a>
+<a id="home-media-card-geometry"></a>
+Home shape is row-owned; see [tiles](tv-ux-behaviors.md#tiles-and-cross-cutting-rules).
 
-### Home media-card geometry
+<a id="player-trickplay-preview"></a>
+See [Player](#player) for target-qualified preview visibility and cropping.
 
-- Next Up is an episode feed whose reliable art path is wide. Row-owned shape
-  prevents loading/content swaps or anomalous item kinds from changing measurement.
+<a id="related-shelf-focus"></a>
+See [Detail / series](#detail--series-screens): data/UI own shelf identity and
+order; TV owns focus and scrolling.
 
-### Player trickplay preview
-
-- Successful sprite fetch controls visibility because metadata can outlive the
-  image. Pending target/item identity reject stale frames; Canvas cropping keeps
-  the full sheet available, and uniform scaling preserves frame proportions.
-
-### Related shelf focus
-
-- Library hero selection follows actual card focus, as on Home. A first-item
-  data fallback would flash unrelated artwork while the saved card is restoring.
-- Shared data/UI own shelf identity, order, and cap; TV owns only focus and
-  scrolling. This keeps D-pad presentation aligned with other Detail surfaces.
-- Player backend switching reuses the existing focus-trapping picker contract.
-  Debug reuses the shared row projection while TV retains display-mode policy.
-- `TvFocusCoordinator`, route transactions, and stable-key group memory form one
-  restoration system; competing route, lazy-index, or Compose-restorer memories
-  could consume a restore without confirmed focus.
-- TV text entry is click-to-edit so D-pad arrows remain navigation outside an
-  explicitly opened editor.
-- Library chrome hides only at draw time because its stable footprint, semantics,
-  requesters, and focus routes remain active.
-- Hero grids center the complete card through one scroll owner. Combining an
-  indexed reveal with focus-driven scrolling can retarget the same movement;
-  omitting the content-origin offset biases placement toward the bottom.
-- The TV grid hero is a product feature, but palette extraction still uses
-  bounded decoding and off-Main work as required by
-  [the performance guide](compose-performance-audit.md).
-
-### Settings scroll preservation
-
-- Ribbon-local focus memory keeps a user's place when moving between rows of
-  different lengths, matching Home's remembered-item and first-item fallback.
-- A value label can change the scroll range by a single pixel. Reapplying an
-  initial fraction after that remeasurement resets the user's position, so
-  preview framing stays outside live scrolling.
+<a id="settings-scroll-preservation"></a>
+See [Settings](#settings-and-authentication) for ribbon memory and live scroll
+preservation. Remeasured labels must not reapply preview scroll fractions.

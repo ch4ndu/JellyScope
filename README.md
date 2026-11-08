@@ -8,70 +8,38 @@ JellyScope is a third-party client for Jellyfin. It is not affiliated with,
 endorsed by, or maintained by the Jellyfin Project. Jellyfin is a trademark of
 Jellyfin, Inc.
 
-JellyScope is a Kotlin and Compose Multiplatform client for Android phones and
-tablets, Android TV, Google TV, Fire TV, iPhone, iPad, and Apple Silicon Macs.
-Apple TV has an experimental native SwiftUI preview. The current alpha release
-is **0.1.0-alpha94**.
+JellyScope is a Kotlin and Compose Multiplatform Jellyfin client. Android mobile
+and Android TV are the primary platforms; iPhone, iPad, and Apple Silicon macOS
+share browsing and use native playback. Shared domain policy coordinates accounts,
+media, downloads and playback across platform shells.
 
 ## Features
 
-- Server discovery on Android and desktop, direct URL entry, Quick Connect, and
-  multiple accounts
-- Home, library browse, search, recommendations, Discover, people, and detailed
-  movie/show/episode pages with versions, cast, trailers, chapters, and skipping
-- Optional [Seerr integration](docs/user/seerr.md) for discovering external movies
-  and shows, requesting eligible titles or seasons, and following your requests
-- Direct play, audio-only conversion, or transcoding based on the selected
-  player, quality, source, tracks, and device capabilities
-- Selectable players on Android, iOS, macOS, and the Apple TV preview, including
-  eligible session-only switching during online playback
-- Text and image subtitles, local OpenSubtitles files, supported timing and
-  audio controls, autoplay next, and queues
-- [Kids viewing](docs/user/getting-started.md#kids-viewing) on Android/iOS phones and
-  tablets, selected by the account's parental rating, with single-video
-  playback, shuffled library choices, a draggable in-app mini-player for browsing
-  while watching, compact controls, and permitted downloads
-- Offline downloads for individual movies and episodes on Android, iOS, macOS,
-  and the Apple TV preview when content downloading is enabled for the account,
-  with a library-style grid and offline details; new downloads save metadata
-  and artwork. iOS 26+ supports user-initiated background continuation for both
-  Original and converted downloads; earlier iOS versions require the app to
-  remain active. See [download limits](docs/user/downloads.md).
-- HDR handling, Android TV refresh-rate matching, Picture-in-Picture, Fire TV
-  Watch Next, Apple media controls, themes, tile sizes, selectable image quality, and adaptive layouts
-- Account-qualified [Android TV playback links](docs/engineering/tv-ux-behaviors.md#playback-links)
-  that open an item directly with the current playback settings
-- Sanitized [playback diagnostics](docs/user/troubleshooting.md), in-app timeline
-  export, and renderer-target HDR/SDR reporting where the player supplies evidence
+- Server discovery, Quick Connect and multiple accounts
+- Libraries, search, recommendations, media details and optional [Seerr requests](docs/user/seerr.md)
+- Selectable players, quality and track controls, subtitles, queues and autoplay
+- [Kids viewing](docs/user/getting-started.md#kids-viewing) and [offline downloads](docs/user/downloads.md)
+- Adaptive layouts, TV remote navigation, Picture-in-Picture and playback diagnostics
 
-Detailed controls and platform limits are in the [usage guide](docs/USAGE.md).
+Controls and limitations are in the [usage guide](docs/USAGE.md).
 
 ## Platforms
 
-Android mobile and Android TV are the primary platforms. iPhone, iPad, and
-macOS share the browse experience with native playback.
+Android requires Android 7.1 / API 25 or newer, including Fire OS 6. iPhone and
+iPad require iOS 16 or newer. macOS requires macOS 15 or newer on Apple Silicon;
+Intel Macs are unsupported. The native Apple TV preview requires tvOS 17 and is
+permanently unsupported, without hardware-validation, feature-parity or ongoing
+support commitments. Windows and Linux have experimental source-build paths,
+with no tested or packaged releases.
 
-Android requires Android 7.1 / API 25 or newer, including Fire OS 6. The mpv
-backend requires API 26+; ExoPlayer remains available on API 25. Android builds
-use a pinned [JellyScope mpv bundle](docs/operations/android-native-dependencies.md).
-Android TV mpv E-AC-3 surround output requires a pending native-bundle update
-and device validation; ExoPlayer remains available for the reported surround path.
-Android TV offers GPU output (default) or Direct MediaCodec output; the
-[usage guide](docs/user/playback.md#choose-a-player) describes its limitations.
+See [platform support](docs/user/platforms.md), [player choices and limits](docs/user/playback.md),
+and [building](docs/BUILD.md) for the appropriate path. Android native package
+and physical playback qualifications are tracked separately in the
+[native dependency runbook](docs/operations/android-native-dependencies.md).
 
-iPhone and iPad require iOS 16 or newer. The Apple TV preview requires tvOS 17
-or newer and is permanently unsupported, with no hardware-validation,
-feature-parity, or ongoing-support commitment. The macOS package requires
-macOS 15 or newer on Apple Silicon;
-Intel Macs are unsupported. Local comparison builds can offer restart-required
-[Standard/Metal mpv selection](docs/BUILD.md#macos-metal-experiment); the Metal
-runtime is experimental and not distribution-ready. Windows and Linux have experimental source-build
-paths, with no tested or packaged releases yet.
-
-The separate **JellyScope Launcher**, currently in development, provides Home/Jellyfin tabs, an automatically populated Apps row with saved
-ordering, direct Jellyfin browsing and server-configured media rows. See the dedicated
-[launcher guide](docs/launcher/README.md) for app setup, plugin installation,
-customizations and current qualification limits.
+The separate [JellyScope Launcher](docs/launcher/README.md) is an Android TV Home
+app in development. Its guide covers setup, the optional server plugin and
+bounded device qualification.
 
 ## Getting started
 

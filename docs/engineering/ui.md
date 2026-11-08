@@ -15,7 +15,8 @@ In D-pad `FocusableBox`, interaction, focus and semantics precede the animated
 visual layer. Relocation uses stable unscaled bounds while artwork, border and
 glow zoom together. Accessibility highlights and pointer hit regions on D-pad
 surfaces follow the logical control bounds, which can be smaller than the zoomed
-visual. Touch/desktop keep their indication inside the shape clip.
+visual. Moving relocation bounds during zoom can retarget scrolling mid-animation.
+Touch/desktop keep their indication inside the shape clip.
 
 ## Theme And Resources
 
@@ -58,12 +59,10 @@ visual. Touch/desktop keep their indication inside the shape clip.
   raw card constants. Shared surfaces resolve scale from `WindowWidthTier` and
   `TileSizeId`; TV uses `tvTileScaleFor`. Overscan, focus chrome, spacing, and
   other non-tile geometry remain unscaled.
-- Put all visible text in string resources. Prefer Compose Multiplatform
-  resources in shared code and keep platform resources in platform source sets.
-- Use the project icon system. Settings has one shared lazy, code-native set of
-  30 `ImageVector` glyphs translated from the canonical SVG assets; shared and
-  TV Settings use that set. Do not add runtime XML/path parsing, PNG copies,
-  Material substitutes, or a second TV mapping.
+- Localize all visible text through shared multiplatform resources or owning
+  platform resources. Settings glyphs use the shared lazy code-native vector set
+  derived from canonical SVGs; do not add runtime parsing, bitmap copies, Material
+  substitutes or another TV mapping.
 - Ported vectors under `ui-foundation/src/commonMain/composeResources/` must replace
   `@android:` values with literals, such as `#00000000`; the multiplatform
   parser may otherwise degrade at runtime without a build failure.
@@ -187,11 +186,10 @@ brush and scrims without resetting Settings scroll or focus.
 - Shared Settings switch rows omit redundant visible On/Off supporting values,
   retaining explanatory descriptions, the spoken value, and one toggle target.
   Non-switch rows retain their selected/effective values.
-- Shared Detail IMDb/TMDB chips center their label and decorative external-link
-  icon in the touch target. Non-Compact touch layouts center the link group;
-  Compact placement and D-pad exclusion remain unchanged.
-- Shared Settings retains Back and title but omits its self-navigation shortcut.
-  Other shared screens retain Settings.
+- External-link chips make the browser handoff visible with a decorative icon
+  inside the centered label/touch target; wider touch layouts center the group.
+  Preserve Compact placement and D-pad exclusion. Shared Settings retains Back
+  and title without a self-navigation shortcut; other screens retain Settings.
 - The adaptive rail reuses the bottom-bar destination model. On Medium+ it is
   persistent, toggles between icons-only and icons-with-titles, consumes real
   layout width, and does not auto-collapse on navigation, scrim tap, pointer
@@ -280,29 +278,17 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   `PressInteraction` through `InteractionSource`, outside the pointer chain.
   Release/Cancel have no coordinate. Compare coordinates only after normalizing
   both spaces to the same window origin and unit.
-- The debug overlay is independent of notices and excludes credentials, URLs,
-  identities, paths, and raw native errors. `playerDebugSections` is the sole
-  shared/TV projection for stable rows, labels, unavailable values, and
-  emphasis. Playback rows are Backend, Play method, Transcode reasons, optional
-  Container, Video, Audio, Subtitle render/styleability, launch/native first
-  frame, rebuffers, audio underruns, and Status. Runtime rows are Decoder,
-  Runtime format, Renderer target, dropped frames, buffer policy, target/allocated, buffered
-  ahead, and bandwidth estimate. For mpv, replace Decoder/Runtime format with
-  Codec description, Engine decode path, Decoder component, and Decoded size,
-  followed by Renderer target. Its localized values are HDR, SDR, SDR (HDR input observed), or Unknown;
-  it does not confirm the physical display. The
-  [diagnostics contract](diagnostics.md#renderer-color-evidence) owns the evidence
-  and unavailable-state rules. Engine decode path is
-  Hardware API path, Hardware API path (copy-back), Software, or Unknown;
-  it describes mpv's observed driver, not proof of physical acceleration.
-  Decoder component remains Unknown. These observations are independent of the
-  configured hardware preference and presentation renderer. Decoded size is
-  native decoder-reported width/height, not the display or render-surface size;
-  the Video row retains stream frame-rate information. Policy rows are source bitrate, request cap and
-  origin, quality policy, capability result, first video output, and effective
-  transcode cap. With no playback info it shows only
-  `Playback info: Unavailable` and live Status. Richer modeled facts, including
-  transition readiness, stay outside the panel.
+- Debug is independent of notices. `playerDebugSections` is the sole shared/TV
+  projection for row ordering, labels, emphasis and unavailable values. Show
+  playback/backend/method/server reasons, track/render facts, startup/rebuffer/audio
+  evidence, runtime decode/buffer/bandwidth and policy/cap origin. Without playback
+  info, show only Unavailable and live Status. Never expose credentials, URLs,
+  identities, paths or raw native errors. Richer modeled facts stay outside the panel.
+  mpv distinguishes codec description, observed engine path, unknown decoder
+  component and native decoded size; neither configured hardware preference nor
+  surface dimensions establish these facts. Renderer target reports HDR, SDR,
+  SDR with HDR input observed, or Unknown, without physical-display confirmation.
+  [Diagnostics](diagnostics.md#renderer-color-evidence) owns evidence limits.
 - Keep notice/action lists stable across playback and diagnostics ticks. Read
   live values at leaves and drive placement from narrow stable projections.
 
@@ -487,60 +473,5 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
 
 See [native tvOS UI](tvos-ui.md#native-tvos-screens).
 
-## Why
-
-- Renderer target separates observed player output from source metadata and
-  physical-display confirmation. Unknown remains visible when the backend
-  cannot supply evidence, so absent data cannot imply SDR or successful HDR.
-
-- Ambient color needs only a small whole-artwork sample. Decoding it separately
-  avoids full-size hardware-bitmap readback; retaining the display request's
-  loader preserves account ownership, while source checks prevent an outgoing
-  Crossfade image from changing the current detail background.
-
-- Normal Android rotation uses direct native bounds because animating intermediate
-  Surface sizes can jitter, particularly while paused. System rotation behavior
-  remains platform-owned; iOS and Kids keep their separate animation policy.
-
-- Focus zoom changes drawing, not relocation geometry; a moving focus rectangle
-  can retarget a ribbon or grid scroll during the same animation.
-
-- Subtitle bases belong to each renderer so native defaults and user preferences
-  change independently. Mobile Media3 uses sp so clearance does not resize text.
-  Fullscreen follows presentation state; measured Kids controls keep clearance
-  correct for its smaller live video surface.
-
-- Switches already show state; their supporting text explains behavior instead.
-  External-link icons make the browser handoff visible without adding another
-  action or changing the destination.
-
-- OpenSubtitles acknowledgement carries owner identity and selection revision
-  because installation may finish after dismissal or a newer selection.
-- Overlay layers are explicit because composition order did not keep notices,
-  controls, diagnostics, and modals in a consistent interactive order.
-- Settings columns use a deterministic kernel because adaptive minimum-width
-  cells produced narrow layouts on wide windows.
-- Tile size is a single scale so aspect ratios and theme dimensions retain one
-  owner; TV remains conservative because overscan and focus zoom also consume
-  space.
-- Downloads is permission-gated top-level navigation because durable work and
-  destructive actions need a visible owner. Normal Play stays remote so offline
-  use is explicit; saved metadata supports offline browsing.
-- Related shelf count and order stay in shared model/data owners so shared and
-  TV presentation cannot drift.
-- Library selection persists through its server-scoped operation; UI does not
-  write stores. Separate inner-view owners preserve paging and scroll context.
-- Library offsets count consumed server rows because overlapping or unmappable
-  rows still advance the server window. Visible cards keep unique IDs so lazy
-  layout keys remain stable.
-- Detail mutation revisions prevent an older refresh snapshot from undoing a
-  newer command while allowing unrelated metadata to refresh.
-- Playback-warning suppression changes presentation only. Recovery policy and
-  fatal failure reporting must remain active.
-- Player hot state is read at leaves because parent reads recompose unrelated
-  controls and previews. Handler-local coalescing and cached draw geometry bound
-  work without changing semantic state.
-
-- Image targets follow their surface: small cards use bounded token geometry,
-  and logos use constrained layout bounds instead of a backdrop preset. Reduced
-  quality trades sharpness for fewer decoded pixels without changing layout.
+<a id="why"></a>
+See the layout, input, resource and performance rules above.

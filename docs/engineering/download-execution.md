@@ -27,6 +27,8 @@ and retains their engines, account admission, attempts and lifecycle policy.
   Native tvOS instead exposes an explicit queue wake and reports scheduling
   rejection without changing durable row state. Its entry and Refresh stay
   passive. Passive app start never wakes the queue.
+- A failed body channel retains its failure even if the HTTP reader returns EOF;
+  only clean early EOF means truncated content.
 - Within an existing execution window, Original and Fixed transfers retry only
   `DownloadFailure.Network`, at most twice after cancellable delays of 1 and
   3 seconds. Writers settle and checkpoint before each retry. Reclaim requires
@@ -128,17 +130,5 @@ and retains their engines, account admission, attempts and lifecycle policy.
   lifecycle host checkpoints on inactivity/termination. tvOS has no background-
   transfer or durable-retention guarantee.
 
-## Why
-
-- Persistence owns durable operations and migrations; core owns when an
-  account-qualified attempt may execute them. Keeping this direction avoids
-  coupling Room generation to transfer and lifecycle policy.
-
-- Bounded in-window network retries absorb transient reads without creating
-  background execution promises. A failed body channel retains its failure even
-  when the HTTP reader returns EOF; only clean early EOF means truncated content. Exact attempt claims preserve queue ownership,
-  while continued drains distinguish row failure from enrollment completion.
-
-- Lifecycle settlement waits for local checkpoint and writer closure. A remote
-  encoding stop cannot improve that local durability, so transfer cleanup belongs
-  to the application scope and must not hold the lifecycle callback open.
+<a id="why"></a>
+See queue, attempt and lifecycle settlement rules above.

@@ -132,12 +132,5 @@ respect active leases. Retained-account access survives server failure; the UI
 explains Apple TV's reclaimable storage and app-active transfer limit. The
 [download contract](downloads.md#downloads-and-offline) owns those rules.
 
-## Why
-
-- A visible passive notice consumes Back before navigation so dismissal does
-  not unexpectedly close continuing playback. Hidden notices do not steal Back
-  from panels or other modal surfaces.
-
-- Native tvOS keeps SwiftUI adapters/focus with feature views and business state
-  in Kotlin presenters. Qualified routes, settlement refresh, and paired
-  watched/progress rollback preserve retained detail state.
+<a id="why"></a>
+See the native ownership and Back contracts above.

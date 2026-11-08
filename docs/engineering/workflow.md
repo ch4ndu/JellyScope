@@ -26,6 +26,9 @@ Remove code and documentation made obsolete by the change.
 
 ### Complexity Expansion Decision Gate
 
+Outcome approval does not establish the value of permanent maintenance cost.
+
+
 Unplanned permanent frameworks, analyzers, linters, parsers, generators,
 background subsystems, modules, dependencies, harnesses, duplicated bootstraps,
 or disproportionately large support code require separate approval. Before
@@ -170,6 +173,10 @@ presenter suite in `shared-tvos`.
 
 ### Test Expansion Decision Gate
 
+Manual validation complements selective tests: native output and physical interaction
+cannot be established by compilation or shared fakes.
+
+
 Pause for explicit approval before:
 
 - a second new test for one bounded outcome or more than three across a program;
@@ -209,6 +216,14 @@ before the fix. Do not approximate native confidence with fake-player bootstraps
 scheduler choreography, or exhaustive permutations.
 
 ### Existing Suites
+
+Tests follow their production owner without widening internal APIs: standalone HTTP
+API suites follow transport; client-factory/original-download integration stays in
+core. Authentication/session common tests retain real core cache integration, and
+storage Android host tests retain their core registry case through test-only
+dependencies. Run authentication JVM/Android host suites rather than native binaries
+with the player-runtime test closure.
+
 
 Reuse the nearest small handwritten fake and injected clock, dispatcher,
 factory, or storage root. No MockK or Turbine. Shared tests use `kotlin.test`
@@ -316,21 +331,36 @@ reopen an unbounded review after that matrix.
 
 ## 8. Maintain Documentation
 
-Documentation is a current contract:
+Documentation is a current contract. Before adding prose, identify the useful task,
+normative contract, rationale, external interoperability constraint or evidence
+qualification it preserves. A code change does not automatically need a new
+paragraph. Update the existing authoritative owner and remove superseded text in
+the same change; link rather than repeat facts. Keep rationale beside its rule,
+not in a detached Why log. Do not relocate deleted narration into a giant appendix.
 
-- Rewrite or delete the matching `## Why` entry when its rule changes. Rationale
-  belongs beside the rule, not in a separate decision log.
-- Update the root README for changed capabilities, limitations, or support.
-  `CHANGELOG.md` records releases at release time, not ongoing tasks.
-- Keep plans, scratch work, automation configuration, and review reports local
-  and ignored. Never commit credentials, server URLs, or `.local/`. The optional
-  `.local/KNOWN-ISSUES.md` is the sole open-work ledger: delete closed rows in the
-  closing change, close validation rows when observed and coverage rows when
-  covered, and keep it near or below 150 rows and shrinking.
-- Apply the writing rules below to changed documentation; do not expand a
-  feature change into a repository-wide prose rewrite.
-- List updated docs in the final report, or state `No docs updated;
-  behavior/rules unchanged.` Include verification and outstanding gaps as above.
+README files are entry points: product or section overview, essential setup/use
+links, high-level architecture where useful, support boundaries and license
+pointers. Do not add code-derived implementation inventories, class/member/event
+lists, full directory trees, constants/timers, callback sequences, transient work
+status or refactor history. A README may retain practical setup instructions;
+implementation prose elsewhere must earn its place through the value above.
+Update the root overview when capabilities or support boundaries change, routing
+detailed controls and qualifications to their existing owners.
+
+Keep plans, scratch work, automation configuration and review reports local and
+ignored. Task/refactor/review history belongs in local evidence or appropriate
+Git/release records; `CHANGELOG.md` records releases at release time. Never commit
+credentials, server URLs or `.local/`. The optional `.local/KNOWN-ISSUES.md` is the
+sole open-work ledger: delete closed rows in the closing change, close validation
+rows when observed and coverage rows when covered, and keep it near or below
+150 rows and shrinking.
+
+Apply this policy to changed prose without expanding a feature change into a
+repository-wide rewrite. Report documentation disposition: owner and useful reason,
+or `No docs updated; behavior/rules unchanged.` For materially expanded pages,
+record before/after whitespace-delimited word counts. Size guidance triggers review,
+not forced splitting or deletion, an equal-word deletion quota or a ban on useful
+growth. Include verification and outstanding gaps in the handoff.
 
 ### Concise, Useful Documentation
 
@@ -338,9 +368,9 @@ Documentation is a current contract:
   readers find a real task or question; keep prerequisites and limitations nearby.
 - State each fact once in its owning guide and link to it elsewhere. Merge
   repetition and remove stale text before substantial additions. User guides
-  target 750–1,000 words and must stay at or below 1,500. Engineering guides
-  retain necessary detail; prefer 1,500–2,500 words per cohesive topic and review
-  pages over 3,000 for a useful split. Record a cohesive-ownership reason when
+  target 750–1,000 words; review those over 1,500. Engineering guides retain
+  necessary detail; prefer 1,500–2,500 words per cohesive topic and review pages
+  over 3,000 for clearer ownership or a useful split, without forcing one. Record a cohesive-ownership reason when
   retaining a larger engineering page. Indexes target at most 500 words.
 - Count whitespace-delimited words, including tables and code. Release history,
   license text, generated/reference data and design provenance are exempt;
@@ -377,6 +407,11 @@ or removal of provenance to improve a documentation score.
 
 ## Dependency And Release Changes
 
+Clean source binding does not prove native license or publication readiness; a dirty
+local package does not satisfy release gates. Displayed SemVer and native package
+versions remain distinct because macOS package versions reject prerelease text.
+
+
 Trust pinned versions and source revisions from declared repositories. Do not
 add a second checksum/digest/hash/file-size/expected-byte allowlist for downloaded
 dependencies, native runtimes, source archives, Gradle distributions, or packages,
@@ -401,38 +436,5 @@ scope:
 | `jellyscope.desktop.version` | Desktop displayed version | Independent SemVer, including prereleases |
 | `jellyscope.desktop.packageVersion` | Native desktop package version | macOS requires 1–3 integers, first positive |
 
-## Why
-
-- Recomposition boundaries are designed during implementation so frequent state
-  changes do not unnecessarily invalidate unrelated UI. Narrow consumption keeps
-  coherent state ownership while allowing unchanged children to skip; runtime
-  measurement establishes whether that translates into a performance gain.
-
-- **Audience and topic ownership bound document growth:** short user guides make
-  tasks findable; cohesive engineering guides retain the detail needed to
-  preserve contracts. Links remove duplication without discarding exceptions.
-
-- Native tvOS uses source tracing and compilation to limit ongoing SwiftUI test
-  maintenance. That boundary does not justify deleting shared Kotlin coverage.
-- **Scope and test expansions need separate decisions:** outcome approval does
-  not establish the value of permanent maintenance cost.
-- **Manual validation complements selective tests:** native output and physical
-  interaction cannot be established by compilation or shared fakes.
-- Standalone HTTP API tests follow transport. Client-factory and original-download
-  integration suites stay in core so its internal engine overloads remain private
-  to that module without changing assertions or setup. Shared HTTP policy is
-  exercised through the retained factory integration tests; moving configuration
-  does not justify a second set of equivalent test seams.
-- Authentication/session tests follow their owner. Their common-test dependency
-  on core production preserves real cache integration without widening internal
-  APIs; it does not change the production dependency graph. Run JVM and Android
-  host suites, not native test binaries with the player-runtime test closure.
-- Existing storage tests follow their persistence owner. The Android host suite
-  depends on core production code to retain its registry integration case;
-  storage production remains independent of core.
-- **Review precedes the aggregate build:** rebuilding changing candidates does
-  not verify the final result.
-- **Release gates stay distinct:** clean source binding does not prove native
-  license or publication readiness; neither does a dirty local package.
-- **Displayed and package versions differ:** macOS package versions reject
-  prerelease text allowed by displayed SemVer.
+<a id="why"></a>
+Rationale now accompanies its owning rules above.

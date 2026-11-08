@@ -31,32 +31,18 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   runs on the work dispatcher. A successful initialized context is handed
   directly to that controller; failures destroy the candidate, and normal
   ownership ends at controller release.
-- Requested Android mpv construction emits an Info-priority, sanitized
-  `backend-construction` record before any ExoPlayer fallback. It distinguishes
-  bundled availability (including the closed ABI), unavailable reason,
-  subtitle-store resolution, network-policy creation, trust-bundle creation,
-  audio-focus resolution, native-engine creation, option application,
-  observer/property registration, and native initialization, plus created/
-  failed/unavailable outcome and exception class. A rejected option includes
-  only its fixed option key and native result code, never its value. Exception
-  messages, paths, URLs, tokens, titles, and identifiers are never included.
-  The record must survive release minification and be available through both
-  the sanitized in-app safe-history store and the verbose platform-log path.
-- The project-owned Android wrapper defaults each new native instance to the
-  mpv `no` log request. The controller selects `Error` before initialization,
-  or `Verbose` while **Collect diagnostic logs** is enabled, following toggles.
-  `AndroidMpvEngine` reduces errors to an allowlisted severity/category. From
-  verbose callbacks it accepts only fixed numerical FFmpeg output-crop and mpv
-  ImageReader texture-size messages, discarding all other text. Structured
-  `native-video-format` records distinguish crop-derived decoder dimensions
-  from imported texture dimensions, include the current surface size, and are
-  limited to 16 distinct observations per prepare with generation/collection
-  guards. Texture dimensions appear only when mpv reports a size change;
-  absence does not establish buffer dimensions. Capture enabled/disabled/failure
-  milestones distinguish log-request status from missing observations. A failed
-  verbose request falls back to `Error`; a failed initialization Error request
-  retains the fixed `mpv-log-level` construction failure. The bridge never writes
-  raw mpv messages or routine event names to Android logcat.
+- Requested mpv construction records release-safe availability, construction stage,
+  result and exception class before fallback, through both safe history and the
+  platform log route. Rejected options expose only fixed keys/result codes, never
+  values. This must distinguish availability, store/network/trust/focus setup,
+  engine/option/observer registration and initialization without raw native text.
+- New wrapper instances request no logs; controllers request Error before init
+  or Verbose while collection is enabled. Failed Verbose falls back to Error;
+  failed initialization Error remains a construction failure. The bridge accepts
+  only allowlisted categories and fixed numerical crop/texture-size messages,
+  never routine/raw native text. At most 16 distinct format observations per
+  prepare distinguish decoder crop, imported texture and current surface geometry.
+  Generation/collection guards apply; missing size-change output proves no size.
 - The same format record accepts optional experimental ImageReader observations:
   buffer allocation, image dimensions, valid image crop, mapper source/destination
   dimensions, and closed `Success`/`Failed`/`Unavailable` query results. Failed or
@@ -64,16 +50,13 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   exclusive; FFmpeg `DecoderCrop` endpoints are inclusive. These observations
   require an instrumented native bundle; their absence on the stock provider
   bundle does not imply unavailable hardware or a particular image size.
-- Android mpv prepares a file with mpv 0.41's five-position command shape:
-  `loadfile`, opaque URL, `replace`, playlist index `-1`, then the per-file
-  `start=` option. The URL never enters JellyScope diagnostics. Sanitized
-  `native-lifecycle` records instead expose network-request acceptance, the
-  closed load-command shape, `START_FILE`, `FILE_LOADED`, surface/readiness
-  gates, unpause dispatch, terminal native events, and startup timeout. A load
-  dispatch without `START_FILE` identifies command admission; `START_FILE`
-  without `FILE_LOADED` identifies native open/demux work. Startup timeout uses
-  the last safe native error category when available and otherwise stays
-  `Unknown`; it is never relabeled as a network error without evidence.
+- mpv 0.41 load syntax is versioned: `loadfile`, opaque URL, `replace`, playlist
+  index `-1`, per-file `start=`. Sanitized lifecycle milestones distinguish command
+  admission, START_FILE, FILE_LOADED, surface/readiness, unpause and terminal/timeout
+  boundaries. A timeout uses only an available safe native error category; absent
+  cause remains Unknown, never an inferred Network failure. Omit the singular
+  `script` option rather than sending an empty value; failed native return/readback
+  is failure. `sub-add` title is positional, not a `title=` option.
 - Android mpv retains the current engine-bound native surface across same-host
   prepares, including in-player quality replans. A replacement `loadfile` must
   not reattach the identical `Surface`: doing so can rebuild the zero-copy TV
@@ -118,6 +101,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   positional title argument, then requires an exact selected external
   `track-list` title readback before activation. Prefixing that positional value
   with `title=` changes the native title itself and is invalid.
+- Active decoding and output are separate: only mpv's active decoder property
+  supplies the observed path. Configured preference, codec labels and screen
+  dimensions establish neither hardware acceleration nor full-resolution output.
+  [Diagnostics](diagnostics.md#native-and-execution-observations) owns this limit.
 - `AndroidMpvCapabilityMatrix` is separate from Media3 and LibVLC. The pinned
   mpv/FFmpeg declaration covers its listed containers, video/audio families,
   text and bitmap subtitle delivery, and up to eight audio channels. It makes
@@ -141,7 +128,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   path.
 - `AndroidAudioOutputPolicy` supplies one route snapshot owner for capability
   PCM channel ceilings and mpv output. Server-facing mpv passthrough remains
-  empty until native adoption and physical qualification. The controller
+  empty pending physical qualification. The controller
   requests E-AC-3 passthrough only on
   TV with one exclusive HDMI sink advertising E-AC-3, at 1× speed, while not
   ducked and with native volume exactly 100. Unknown, competing, mobile and
@@ -151,13 +138,13 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   focus ducking withdraw encoded audio before software processing; focus gain,
   stop and item replacement restore the saved volume. Timing and track owners
   remain unchanged.
-  **Native adoption pending:** encoded output requires the FFmpeg muxer and
-  carrier-rate prerequisites in the [native dependency runbook](../operations/android-native-dependencies.md#e-ac-3-encoded-output-prerequisites).
-  Published `.1` lacks these prerequisites. The prepared `.2` has passed
-  fresh three-ABI build and static/package checks; source/publication and
-  physical surround qualification remain pending. The synchronous `audio-spdif` callback rebuilds
-  the audio chain without a refresh seek; receiver reacquisition and continuity
-  require a Shield comparison before acceptance.
+  **Native prerequisites adopted; physical acceptance open:** the
+  [native dependency runbook](../operations/android-native-dependencies.md#e-ac-3-encoded-output-prerequisites)
+  records the pinned `.3` bundle, registered SPDIF muxer, encoded carrier-rate
+  support and dated anonymous public resolution. These package/source facts do
+  not qualify audible surround on the rebuilt bytes. The synchronous
+  `audio-spdif` callback rebuilds the audio chain without a refresh seek;
+  receiver reacquisition and continuity still require the Shield comparison.
 - Android TV exposes **Settings → Advanced playback → mpv video output** as a
   device-local preference, defaulting to **GPU**. The controller factory snapshots
   it at construction; changes apply to the next playback session. **Direct
@@ -202,30 +189,17 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   enabled with an atomically replaced PEM bundle built from Android's default
   trust managers. Android has no `tls-verify=no` fallback or user exception;
   the explicit [account/server desktop exception](accounts-and-persistence.md#resource-authentication) is desktop-only.
-- The vendor adapter converts callbacks to project-owned events. The
-  `AndroidMpvPlayerController` owns serialized native calls, generation-scoped
-  state, play/pause/seek/retry/release, exact track and subtitle activation,
-  timing/style, audio focus, and sanitized diagnostics. Shared UI's Android-only
-  `AndroidPlayerSurfaceHost` owns the common mobile/TV
-  Compose hierarchy and maps Fit/Fill/Zoom plus the shell-supplied subtitle
-  inset into project-owned presentation. `AndroidMpvSurfaceView` plus
-  `AndroidPlayerSurfaceBridge` owns native SurfaceView callbacks. The shared
-  host gives each exact controller/platform-player binding a process-monotonic
-  owner token: a replacement detaches before it attaches, and delayed attach,
-  release, or presentation work from an outgoing token is ignored. Factory
-  creation is the only attach path; resize, style, and inset updates never
-  attach. The Media3 path likewise owns one cue consumer per binding. A valid
-  attach enables mpv's native window, writes the current
-  `android-surface-size`, and reapplies dimensions after rotation; detach clears
-  that window without tearing down the VO pipeline. Shared
-  UI and TV UI never import mpv types. A current `FILE_LOADED` establishes load
-  readiness even with a null duration; observed `eof-reached` is ignored until
-  that generation is loaded, and `keep-open=always` keeps the property readable
-  after natural EOF. An in-player embedded-subtitle switch also updates the
-  controller-owned activation target, so Retry and TV surface-loss reloads do
-  not restore the earlier Subtitle Off state. Native startup recovery follows
-  the qualified [backend fallback contract](playback-runtime.md#backend-selection); it never
-  changes a live controller in place.
+- Vendor types stay in the adapter. Controllers own serialized native lifecycle,
+  generations, tracks, focus, timing and safe diagnostics. The shared mobile/TV
+  surface host assigns a process-monotonic owner to each exact binding: detach
+  before replacement attach, ignore retired callbacks/releases/presentation work,
+  and attach only at view creation. Style/resize/inset updates never reattach.
+  Media3 likewise has one cue consumer per binding. Native window dimensions
+  follow rotation. FILE_LOADED establishes readiness even without duration;
+  ignore EOF before current load and keep EOF readable after natural end.
+  Embedded-subtitle changes update retained activation so Retry/surface reload
+  cannot restore old Off. Startup fallback replaces ownership rather than changing
+  a live controller in place.
 - Android mpv treats a loaded, video-expected plan as `UnsupportedMedia` when
   a native decoder/output initialization or video-conversion failure is followed
   by confirmed `vid=no` in a non-idle, non-EOF session. Both native error and
@@ -249,44 +223,21 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   Detection enters the [mandatory recovery decision](playback-runtime.md#mandatory-mpv-recovery).
   The confirmed position is preserved through the explicit switch path. The
   detector initiates no automatic backend change or quality replan.
-- The shared Android player-surface host sets `keepScreenOn` on every mobile
-  and TV playback view, whether the backend supplies an
-  `AndroidPlayerSurfaceBridge` view or uses the Media3 wrapper. The view flag
-  belongs to that view's composition lifetime and is cleared on release. On
-  Android TV, `TvPlayerScreen` additionally owns
-  `FLAG_KEEP_SCREEN_ON` on its resolved Activity window for the whole mounted
-  player route — including Loading, Buffering, Playing, Paused, controls,
-  pickers, and dialogs — so backend-view replacement cannot create a
-  wakefulness gap. Route disposal clears the window flag; a missing Activity is
-  a safe no-op and retains the playback-view safeguard. Android mobile keeps
-  the view-lifetime policy. Neither shell uses a process singleton, service,
-  `PowerManager.WakeLock`, `WAKE_LOCK` permission, polling, or device-specific
-  branch.
-- Android mpv reports buffering, dropped-frame, decoder, cache, and bounded
-  runtime facts through the existing diagnostic contract. The first load arms
-  hot samples immediately. Replacement prepare and TV surface reload keep
-  clock/cache/diagnostic samples disarmed through late outgoing callbacks and
-  any retiring `START_FILE`; after the expected retiring `END_FILE` is consumed,
-  only the following matching `START_FILE` for the awaited replacement
-  generation arms them. Disarmed hot callbacks are consumed rather than
-  retagged, so they cannot mutate replacement state or satisfy replacement
-  seek/resume confirmation. Once armed, ordinary
-  current-generation `time-pos`/buffer samples are conflated before Main and
-  publish the latest clock at an approximately 250 ms cadence; cache speed,
-  frame rate, dropped-frame health, and buffered-ahead diagnostics publish at
-  most once per second. Seek/resume confirmation and lifecycle, error, track,
-  activation, completion, and recovery edges remain immediate. Prepare, TV
-  surface reload, stop, and release invalidate both retained samples and their
-  cadence so an outgoing generation cannot delay or overwrite its replacement.
-  The backend currently declares first-video-output measurement unsupported, so
-  surface attachment or native configuration is not presented as displayed
-  output. Native logs are reduced to allowlisted stage/event, exception, and
-  bounded numeric fields. Surface lifecycle records include attachment state,
-  bounded width/height, size-change and detach milestones, and ignored stale
-  callbacks/releases; runtime native option rejection includes only the fixed
-  key and numeric code. Those records must make an audio-with-black-video report
-  distinguish missing geometry, native-window rejection, current detach, and a
-  late stale detach from logs alone.
+- Mobile/TV playback views hold `keepScreenOn` for their composition lifetime.
+  TV additionally owns the Activity window flag for the entire mounted player
+  route, including Paused, Loading, dialogs and backend replacement; disposal
+  clears it. Missing Activity safely retains the view safeguard. This avoids a
+  wakefulness gap without a service, CPU wake lock or screensaver change.
+  Physical acceptance remains open.
+- Hot mpv clock/cache facts remain disarmed across retiring callbacks until the
+  awaited replacement START_FILE follows the consumed retiring END_FILE. Disarmed
+  callbacks cannot be retagged to satisfy new seek/resume confirmation. Armed
+  samples conflate before Main: clock about 250 ms, cache/frame/drop diagnostics
+  at most once per second; lifecycle, errors, selection and confirmation remain
+  immediate. Prepare/reload/stop/release invalidate samples and cadence. First-output
+  measurement remains unsupported: attachment/configuration is no displayed-frame
+  proof. Safe surface geometry, native-window rejection, current/stale detach and
+  option rejection records must diagnose black video without exposing handles.
 - Android mpv uses the project-owned `android-libmpv` module. Its source/build
   provenance, native inventory, license/source obligations, package verification,
   and separate runtime gate are owned by the
@@ -585,16 +536,9 @@ additionally applies its pinned dav1d resource policy at the native-media
 boundary. That policy is self-scoped to dav1d by module ownership and remains
 separate from source compatibility and quality decisions.
 
-Android mpv deliberately advertises conservative pinned-engine capabilities:
-up to eight audio channels and supported text/bitmap subtitles, but no HDR,
-Dolby Vision or display-derived ceiling. Route-based encoded-audio eligibility
-and the pending native adoption are owned by the [Android mpv backend](#android-mpv-backend). Mobile uses copy-back,
-emulators use software decode, and TV defaults to classic GPU plus zero-copy
-MediaCodec because supported TV drivers reject the `gpu-next` external-sampler
-path and copy-back cannot guarantee real-time TV presentation. Direct MediaCodec
-is an explicit setting, never an automatic fallback, and gives up mpv subtitles
-and sizing. Exact cache, output, surface-lifetime, and diagnostic rules belong to
-the [Android mpv backend](#android-mpv-backend).
+The [mpv backend](#android-mpv-backend) owns renderer/cache/surface policy and
+route eligibility. TV's default classic GPU plus zero-copy avoids the recorded
+external-sampler failure and copy-back drift; Direct MediaCodec remains explicit.
 
 ## Android TV
 
@@ -609,8 +553,7 @@ controls; it never steals focus on appearance. Its explicit actions are
 D-pad-reachable, and dismissal restores a safe player focus owner. It may
 defer an automatic replan while PiP prevents safe interaction. Its app root
 uses the shared `Actionable` guidance policy, so qualified Auto health evidence
-can take the existing one-shot common recovery path; desktop and tvOS retain
-their own Advisory bindings.
+can take the existing one-shot common recovery path; desktop and tvOS also bind the shared Actionable policy.
 
 ## Health and audio evidence
 
@@ -641,9 +584,6 @@ their own Advisory bindings.
   mpv clears its initial gate on successful audio mapping; clearing on mapping
   failure or timeout remains a follow-up, with shared audio recovery unchanged.
 
-- **[Android]** Media3 degrades to video-only only after AudioTrack retry
-  exhaustion. New items retry audio; explicit audio selection re-enables it.
-
 - Mandatory software-playback recovery emits bounded `software-progress` records
   with closed admission/window outcomes, prepare/session identity, active decoding,
   dimensions, buffer and elapsed/actual/expected progress. `software-recovery`
@@ -669,59 +609,5 @@ their own Advisory bindings.
 
 - LibVLC uses the [shared terminal evidence policy](playback-runtime.md#vlc-terminal-policy).
 
-## Why
-
-- Media3 retains its last plan for Retry after Stop, so plan presence cannot
-  authorize a timing re-prepare. Native `IDLE` marks the need for preparation;
-  paused `READY` still owns a valid timing target. Checking both scheduling and
-  delayed application prevents old media from loading after Stop, while the
-  processor retains the requested offset for the next legitimate preparation.
-
-- Embedded output must retire before its window handle disappears: changing
-  `wid` rebuilds output while a selected video track still exists. Native idle
-  alone precedes teardown; completed file teardown plus a tagged event drain
-  protects both reference lifetime and the next prepare's playback-end state.
-
-- **Android TV wakefulness follows the mounted player route.** Activity-window
-  ownership spans backend replacement and loading/picker states without a
-  singleton, service, CPU wake lock, vendor branch, or screensaver mutation.
-  Physical acceptance remains pending.
-
-- **Active decoding and presentation are different facts.** A configured hardware
-  preference can fall back to software, and a GPU renderer can present either.
-  Only mpv's active decoder property supplies the mode; generic codec names and
-  screen dimensions cannot establish hardware decoding or full-resolution output.
-  Numerical native format records distinguish decoder crop from texture import
-  without exporting credential-bearing verbose messages or treating missing
-  size-change logs as proof of a buffer's dimensions.
-  A video track explicitly removed after native failure is actionable even when
-  first-frame measurement is unsupported; continuing audio is not successful
-  video playback. Initialization errors alone can still recover within mpv.
-  Conversely, active software video can remain unusably slow without disabling
-  its track or accumulating enough dropped-frame reports. Sustained buffered
-  playback-progress evidence can identify that condition without changing codec
-  envelopes. It requires a user decision because progress evidence can be wrong;
-  Continue preserves user control and cannot create a repeated-dialog loop.
-  Accepting Switch completes the user's decision immediately; preparation belongs
-  to the player's loading state, with a fresh decision only if switching fails.
-
-- **Android mpv native option and command shapes are versioned API.**
-  Omit the singular `script` option instead of passing an empty value, preserve
-  the defined `loadfile` and `sub-add` argument positions, and treat rejected
-  return values or failed readback as failures.
-
-- **Android platform playback uses installed-plan truth.** MediaSession
-  seekability, PiP aspect, and command callbacks follow the current successful
-  plan and monotonic owner, never a returned prepare call or transient layout.
-  Coded dimensions own aspect; composed bounds supply only the source rectangle.
-
-- **Android TV mpv uses the selected supported rendering baseline.** Zero-copy
-  `mediacodec` avoids the copy path's audio/video drift, and classic `gpu`
-  avoids the supported-TV external-sampler failure. GPU remains default; direct
-  output is an explicit choice with subtitle/sizing limits. Surface teardown
-  synchronizes with mpv because asynchronous detach can race Surface destruction.
-
-- **Media3 prioritizes time thresholds over a claimed memory ceiling.** The
-  allocator target does not cover codec, graphics, audio, or other native
-  allocations, and time priority can exceed it. A larger regular-device target
-  therefore remains an evidence-gated candidate rather than a silent default.
+<a id="why"></a>
+See the rationale beside each backend rule above.

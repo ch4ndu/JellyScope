@@ -118,20 +118,13 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 
   This is a documented controller-owned persistence exception to the
   UseCase/Action write rule; the writer runs `NonCancellable` on IO.
-- macOS Now Playing loads MediaPlayer.framework before Objective-C lookup and
-  resolves/dereferences its exported `MPMediaItemPropertyTitle`,
-  `MPMediaItemPropertyArtist`, `MPMediaItemPropertyPlaybackDuration`,
-  `MPNowPlayingInfoPropertyElapsedPlaybackTime`, and
-  `MPNowPlayingInfoPropertyPlaybackRate` globals; the publication dictionary
-  uses only those framework-owned key objects. The bridge retains its
-  per-signature `objc_msgSend` bindings and main-queue publication through the
-  `_dispatch_main_q` global symbol (`dispatch_get_main_queue` is a macro).
-  Command-target registration remains process-lifetime, while per-session
-  gating and ViewModel command routing preserve transcode-seek rules. Load,
-  install, asynchronous publish, and clear are separate failure boundaries;
-  each degrades to no-op playback behavior and emits only the closed event plus
-  sanitized exception class through `formatSafeFailureDiagnostic`, never a
-  message, cause, or stack.
+- macOS Now Playing loads MediaPlayer before Objective-C lookup and uses exported
+  framework key objects, never equal-valued replacement strings. Preserve typed
+  per-signature dispatch and main-queue publication (`dispatch_get_main_queue`
+  is a macro). Targets live for the process; per-session gates route commands
+  through the ViewModel's seek/reporting authority. Load, install, async publish
+  and clear fail independently to no-op playback behavior, emitting only closed
+  events and safe exception class through the common formatter.
 
 ## Desktop player presentation
 
@@ -349,52 +342,15 @@ does not establish real playback behavior.
   zero-start item first resets the persistent `start` option to `none`, and a
   failed reset aborts the load rather than inheriting stale state.
 
+Desktop LibVLC timing remains an adapter integration gap: native delay APIs
+exist but the JNA bridge does not bind them. No timing control may claim an
+applied value merely because a command was queued. Runtime changes require
+restart to avoid mixing native graphs; promotion needs visible cadence/resize
+observations and separate distribution readiness.
+
 - **[desktop]** Content scale opens a Fit/Crop picker; Crop maps to mpv
   fill/crop.
 
-## Why
-
-- **Desktop mpv trust derives from the JVM and fails closed.** The native engine
-  does not inherit the JVM trust store automatically, so an exported PEM and its
-  required native option are construction prerequisites. The insecure exception
-  remains account/server-scoped and cannot weaken another session.
-
-- **Timing and subtitle placement remain backend-owned.** Desktop mpv maps the
-  shared offset contract to native delay properties and applies its transient
-  subtitle margin from chrome state. Desktop LibVLC keeps native placement and
-  no timing support until adapter integration and acceptance are implemented.
-  LibVLC exposes delay APIs; the current JNA bridge does not bind them. This is
-  an open integration gap, not an absent native feature. A queued command must
-  not claim an applied value before the native result is qualified.
-
-- **Completion is generation-qualified.** Desktop mpv's sticky EOF and Android
-  LibVLC's trailing `Stopped` event can otherwise complete the wrong media or
-  cancel valid completion. Entry/generation readiness and playback-derived
-  progress distinguish completion from seek/resume state.
-
-- **Desktop volume coalescing stays inside its store.** That boundary guarantees
-  write ordering; quitting may still lose a change made within the documented
-  500 ms debounce window.
-
-- **Desktop presentation keeps platform-native ownership.** macOS IOSurface
-  copy-back avoids the observed startup flash while retaining the embedded
-  presenter; OpenGL and software paths remain explicit fallbacks. Now Playing
-  uses exported MediaPlayer key objects because matching string values are not
-  framework identity.
-- **Runtime changes require restart.** A launch-frozen
-  runtime and surface selection prevents mixing incompatible native graphs.
-  Software decoding makes the first comparison about presentation; native
-  load or build success cannot establish visible cadence or resize correctness.
-  Keeping the saved choice separate permits comparison without native unloading.
-  Promotion requires those observations and separate runtime distribution work.
-
-### Desktop playback embedding
-
-- Default macOS mpv uses IOSurface, app-owned OpenGL, then software fallback;
-  its window form of `wid` is rejected because it opens a separate player
-  window. The development Metal experiment uses a patched caller-owned layer
-  contract. Compose remains the sole controls/input scene.
-- Engine-lock and deferred-lifetime discipline keep teardown out of render
-  callbacks. Runtime availability is a cheap file check; engine creation still
-  validates versions. Pinned packaged inventories prevent machine libraries from
-  changing the native graph.
+<a id="why"></a>
+<a id="desktop-playback-embedding"></a>
+See presentation and lifetime rules above.

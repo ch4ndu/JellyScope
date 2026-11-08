@@ -32,3 +32,7 @@ responsibility, selective-test policy, and limits on Git/release authority.
 Completion requires its [final candidate verification](docs/engineering/workflow.md#7-verify-the-final-candidate)
 and [documentation update rule](docs/engineering/workflow.md#8-maintain-documentation),
 including its [concise writing guidance](docs/engineering/workflow.md#concise-useful-documentation).
+
+Documentation additions must justify a useful task, contract, rationale, external
+constraint or evidence boundary, update the existing owner, and avoid code-derived
+README narration. Follow the mandatory [documentation policy](docs/engineering/workflow.md#8-maintain-documentation).

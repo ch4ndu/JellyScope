@@ -134,14 +134,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   wrapper exposes no availability result, and native allocation-failure handling
   is not qualified. Initial zeros and repeated totals establish neither output,
   freshness nor a drop rate. First-output measurement remains unreliable.
-  VLCKit opts into the shared actionable guidance presentation; the banner may
-  offer a safe next lower rung and Open
-  Playback Settings, but no controller changes quality automatically. Android
-  and desktop use their own source-level presentation policies (actionable on
-  Android, passive on desktop); their device/runtime acceptance is still a
-  separate gate. All platforms retain the same 2 s exclusion, rolling-window,
-  first-signal, separate startup/post-start budget, generation-cancellation,
-  and sanitized decision/session-summary rules.
+  Shared actionable guidance follows [quality policy](playback-policy.md#quality-semantics)
+  and [runtime health](playback-runtime.md#playback-health-and-guidance), including
+  budget, identity and output-reliability gates. Controllers never change quality
+  themselves; host checks do not establish device acceptance.
 - iOS and macOS share the Now Playing snapshot publication policy:
   title/series/duration/status and configured playback-speed changes push full
   metadata, while ordinary position ticks remain suppressed. A speed change in
@@ -316,6 +312,18 @@ owners and the [user guides](../USAGE.md) for usage instructions.
 
 ## iOS
 
+Apple capability reads use a launch-frozen, Main-captured
+`UIScreen.mainScreen.potentialEDRHeadroom > 1.0` snapshot (failed/unavailable is
+false). A true snapshot permits HDR10/HLG only for Apple-claimed HEVC and
+hardware-decodable AV1; H.264 stays SDR and Dolby Vision stays false. Later
+reference-mode, mirroring or external-display changes do not refresh it.
+AVPlayer rejects interlacing for every codec and requires HEVC `hvc1|dvh1` at
+no more than 60 fps. H.264/AV1 do not inherit those HEVC conditions. VLCKit's
+separate engine profile accepts `hev1`/`dvhe` and deinterlacing without importing
+AVPlayer's probe or conditions; it claims no HDR. Multichannel declarations do
+not establish Apple hardware output acceptance. Subtitle delivery belongs to
+[selection and delivery](subtitles.md#selection-and-delivery).
+
 iOS Compose selects AVPlayer or VLCKit before initial planning and also exposes
 the shared explicit remote session switch. AVPlayer uses the narrow
 ready-for-display bridge from its native presentation surface. VLCKit uses
@@ -378,26 +386,5 @@ resolves artifact paths. Queue/countdown and native panel behavior are owned by
 [native tvOS playback](#tvos-native-player) and
 [ui.md](tvos-ui.md#native-tvos-screens).
 
-## Why
-
-- **Apple route loss revokes play intent.** Output removal is a pause event, not
-  permission to resume on newly connected hardware; only a matching interruption
-  end may consume a captured one-shot resume intent.
-
-- **A rejected tvOS change is not a failed player.** A passive notice preserves
-  the installed host and remote controls; sticky fatal state remains reserved
-  for failures that cannot preserve healthy playback.
-
-- **Native tvOS shares policy while retaining engine-specific hosts.** Qualified
-  transport preserves pause/readiness. AVKit owns its native transport, while
-  VLC uses the retained drawable and project controls for online streams and
-  trusted offline packages. Both use the shared speed choices, including 0.75×.
-  Timing and VLC sizing remain open adapter gaps; simulator builds prove no
-  native notification, decoding, focus, or presentation behavior.
-
-- **iOS transition and PiP evidence stays native and identity-bound.** Target
-  arrival alone cannot prove fresh video. Transport settlement releases the UI
-  hold independently, while presentation evidence still requires later clock
-  and displayed-picture progress and rejects stale generations. VLCKit's public PiP protocols retain engine ownership; private
-  traversal or a parallel controller would duplicate it. The cumulative native
-  loss total cannot establish an output-only loss count.
+<a id="why"></a>
+See native lifecycle, transport and evidence rules above.

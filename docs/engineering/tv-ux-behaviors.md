@@ -316,23 +316,5 @@ Moved to [launcher tabs and connection flow](../launcher/engineering.md#launcher
 
 Moved to [standard Home integration](../launcher/engineering.md#standard-home-integration).
 
-## Why
-
-- Background clipping avoids painting beneath opaque browse content while
-  retaining coverage during transitions. Sharing the route's ambient animation
-  removes duplicate animation work without changing the contributing gradients;
-  reading drawer width during layout avoids per-frame scaffold recomposition.
-
-- Stable card focus bounds prevent zoom from shifting scroll targets on either
-  axis without adding another reveal owner. Visual overhang still needs edge
-  clearance; stable bounds alone do not prove that clearance.
-
-- Find separates scroll axes so horizontal focus movement cannot shift the page.
-
-- **Playback links reuse normal playback ownership.** Account-qualified item
-  identifiers preserve session boundaries, settings, and normal planning.
-  Requiring the previous player to close avoids a second native owner.
-
-- Paging errors preserve pending restore and require explicit Retry because a
-  failed page does not prove a target absent; search uses request identity for
-  the same stale-result reason.
+<a id="why"></a>
+See focus confirmation, route ownership and playback-link rules above.

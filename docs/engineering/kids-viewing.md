@@ -189,29 +189,6 @@ to [Kids watch page](#kids-watch-page).
   missing images use placeholders; cached remote thumbnails do not imply offline
   availability. Download permission and artifact qualification remain governed by the [download contract](downloads.md#downloads-and-offline).
 
-## Why
-
-### Kids catalogue and history
-
-- Curated membership is a catalogue, not a queue or recommendation service.
-  Account/epoch checks contain async results; fresh UserData avoids freezing
-  history in RAM.
-- Offline availability means a qualified completed artifact, not cached remote
-  metadata. Generation memos reduce file work, while retry and playback revalidate.
-
-- **Single-asset choice needs explicit target ownership.** A one-item queue alone
-  would still allow episode derivation, stale retry inputs, and route-closing
-  completion. Kids uses a distinct launch policy while retaining the existing
-  planner, reporting, artifact leases, and native installation owner.
-
-- Kids recommendations are discovery views, not queues. An account-shell owner
-  keeps playback alive while navigation changes; a fresh store after close
-  prevents disposed state from surviving the next Play. Complete request intent
-  and cancellable admission keep replacement and Retry tied to the selected
-  target. One mounted native surface preserves browsing/fullscreen continuity. Animation keeps the live surface; rotation
-  uses the destination pane center and longer timing, while fullscreen keeps its
-  shorter timing. A video-height release threshold makes drag transitions
-  reversible and reachable in portrait. Proportional mini-player sizing follows
-  the available window on phones and tablets; a 240 dp minimum keeps the video
-  watchable on small phones. Density conversion preserves that minimum across
-  displays, while hard bounds and adaptive control placement handle smaller windows.
+<a id="why"></a>
+<a id="kids-catalogue-and-history"></a>
+See the account, single-asset and watch-page rules above.

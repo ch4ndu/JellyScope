@@ -47,6 +47,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   logged, diagnosed, displayed, or persisted. The first result is only the
   best-ranked candidate. JellyScope never presents it as a confirmed match for
   the item, never auto-installs it, and always leaves the choice with the user.
+- The consumer key is supplied per installation: embedding a shared key would
+  expose shared quota and require distribution, rotation and revocation policy.
+  The ignored development fallback is not distributable configuration.
 - Search state retains raw keyed results. `LazyColumn.items` receives those
   results directly with provider file-ID keys, and localization plus row-model
   materialization happens only inside the composed item content. This preserves
@@ -67,16 +70,10 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   paths. Metadata and selection are keyed by server, user, item, and media
   source; the file and Room row survive Jellyfin logout until explicit per-file
   or settings-wide deletion.
-- A persisted asset row carries exactly: a primary-key row ID; the ownership
-  tuple of server, user, item, and media source plus the provider name and the
-  provider's file ID, which together are unique per row; the provider's subtitle
-  ID; language and display label; release name; original format and normalized
-  MIME type; the opaque local file identity used by the file store; the
-  hearing-impaired, forced, and trusted flags; created and last-used timestamps;
-  and the Jellyfin sync state with its confirmed stream index and upload
-  baseline. Source FPS is deliberately not persisted — it is transient result
-  metadata shown during search and nothing reads it after installation. Add a
-  field only together with the behavior that reads it.
+- Asset metadata retains source/account ownership, provider identity, opaque file
+  identity, display/format flags, usage timestamps and sync confirmation/baseline.
+  Add fields only with behavior that reads them. Source FPS remains transient
+  search metadata; raw source paths never enter the row.
 - A local selection is `SubtitleSelectionIntent.LocalAsset`, not a synthetic
   Jellyfin stream index. The plan carries a sealed `SubtitleAsset` that
   distinguishes authenticated `JellyfinRemote` resources from verified
@@ -224,6 +221,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   auto-selection during prepare before loading or playing new media; Embed/HLS
   activation applies in direct play, direct stream, or transcode plans. Only
   confirmed local text is styleable.
+- MOV_TEXT/TX3G canonical identity supports strict embedded matching; parser
+  support does not qualify raw TX3G sidecars or HLS delivery.
 - Subtitle selectors remain available when exactly one real server or app-local
   track is present because Off and that track are two distinct choices. One
   shared predicate controls CC visibility and picker dismissal; the picker
@@ -438,60 +437,6 @@ and [desktop playback](desktop-playback.md).
 - **[Android]** Media3 confirms the selected embedded group or request-specific
   external configuration id before reporting active.
 
-## Why
-
-- **Identity omission preserves physical position.** `Track` requires a
-  nonnegative identity, while request value `-1` means Off. Nulling malformed
-  raw indexes would invent position identities; filtering before enumeration
-  would move later tracks. One complete-cohort projection keeps client
-  lookups and draft resolution consistent without claiming wire authority.
-
-- Timing providers must read the mutable installed controller, not the initial
-  constructor placeholder. Storage reads can outlive their track or controller,
-  and a mutex handoff can admit another owner before startup resumes. Both the
-  offset command and its prepare continuation therefore need current authority.
-  Per-kind command revisions preserve an unrelated offset restore when the user
-  adjusts only audio or subtitles. Reading both values first prevents an early
-  audio application from scheduling native reconfiguration while subtitle
-  storage is still pending; it does not cancel work scheduled before those reads.
-  Reusing outstanding applied values prevents an immediate restore or rapid
-  track return from reverting a timing adjustment during the save debounce.
-
-- OpenSubtitles HTTP handling and its response types stay together in transport;
-  account and selection orchestration stay with the upper repository. Existing
-  API tests keep their private mocks without widening a test-only seam.
-
-### Subtitles and OpenSubtitles
-
-- **MOV_TEXT and TX3G identify the same embedded subtitle format.** Jellyfin
-  and Media3 use different spellings, including the original MIME retained in
-  `Format.codecs` after Media3 cue conversion. Canonical identity permits strict
-  track matching without treating container IDs as stream indices. Parser
-  support for embedded TX3G does not establish support for raw TX3G sidecars or
-  HLS delivery; those capabilities remain separate.
-
-- **mpv appearance controls and override policy form one contract.** Force mode
-  keeps the offered TV color/background/edge choices meaningful. Preserving more
-  authored ASS style cannot silently disable those controls; native fidelity and
-  placement still require representative playback checks.
-
-- **Subtitle Off does not erase approved embedded descriptors.** Keeping the
-  descriptor permits a later native DirectPlay switch without a needless
-  replan; actual selection remains explicitly Off.
-- **The OpenSubtitles key is supplied per installation.** Embedding an app-owned
-  consumer key exposes shared quota and requires subscription, rotation,
-  revocation, and identification policy. The ignored local development fallback
-  is neither persisted nor distributable configuration.
-- **`SubtitleAsset` separates credential domains.** Jellyfin remote subtitle
-  URLs can carry same-origin authorization, while an OpenSubtitles/CDN asset
-  must remain credential-free. Reusing one URL type would either reject the
-  third-party asset or risk cross-origin credential attachment.
-- **Result preference reorders without filtering.** An explicit preference is
-  stronger than filename similarity or popularity, but nonmatching candidates
-  may be the only installable choice. Release-name comparison stays bounded and
-  local; raw media paths are never displayed, persisted, or logged.
-- **Subtitle mutation has one serialized owner.** Logical tickets, barriers,
-  startup reconciliation, and exact-generation compensation prevent delayed
-  download, normalization, sync, or delete work from overwriting newer intent.
-  CPU transforms use the worker dispatcher while network calls stay outside the
-  actor; raw bytes remain below stable domain and Compose models.
+<a id="why"></a>
+<a id="subtitles-and-opensubtitles"></a>
+See the selection, timing and asset rules above.

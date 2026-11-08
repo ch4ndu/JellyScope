@@ -4,7 +4,7 @@ Audits are read-only and findings-first unless fixes are explicitly authorized.
 
 Current files are authoritative. Compare them with active guides, distinguish
 defects from documented gaps/non-goals/pending device checks, and re-verify
-inherited findings before planning.
+inherited findings before planning; historical observations may be stale.
 
 ## Route The Audit
 
@@ -108,7 +108,12 @@ Apply the [documentation writing rules](workflow.md#concise-useful-documentation
 to changed prose. Check that readers can find the answer, each fact has one
 owner, and examples match current source. Flag lost constraints, unsupported
 claims, and broken links; distinguish optional style preferences from defects.
-Keep audit-only work read-only.
+Reject added prose without a useful task, contract, rationale, external constraint
+or evidence boundary; check for code-derived README narration, duplicate ownership
+and superseded text. Before accepting deletion, ask whether it loses a useful
+instruction, constraint, rationale or qualification. Check the reported owner/reason
+and before/after counts for materially expanded pages. Size triggers prompt review,
+not forced splitting. Keep audit-only work read-only.
 
 ## Report Format
 
@@ -127,7 +132,5 @@ severity, evidence level, and category, followed by important compliant areas
 and unverified runtime/platform risk. If no findings remain, say so explicitly;
 do not invent optional optimization work.
 
-## Why
-
-- **Recheck findings against current source:** historical observations can become
-  stale after releases; retained reports cannot establish a current defect.
+<a id="why"></a>
+Rationale is included in Evidence Discipline.
