@@ -25,7 +25,7 @@ import com.jellyscope.core.domain.model.SeerrSeason
 import com.jellyscope.ui.component.MediaCardKind
 import com.jellyscope.ui.component.MediaCardUi
 
-enum class SeerrSection { Discover, Requests, Connection }
+enum class SeerrSection { Discover, Requests, Search, Connection }
 
 enum class SeerrNotice { Created, Reconciled }
 
@@ -167,13 +167,20 @@ data class SeerrUiState(
     val connection: SeerrConnectionUi = SeerrConnectionUi(),
     val discover: SeerrFeedUi = SeerrFeedUi(),
     val requests: SeerrFeedUi = SeerrFeedUi(),
+    val search: SeerrFeedUi = SeerrFeedUi(),
     val detail: SeerrDetailUi? = null,
     val restricted: Boolean = false,
     val ownerValid: Boolean = true,
     val lastFocusedId: String? = null,
 ) {
     val connected: Boolean get() = connection.connection.phase == SeerrConnectionPhase.Connected
-    val feed: SeerrFeedUi get() = if (section == SeerrSection.Requests) requests else discover
+    val feed: SeerrFeedUi
+        get() =
+            when (section) {
+                SeerrSection.Requests -> requests
+                SeerrSection.Search -> search
+                else -> discover
+            }
 }
 
 enum class SeerrRelatedPhase { NotAttempted, Loading, Ready, Error, Interrupted }
@@ -184,6 +191,11 @@ data class SeerrRelatedUi(
     val rows: List<SeerrRow> = emptyList(),
     val scroll: SeerrScrollPosition = SeerrScrollPosition(),
 )
+
+val SeerrDetailUi.libraryAvailable: Boolean
+    get() =
+        (if (quality == SeerrQuality.Standard) detail?.media?.standardAvailability else detail?.media?.fourKAvailability)
+            .let { it == SeerrAvailability.Available || it == SeerrAvailability.PartiallyAvailable }
 
 val SeerrDetailUi.relatedEnabled: Boolean
     get() = admissionFresh && !loading && mutation == SeerrMutation.None && !uncertain && !resolvingLibrary
@@ -282,6 +294,7 @@ sealed interface SeerrIntent {
     data class RememberScroll(
         val detail: Boolean,
         val position: SeerrScrollPosition,
+        val section: SeerrSection? = null,
     ) : SeerrIntent
 
     data class Focused(
@@ -347,25 +360,58 @@ internal fun reduceSeerr(
         is SeerrChange.HideAvailable -> state.copy(hideAvailable = change.value)
         is SeerrChange.Connection -> state.copy(connection = change.value)
         is SeerrChange.Feed ->
-            if (change.section ==
-                SeerrSection.Requests
-            ) {
-                state.copy(requests = change.value)
-            } else {
-                state.copy(discover = change.value)
+            when (change.section) {
+                SeerrSection.Requests -> state.copy(requests = change.value)
+                SeerrSection.Search -> state.copy(search = change.value)
+                else -> state.copy(discover = change.value)
             }
         is SeerrChange.Detail -> state.copy(detail = change.value)
-        is SeerrChange.Section -> state.copy(section = change.value, detail = null, lastFocusedId = null)
+        is SeerrChange.Section ->
+            state.copy(
+                section = change.value,
+                detail = null,
+                lastFocusedId =
+                    when (change.value) {
+                        SeerrSection.Discover -> state.discover.selectedId
+                        SeerrSection.Search -> state.search.selectedId
+                        SeerrSection.Requests -> state.requests.selectedId
+                        SeerrSection.Connection -> null
+                    },
+            )
         is SeerrChange.Query -> state.copy(query = change.text)
         is SeerrChange.Catalog ->
             state.copy(
-                catalog = change.value,
-                submittedQuery = change.query,
-                discover = SeerrFeedUi(resetRevision = state.discover.resetRevision),
+                catalog = if (change.value == SeerrCatalog.Search) state.catalog else change.value,
+                submittedQuery = if (change.value == SeerrCatalog.Search) change.query else state.submittedQuery,
+                search =
+                    if (change.value ==
+                        SeerrCatalog.Search
+                    ) {
+                        SeerrFeedUi(resetRevision = state.search.resetRevision + 1)
+                    } else {
+                        state.search
+                    },
+                discover =
+                    if (change.value !=
+                        SeerrCatalog.Search
+                    ) {
+                        SeerrFeedUi(resetRevision = state.discover.resetRevision + 1)
+                    } else {
+                        state.discover
+                    },
                 lastFocusedId = null,
             )
         is SeerrChange.Policy -> state.copy(ownerValid = change.ownerValid, restricted = change.restricted)
-        SeerrChange.ClearContent -> state.copy(discover = SeerrFeedUi(), requests = SeerrFeedUi(), detail = null, lastFocusedId = null)
+        SeerrChange.ClearContent ->
+            state.copy(
+                discover = SeerrFeedUi(),
+                requests = SeerrFeedUi(),
+                search = SeerrFeedUi(),
+                query = "",
+                submittedQuery = "",
+                detail = null,
+                lastFocusedId = null,
+            )
         is SeerrChange.Focus -> state.copy(lastFocusedId = change.id)
     }
 

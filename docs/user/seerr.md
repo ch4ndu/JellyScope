@@ -41,12 +41,15 @@ server's protection.
 
 ## Discover and request
 
-Inside Requests, **Discover** offers trending titles, movies and TV shows.
-Enter and submit a search to find a title. **Load more** adds another page;
+Requests has **Discover**, **My Requests**, and **Search** sections. Discover
+offers trending titles, movies and TV shows through its catalog control. Search
+retains its query and results separately; Clear leaves an empty Search section.
+**Load more** adds another page;
 **Refresh** reloads the list from its beginning. The existing Jellyfin Discover
 destination continues to browse your server's own content.
 
-**Hide available** is on by default for the trending, movie and TV catalogs.
+**Filters** contains **Hide available**, on by default for the trending, movie
+and TV catalogs.
 It hides titles that Seerr reports as fully available in either quality; partly
 available series remain visible unless another quality is fully available.
 Turn it off to browse existing titles or another quality. Search, My Requests

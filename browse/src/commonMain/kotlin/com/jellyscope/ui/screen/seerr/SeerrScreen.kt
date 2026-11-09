@@ -2,6 +2,7 @@
 
 package com.jellyscope.ui.screen.seerr
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,7 +21,6 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -59,17 +59,12 @@ import com.jellyscope.core.domain.model.SeerrQuality
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
 import com.jellyscope.ui.adaptive.tileScaled
-import com.jellyscope.ui.component.AppTopBar
 import com.jellyscope.ui.component.MediaCard
-import com.jellyscope.ui.component.SelectableActionButton
 import com.jellyscope.ui.generated.resources.Res
-import com.jellyscope.ui.generated.resources.nav_requests
 import com.jellyscope.ui.generated.resources.seerr_clear
 import com.jellyscope.ui.generated.resources.seerr_discover
 import com.jellyscope.ui.generated.resources.seerr_empty
 import com.jellyscope.ui.generated.resources.seerr_filtered_empty
-import com.jellyscope.ui.generated.resources.seerr_hide_available
-import com.jellyscope.ui.generated.resources.seerr_hide_available_hint
 import com.jellyscope.ui.generated.resources.seerr_load_more
 import com.jellyscope.ui.generated.resources.seerr_loading
 import com.jellyscope.ui.generated.resources.seerr_manage
@@ -82,6 +77,7 @@ import com.jellyscope.ui.generated.resources.seerr_refresh
 import com.jellyscope.ui.generated.resources.seerr_requests_empty
 import com.jellyscope.ui.generated.resources.seerr_restricted
 import com.jellyscope.ui.generated.resources.seerr_search
+import com.jellyscope.ui.generated.resources.seerr_search_prompt
 import com.jellyscope.ui.generated.resources.seerr_search_results
 import com.jellyscope.ui.generated.resources.seerr_search_submit
 import com.jellyscope.ui.generated.resources.seerr_setup
@@ -90,6 +86,7 @@ import com.jellyscope.ui.generated.resources.seerr_tv
 import com.jellyscope.ui.generated.resources.seerr_untitled
 import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.theme.Dimensions
+import com.jellyscope.ui.theme.LocalAppBackgroundBrush
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -151,6 +148,7 @@ private fun SeerrContent(
     Column(
         modifier
             .fillMaxSize()
+            .background(LocalAppBackgroundBrush.current)
             .pointerInput(Unit) {
                 detectTapGestures(onTap = {
                     keyboard?.hide()
@@ -166,42 +164,13 @@ private fun SeerrContent(
             },
     ) {
         if (state.detail == null) {
-            AppTopBar(
-                title = stringResource(Res.string.nav_requests),
-                visible = true,
-                onBack =
-                    if (state.section ==
-                        SeerrSection.Connection
-                    ) {
-                        ({ onIntent(SeerrIntent.SelectSection(SeerrSection.Discover)) })
-                    } else {
-                        null
-                    },
-                onSettingsClick = onSettingsClick,
-                actions = {
-                    if (state.section !=
-                        SeerrSection.Connection
-                    ) {
-                        TextButton(onClick = { onIntent(SeerrIntent.SelectSection(SeerrSection.Connection)) }) {
-                            Text(stringResource(Res.string.seerr_manage))
-                        }
-                    }
-                },
+            SeerrBrowseControls(
+                state.section,
+                state.catalog,
+                state.hideAvailable,
+                browseEligible = state.ownerValid && !state.restricted && state.connected && !state.connection.busy,
+                onIntent = onIntent,
             )
-            if (state.section != SeerrSection.Connection) {
-                FlowRow(
-                    Modifier.fillMaxWidth().padding(horizontal = Dimensions.screenPadding),
-                    horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
-                ) {
-                    listOf(SeerrSection.Discover, SeerrSection.Requests).forEach { section ->
-                        SelectableActionButton(
-                            label = seerrSectionText(section),
-                            selected = state.section == section,
-                            onClick = { onIntent(SeerrIntent.SelectSection(section)) },
-                        )
-                    }
-                }
-            }
         }
         when {
             !state.ownerValid -> Text(stringResource(Res.string.seerr_owner_changed), Modifier.padding(Dimensions.screenPadding))
@@ -251,7 +220,7 @@ private fun SeerrFeedContent(
             if (scroll.isScrollInProgress) null else SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset)
         }.filterNotNull()
             .distinctUntilChanged()
-            .collect { onIntent(SeerrIntent.RememberScroll(false, it)) }
+            .collect { onIntent(SeerrIntent.RememberScroll(false, it, state.section)) }
     }
 
     fun submit() {
@@ -274,7 +243,7 @@ private fun SeerrFeedContent(
         horizontalArrangement = Arrangement.spacedBy(Dimensions.cardSpacing),
         verticalArrangement = Arrangement.spacedBy(Dimensions.formSpacing),
     ) {
-        if (state.section == SeerrSection.Discover) {
+        if (state.section == SeerrSection.Search) {
             item(key = "search", span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
                     OutlinedTextField(
@@ -296,23 +265,8 @@ private fun SeerrFeedContent(
                             focus.clearFocus()
                             onIntent(SeerrIntent.ClearSearch)
                         }) { Text(stringResource(Res.string.seerr_clear)) }
-                        listOf(SeerrCatalog.Trending, SeerrCatalog.Movies, SeerrCatalog.Tv).forEach { catalog ->
-                            FilterChip(selected = state.catalog == catalog, onClick = {
-                                keyboard?.hide()
-                                focus.clearFocus()
-                                onIntent(SeerrIntent.SelectCatalog(catalog))
-                            }, label = { Text(seerrCatalogText(catalog)) })
-                        }
                     }
-                    if (state.catalog != SeerrCatalog.Search) {
-                        FilterChip(
-                            selected = state.hideAvailable,
-                            onClick = { onIntent(SeerrIntent.ToggleHideAvailable) },
-                            label = { Text(stringResource(Res.string.seerr_hide_available)) },
-                        )
-                        Text(stringResource(Res.string.seerr_hide_available_hint), style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (state.catalog == SeerrCatalog.Search) Text(stringResource(Res.string.seerr_search_results, state.submittedQuery))
+                    if (state.submittedQuery.isNotEmpty()) Text(stringResource(Res.string.seerr_search_results, state.submittedQuery))
                 }
             }
         }
@@ -322,6 +276,11 @@ private fun SeerrFeedContent(
                     onClick = { onIntent(SeerrIntent.Refresh) },
                     enabled = !feed.loading,
                 ) { Text(stringResource(Res.string.seerr_refresh)) }
+                if (state.section == SeerrSection.Search &&
+                    state.submittedQuery.isEmpty()
+                ) {
+                    Text(stringResource(Res.string.seerr_search_prompt))
+                }
                 if (feed.loading) Text(stringResource(Res.string.seerr_loading))
                 feed.error?.let { Text(seerrErrorText(it), color = MaterialTheme.colorScheme.error) }
                 if (feed.loaded &&
@@ -337,7 +296,7 @@ private fun SeerrFeedContent(
                                 Res.string.seerr_requests_empty
                             } else {
                                 if (state.hideAvailable &&
-                                    state.catalog != SeerrCatalog.Search
+                                    state.section == SeerrSection.Discover
                                 ) {
                                     Res.string.seerr_filtered_empty
                                 } else {
@@ -405,6 +364,7 @@ fun seerrSectionText(section: SeerrSection): String =
         when (section) {
             SeerrSection.Discover -> Res.string.seerr_discover
             SeerrSection.Requests -> Res.string.seerr_my_requests
+            SeerrSection.Search -> Res.string.seerr_search_submit
             SeerrSection.Connection -> Res.string.seerr_manage
         },
     )

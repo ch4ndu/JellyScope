@@ -6,7 +6,7 @@ import SwiftUI
 struct SeerrView: View {
     @StateObject private var model: SeerrModel
     @Binding private var path: NavigationPath
-    @State private var query = ""
+    @State private var filtersOpen = false
     @Environment(\.tvAppearance) private var appearance
     @Environment(\.scenePhase) private var scenePhase
 
@@ -18,19 +18,7 @@ struct SeerrView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
             if model.state.detail == nil {
-            HStack {
-                Text(SeerrCopy.text("seerr.title")).font(.largeTitle.bold())
-                Spacer()
-                if model.state.section != .connection {
-                    sectionButton("seerr.manage", section: .connection)
-                }
-            }
-            HStack(spacing: 24) {
-                sectionButton("seerr.discover", section: .discover)
-                sectionButton("seerr.my_requests", section: .requests)
-            }
-            .disabled(model.state.confirmation?.submitting == true)
-            .focusSection()
+                browseHeader
             }
 
             if !model.state.ownerValid {
@@ -84,9 +72,69 @@ struct SeerrView: View {
         }
         .onAppear { model.appeared(active: scenePhase == .active) { itemId in path.append(MediaRoute(itemId: itemId)) } }
         .onChange(of: scenePhase) { _, phase in model.sceneChanged(active: phase == .active) }
-        .onDisappear(perform: model.disappeared)
-        .onChange(of: model.state.ownerValid) { _, valid in if !valid { query = "" } }
-        .onChange(of: model.state.restricted) { _, restricted in if restricted { query = "" } }
+        .onChange(of: pickerEligible) { _, eligible in
+            if !eligible { filtersOpen = false }
+        }
+        .onDisappear {
+            filtersOpen = false
+            model.disappeared()
+        }
+
+    }
+
+    private var pickerEligible: Bool {
+        model.state.ownerValid && !model.state.restricted && model.state.connection.connected &&
+            !model.state.connection.busy && model.state.section == .discover && model.state.detail == nil
+    }
+
+    private var browseHeader: some View {
+        HStack(spacing: 24) {
+            sectionButton("seerr.discover", section: .discover)
+            sectionButton("seerr.my_requests", section: .requests)
+            sectionButton("seerr.search.submit", section: .search)
+            Spacer()
+            if model.state.section == .discover {
+                if pickerEligible {
+                    Picker(SeerrCopy.text("seerr.catalog"), selection: Binding(
+                        get: { model.state.browse.catalog },
+                        set: { model.send(TvSeerrIntentSelectCatalog(catalog: $0)) }
+                    )) {
+                        Text(SeerrCopy.text("seerr.trending")).tag(SeerrCatalog.trending)
+                        Text(SeerrCopy.text("seerr.movies")).tag(SeerrCatalog.movies)
+                        Text(SeerrCopy.text("seerr.tv")).tag(SeerrCatalog.tv)
+                    }
+                }
+                Button(String(format: SeerrCopy.text("seerr.filters"), model.state.browse.hideAvailable ? 1 : 0)) {
+                    if pickerEligible { filtersOpen = true }
+                }
+                    .disabled(!pickerEligible)
+                    .sheet(isPresented: Binding(
+                        get: { filtersOpen && pickerEligible },
+                        set: { filtersOpen = $0 && pickerEligible }
+                    )) {
+                        VStack(alignment: .leading, spacing: 24) {
+                            Toggle(SeerrCopy.text("seerr.hide_available"), isOn: Binding(
+                                get: { model.state.browse.hideAvailable },
+                                set: { _ in model.send(TvSeerrIntentToggleHideAvailable.shared) }
+                            ))
+                            SeerrMessage(key: "seerr.hide_available.hint")
+                            Button(SeerrCopy.text("seerr.close")) { filtersOpen = false }
+                        }
+                        .padding(TvDimensions.screenInset)
+                        .foregroundStyle(appearance.primaryText)
+                        .tint(appearance.accent)
+                        .background(appearance.background)
+                    }
+            }
+            if model.state.section != .connection {
+                Button { model.send(TvSeerrIntentSelectSection(section: .connection)) } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel(SeerrCopy.text("seerr.manage"))
+            }
+        }
+        .disabled(model.state.confirmation?.submitting == true)
+        .focusSection()
     }
 
     private func sectionButton(_ key: String, section: TvSeerrSection) -> some View {
@@ -105,23 +153,24 @@ struct SeerrView: View {
         ZStack {
             SeerrBrowseView(
                 state: model.state.browse,
+                section: model.state.section,
                 isRequests: model.state.section == .requests,
+                isSearch: model.state.section == .search,
                 active: model.state.detail == nil,
                 reconciliationRequired: model.state.reconciliationRequired,
-                query: $query,
-                onCatalog: { model.send(TvSeerrIntentSelectCatalog(catalog: $0)) },
-                onSearch: { model.send(TvSeerrIntentSearch(query: query)) },
+                query: Binding(get: { model.state.browse.query }, set: { model.send(TvSeerrIntentQueryChanged(query: $0)) }),
+                onSearch: { model.send(TvSeerrIntentSearch(query: model.state.browse.query)) },
                 onClear: {
-                    query = ""
-                    model.send(TvSeerrIntentSelectCatalog(catalog: .trending))
+                    model.send(TvSeerrIntentClearSearch.shared)
                 },
-                onHideAvailable: { model.send(TvSeerrIntentToggleHideAvailable.shared) },
                 onRefresh: { model.send(TvSeerrIntentRefresh.shared) },
                 onLoadMore: { model.send(TvSeerrIntentLoadMore.shared) },
                 onReconcile: { model.send(TvSeerrIntentReconcile.shared) },
+                onPosition: { model.send(TvSeerrIntentRememberBrowsePosition(section: $0, id: $1)) },
                 onFocus: { model.send(TvSeerrIntentFocusCard(id: $0)) },
                 onOpen: { model.send(TvSeerrIntentOpenDetail(id: $0)) }
             )
+            .id(model.state.section)
             .opacity(model.state.detail == nil ? 1 : 0)
             .allowsHitTesting(model.state.detail == nil)
             .accessibilityHidden(model.state.detail != nil)
@@ -151,59 +200,51 @@ struct SeerrView: View {
 
 private struct SeerrBrowseView: View {
     let state: TvSeerrBrowseState
+    let section: TvSeerrSection
     let isRequests: Bool
+    let isSearch: Bool
     let active: Bool
     let reconciliationRequired: Bool
     @Binding var query: String
-    let onCatalog: (SeerrCatalog) -> Void
     let onSearch: () -> Void
     let onClear: () -> Void
-    let onHideAvailable: () -> Void
     let onRefresh: () -> Void
     let onLoadMore: () -> Void
     let onReconcile: () -> Void
+    let onPosition: (TvSeerrSection, String?) -> Void
     let onFocus: (String) -> Void
     let onOpen: (String) -> Void
     @Environment(\.tvAppearance) private var appearance
+    @State private var verticalAnchor: String?
     @FocusState private var focusedCard: String?
     @FocusState private var searchFocused: Bool
     @FocusState private var refreshFocused: Bool
+    @FocusState private var loadingFocused: Bool
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
-                    if !isRequests {
-                        HStack(spacing: 24) {
-                            category("seerr.trending", .trending)
-                            category("seerr.movies", .movies)
-                            category("seerr.tv", .tv)
-                        }
-                        .focusSection()
+                    if isSearch {
                         HStack(spacing: 24) {
                             TextField(SeerrCopy.text("seerr.search.prompt"), text: $query)
                                 .accessibilityLabel(SeerrCopy.text("seerr.search.label"))
                                 .focused($searchFocused)
                                 .submitLabel(.search)
                                 .onSubmit { submitSearch() }
-                            Button(SeerrCopy.text("seerr.search.submit"), action: submitSearch)
+                            Button(SeerrCopy.text("seerr.search.submit"), action: submitSearch).disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             Button(SeerrCopy.text("seerr.search.clear")) {
                                 searchFocused = false
                                 onClear()
                             }
                         }
+                        .id("search")
                     }
 
-                    if !isRequests && state.catalog != .search {
-                        Button(action: onHideAvailable) {
-                            Label(SeerrCopy.text("seerr.hide_available"), systemImage: state.hideAvailable ? "checkmark.circle.fill" : "circle")
-                        }
-                        SeerrMessage(key: "seerr.hide_available.hint")
-                    }
                     HStack(spacing: 24) {
                         Button(SeerrCopy.text("seerr.refresh"), action: onRefresh)
                             .disabled(state.loading).focused($refreshFocused).id("refresh")
-                        if state.loading { ProgressView(SeerrCopy.text("seerr.loading")) }
+                        if state.loading { ProgressView(SeerrCopy.text("seerr.loading")).focusable().focused($loadingFocused).id("browse-loading") }
                     }
                     if reconciliationRequired {
                         SeerrMessage(key: "seerr.error.reconciliation_required")
@@ -211,7 +252,7 @@ private struct SeerrBrowseView: View {
                     }
                     if let error = state.errorKey { SeerrMessage(key: error, isError: true) }
                     if !state.loading && state.errorKey == nil && state.cards.isEmpty {
-                        SeerrMessage(key: state.loaded ? (!isRequests && state.catalog != .search && state.hideAvailable ? "seerr.results.filtered" : "seerr.results.empty") : "seerr.search.help")
+                        SeerrMessage(key: state.loaded ? (!isRequests && !isSearch && state.hideAvailable ? "seerr.results.filtered" : "seerr.results.empty") : "seerr.search.help")
                     }
 
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: appearance.cards.posterWidth), spacing: 34)], spacing: 48) {
@@ -226,6 +267,7 @@ private struct SeerrBrowseView: View {
                             .accessibilityHint(SeerrCopy.text("seerr.detail.open"))
                         }
                     }
+                    .scrollTargetLayout()
                     .padding(TvDimensions.ribbonFocusReserve)
 
                     if state.hasMore {
@@ -236,7 +278,14 @@ private struct SeerrBrowseView: View {
                 .padding(.vertical, 30)
                 .padding(.bottom, TvDimensions.screenBottomInset)
             }
+            .scrollPosition(id: $verticalAnchor)
+            .onChange(of: verticalAnchor) { _, id in if active { onPosition(section, id) } }
             .disabled(!active)
+            .onChange(of: state.submittedQuery) { _, _ in if active { restoreFocus(proxy) } }
+            .onChange(of: state.catalog) { _, _ in if active { restoreFocus(proxy) } }
+            .onChange(of: state.focusedCardId) { _, _ in
+                if active && (focusedCard == nil || !state.cards.contains(where: { $0.id == focusedCard })) { restoreFocus(proxy) }
+            }
             .onChange(of: state.hideAvailable) { _, _ in if active { restoreFocus(proxy) } }
             .onChange(of: focusedCard) { _, id in
                 if active, let id { onFocus(id) }
@@ -244,7 +293,10 @@ private struct SeerrBrowseView: View {
             .onChange(of: active) { _, visible in
                 if visible { restoreFocus(proxy) } else { focusedCard = nil; searchFocused = false }
             }
-            .onAppear { if active { restoreFocus(proxy) } }
+            .onAppear {
+                verticalAnchor = state.verticalAnchor
+                if active { restoreFocus(proxy) }
+            }
         }
     }
 
@@ -253,15 +305,18 @@ private struct SeerrBrowseView: View {
         onSearch()
     }
 
-    private func category(_ key: String, _ catalog: SeerrCatalog) -> some View {
-        Button(SeerrCopy.text(key)) { searchFocused = false; onCatalog(catalog) }
-            .accessibilityAddTraits(state.catalog == catalog ? .isSelected : [])
-    }
-
     private func restoreFocus(_ proxy: ScrollViewProxy) {
         guard let id = state.focusedCardId, state.cards.contains(where: { $0.id == id }) else {
-            proxy.scrollTo("refresh", anchor: .center)
-            DispatchQueue.main.async { refreshFocused = true }
+            if isSearch {
+                proxy.scrollTo("search", anchor: .top)
+                DispatchQueue.main.async { searchFocused = true }
+            } else if state.loading {
+                proxy.scrollTo("browse-loading", anchor: .center)
+                DispatchQueue.main.async { loadingFocused = true }
+            } else {
+                proxy.scrollTo("refresh", anchor: .center)
+                DispatchQueue.main.async { refreshFocused = true }
+            }
             return
         }
         proxy.scrollTo(id, anchor: .center)

@@ -1,6 +1,9 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "seerr.catalog": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Catalog" } } } },
+    "seerr.filters": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Filters (%d)" } } } },
+    "seerr.close": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Close" } } } },
     "seerr.title": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Requests" } } } },
     "seerr.discover": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Discover" } } } },
     "seerr.my_requests": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "My Requests" } } } },

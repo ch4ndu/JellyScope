@@ -53,7 +53,7 @@ struct SeerrDetailView: View {
             }
             .onChange(of: focusedID) { _, id in
                 guard let id else { return }
-                if id == restoreTarget || (id != "refresh" && id != "loading") { restoreTarget = nil }
+                if id == restoreTarget || (id != "recovery" && id != "loading" && id != "summary") { restoreTarget = nil }
                 if restoreTarget == nil { onFocus(id) }
             }
             .onChange(of: state.loading) { _, loading in
@@ -70,29 +70,15 @@ struct SeerrDetailView: View {
 
     private var metadata: some View {
         VStack(alignment: .leading, spacing: 28) {
-            HStack(spacing: 24) {
-                Button(SeerrCopy.text("seerr.refresh"), action: onRefresh)
-                    .disabled(state.loading).focused($focusedID, equals: "refresh").id("refresh")
-                Button(requestLabel, action: onRequest)
-                    .disabled(!state.canRequest || state.loading).focused($focusedID, equals: "request").id("request")
-                Button(SeerrCopy.text("seerr.library.open"), action: onLibrary)
-                    .disabled(state.loading || state.resolvingLibrary).focused($focusedID, equals: "library").id("library")
-            }
-            .focusSection()
             if state.loading { ProgressView(SeerrCopy.text("seerr.loading")).focusable().focused($focusedID, equals: "loading").id("loading") }
             if let error = state.errorKey { SeerrMessage(key: error, isError: true) }
+            if !state.loading && (state.errorKey != nil || !state.selectionEnabled) {
+                Button(SeerrCopy.text("seerr.retry"), action: onRefresh)
+                    .focused($focusedID, equals: "recovery").id("recovery")
+            }
             if let notice = state.noticeKey { SeerrMessage(key: notice) }
             SeerrAvailabilityView(standardKey: state.card.standardKey, fourKKey: state.card.fourKKey)
-            if let overview = state.overview, !overview.isEmpty {
-                Text(overview).fixedSize(horizontal: false, vertical: true)
-            }
-            Text(SeerrCopy.text("seerr.quality.choose")).font(.title2.bold())
-            HStack(alignment: .top, spacing: 40) {
-                qualityChoice(fourK: false, reason: state.standardReasonKey)
-                if state.showFourK { qualityChoice(fourK: true, reason: state.fourKReasonKey) }
-            }
-            .disabled(state.loading || !state.selectionEnabled)
-            .focusSection()
+                .focusable().focused($focusedID, equals: "summary").id("summary")
             quota
             if !state.seasons.isEmpty { seasons }
             if let reason = state.requestReasonKey { SeerrMessage(key: reason) }
@@ -105,6 +91,24 @@ struct SeerrDetailView: View {
             ForEach(state.card.requests, id: \.id) { SeerrRequestStatusView(request: $0) }
         }
         .padding(.horizontal, TvDimensions.screenInset).id("metadata")
+    }
+
+    private var actions: some View {
+        HStack(spacing: 24) {
+            Button(requestLabel, action: onRequest)
+                .disabled(!state.canRequest || state.loading).focused($focusedID, equals: "request").id("request")
+            qualityChoice(fourK: false, reason: state.standardReasonKey)
+                .disabled(state.loading || !state.selectionEnabled)
+            if state.showFourK {
+                qualityChoice(fourK: true, reason: state.fourKReasonKey)
+                    .disabled(state.loading || !state.selectionEnabled)
+            }
+            if state.libraryAvailable {
+                Button(SeerrCopy.text("seerr.library.open"), action: onLibrary)
+                    .disabled(state.loading || state.resolvingLibrary || !state.selectionEnabled).focused($focusedID, equals: "library").id("library")
+            }
+        }
+        .focusSection()
     }
 
     @ViewBuilder
@@ -133,12 +137,13 @@ struct SeerrDetailView: View {
     }
 
     private func restorationTarget(_ preferred: String?) -> String {
-        guard let preferred else { return state.loading ? "loading" : "refresh" }
+        guard let preferred else { return defaultTarget }
         if state.loading { return "loading" }
         switch preferred {
-        case "refresh": return preferred
+        case "recovery" where state.errorKey != nil || !state.selectionEnabled: return preferred
+        case "summary": return preferred
         case "request" where state.canRequest: return preferred
-        case "library" where !state.resolvingLibrary: return preferred
+        case "library" where state.libraryAvailable && state.selectionEnabled && !state.resolvingLibrary: return preferred
         case "standard" where state.selectionEnabled: return preferred
         case "four-k" where state.selectionEnabled && state.showFourK: return preferred
         case "reconcile" where state.reconciliationRequired: return preferred
@@ -153,27 +158,44 @@ struct SeerrDetailView: View {
             if state.relatedEnabled && state.similar.contains(where: { "similar:\($0.id)" == preferred }) {
                 return preferred
             }
-            return "refresh"
+            return defaultTarget
         }
     }
 
+    private var defaultTarget: String {
+        if state.loading { return "loading" }
+        if state.canRequest { return "request" }
+        if state.libraryAvailable && state.selectionEnabled && !state.resolvingLibrary { return "library" }
+        if state.selectionEnabled { return "standard" }
+        if state.errorKey != nil || !state.selectionEnabled { return "recovery" }
+        return "summary"
+    }
+
     private var hero: some View {
-        ZStack(alignment: .bottomLeading) {
-            SeerrBackdropView(url: state.backdropUrl ?? state.card.posterUrl)
-                .frame(height: TvDimensions.heroHeight)
-            appearance.backdropScrim
-            HStack(alignment: .bottom, spacing: 44) {
-                SeerrPosterView(url: state.card.posterUrl, width: appearance.cards.detailPosterWidth)
-                VStack(alignment: .leading, spacing: 18) {
-                    Text(state.card.title ?? SeerrCopy.text("seerr.title.unknown"))
-                        .font(.largeTitle.bold()).fixedSize(horizontal: false, vertical: true)
-                    Text([SeerrCopy.text(state.card.typeKey), state.card.year].filter { !$0.isEmpty }.joined(separator: " · "))
-                        .foregroundStyle(appearance.secondaryText)
+        HStack(alignment: .top, spacing: 44) {
+            SeerrPosterView(url: state.card.posterUrl, width: appearance.cards.detailPosterWidth)
+            VStack(alignment: .leading, spacing: 18) {
+                Text(state.card.title ?? SeerrCopy.text("seerr.title.unknown"))
+                    .font(.largeTitle.bold()).fixedSize(horizontal: false, vertical: true)
+                Text([SeerrCopy.text(state.card.typeKey), state.card.year].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .foregroundStyle(appearance.secondaryText)
+                if let overview = state.overview, !overview.isEmpty {
+                    Text(overview).fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: TvDimensions.heroTextWidth, alignment: .leading)
                 }
-                .frame(maxWidth: TvDimensions.heroTextWidth, alignment: .leading)
+                actions
             }
-            .padding(.horizontal, TvDimensions.screenInset)
-            .padding(.top, 54)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, TvDimensions.screenInset)
+        .padding(.top, TvDimensions.ribbonFocusReserve)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            ZStack {
+                SeerrBackdropView(url: state.backdropUrl ?? state.card.posterUrl)
+                appearance.backdropScrim
+            }
+            .clipped()
         }
     }
 
