@@ -968,4 +968,6 @@
     <string name="seerr_request_one_season">Request 1 season</string>
     <string name="seerr_request_seasons">Request %1$d seasons</string>
     <string name="seerr_episode_count">%1$d episodes</string>
+    <string name="seerr_filters">Filters (%1$d)</string>
+    <string name="seerr_search_prompt">Search for movies and TV shows.</string>
 </resources>

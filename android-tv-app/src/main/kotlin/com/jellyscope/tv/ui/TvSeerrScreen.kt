@@ -10,13 +10,17 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -43,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
@@ -60,7 +65,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.tv.material3.Icon
 import com.jellyscope.core.domain.model.SeerrCatalog
 import com.jellyscope.core.domain.model.SeerrConnectionPhase
 import com.jellyscope.core.domain.model.SeerrLibraryItem
@@ -81,7 +91,7 @@ import com.jellyscope.ui.component.DetailText
 import com.jellyscope.ui.component.FocusableBox
 import com.jellyscope.ui.focus.FocusRestoreRequest
 import com.jellyscope.ui.generated.resources.Res
-import com.jellyscope.ui.generated.resources.nav_requests
+import com.jellyscope.ui.generated.resources.library_filters
 import com.jellyscope.ui.generated.resources.seerr_approval_required
 import com.jellyscope.ui.generated.resources.seerr_auto_approval
 import com.jellyscope.ui.generated.resources.seerr_back
@@ -99,6 +109,7 @@ import com.jellyscope.ui.generated.resources.seerr_empty
 import com.jellyscope.ui.generated.resources.seerr_endpoint
 import com.jellyscope.ui.generated.resources.seerr_episode_count
 import com.jellyscope.ui.generated.resources.seerr_filtered_empty
+import com.jellyscope.ui.generated.resources.seerr_filters
 import com.jellyscope.ui.generated.resources.seerr_hide_available
 import com.jellyscope.ui.generated.resources.seerr_hide_available_hint
 import com.jellyscope.ui.generated.resources.seerr_http
@@ -110,7 +121,6 @@ import com.jellyscope.ui.generated.resources.seerr_local_login
 import com.jellyscope.ui.generated.resources.seerr_manage
 import com.jellyscope.ui.generated.resources.seerr_no_requests
 import com.jellyscope.ui.generated.resources.seerr_open_library
-import com.jellyscope.ui.generated.resources.seerr_overview_missing
 import com.jellyscope.ui.generated.resources.seerr_owner_changed
 import com.jellyscope.ui.generated.resources.seerr_page
 import com.jellyscope.ui.generated.resources.seerr_page_hint
@@ -129,6 +139,7 @@ import com.jellyscope.ui.generated.resources.seerr_requests_empty
 import com.jellyscope.ui.generated.resources.seerr_restricted
 import com.jellyscope.ui.generated.resources.seerr_retry
 import com.jellyscope.ui.generated.resources.seerr_search
+import com.jellyscope.ui.generated.resources.seerr_search_prompt
 import com.jellyscope.ui.generated.resources.seerr_search_results
 import com.jellyscope.ui.generated.resources.seerr_search_submit
 import com.jellyscope.ui.generated.resources.seerr_season_selection
@@ -159,6 +170,7 @@ import com.jellyscope.ui.screen.seerr.SeerrScrollPosition
 import com.jellyscope.ui.screen.seerr.SeerrSection
 import com.jellyscope.ui.screen.seerr.SeerrUiState
 import com.jellyscope.ui.screen.seerr.SeerrViewModel
+import com.jellyscope.ui.screen.seerr.libraryAvailable
 import com.jellyscope.ui.screen.seerr.relatedEnabled
 import com.jellyscope.ui.screen.seerr.seerrAvailabilityLine
 import com.jellyscope.ui.screen.seerr.seerrCatalogText
@@ -172,6 +184,7 @@ import com.jellyscope.ui.screen.seerr.seerrSeasonNumbersText
 import com.jellyscope.ui.screen.seerr.seerrSeasonText
 import com.jellyscope.ui.screen.seerr.seerrSectionText
 import com.jellyscope.ui.theme.Dimensions
+import com.jellyscope.ui.theme.LocalAppBackgroundBrush
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -192,6 +205,7 @@ fun TvSeerrScreen(
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun TvSeerrContent(
     state: SeerrUiState,
     session: Session,
@@ -217,30 +231,82 @@ private fun TvSeerrContent(
             state.section == SeerrSection.Connection -> "connection"
             state.detail != null -> "detail"
             state.section == SeerrSection.Requests -> "my-requests"
+            state.section == SeerrSection.Search -> "search"
             else -> "discover"
         }
     val body = rememberTvFocusScopeNode(listOf("requests", surface))
     val currentState by rememberUpdatedState(state)
     val currentBody by rememberUpdatedState(body)
+    val currentTab by rememberUpdatedState(selectedTab)
+    var pendingEntry by remember { mutableStateOf(false) }
+    var pendingEntryTarget by remember { mutableStateOf<FocusRequester?>(null) }
+    val pickerEligible =
+        state.ownerValid &&
+            !state.restricted &&
+            state.connected &&
+            !state.connection.busy &&
+            state.section == SeerrSection.Discover &&
+            detail == null
+    var picker by remember(pickerEligible) { mutableStateOf<String?>(null) }
+    val catalogRequester = header.rememberChildRequester("catalog")
+    val filterRequester = header.rememberChildRequester("filters")
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var headerHasFocus by remember { mutableStateOf(false) }
     val registrationKey = remember { rail.contentRegistrationKey }
     var editing by remember { mutableStateOf(false) }
     var exitEditing by remember { mutableStateOf(0) }
     val startPadding = if (rail.visible) TvDimens.drawerContentStartPadding else TvDimens.overscanHorizontal
     val enterContent =
-        remember(selectedTab) {
+        remember {
             {
-                val current = currentState
-                currentBody.requestEntry(listOfNotNull(current.lastFocusedId, current.feed.selectedId, "refresh", "url", "manage")) ||
-                    selectedTab.requestFocusSafely()
+                val focused =
+                    if (currentState.detail == null) {
+                        currentTab.requestFocusSafely()
+                    } else {
+                        currentBody.requestEntry(tvSeerrFocusSlots(currentState).keys.toList())
+                    }
+                pendingEntry = !focused
+                pendingEntryTarget =
+                    if (focused) {
+                        null
+                    } else if (currentState.detail == null) {
+                        currentTab
+                    } else {
+                        currentBody.entryRequester
+                    }
+                true
             }
         }
+    LaunchedEffect(pendingEntry, selectedTab, body, state.detail?.entryId, lifecycleOwner) {
+        val target = if (detail == null) selectedTab else body.entryRequester
+        if (pendingEntryTarget != target) {
+            pendingEntry = false
+            pendingEntryTarget = null
+            return@LaunchedEffect
+        }
+        if (pendingEntry) {
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                val focused =
+                    requestTvFocusWithRetry {
+                        if (currentState.detail == null) {
+                            currentTab.requestFocusSafely()
+                        } else {
+                            currentBody.requestEntry(tvSeerrFocusSlots(currentState).keys.toList())
+                        }
+                    }
+                pendingEntry = false
+                pendingEntryTarget = null
+                if (!focused) rail.requestRailFocus()
+            }
+        }
+    }
     var confirmationWasOpen by remember { mutableStateOf(false) }
     LaunchedEffect(state.detail?.confirmation != null) {
         if (state.detail?.confirmation != null) {
             confirmationWasOpen = true
         } else if (confirmationWasOpen) {
             confirmationWasOpen = false
-            requestTvFocusWithRetry { body.requestEntry(listOf("request", "library", "refresh")) }
+            requestTvFocusWithRetry { body.requestEntry(tvSeerrFocusSlots(currentState).keys.toList()) }
         }
     }
     DisposableEffect(rail, registrationKey, selectedTab, enterContent, detail != null) {
@@ -251,20 +317,96 @@ private fun TvSeerrContent(
             rail.setContentRightFocusAction(registrationKey, null)
         }
     }
-    BackHandler(enabled = !rail.railHasFocus || state.detail != null || state.connection.authenticating) {
+    if (picker != null && pickerEligible) {
+        val kind = picker
+        val first = remember { FocusRequester() }
+        val dismiss = { picker = null }
+        Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
+            LaunchedEffect(first) { requestTvFocusWithRetry { first.requestFocusSafely() } }
+            TvPickerOverlay(
+                title =
+                    if (kind ==
+                        "filters"
+                    ) {
+                        stringResource(Res.string.library_filters)
+                    } else {
+                        seerrCatalogText(state.catalog)
+                    },
+                onDismiss = dismiss,
+                opaque = true,
+            ) {
+                if (kind == "filters") {
+                    TvPickerRow(
+                        stringResource(Res.string.seerr_hide_available),
+                        state.hideAvailable,
+                        first,
+                        { onIntent(SeerrIntent.ToggleHideAvailable) },
+                    )
+                    DetailText(stringResource(Res.string.seerr_hide_available_hint))
+                } else {
+                    listOf(SeerrCatalog.Trending, SeerrCatalog.Movies, SeerrCatalog.Tv).forEachIndexed { index, catalog ->
+                        TvPickerRow(seerrCatalogText(catalog), state.catalog == catalog, if (index == 0) first else null, {
+                            onIntent(SeerrIntent.SelectCatalog(catalog))
+                            dismiss()
+                        })
+                    }
+                }
+            }
+        }
+        DisposableEffect(kind) {
+            onDispose { pendingEntry = false }
+        }
+    }
+    var dismissedPicker by remember { mutableStateOf<String?>(null) }
+    var pickerOpenerValid by remember { mutableStateOf(false) }
+    LaunchedEffect(picker, pickerEligible) {
+        if (picker != null) {
+            dismissedPicker = picker
+            pickerOpenerValid = true
+        } else {
+            if (!pickerEligible) pickerOpenerValid = false
+            dismissedPicker?.let { kind ->
+                val restoreOpener = pickerOpenerValid && pickerEligible
+                requestTvFocusWithRetry {
+                    val latest = currentState
+                    val openerValid =
+                        restoreOpener &&
+                            latest.ownerValid &&
+                            !latest.restricted &&
+                            latest.connected &&
+                            !latest.connection.busy &&
+                            latest.section == SeerrSection.Discover &&
+                            latest.detail == null
+                    when {
+                        openerValid -> (if (kind == "filters") filterRequester else catalogRequester).requestFocusSafely()
+                        !latest.ownerValid -> rail.requestRailFocus()
+                        latest.detail == null -> currentTab.requestFocusSafely()
+                        else -> currentBody.requestEntry(tvSeerrFocusSlots(latest).keys.toList())
+                    }
+                }
+                dismissedPicker = null
+            }
+        }
+    }
+    BackHandler(enabled = picker == null && (!rail.railHasFocus || state.detail != null || state.connection.authenticating)) {
         when {
             editing -> exitEditing++
             state.detail != null -> onIntent(SeerrIntent.Back)
+            state.section == SeerrSection.Connection -> onIntent(SeerrIntent.SelectSection(SeerrSection.Discover))
             state.connection.authenticating -> onIntent(SeerrIntent.CancelAuthentication)
             !rail.requestRailFocus() -> onBack()
         }
     }
-    Column(modifier.fillMaxSize().focusGroup(), verticalArrangement = Arrangement.spacedBy(TvDimens.rowGap)) {
+    Column(
+        modifier.fillMaxSize().background(LocalAppBackgroundBrush.current).focusGroup(),
+        verticalArrangement = Arrangement.spacedBy(TvDimens.rowGap),
+    ) {
         if (detail == null) {
             Column(
                 Modifier
                     .fillMaxWidth()
                     .padding(start = startPadding, top = TvDimens.overscanVertical, end = TvDimens.overscanHorizontal)
+                    .onFocusChanged { headerHasFocus = it.hasFocus }
                     .tvFocusScope(header) {
                         listOf(
                             if (state.section ==
@@ -278,37 +420,18 @@ private fun TvSeerrContent(
                     },
                 verticalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
             ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap)) {
-                    DetailText(stringResource(Res.string.nav_requests), modifier = Modifier.weight(1f), style = TvScreenHeaderStyle)
-                    if (state.section != SeerrSection.Connection) {
-                        TvButton(
-                            text = stringResource(Res.string.seerr_manage),
-                            onClick = { onIntent(SeerrIntent.SelectSection(SeerrSection.Connection)) },
-                            modifier =
-                                Modifier
-                                    .focusRequester(header.rememberChildRequester(SeerrSection.Connection.name))
-                                    .focusProperties { down = body.entryRequester }
-                                    .onFocusChanged {
-                                        if (it.isFocused) {
-                                            header.onChildFocused(
-                                                SeerrSection.Connection.name,
-                                                TvFocusTargetKind.Action,
-                                                2,
-                                            )
-                                        }
-                                    },
-                            enabled = state.ownerValid,
-                        )
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap)) {
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
+                    verticalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
+                ) {
                     val sections =
                         if (state.section ==
                             SeerrSection.Connection
                         ) {
                             listOf(SeerrSection.Discover)
                         } else {
-                            listOf(SeerrSection.Discover, SeerrSection.Requests)
+                            listOf(SeerrSection.Discover, SeerrSection.Requests, SeerrSection.Search)
                         }
                     sections.forEachIndexed { index, section ->
                         val requester =
@@ -329,8 +452,8 @@ private fun TvSeerrContent(
                                     seerrSectionText(section)
                                 },
                             selected = state.section == section,
-                            enabled = state.ownerValid,
-                            onClick = { onIntent(SeerrIntent.SelectSection(section)) },
+                            enabled = true,
+                            onClick = { if (state.ownerValid) onIntent(SeerrIntent.SelectSection(section)) else rail.requestRailFocus() },
                             modifier =
                                 Modifier
                                     .focusRequester(requester)
@@ -343,6 +466,30 @@ private fun TvSeerrContent(
                                             rail.requestRailFocus()
                                     },
                         )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (state.section == SeerrSection.Discover) {
+                        TvButton(seerrCatalogText(state.catalog), {
+                            if (pickerEligible) picker = "catalog"
+                        }, Modifier.focusRequester(catalogRequester), enabled = pickerEligible)
+                        TvButton(stringResource(Res.string.seerr_filters, if (state.hideAvailable) 1 else 0), {
+                            if (pickerEligible) picker = "filters"
+                        }, Modifier.focusRequester(filterRequester), enabled = pickerEligible)
+                    }
+                    if (state.section != SeerrSection.Connection) {
+                        FocusableBox(
+                            onClick = { onIntent(SeerrIntent.SelectSection(SeerrSection.Connection)) },
+                            modifier =
+                                Modifier
+                                    .size(
+                                        Dimensions.minTouchTarget,
+                                    ).focusRequester(header.rememberChildRequester(SeerrSection.Connection.name)),
+                            contentDescription = stringResource(Res.string.seerr_manage),
+                            backgroundColor = LocalJellyfinPalette.current.surfaceRaised,
+                            contentAlignment = Alignment.Center,
+                        ) { _ ->
+                            Icon(TvIcons.Cog, contentDescription = null, tint = LocalJellyfinPalette.current.textPrimary)
+                        }
                     }
                 }
             }
@@ -363,14 +510,34 @@ private fun TvSeerrContent(
             val ready =
                 state.detail?.let { !it.loading || it.detail != null }
                     ?: (!state.feed.loading || state.feed.rows.isNotEmpty() || state.section != SeerrSection.Requests)
-            LaunchedEffect(body, restore?.token, ready, state.detail?.loading, state.connected, state.restricted, slots) {
-                if (!ready || rail.contentAutofocusSuppressed || state.detail?.confirmation != null) return@LaunchedEffect
+            LaunchedEffect(
+                body,
+                restore?.token,
+                ready,
+                state.detail?.loading,
+                state.connected,
+                state.restricted,
+                slots,
+                pendingEntry,
+                headerHasFocus,
+                picker,
+                rail.railHasFocus,
+            ) {
+                if (!ready ||
+                    pendingEntry ||
+                    picker != null ||
+                    (state.detail == null && (headerHasFocus || rail.railHasFocus)) ||
+                    rail.contentAutofocusSuppressed ||
+                    state.detail?.confirmation != null
+                ) {
+                    return@LaunchedEffect
+                }
                 if (state.detail?.loading == true && savedFocus?.startsWith("similar:") == true) return@LaunchedEffect
                 val preferred = savedFocus?.let { FocusRestoreRequest(it, 0) } ?: body.restoreRequest()
                 val request =
                     if (state.detail != null && (preferred == null || preferred.key !in latestSlots)) {
                         latestSlots.keys
-                            .firstOrNull { it == "refresh" || it == "loading" }
+                            .let { keys -> listOf("request", "library", "standard", "recovery", "loading").firstOrNull { it in keys } }
                             ?.let { FocusRestoreRequest(it, 0) }
                     } else {
                         preferred
@@ -385,15 +552,15 @@ private fun TvSeerrContent(
                             { if (isFeed) gridScroll.scrollToItem(it) else scroll.scrollToItem(it) },
                         )
                     var target = request.key
-                    if (!restored && state.detail != null && request.key != "refresh" && "refresh" in latestSlots) {
+                    if (!restored && state.detail != null && request.key != "recovery" && "recovery" in latestSlots) {
                         restored =
                             body.restoreFocus(
-                                FocusRestoreRequest("refresh", 0),
+                                FocusRestoreRequest("recovery", 0),
                                 latestSlots.keys.toList(),
                                 { latestSlots.values.elementAt(it) },
                                 { scroll.scrollToItem(it) },
                             )
-                        target = "refresh"
+                        target = "recovery"
                     }
                     if (restored) {
                         entered = true
@@ -425,7 +592,7 @@ private fun TvSeerrContent(
                                 )
                             }
                         }
-                    }.filterNotNull().distinctUntilChanged().collect { onIntent(SeerrIntent.RememberScroll(!isFeed, it)) }
+                    }.filterNotNull().distinctUntilChanged().collect { onIntent(SeerrIntent.RememberScroll(!isFeed, it, state.section)) }
                 }
             }
             val padding =
@@ -457,10 +624,24 @@ private fun TvSeerrContent(
                         }
                         item {
                             TvButton(
-                                stringResource(Res.string.seerr_manage),
-                                { onIntent(SeerrIntent.SelectSection(SeerrSection.Connection)) },
-                                modifier = seerrFocus(body, "manage", 0, onIntent, rail::requestRailFocus),
-                                enabled = state.ownerValid,
+                                stringResource(if (state.ownerValid) Res.string.seerr_manage else Res.string.seerr_back),
+                                {
+                                    if (state.ownerValid) {
+                                        onIntent(
+                                            SeerrIntent.SelectSection(SeerrSection.Connection),
+                                        )
+                                    } else {
+                                        rail.requestRailFocus()
+                                    }
+                                },
+                                modifier =
+                                    seerrFocus(
+                                        body,
+                                        if (state.ownerValid) "manage" else "owner-return",
+                                        0,
+                                        onIntent,
+                                        rail::requestRailFocus,
+                                    ),
                             )
                         }
                     }
@@ -476,7 +657,11 @@ private fun TvSeerrContent(
                     TvLoadingFocusPark(
                         focusRequester = loading,
                         onRequestRailFocus = rail::requestRailFocus,
-                        requestFocusOnAttach = !rail.contentAutofocusSuppressed && !rail.railHasFocus,
+                        requestFocusOnAttach =
+                            !rail.contentAutofocusSuppressed &&
+                                !rail.railHasFocus &&
+                                !pendingEntry &&
+                                (detail != null || !headerHasFocus),
                         modifier =
                             bodyModifier.onFocusChanged {
                                 if (it.hasFocus) body.onChildFocused("loading", TvFocusTargetKind.Loading, 0)
@@ -507,7 +692,9 @@ private fun TvSeerrContent(
 private fun tvSeerrFocusSlots(state: SeerrUiState): Map<String, Int> =
     buildMap {
         val detail = state.detail
-        if (state.section == SeerrSection.Connection) {
+        if (!state.ownerValid) {
+            put("owner-return", 1)
+        } else if (state.section == SeerrSection.Connection) {
             listOf(
                 "url",
                 "validate",
@@ -530,19 +717,33 @@ private fun tvSeerrFocusSlots(state: SeerrUiState): Map<String, Int> =
         ) {
             put("loading", 0)
         } else if (detail != null) {
-            if (!detail.loading && !detail.submitting && !detail.reconciling) put("refresh", 0)
+            if ((detail.error != null || !detail.admissionFresh) &&
+                !detail.loading &&
+                !detail.submitting &&
+                !detail.reconciling
+            ) {
+                put("recovery", 0)
+            }
             if (detail.loading) put("loading", 0)
             val value = detail.detail
             if (value != null) {
+                if (detail.canSubmit) put("request", 0)
+                if (detail.libraryAvailable &&
+                    detail.admissionFresh &&
+                    !detail.loading &&
+                    !detail.submitting &&
+                    !detail.resolvingLibrary &&
+                    !detail.reconciling
+                ) {
+                    put("library", 0)
+                }
                 if (detail.selectionEnabled) {
                     put("standard", 0)
                     if (detail.showFourK) put("four-k", 0)
                     detail.seasons.forEach { row -> if (row.enabled) put("season:${row.season.number}", 1) }
                 }
                 val footer = 2
-                if (detail.canSubmit) put("request", 0)
                 if (detail.uncertain && !detail.loading && !detail.reconciling && !detail.submitting) put("reconcile", footer)
-                if (!detail.loading && !detail.submitting && !detail.resolvingLibrary && !detail.reconciling) put("library", 0)
                 value.cast.forEachIndexed { index, member -> put("cast:$index:${member.id}", 3) }
                 val relatedSlot = footer + 1 + if (value.cast.isNotEmpty()) 1 else 0
                 if (detail.relatedEnabled) {
@@ -553,11 +754,12 @@ private fun tvSeerrFocusSlots(state: SeerrUiState): Map<String, Int> =
                 }
             }
         } else {
-            put("refresh", 0)
+            if (!state.feed.loading) put("feed-refresh", 0)
             if (state.section ==
-                SeerrSection.Discover
+                SeerrSection.Search
             ) {
-                listOf("search", "submit-search", "clear-search", "trending", "movies", "tv", "hide-available").forEach { put(it, 0) }
+                if (state.query.isNotBlank()) put("submit-search", 0)
+                listOf("search", "clear-search").forEach { put(it, 0) }
             }
             state.feed.rows.forEachIndexed { index, row -> put(row.id, index + 1) }
             if (state.feed.hasMore) put("more", state.feed.rows.size + 1)
@@ -614,7 +816,7 @@ private fun TvSeerrFeed(
         }
         // Keep focus at the appended boundary, including when the final page removes the footer.
         val targetId =
-            feed.rows.getOrNull(start)?.id ?: if (!feed.hasMore) feed.rows.lastOrNull()?.id ?: "refresh" else return@LaunchedEffect
+            feed.rows.getOrNull(start)?.id ?: if (!feed.hasMore) feed.rows.lastOrNull()?.id ?: "feed-refresh" else return@LaunchedEffect
         val slots = tvSeerrFocusSlots(latestState)
         val keys = slots.keys.toList()
         scope.restoreFocus(
@@ -634,7 +836,7 @@ private fun TvSeerrFeed(
     ) {
         item(key = "controls", span = { GridItemSpan(maxLineSpan) }, contentType = "controls") {
             Column(verticalArrangement = Arrangement.spacedBy(TvDimens.itemGap)) {
-                if (state.section == SeerrSection.Discover) {
+                if (state.section == SeerrSection.Search) {
                     TvInputField(
                         state.query,
                         { onIntent(SeerrIntent.QueryChanged(it)) },
@@ -662,51 +864,16 @@ private fun TvSeerrFeed(
                             onIntent(SeerrIntent.ClearSearch)
                         }, seerrFocus(scope, "clear-search", 3, onIntent, { false }))
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap)) {
-                        listOf(
-                            SeerrCatalog.Trending to "trending",
-                            SeerrCatalog.Movies to "movies",
-                            SeerrCatalog.Tv to "tv",
-                        ).forEachIndexed {
-                            index,
-                            (catalog, id),
-                            ->
-                            TvButton(
-                                seerrCatalogText(catalog),
-                                { onIntent(SeerrIntent.SelectCatalog(catalog)) },
-                                seerrFocus(
-                                    scope,
-                                    id,
-                                    index + 4,
-                                    onIntent,
-                                    if (index == 0) {
-                                        onLeft
-                                    } else {
-                                        { false }
-                                    },
-                                ),
-                                selected = state.catalog == catalog,
-                            )
-                        }
-                    }
-                    if (state.catalog != SeerrCatalog.Search) {
-                        TvButton(
-                            stringResource(Res.string.seerr_hide_available),
-                            { onIntent(SeerrIntent.ToggleHideAvailable) },
-                            seerrFocus(scope, "hide-available", 7, onIntent, onLeft),
-                            selected = state.hideAvailable,
-                        )
-                        DetailText(stringResource(Res.string.seerr_hide_available_hint))
-                    }
-                    if (state.catalog ==
-                        SeerrCatalog.Search
-                    ) {
+                    if (state.submittedQuery.isNotEmpty()) {
                         DetailText(stringResource(Res.string.seerr_search_results, state.submittedQuery))
+                    } else {
+                        DetailText(stringResource(Res.string.seerr_search_prompt))
                     }
                 }
+
                 TvButton(stringResource(Res.string.seerr_refresh), {
                     onIntent(SeerrIntent.Refresh)
-                }, seerrFocus(scope, "refresh", 0, onIntent, onLeft), enabled = !feed.loading)
+                }, seerrFocus(scope, "feed-refresh", 0, onIntent, onLeft), enabled = !feed.loading)
                 if (feed.loading) DetailText(stringResource(Res.string.seerr_loading))
                 feed.error?.let { DetailText(seerrErrorText(it), color = LocalJellyfinPalette.current.error) }
                 if (feed.loaded &&
@@ -722,7 +889,7 @@ private fun TvSeerrFeed(
                                 Res.string.seerr_requests_empty
                             } else {
                                 if (state.hideAvailable &&
-                                    state.catalog != SeerrCatalog.Search
+                                    state.section == SeerrSection.Discover
                                 ) {
                                     Res.string.seerr_filtered_empty
                                 } else {
@@ -810,13 +977,13 @@ private fun TvSeerrDetail(
     ) {
         item(key = "metadata") {
             Column(verticalArrangement = Arrangement.spacedBy(TvDimens.itemGap)) {
-                TvButton(
-                    stringResource(Res.string.seerr_refresh),
-                    { onIntent(SeerrIntent.Refresh) },
-                    seerrFocus(scope, "refresh", 0, onIntent, onLeft),
-                    enabled =
-                        !state.loading && !state.submitting && !state.reconciling,
-                )
+                if ((state.error != null || !state.admissionFresh) && !state.loading && !state.submitting && !state.reconciling) {
+                    TvButton(
+                        stringResource(Res.string.seerr_retry),
+                        { onIntent(SeerrIntent.Refresh) },
+                        seerrFocus(scope, "recovery", 0, onIntent, onLeft),
+                    )
+                }
                 if (state.loading) {
                     FocusableBox(
                         onClick = {},
@@ -843,68 +1010,74 @@ private fun TvSeerrDetail(
                     )
                 }
                 if (detail != null) {
-                    SeerrDetailHero(detail, {}, showBack = false)
-                    TvButton(
-                        seerrRequestActionText(state),
-                        { onIntent(SeerrIntent.ConfirmRequest) },
-                        seerrFocus(
-                            scope,
-                            "request",
-                            state.seasons.size + 4,
-                            onIntent,
-                            onLeft,
-                        ),
-                        enabled = state.canSubmit,
-                    )
-                    TvButton(
-                        stringResource(Res.string.seerr_open_library),
-                        {
-                            onIntent(
-                                SeerrIntent.RememberScroll(
-                                    true,
-                                    SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset),
+                    SeerrDetailHero(detail, {}, showBack = false, isTv = true) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap)) {
+                            TvButton(
+                                seerrRequestActionText(state),
+                                { onIntent(SeerrIntent.ConfirmRequest) },
+                                seerrFocus(
+                                    scope,
+                                    "request",
+                                    state.seasons.size + 4,
+                                    onIntent,
+                                    onLeft,
                                 ),
+                                enabled = state.canSubmit,
                             )
-                            onIntent(SeerrIntent.OpenLibrary)
-                        },
-                        seerrFocus(scope, "library", state.seasons.size + 5, onIntent, onLeft),
-                        enabled =
-                            !state.loading && !state.submitting && !state.resolvingLibrary && !state.reconciling,
-                    )
+                            if (state.libraryAvailable) {
+                                TvButton(
+                                    stringResource(Res.string.seerr_open_library),
+                                    {
+                                        onIntent(
+                                            SeerrIntent.RememberScroll(
+                                                true,
+                                                SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset),
+                                            ),
+                                        )
+                                        onIntent(SeerrIntent.OpenLibrary)
+                                    },
+                                    seerrFocus(scope, "library", state.seasons.size + 5, onIntent, onLeft),
+                                    enabled =
+                                        state.admissionFresh &&
+                                            !state.loading &&
+                                            !state.submitting &&
+                                            !state.resolvingLibrary &&
+                                            !state.reconciling,
+                                )
+                            }
+                            TvButton(
+                                seerrQualityText(SeerrQuality.Standard),
+                                {
+                                    onIntent(SeerrIntent.SelectQuality(SeerrQuality.Standard))
+                                },
+                                seerrFocus(scope, "standard", 1, onIntent, onLeft),
+                                enabled = state.selectionEnabled,
+                                selected =
+                                    state.quality == SeerrQuality.Standard,
+                            )
+                            if (state.showFourK) {
+                                TvButton(
+                                    seerrQualityText(SeerrQuality.FourK),
+                                    {
+                                        onIntent(SeerrIntent.SelectQuality(SeerrQuality.FourK))
+                                    },
+                                    seerrFocus(scope, "four-k", 2, onIntent, { false }),
+                                    enabled = state.selectionEnabled,
+                                    selected =
+                                        state.quality == SeerrQuality.FourK,
+                                )
+                            }
+                        }
+                    }
                     DetailText(seerrAvailabilityLine(SeerrQuality.Standard, detail.media.standardAvailability))
                     DetailText(seerrAvailabilityLine(SeerrQuality.FourK, detail.media.fourKAvailability))
                     DetailText(seerrQuotaText(detail.quota))
-                    DetailText(detail.overview ?: stringResource(Res.string.seerr_overview_missing))
                     if (detail.requests.isEmpty()) DetailText(stringResource(Res.string.seerr_no_requests))
                     detail.requests.forEach {
                         DetailText(seerrRequestLine(it))
                         if (it.seasons.isNotEmpty()) {
                             DetailText(
                                 stringResource(Res.string.seerr_season_selection, seerrSeasonNumbersText(it.seasons)),
-                            )
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(TvDimens.itemGap)) {
-                        TvButton(
-                            seerrQualityText(SeerrQuality.Standard),
-                            {
-                                onIntent(SeerrIntent.SelectQuality(SeerrQuality.Standard))
-                            },
-                            seerrFocus(scope, "standard", 1, onIntent, onLeft),
-                            enabled = state.selectionEnabled,
-                            selected =
-                                state.quality == SeerrQuality.Standard,
-                        )
-                        if (state.showFourK) {
-                            TvButton(
-                                seerrQualityText(SeerrQuality.FourK),
-                                {
-                                    onIntent(SeerrIntent.SelectQuality(SeerrQuality.FourK))
-                                },
-                                seerrFocus(scope, "four-k", 2, onIntent, { false }),
-                                enabled = state.selectionEnabled,
-                                selected =
-                                    state.quality == SeerrQuality.FourK,
                             )
                         }
                     }

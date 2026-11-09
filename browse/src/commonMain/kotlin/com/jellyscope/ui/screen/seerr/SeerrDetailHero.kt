@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -23,6 +21,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import com.jellyscope.core.domain.model.SeerrDetail
 import com.jellyscope.ui.adaptive.LocalWindowWidthTier
 import com.jellyscope.ui.adaptive.WindowWidthTier
@@ -44,9 +43,11 @@ fun SeerrDetailHero(
     detail: SeerrDetail,
     onBack: () -> Unit,
     showBack: Boolean = true,
+    isTv: Boolean = false,
+    actions: @Composable () -> Unit = {},
 ) {
     val compact = showBack && LocalWindowWidthTier.current == WindowWidthTier.Compact
-    Box(Modifier.fillMaxWidth().heightIn(min = DetailDimens.detailBackdropHeight)) {
+    Box(Modifier.fillMaxWidth()) {
         MeasuredAsyncImage(
             model = seerrArtworkUrl(detail.backdropUrl ?: detail.media.posterUrl),
             contentDescription = null,
@@ -55,7 +56,7 @@ fun SeerrDetailHero(
                 Modifier
                     .align(Alignment.TopEnd)
                     .fillMaxWidth(if (compact) 1f else DetailDimens.detailBackdropWidthFraction)
-                    .height(DetailDimens.detailBackdropHeight)
+                    .matchParentSize()
                     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                     .drawWithContent {
                         drawContent()
@@ -64,10 +65,10 @@ fun SeerrDetailHero(
                     },
         )
         FlowRow(
-            Modifier.fillMaxWidth().align(Alignment.BottomStart).padding(
+            Modifier.fillMaxWidth().align(Alignment.TopStart).padding(
                 start = Dimensions.screenPadding,
                 end = Dimensions.screenPadding,
-                top = Dimensions.minTouchTarget,
+                top = if (showBack) Dimensions.minTouchTarget else Dimensions.contentSpacing,
                 bottom = DetailDimens.detailHeroBottomPadding,
             ),
             horizontalArrangement = Arrangement.spacedBy(Dimensions.detailSectionSpacing),
@@ -78,8 +79,22 @@ fun SeerrDetailHero(
                 Modifier.widthIn(max = Dimensions.formControlMaxWidth),
                 verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing),
             ) {
-                Text(detail.media.title ?: stringResource(Res.string.seerr_untitled), style = MaterialTheme.typography.headlineLarge)
+                Text(
+                    detail.media.title ?: stringResource(Res.string.seerr_untitled),
+                    style = MaterialTheme.typography.headlineLarge,
+                    maxLines = if (isTv) 2 else Int.MAX_VALUE,
+                    overflow = if (isTv) TextOverflow.Ellipsis else TextOverflow.Clip,
+                )
                 Text(listOfNotNull(seerrMediaTypeText(detail.media.key.type), detail.media.year?.toString()).joinToString(" · "))
+                detail.overview?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = if (isTv) 3 else Int.MAX_VALUE,
+                        overflow = if (isTv) TextOverflow.Ellipsis else TextOverflow.Clip,
+                    )
+                }
+                actions()
             }
         }
         if (showBack) HeroDetailBackButton(stringResource(Res.string.seerr_back), onBack, Modifier.align(Alignment.TopStart))

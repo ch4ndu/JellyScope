@@ -98,6 +98,16 @@ class TvSeerrPresenter(
     private var pendingLibrary: PendingSeerrLibrary? = null
     private var cards = emptyList<SeerrMediaCard>()
     private var requests = emptyList<SeerrRequestSummary>()
+
+    private data class BrowseSnapshot(
+        val browse: TvSeerrBrowseState,
+        val cards: List<SeerrMediaCard>,
+        val requests: List<SeerrRequestSummary>,
+        val page: Int,
+        val nextSkip: Int,
+    )
+
+    private val browseSnapshots = mutableMapOf<TvSeerrSection, BrowseSnapshot>()
     private var page = 0
     private var nextSkip = 0
     private var detail: SeerrDetail? = null
@@ -181,9 +191,27 @@ class TvSeerrPresenter(
 
             is TvSeerrIntent.SelectSection -> selectSection(intent.section)
             is TvSeerrIntent.SelectCatalog -> selectCatalog(intent.catalog, "")
-            is TvSeerrIntent.Search -> selectCatalog(SeerrCatalog.Search, intent.query.trim())
+            is TvSeerrIntent.Search -> if (intent.query.isNotBlank()) selectCatalog(SeerrCatalog.Search, intent.query.trim())
+            is TvSeerrIntent.QueryChanged -> {
+                if (!canShowCatalog() ||
+                    state.value.section != TvSeerrSection.Search ||
+                    detailKey != null ||
+                    mutation is TvSeerrMutation.Submitting
+                ) {
+                    return
+                }
+                listGeneration++
+                listJob?.cancel()
+                reduce(TvSeerrChange.Browse(state.value.browse.copy(query = intent.query, loading = false)))
+            }
+            TvSeerrIntent.ClearSearch -> selectCatalog(SeerrCatalog.Search, "")
             TvSeerrIntent.Refresh -> if (detailKey != null) loadDetail() else loadList(append = false)
             TvSeerrIntent.LoadMore -> loadList(append = true)
+            is TvSeerrIntent.RememberBrowsePosition -> {
+                if (canShowCatalog() && state.value.section == intent.section && detailKey == null) {
+                    reduce(TvSeerrChange.Browse(state.value.browse.copy(verticalAnchor = intent.id)))
+                }
+            }
             is TvSeerrIntent.FocusCard -> reduce(TvSeerrChange.Browse(state.value.browse.copy(focusedCardId = intent.id)))
             is TvSeerrIntent.OpenDetail -> openDetail(intent.id)
             TvSeerrIntent.Back -> back()
@@ -197,7 +225,9 @@ class TvSeerrPresenter(
             is TvSeerrIntent.ValidateService -> validate(intent.url)
             is TvSeerrIntent.Login -> login(intent)
             is TvSeerrIntent.BeginQuickConnect -> quickConnect(intent.url)
-            TvSeerrIntent.CancelAuthentication -> cancelAuth()
+            TvSeerrIntent.CancelAuthentication -> {
+                if (state.value.section == TvSeerrSection.Connection) selectSection(TvSeerrSection.Discover) else cancelAuth()
+            }
             TvSeerrIntent.RestoreConnection -> loadConnection(restore = true)
             TvSeerrIntent.Disconnect -> disconnectConnection()
             TvSeerrIntent.Hidden -> {
@@ -295,6 +325,7 @@ class TvSeerrPresenter(
     }
 
     private fun clearContent() {
+        browseSnapshots.clear()
         history.clear()
         cancelReads()
         mutationJob?.cancel()
@@ -556,13 +587,17 @@ class TvSeerrPresenter(
             }
     }
 
-    private fun selectSection(section: TvSeerrSection) {
+    private fun selectSection(
+        section: TvSeerrSection,
+        load: Boolean = true,
+    ) {
         if (mutation !is TvSeerrMutation.Submitting) history.clear()
         if (mutation is TvSeerrMutation.Submitting) return
         if (section == state.value.section) {
             if (detailKey != null) back()
             return
         }
+        browseSnapshots[state.value.section] = BrowseSnapshot(state.value.browse.copy(loading = false), cards, requests, page, nextSkip)
         cancelReads()
         if (authToken != null) cancelAuth()
         detail = null
@@ -571,10 +606,20 @@ class TvSeerrPresenter(
         mutation = TvSeerrMutation.None
         reduce(TvSeerrChange.Section(section))
         if (section != TvSeerrSection.Connection) {
-            cards = emptyList()
-            requests = emptyList()
-            reduce(TvSeerrChange.Browse(state.value.browse.copy(cards = emptyList(), loaded = false, focusedCardId = null)))
-            loadList(append = false)
+            val saved = browseSnapshots[section]
+            cards = saved?.cards.orEmpty()
+            requests = saved?.requests.orEmpty()
+            page = saved?.page ?: 0
+            nextSkip = saved?.nextSkip ?: 0
+            reduce(
+                TvSeerrChange.Browse(
+                    saved?.browse ?: TvSeerrBrowseState(
+                        catalog = if (section == TvSeerrSection.Search) SeerrCatalog.Search else SeerrCatalog.Trending,
+                        hideAvailable = hideAvailable,
+                    ),
+                ),
+            )
+            if (load && !state.value.browse.loaded) loadList(append = false)
         }
     }
 
@@ -583,6 +628,7 @@ class TvSeerrPresenter(
         query: String,
     ) {
         if (mutation is TvSeerrMutation.Submitting || !canShowCatalog()) return
+        selectSection(if (catalog == SeerrCatalog.Search) TvSeerrSection.Search else TvSeerrSection.Discover, load = false)
         cancelReads()
         history.clear()
         detailKey = null
@@ -591,8 +637,13 @@ class TvSeerrPresenter(
         cards = emptyList()
         requests = emptyList()
         mutation = TvSeerrMutation.None
-        reduce(TvSeerrChange.Section(TvSeerrSection.Discover))
-        reduce(TvSeerrChange.Browse(TvSeerrBrowseState(catalog = catalog, query = query, hideAvailable = hideAvailable)))
+        page = 0
+        nextSkip = 0
+        reduce(
+            TvSeerrChange.Browse(
+                TvSeerrBrowseState(catalog = catalog, query = query, submittedQuery = query, hideAvailable = hideAvailable),
+            ),
+        )
         loadList(append = false)
     }
 
@@ -607,26 +658,33 @@ class TvSeerrPresenter(
         ) {
             return
         }
+        if (current.section == TvSeerrSection.Search && current.browse.submittedQuery.isBlank()) return
         if (append && (current.browse.loading || !current.browse.hasMore)) return
         cancelReads()
         val generation = ++listGeneration
+        val currentList = {
+            generation == listGeneration &&
+                state.value.section == current.section &&
+                state.value.browse.submittedQuery == current.browse.submittedQuery &&
+                state.value.browse.catalog == current.browse.catalog
+        }
         val requestedPage = if (append) page + 1 else 1
         val skip = if (append) nextSkip else 0
         reduce(TvSeerrChange.Browse(current.browse.copy(loading = true, errorKey = null)))
         listJob =
             scope.launch {
                 if (current.section == TvSeerrSection.Requests) {
-                    publishResult(getRequests(captured, skip), true, { generation == listGeneration }, ::listFailure) { result ->
+                    publishResult(getRequests(captured, skip), true, currentList, ::listFailure) { result ->
                         requests = ((if (append) requests else emptyList()) + result.items.map { it.request }).distinctBy { it.id }
                         publishCards(result.items.map { it.media }, append, result.page, result.hasMore, result.nextSkip)
                     }
-                } else if (current.browse.catalog == SeerrCatalog.Search && current.browse.query.isBlank()) {
+                } else if (current.browse.catalog == SeerrCatalog.Search && current.browse.submittedQuery.isBlank()) {
                     reduce(TvSeerrChange.Browse(current.browse.copy(loaded = false, loading = false)))
                 } else {
                     publishResult(
-                        getCatalog(captured, current.browse.catalog, requestedPage, current.browse.query),
+                        getCatalog(captured, current.browse.catalog, requestedPage, current.browse.submittedQuery),
                         true,
-                        { generation == listGeneration },
+                        currentList,
                         ::listFailure,
                     ) { result ->
                         publishCards(result.items, append, result.page, result.hasMore, 0)

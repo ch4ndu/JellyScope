@@ -157,27 +157,31 @@ class SeerrViewModel(
                 if (!state.value.feed.loaded) loadFeed()
             }
             is SeerrIntent.SelectCatalog -> {
-                if (!catalogAllowed() || intent.catalog == SeerrCatalog.Search) return
+                if (!catalogAllowed() || state.value.section != SeerrSection.Discover || intent.catalog == SeerrCatalog.Search) return
                 cancelReads()
                 reduce(SeerrChange.Catalog(intent.catalog))
                 loadFeed()
             }
             is SeerrIntent.QueryChanged -> {
+                if (!catalogAllowed() || state.value.section != SeerrSection.Search || state.value.detail != null) return
                 cancelList()
                 reduce(SeerrChange.Query(intent.text))
             }
             SeerrIntent.SubmitSearch -> {
                 val query = state.value.query.trim()
-                if (query.isEmpty() || !catalogAllowed()) return
+                if (query.isEmpty() || !catalogAllowed() || state.value.detail?.submitting == true) return
                 cancelReads()
+                reduce(SeerrChange.Section(SeerrSection.Search))
+                reduce(SeerrChange.Query(query))
                 reduce(SeerrChange.Catalog(SeerrCatalog.Search, query))
                 loadFeed()
             }
             SeerrIntent.ClearSearch -> {
+                if (state.value.detail?.submitting == true) return
                 cancelReads()
                 reduce(SeerrChange.Query(""))
-                reduce(SeerrChange.Catalog(SeerrCatalog.Trending))
-                loadFeed()
+                reduce(SeerrChange.Section(SeerrSection.Search))
+                reduce(SeerrChange.Catalog(SeerrCatalog.Search))
             }
             SeerrIntent.Refresh -> state.value.detail?.let { loadDetail(it.key) } ?: loadFeed()
             SeerrIntent.LoadMore -> if (state.value.feed.hasMore && !state.value.feed.loading) loadFeed(more = true)
@@ -262,6 +266,7 @@ class SeerrViewModel(
                 manage { disconnect(owner) }
             }
             is SeerrIntent.RememberScroll -> {
+                if (intent.section != null && intent.section != state.value.section) return
                 if (intent.detail) {
                     state.value.detail?.let { reduce(SeerrChange.Detail(it.copy(scroll = intent.position))) }
                 } else {
@@ -270,6 +275,9 @@ class SeerrViewModel(
             }
             is SeerrIntent.Focused -> {
                 reduce(SeerrChange.Focus(intent.id))
+                if (state.value.detail == null && state.value.section != SeerrSection.Connection) {
+                    reduce(SeerrChange.Feed(state.value.section, state.value.feed.copy(selectedId = intent.id)))
+                }
                 updateDetail { it.copy(focusedId = intent.id) }
             }
             SeerrIntent.Disposed -> Unit
@@ -363,6 +371,7 @@ class SeerrViewModel(
         listJob = null
         reduce(SeerrChange.Feed(SeerrSection.Discover, state.value.discover.copy(loading = false)))
         reduce(SeerrChange.Feed(SeerrSection.Requests, state.value.requests.copy(loading = false)))
+        reduce(SeerrChange.Feed(SeerrSection.Search, state.value.search.copy(loading = false)))
     }
 
     private fun cancelReads() {
@@ -563,13 +572,20 @@ class SeerrViewModel(
         val generation = listGeneration
         val section = state.value.section
         val previous = state.value.feed
-        val catalog = state.value.catalog
-        val query = state.value.submittedQuery
+        val catalog = if (section == SeerrSection.Search) SeerrCatalog.Search else state.value.catalog
+        val query = if (section == SeerrSection.Search) state.value.submittedQuery else ""
+        if (section == SeerrSection.Search && query.isBlank()) return
         val page = if (more) previous.page + 1 else 1
         reduce(SeerrChange.Feed(section, previous.copy(loading = true, error = null)))
         listJob =
             viewModelScope.launch {
-                val current = { generation == listGeneration && state.value.section == section && state.value.detail == null }
+                val current = {
+                    generation == listGeneration &&
+                        state.value.section == section &&
+                        state.value.detail == null &&
+                        (section != SeerrSection.Search || state.value.submittedQuery == query) &&
+                        (section != SeerrSection.Discover || state.value.catalog == catalog)
+                }
                 val failed: (
                     SeerrError,
                 ) -> Unit = { error -> reduce(SeerrChange.Feed(section, state.value.feed.copy(loading = false, error = error))) }
@@ -670,6 +686,10 @@ class SeerrViewModel(
     }
 
     private fun back() {
+        if (state.value.section == SeerrSection.Connection && state.value.detail == null) {
+            accept(SeerrIntent.SelectSection(SeerrSection.Discover))
+            return
+        }
         if (state.value.connection.authenticating) {
             cancelAuth()
             return

@@ -88,7 +88,6 @@ import com.jellyscope.ui.generated.resources.seerr_loading
 import com.jellyscope.ui.generated.resources.seerr_movie
 import com.jellyscope.ui.generated.resources.seerr_no_requests
 import com.jellyscope.ui.generated.resources.seerr_open_library
-import com.jellyscope.ui.generated.resources.seerr_overview_missing
 import com.jellyscope.ui.generated.resources.seerr_poster
 import com.jellyscope.ui.generated.resources.seerr_quota_exceeded
 import com.jellyscope.ui.generated.resources.seerr_quota_remaining
@@ -96,7 +95,6 @@ import com.jellyscope.ui.generated.resources.seerr_quota_unavailable
 import com.jellyscope.ui.generated.resources.seerr_quota_unlimited
 import com.jellyscope.ui.generated.resources.seerr_reconcile
 import com.jellyscope.ui.generated.resources.seerr_reconciled
-import com.jellyscope.ui.generated.resources.seerr_refresh
 import com.jellyscope.ui.generated.resources.seerr_related_error
 import com.jellyscope.ui.generated.resources.seerr_related_interrupted
 import com.jellyscope.ui.generated.resources.seerr_request
@@ -139,10 +137,29 @@ fun SeerrDetailContent(
 ) {
     val requestFocus = remember { FocusRequester() }
     val libraryFocus = remember { FocusRequester() }
-    LaunchedEffect(state.focusedId, state.confirmation, state.loading) {
+    val qualityFocus = remember { FocusRequester() }
+    val fourKFocus = remember { FocusRequester() }
+    val recoveryFocus = remember { FocusRequester() }
+    val recoveryVisible = state.detail == null || state.error != null || (!state.admissionFresh && !state.loading)
+    val recoveryEnabled = recoveryVisible && !state.loading && !state.submitting && !state.reconciling
+    LaunchedEffect(state.focusedId, state.confirmation, state.loading, state.canSubmit, state.admissionFresh, recoveryEnabled) {
         if (state.confirmation == null && !state.loading) {
-            if (state.focusedId == "request") requestFocus.requestFocusSafely()
-            if (state.focusedId == "library") libraryFocus.requestFocusSafely()
+            when {
+                state.focusedId == "recovery" && recoveryEnabled -> recoveryFocus.requestFocusSafely()
+                state.focusedId == "library" && state.libraryAvailable && state.selectionEnabled && !state.resolvingLibrary ->
+                    libraryFocus
+                        .requestFocusSafely()
+                state.focusedId == "standard" && state.selectionEnabled -> qualityFocus.requestFocusSafely()
+                state.focusedId == "four-k" && state.selectionEnabled && state.showFourK -> fourKFocus.requestFocusSafely()
+                state.focusedId in listOf(null, "request", "library", "standard", "four-k", "recovery") ->
+                    when {
+                        state.canSubmit -> requestFocus.requestFocusSafely()
+                        state.libraryAvailable && state.selectionEnabled && !state.resolvingLibrary -> libraryFocus.requestFocusSafely()
+                        state.selectionEnabled -> qualityFocus.requestFocusSafely()
+                        recoveryEnabled -> recoveryFocus.requestFocusSafely()
+                        else -> Unit
+                    }
+            }
         }
     }
     val scroll = rememberLazyListState(state.scroll.index, state.scroll.offset)
@@ -164,17 +181,91 @@ fun SeerrDetailContent(
     ) {
         if (detail != null) {
             item(key = "hero", contentType = "hero") {
-                SeerrDetailHero(detail, { if (!state.submitting) onIntent(SeerrIntent.Back) })
+                SeerrDetailHero(detail, { if (!state.submitting) onIntent(SeerrIntent.Back) }) {
+                    FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing)) {
+                        Button(
+                            enabled = state.canSubmit,
+                            modifier =
+                                Modifier
+                                    .focusRequester(
+                                        requestFocus,
+                                    ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("request")) },
+                            onClick = { onIntent(SeerrIntent.ConfirmRequest) },
+                        ) { Text(seerrRequestActionText(state)) }
+                        if (state.libraryAvailable) {
+                            Button(
+                                enabled =
+                                    state.admissionFresh &&
+                                        !state.resolvingLibrary &&
+                                        !state.submitting &&
+                                        !state.loading &&
+                                        !state.reconciling,
+                                modifier =
+                                    Modifier
+                                        .focusRequester(
+                                            libraryFocus,
+                                        ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("library")) },
+                                onClick = {
+                                    onIntent(SeerrIntent.Focused("library"))
+                                    onIntent(
+                                        SeerrIntent.RememberScroll(
+                                            true,
+                                            SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset),
+                                        ),
+                                    )
+                                    onIntent(SeerrIntent.OpenLibrary)
+                                },
+                            ) { Text(stringResource(Res.string.seerr_open_library)) }
+                        }
+                        FilterChip(
+                            modifier =
+                                Modifier
+                                    .focusRequester(
+                                        qualityFocus,
+                                    ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("standard")) },
+                            selected =
+                                state.quality == SeerrQuality.Standard,
+                            enabled = state.selectionEnabled,
+                            onClick = {
+                                onIntent(SeerrIntent.SelectQuality(SeerrQuality.Standard))
+                            },
+                            label = { Text(seerrQualityText(SeerrQuality.Standard)) },
+                        )
+                        if (state.showFourK) {
+                            FilterChip(
+                                modifier =
+                                    Modifier
+                                        .focusRequester(
+                                            fourKFocus,
+                                        ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("four-k")) },
+                                selected =
+                                    state.quality == SeerrQuality.FourK,
+                                enabled = state.selectionEnabled,
+                                onClick = {
+                                    onIntent(SeerrIntent.SelectQuality(SeerrQuality.FourK))
+                                },
+                                label = { Text(seerrQualityText(SeerrQuality.FourK)) },
+                            )
+                        }
+                    }
+                }
             }
         }
-        item(key = "refresh", contentType = "actions") {
-            FlowRow(modifier = content, horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing)) {
-                if (detail == null) TextButton(onClick = { onIntent(SeerrIntent.Back) }) { Text(stringResource(Res.string.seerr_back)) }
-                TextButton(
-                    enabled = !state.loading && !state.submitting && !state.reconciling,
-                    onClick = { onIntent(SeerrIntent.Refresh) },
-                ) {
-                    Text(stringResource(Res.string.seerr_refresh))
+        if (recoveryVisible) {
+            item(key = "recovery", contentType = "actions") {
+                FlowRow(modifier = content, horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing)) {
+                    if (detail == null) TextButton(onClick = { onIntent(SeerrIntent.Back) }) { Text(stringResource(Res.string.seerr_back)) }
+                    if (recoveryEnabled) {
+                        TextButton(
+                            modifier =
+                                Modifier.focusRequester(recoveryFocus).onFocusChanged {
+                                    if (it.isFocused) onIntent(SeerrIntent.Focused("recovery"))
+                                },
+                            onClick = { onIntent(SeerrIntent.Refresh) },
+                        ) {
+                            Text(stringResource(Res.string.seerr_retry))
+                        }
+                    }
                 }
             }
         }
@@ -199,42 +290,10 @@ fun SeerrDetailContent(
         }
         if (detail != null) {
             item {
-                FlowRow(modifier = content, horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing)) {
-                    Button(
-                        enabled = state.canSubmit,
-                        modifier =
-                            Modifier
-                                .focusRequester(
-                                    requestFocus,
-                                ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("request")) },
-                        onClick = { onIntent(SeerrIntent.ConfirmRequest) },
-                    ) { Text(seerrRequestActionText(state)) }
-                    Button(
-                        enabled = !state.resolvingLibrary && !state.submitting && !state.loading && !state.reconciling,
-                        modifier =
-                            Modifier
-                                .focusRequester(
-                                    libraryFocus,
-                                ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("library")) },
-                        onClick = {
-                            onIntent(SeerrIntent.Focused("library"))
-                            onIntent(
-                                SeerrIntent.RememberScroll(
-                                    true,
-                                    SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset),
-                                ),
-                            )
-                            onIntent(SeerrIntent.OpenLibrary)
-                        },
-                    ) { Text(stringResource(Res.string.seerr_open_library)) }
-                }
-            }
-            item {
                 Column(content, verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
                     Text(seerrAvailabilityLine(SeerrQuality.Standard, detail.media.standardAvailability))
                     Text(seerrAvailabilityLine(SeerrQuality.FourK, detail.media.fourKAvailability))
                     Text(seerrQuotaText(detail.quota))
-                    Text(detail.overview ?: stringResource(Res.string.seerr_overview_missing))
                 }
             }
             if (detail.requests.isEmpty()) item { Text(stringResource(Res.string.seerr_no_requests), modifier = content) }
@@ -245,18 +304,6 @@ fun SeerrDetailContent(
                         Text(
                             stringResource(Res.string.seerr_season_selection, seerrSeasonNumbersText(request.seasons)),
                         )
-                    }
-                }
-            }
-            item {
-                FlowRow(modifier = content, horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing)) {
-                    FilterChip(selected = state.quality == SeerrQuality.Standard, enabled = state.selectionEnabled, onClick = {
-                        onIntent(SeerrIntent.SelectQuality(SeerrQuality.Standard))
-                    }, label = { Text(seerrQualityText(SeerrQuality.Standard)) })
-                    if (state.showFourK) {
-                        FilterChip(selected = state.quality == SeerrQuality.FourK, enabled = state.selectionEnabled, onClick = {
-                            onIntent(SeerrIntent.SelectQuality(SeerrQuality.FourK))
-                        }, label = { Text(seerrQualityText(SeerrQuality.FourK)) })
                     }
                 }
             }
@@ -568,6 +615,7 @@ private fun SeerrSeasonsContent(
             verticalArrangement = Arrangement.spacedBy(Dimensions.labelGlyphSpacing),
         ) {
             FilterChip(
+                modifier = Modifier.onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("season:${season.season.number}")) },
                 selected = season.selected,
                 enabled = season.enabled,
                 onClick = { onIntent(SeerrIntent.ToggleSeason(season.season.number)) },

@@ -18,7 +18,7 @@ import com.jellyscope.core.domain.model.SeerrQuotaKind
 import com.jellyscope.core.domain.model.SeerrRequestStatus
 import com.jellyscope.core.domain.model.SeerrRequestSummary
 
-enum class TvSeerrSection { Discover, Requests, Connection }
+enum class TvSeerrSection { Discover, Requests, Search, Connection }
 
 data class TvSeerrConnectionState(
     // An empty edited draft must not be replaced by an initial connection snapshot.
@@ -68,12 +68,14 @@ data class TvSeerrBrowseState(
     val hideAvailable: Boolean = true,
     val catalog: SeerrCatalog = SeerrCatalog.Trending,
     val query: String = "",
+    val submittedQuery: String = "",
     val cards: List<TvSeerrCard> = emptyList(),
     val loading: Boolean = false,
     val loaded: Boolean = false,
     val errorKey: String? = null,
     val hasMore: Boolean = false,
     val focusedCardId: String? = null,
+    val verticalAnchor: String? = null,
 )
 
 data class TvSeerrSeason(
@@ -119,6 +121,7 @@ data class TvSeerrDetailState(
     val requestReasonKey: String? = null,
     val reconciliationRequired: Boolean = false,
     val resolvingLibrary: Boolean = false,
+    val libraryAvailable: Boolean = false,
 )
 
 data class TvSeerrConfirmation(
@@ -174,6 +177,12 @@ sealed interface TvSeerrIntent {
         val catalog: SeerrCatalog,
     ) : TvSeerrIntent
 
+    data object ClearSearch : TvSeerrIntent
+
+    data class QueryChanged(
+        val query: String,
+    ) : TvSeerrIntent
+
     data class Search(
         val query: String,
     ) : TvSeerrIntent
@@ -181,6 +190,11 @@ sealed interface TvSeerrIntent {
     data object Refresh : TvSeerrIntent
 
     data object LoadMore : TvSeerrIntent
+
+    data class RememberBrowsePosition(
+        val section: TvSeerrSection,
+        val id: String?,
+    ) : TvSeerrIntent
 
     data class FocusCard(
         val id: String,
@@ -355,6 +369,19 @@ internal fun SeerrDetail.toTvSeerr(
     return TvSeerrDetailState(
         card = media.toTvSeerr(requests),
         overview = overview,
+        libraryAvailable =
+            (
+                if (quality ==
+                    SeerrQuality.Standard
+                ) {
+                    media.standardAvailability
+                } else {
+                    media.fourKAvailability
+                }
+            ).let {
+                it == SeerrAvailability.Available ||
+                    it == SeerrAvailability.PartiallyAvailable
+            },
         backdropUrl = backdropUrl,
         cast = cast,
         loading = false,
