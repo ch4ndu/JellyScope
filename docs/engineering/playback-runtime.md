@@ -178,10 +178,19 @@ shared budget and the first admissible signal wins: one buffering interval of at
 least 5 seconds,
 10 seconds of buffering in a rolling 60-second window, three post-start
 `Playing`→`Buffering` stalls in 60 seconds, or sustained dropped-frame evidence
-of at least 2 frames/second for 20 seconds within 60 seconds. Existing dropped-
-frame measurements remain duration spans, not report counts; stale batch spans
-and spans crossing the 2-second exclusion after seek, prepare, re-plan, resume,
-or backend replacement are rejected or clipped before they qualify.
+of at least 2 frames/second for 20 seconds within 60 seconds.
+
+Dropped-frame evidence accumulates qualifying measured duration, never report
+count or wall-clock polling. Each occurrence spans
+`[arrival - intervalMs, arrival]`; its average rate must be at least 2 fps while
+Playing, and its whole span must postdate reset and the two-second exclusion
+after seek, prepare, re-plan, resume or backend replacement. Reject stale batches
+and spans crossing those boundaries; clip accepted spans only to the rolling
+60-second window. Clear evidence on leaving Playing, a new session, retry,
+replan, queue change or controller replacement. This prevents Media3's 50-frame
+batches from counting
+like LibVLC's roughly one-second polls or attributing pre-seek drops to later
+playback.
 
 `PlaybackHealthSessionCoordinator` owns generation-scoped timer evaluation.
 Failure, completion, stop, item switch and disposal cancel its jobs; a stale
@@ -266,10 +275,8 @@ This restart contract covers VLCKit PiP. AVPlayer native PiP play/pause/skip and
 Apple audio interruption/route-loss intent changes remain unassessed here.
 Snapshot admission, rejection and consumption are not separately logged.
 
-The bounded health summary additionally records which gate suppressed a would-be
-warning (`postStartGuidanceShown`, `noVideoOutputGuidanceShown`, the resolved guidance
-policy, `guidancePublishable`, and whether a buffering interval opened since the
-last restart), because gates that emit no signal are invisible to signal-scoped
+The bounded health summary records diagnostic suppression reasons for would-be
+warnings, because gates that emit no signal are invisible to signal-scoped
 logging.
 
 The shared health evaluator supplies evidence and
@@ -794,14 +801,8 @@ proposal cancellation does not undo an already-admitted reporting Stop.
   lower quality**, **Try higher quality**, **Try Original**, and **Dismiss**.
   It never lowers automatically or sends the user to Playback Settings.
 
-- **[all]** Dropped-frame evidence is accumulated qualifying measured duration,
-  never report count or wall-clock polling. Each occurrence spans
-  `[arrival - intervalMs, arrival]`; its average rate must be at least 2 fps while
-  Playing, and its whole span must postdate reset and the two-second exclusion.
-  Clip accepted spans to the rolling 60-second window; 20 seconds qualifies.
-  Clear on leaving Playing, session/retry/replan/queue/controller replacement.
-  This avoids treating Media3's 50-frame batches as equivalent to LibVLC's
-  roughly one-second polls or attributing pre-seek drops to later playback.
+- **[all]** Dropped-frame qualification follows
+  [Playback health and guidance](#playback-health-and-guidance).
 - **[all]** A `Network` playback failure gets exactly one automatic
   position-preserving replan with the default request policy before becoming
   fatal. Offline plans are excluded. The one-shot flag is per item playback

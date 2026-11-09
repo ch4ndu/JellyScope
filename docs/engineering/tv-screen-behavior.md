@@ -307,9 +307,12 @@ Transfer and storage semantics belong to
   TV has no per-account Sign out.
 - `TvSettingsTileId` owns inventory/order. Account, Appearance, Playback, Skip
   segments, Advanced playback, Services & About and Diagnostics remain fully
-  composed horizontal rows in one scroller. Every tile, including read-only
-  details, is focusable; do not duplicate inventory in rendering code or guides.
-- Tile circles hold only the glyph; centered single-line title/value sit below.
+  composed horizontal rows in one vertical scroller, without a separate page
+  title. The vertical progress indicator is non-focusable. Every tile, including
+  read-only details, is focusable; do not duplicate inventory in rendering code
+  or guides.
+- Fixed-size focusable tile circles hold only the glyph; stationary centered
+  single-line title/value sit below. Each row owns its horizontal scroll state.
   Focused overflow marquees; unfocused text ellipsizes. Border/glow/zoom affect
   only the circle, with fixed reserve so metadata does not move or clip.
 - Rail entry retries the last focused tile, using Server before any tile has
@@ -344,8 +347,11 @@ Transfer and storage semantics belong to
   availability follow [Android policy](playback-runtime.md#backend-selection),
   without Auto and applying next session. In-player quality additionally exposes
   Use playback default and its inherited source. Read-only tiles open details.
-- Focus zoom follows the existing preference (1.1 or 1.0). Theme glow is 4 dp at
-  14% accent opacity, and theme choices show shared swatches.
+- Settings chrome is palette-driven: cyan focus/selection and error for
+  destructive confirmations. Focus zoom follows the preference (1.1 or 1.0).
+  Theme glow matches launch/login at 4 dp spread and 14% accent opacity; theme
+  choices show shared swatches. `TvDimens` owns geometry, TV resources own text,
+  and the shared Settings vector set owns glyphs.
 
 ## Watch Next
 

@@ -142,68 +142,69 @@ unqualified for this redesign. Earlier installation evidence below is separate.
 
 ## TiVo Stream 4K installation attempt — 2026-10-23
 
-User authorized installing the Release APK and investigating the missing-activity
-error. Device: TiVo Stream 4K / SEI400TV, Android 12/API 31,
-firmware `SC.1272 release-keys`, ARMv7 (`armeabi-v7a,armeabi`).
-Source revision: `32898a1a`; launcher version 0.1.0/versionCode 1.
-Release APK SHA-256:
+The following records cover the 2026-10-23 installation investigation and its
+follow-up checkpoints, not today's device state. User authorized Release APK
+installation and investigation of the missing-activity error. Device: TiVo
+Stream 4K / SEI400TV, Android 12/API 31, firmware `SC.1272 release-keys`,
+ARMv7 (`armeabi-v7a,armeabi`). Source revision `32898a1a`; launcher
+0.1.0/versionCode 1. Release APK SHA-256:
 `43065384dc8117ba53b7b4061e9fef3a2995294cefcf2e5aceb207d5728302ac`.
 
-`assembleRelease` passed. `adb install -r` reported Success, but subsequent
-package lookup was empty and explicit `am start -W` returned Error type 3 for
-`com.udnahc.jellyscope.launcher/com.jellyscope.launcher.MainActivity`.
-The packaged manifest declares that exact activity. Device logs show
-`EvoBlackListAppsFun` identifying the non-system launcher, followed by
-`AppUtil: uninstallAsUser` for its package and package-removal events.
-
-This establishes firmware-driven removal after installation, not a missing
-Activity declaration or an app startup crash. Home eligibility is the suspected
-trigger; a build without that eligibility has not yet been tested. No vendor
-services were disabled, no default Home was changed, and no ordinary-app,
-login, playback, remote or live-server behavior was validated. The user requested device debloating instead of an ordinary-app variant.
-After explicit risk/rollback approval, firmware rejected disabling
-`com.nes.coreservice` with “Warning! This command is illegal!”. It also rejected
-ordinary TiVo `sageservice` and `tvlaunchercustomization` disable commands.
-At that checkpoint the core service remained enabled; disabled-package lists were identical.
-A subsequently authorized `pm uninstall -k --user 0 com.nes.coreservice` attempt
-was also rejected because the firmware identifies it as a core application. Those attempts changed no existing device packages; the launcher remained absent
-until the subsequent user intervention below.
+- **Initial installation:** `assembleRelease` passed and `adb install -r`
+  reported Success, but package lookup was empty and explicit `am start -W`
+  returned Error type 3 for
+  `com.udnahc.jellyscope.launcher/com.jellyscope.launcher.MainActivity`.
+  The packaged manifest declared that activity. Logs showed
+  `EvoBlackListAppsFun` identifying the non-system launcher, then
+  `AppUtil: uninstallAsUser` and package-removal events: firmware-driven removal,
+  rather than a missing declaration or startup crash. Home eligibility was the
+  suspected trigger; no variant without it was tested at this checkpoint.
+  No vendor service/default Home change or ordinary-app, login, playback,
+  remote or live-server validation occurred.
+- **Authorized debloating attempts:** the user chose debloating over an
+  ordinary-app variant and explicitly approved risk/rollback. Firmware rejected
+  disabling `com.nes.coreservice` with “Warning! This command is illegal!”,
+  and rejected ordinary TiVo `sageservice` and `tvlaunchercustomization`
+  disable commands. CoreService stayed enabled and disabled-package lists
+  matched. A separately authorized
+  `pm uninstall -k --user 0 com.nes.coreservice` was rejected as a core
+  application. These attempts changed no existing packages; the launcher was
+  absent until the later user intervention.
 
 ### Authorized Shizuku and Canta attempt
 
-Official Shizuku 13.6.0 (r1086) and Canta 4.0.0 were installed. Canta's APK
-certificate matched its published developer fingerprint. Shizuku started with
-its displayed ADB command, and Canta received Shizuku access. Only
-`com.nes.coreservice` was selected and confirmed for removal.
+At the next investigation checkpoint, official Shizuku 13.6.0 (r1086) and
+Canta 4.0.0 were installed; Canta's APK certificate matched its published
+developer fingerprint. Shizuku started with its displayed ADB command and
+Canta received access. Only `com.nes.coreservice` was selected/confirmed.
 
-Canta logged `DELETE_FAILED_INTERNAL_ERROR` (status 1). Subsequent package
-inspection still reported `installed=true`, default enabled state, and the same
-running CoreService process. No more specific cause appeared in the inspected
-package-manager log. Disabled-package state was unchanged, ADB remained connected,
-and Google TV Home remained the default. This attempt does not establish that
-all direct-API approaches fail; it establishes that this Canta removal failed.
-The launcher was not reinstalled because its removal service remained active.
-Shizuku and Canta remain installed; no reboot or alternate launcher variant was used.
+Canta returned `DELETE_FAILED_INTERNAL_ERROR` (status 1). Package inspection
+still showed `installed=true`, default enabled state and the same running
+CoreService process; the inspected package-manager log gave no more specific
+cause. Disabled-package state was unchanged, ADB stayed connected and Google TV
+Home stayed default. This establishes failure of this Canta method, without
+qualifying all direct-API approaches. The launcher was not reinstalled while
+the removal service stayed active. Shizuku/Canta were left installed at this
+checkpoint; no reboot or alternate launcher variant was used.
 
 ### Successful installation after user intervention
 
-The user subsequently reported uninstalling CoreService; their removal method
-was not observed. ADB verified `installed=false`, `stopped=true`, and no running
-`com.nes.coreservice` process for user 0. The unchanged Release APK identified
-above then installed successfully. Explicit cold launch returned `Status: ok`,
-with 667 ms reported Activity launch time. This single startup measurement is not
-a performance qualification.
+At the subsequent follow-up, the user reported uninstalling CoreService by an
+unobserved method. ADB independently showed `installed=false`, `stopped=true`
+and no running `com.nes.coreservice` process for user 0. The unchanged APK above
+then installed; explicit cold launch returned `Status: ok` and 667 ms Activity
+launch time, a single observation without performance qualification.
 
-The launcher remained installed and running during follow-up checks. The resumed
-Activity was `com.jellyscope.launcher.MainActivity`; the UI hierarchy showed
-Essentials, Jellyfin, Apps/Add apps, All apps, Launcher settings and System settings.
-Package flags did not include DEBUGGABLE. No fatal exception or fatal signal was
-found in the inspected launcher-process log. This verifies installation and basic
-signed-out startup on this modified device, not login, playback or full remote UX.
-At that earlier checkpoint Google TV Home was the observed default; no reboot
-or default selection was performed by the check. The later role/resolver
-discrepancy is recorded above.
-Retention across reboot or future firmware updates remains unverified.
+During those checks the launcher stayed installed/running, resumed
+`com.jellyscope.launcher.MainActivity`, and showed Essentials, Jellyfin,
+Apps/Add apps, All apps, Launcher settings and System settings in the UI
+hierarchy. Package flags excluded DEBUGGABLE; the inspected launcher-process
+log contained no fatal exception/signal. This establishes installation and basic
+signed-out startup on that modified device only; login, playback and full remote
+UX were unverified. Google TV Home was the observed default at this checkpoint;
+no reboot/default selection occurred. The later role/resolver discrepancy is
+recorded above. Retention across reboot or future firmware updates was not
+established.
 
 ## Implemented host-side boundary
 

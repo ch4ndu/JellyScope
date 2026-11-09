@@ -261,10 +261,12 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   active session server URL. Platform bridges should treat unsupported sidecar
   formats as non-fatal: keep video playback alive, leave that sidecar
   unselected, and log only sanitized diagnostics.
-- External/Encode subtitle changes, local activation fallback, and all quality
-  cap changes re-request PlaybackInfo with the selected stream fields. Before
-  installing a successful replacement, the old progress-reporting session is
-  stopped exactly once at the captured position; play/pause intent is preserved.
+- Non-direct audio changes, External/Encode subtitle transitions, local activation
+  fallback, and all quality cap changes re-request PlaybackInfo at the current
+  position with the selected stream fields; External, transcoded and burned-in
+  transitions close the picker. Before installing a successful replacement, the
+  old progress-reporting session is stopped exactly once at the captured position;
+  play/pause intent is preserved.
   Off is immediate only for a locally selected track. Removing an External or
   Encode selection re-plans with `SubtitleStreamIndex=-1`.
 - Requested subtitle memory updates immediately, but picker selection, debug
@@ -273,7 +275,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   plan is installed; a PGS/external/off request must not be classified as failed
   merely because it is being compared with the previous plan. A newer subtitle
   choice cancels any older pending re-plan so a stale response cannot overwrite
-  the latest request.
+  the latest request. None is selected only when subtitles are actually Off; a
+  local row becomes selected/styleable only after exact activation confirmation.
 
 ## Response-authoritative delivery
 
@@ -301,14 +304,18 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   matches remain invalid. Confirmation budgets begin at backend-qualified
   readiness; an expired budget turns a pending target into `Unavailable`.
   An exact Jellyfin-track local failure disables the failed
-  selection, publishes a six-second passive notice token, and re-plans once at
-  the same position with only Encode exposed for that normalized format. That
+  selection and publishes the six-second token-keyed passive notice
+  “Local subtitles unavailable; switching to server-rendered subtitles.”
+  It re-plans once at the same position with only Encode exposed for that
+  normalized format. That
   server-burn-in fallback MUST disable both direct play and direct stream in its
   request policy so the server performs a real transcode; Encode delivery
   renders only inside the transcoded video. This invariant applies to both the
   shared-UI and tvOS fallback paths. A local-file failure instead disables that
-  app-owned asset, keeps video playing, and never requests ForceEncode. A newer
-  selection cancels either path; stale targets are ignored. The Jellyfin retry
+  app-owned asset, shows a passive unavailable notice, keeps video playing, and
+  never requests ForceEncode. Neither notice takes focus, adds a scrim, appears
+  in PiP, or becomes fatal. A newer selection cancels either path; stale targets
+  are ignored. The Jellyfin retry
   must return Encode for the exact failed stream index. Failure retains the
   playing video, leaves the subtitle unavailable, and never loops or becomes a
   fatal error. `PlaybackSessionRecoveryPolicy` owns the one-shot,
@@ -371,9 +378,10 @@ and [desktop playback](desktop-playback.md).
 
 ## Quality, tracks, and subtitles
 
-- **[all]** Non-direct audio changes and External/Encode subtitle transitions
-  re-request PlaybackInfo at the current position. Response-approved Embed/HLS
-  tracks switch locally regardless of video stream mode; local Off is immediate.
+- **[all]** Replanning and installed subtitle truth follow
+  [Selection and delivery](#selection-and-delivery); activation failure follows
+  [Local activation identity](#local-activation-identity). Response-approved
+  Embed/HLS tracks switch locally regardless of video stream mode.
   A DirectPlay plan also retains capability-approved embedded text descriptors
   while subtitles are Off, so selecting one of those tracks switches in the
   current native session without another PlaybackInfo request or reprepare.
@@ -408,26 +416,9 @@ and [desktop playback](desktop-playback.md).
   any server refresh. Deleting an unselected asset must preserve the surviving
   selection and highlight.
 
-- **[all]** Requested and active subtitles are distinct. Do not mark a local row
-  selected/styleable until the exact activation target is confirmed; stale
-  confirmations do not activate a newer request. During re-plan, keep reporting
-  the installed plan's active track until the replacement plan is installed.
-  None is selected only when subtitles are actually Off.
-
 - **[all]** Requested and installed audio are distinct. Keep the installed row
   selected while a DirectPlay switch is Pending; update it only after exact
   native activation or a response-selected DirectStream/Transcode plan.
-
-- **[all]** Matching local activation failure keeps video alive and disables the
-  failed local track or file. A Jellyfin-track failure shows the token-keyed,
-  passive “Local subtitles unavailable; switching to server-rendered subtitles.”
-  notice for six seconds and retries once through Encode. An app-local-file
-  failure shows a passive unavailable notice and never requests ForceEncode.
-  Neither notice takes focus, adds a scrim, appears in PiP, or becomes fatal.
-
-- **[all]** External, transcoded, and burned-in transitions close the picker,
-  re-plan at the current position, stop the old reporting session once, and
-  preserve playing/paused intent.
 
 - **[ios]** Embedded tracks use response descriptors mapped against Ready
   AVFoundation media-selection groups and confirm the exact selected option;

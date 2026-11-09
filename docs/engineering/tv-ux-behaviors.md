@@ -77,14 +77,14 @@ This contract applies to Android TV.
 - The vertical shelf is a plain `Column`; all rows remain composed. One explicit
   vertical scroller pins the focused ribbon to the top with the next row peeking.
   Disable vertical focus bring-into-view so it cannot compete with the pin.
-- Vertical pinning runs at about 320 ms per normal row pitch, clamped to
-  160-700 ms. Horizontal ribbons use a retargeting medium-low-stiffness spring,
-  center the focused card, and clamp at both ends.
+- Vertical pinning duration scales with row distance within bounded limits.
+  Horizontal ribbons use a retargeting spring, center the focused card, and
+  clamp at both ends.
 - Each ribbon is a stable-key child scope and restores its card. Fresh or
   unavailable memory falls back to the first card; lazy disposal does not erase
   memory.
-- Hero content changes after focus settles for 220 ms through a two-layer
-  600 ms fade. Settled artwork derives a normalized ambient tint; late palette
+- Hero content changes after focus settles through a two-layer fade.
+  Settled artwork derives a normalized ambient tint; late palette
   results are ignored. The roughly 16:9 backdrop extends beneath the first shelf
   without changing layout height. View All pins the row but does not change hero.
 
@@ -127,9 +127,9 @@ This contract applies to Android TV.
   uses the Row's remaining width. Settled Home/Library routes clip the shell
   ambient underlay to the logical-start rail without resizing its brush. During
   route transitions it draws in full; Settings keeps its full underlay. The
-  exposed strip redraws during the 180 ms width animation.
+  exposed strip redraws during the width animation.
 - Home, Library, Recommended, and Collection draw their ambient tint and overlay
-  from one 700 ms animation. Preserve both gradients in order, including overlay
+  from one animation. Preserve both gradients in order, including overlay
   shading before a color arrives. The shell rail retains its separate tint
   without that overlay, so its existing tint seam remains.
 - Drawer entry focuses the selected destination. Before the selected Library

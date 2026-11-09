@@ -339,25 +339,16 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
   uses the modal layer. Shared PlayerScreen hosts it for normal and Kids
   playback; Android TV owns its D-pad dialog styling and
   [focus/transport contract](tv-screen-behavior.md#mandatory-mpv-playback-recovery).
-- Seek and desktop volume sliders retain separate thumb sizes: seek 18/22 dp,
-  volume 12/16 dp at rest/active.
+- Seek and desktop volume sliders retain distinct thumb sizing; `Dimensions`
+  owns their rest/active geometry.
 - Desktop player controls reserve the measured width of each group. Play/Pause
   stays centered where space permits and moves clear of either side when needed;
   overflow scrolls horizontally without overlapping controls.
 - Shared Compose and TV Favorite/Watched actions share an outlined button with
   coral active icon. Native tvOS owns SwiftUI buttons.
 - Key-input tests assert focus and do not substitute pointer clicks.
-- TV Settings is one vertical stack of seven fully composed horizontal category
-  rows with no separate page title. Each row owns scroll state and Mario
-  bring-into-view; `TvSettingsTileId` owns inventory/order. Fixed-size tiles use
-  a focusable circular glyph surface followed by stationary centered title and
-  value. Border, glow, and optional zoom affect only the circle, with enough
-  reserve to avoid clipping. The vertical progress indicator is non-focusable.
-- TV Settings chrome is palette-driven: cyan focus/selection, error for
-  destructive confirmations, and the launch/login glow at 4 dp spread and 14%
-  accent opacity. Focus zoom is 1.1 only when enabled. Theme choices use shared
-  swatches; geometry lives in `TvDimens`, text in TV resources, and glyphs in
-  the shared Settings vector set.
+- TV Settings layout, glyphs, theme and focus follow the
+  [Settings contract](tv-screen-behavior.md#settings-and-authentication).
 
 ## Composable Architecture
 
