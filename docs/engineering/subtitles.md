@@ -9,7 +9,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   dedicated `OpenSubtitlesApi`/repository boundary. The API lives in `transport`;
   the account-qualified repository and configured clients remain in core. API requests send only the
   persisted user-supplied consumer key, or the local development fallback when no
-  persisted key exists, and the JellyScope User-Agent; the separate download
+  persisted key exists, and the JellyScope HTTP client identification header; the separate download
   client never receives OpenSubtitles or Jellyfin credentials. Download links
   must remain HTTPS on an allowlisted OpenSubtitles host across at most three
   redirects. Search follows at most one canonical redirect only when it remains

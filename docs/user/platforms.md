@@ -10,8 +10,6 @@ tracks and sizing controls are unavailable. Server-rendered subtitles, when
 available, remain visible because they are part of the video.
 
 For session-only player switching, see [playback choices](playback.md#choose-a-player).
-Format acceptance does not guarantee smooth decoding; an alternate player may
-use software decoding.
 
 ## Picture and display
 
@@ -20,8 +18,8 @@ and tablets, iPhone, or iPad; start eligible playback, then leave JellyScope.
 Android requires API 26+, device support, and system permission. The player,
 playback state, or operating system may still refuse entry.
 
-On iPhone and iPad, AVPlayer marks a transcoded PiP session as linear, so the
-system does not offer seeking for that transcode. VLCKit uses a separate
+On iPhone and iPad, seeking is unavailable in AVPlayer Picture-in-Picture
+while the server is converting the video. VLCKit uses a separate
 experimental PiP path; seeking may close PiP or interrupt playback. macOS does
 not expose the app's PiP setting. On Android TV, Home stops playback
 and exits the player. This guide does not certify PiP behavior in the unsupported
@@ -47,4 +45,4 @@ and the [player limits table](playback.md#choose-a-player).
 
 A player accepting a container or codec does not guarantee smooth decoding.
 The selected player, device decoder, output route, and media profile all matter.
-For implementation details, see the engineering [capability declarations](../engineering/playback-policy.md#representative-direct-play-declarations).
+See [format compatibility](formats.md) for supported containers and codecs.

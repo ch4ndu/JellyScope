@@ -14,8 +14,8 @@ owns audience, size and migration policy.
 
 | Guide | Owns |
 | --- | --- |
-| [launcher contracts](launcher/engineering.md) | Independent launcher navigation, data, persistence and plugin integration |
-| [launcher plugin](launcher/plugin-reference.md) | Server schema, editor persistence and permission projection |
+| [launcher contracts](engineering/launcher.md) | Independent launcher navigation, data, persistence and plugin integration |
+| [launcher plugin](engineering/launcher-plugin.md) | Server schema, editor persistence and permission projection |
 | [architecture](engineering/architecture.md) | Layers, state, DI, source sets and platform bridges |
 | [accounts-and-persistence](engineering/accounts-and-persistence.md) | Credentials, account boundaries, settings and durable state |
 | [api-and-caching](engineering/api-and-caching.md) | Jellyfin and Seerr requests, projections, discovery and caches |
@@ -42,9 +42,9 @@ owns audience, size and migration policy.
 ## Build, release and project records
 
 - [Build](BUILD.md): toolchains, local artifacts, installation commands and module map.
-- [Launcher qualification](launcher/qualification.md): device inventory and separate install, ordinary-app and replacement-Home evidence.
+- [Launcher qualification](engineering/launcher-verification.md): support limits and device verification checklist.
 - [Release](RELEASE.md): signing, publication commands and acceptance gates.
 - [Native dependencies](operations/android-native-dependencies.md): Android pins, binary verification and source/license obligations.
 - [Licensing and distribution](operations/licensing-and-distribution.md): legal direction and distribution requirements.
-- [Project overview](../README.md), [contributing](../CONTRIBUTING.md), [project instructions](../AGENTS.md), and [release history](../CHANGELOG.md).
+- [Project overview](../README.md), [contributing](../CONTRIBUTING.md), and [release history](../CHANGELOG.md).
 - `design/**`: retained design assets and provenance; not an engineering contract owner.

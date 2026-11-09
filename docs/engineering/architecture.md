@@ -460,4 +460,4 @@ and [platform bridges](#platform-bridge-rules) for rules and their rationale.
 
 ## Launcher configuration ownership
 
-See [launcher configuration ownership](../launcher/engineering.md#launcher-configuration-ownership).
+See [launcher configuration ownership](launcher.md#launcher-configuration-ownership).

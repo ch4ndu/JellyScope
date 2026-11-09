@@ -140,6 +140,8 @@ This contract applies to Android TV.
   content scope, loaded Library enters a media tile, and Settings restores its
   last focused tile, defaulting to Server in the Account row. Temporary loading
   anchors are valid only without real content.
+- Requests drawer exit enters its selected top section, including on first load;
+  a bounded attachment retry consumes Right and cancels when its target changes.
 - Library drawer exit resolves the selected inner view at invocation and consumes
   Right during a temporarily rejected request, preventing stale geometric entry.
 - TV has no visible Back buttons.
@@ -307,15 +309,15 @@ download, settings, and recovery focus behavior.
 
 ## Independent Android launcher
 
-See the dedicated [launcher navigation contract](../launcher/engineering.md#independent-android-launcher).
+See the dedicated [launcher navigation contract](launcher.md#independent-android-launcher).
 
 ### Launcher tabs and connection flow
 
-Moved to [launcher tabs and connection flow](../launcher/engineering.md#launcher-tabs-and-connection-flow).
+Moved to [launcher tabs and connection flow](launcher.md#launcher-tabs-and-connection-flow).
 
 ### Standard Home integration
 
-Moved to [standard Home integration](../launcher/engineering.md#standard-home-integration).
+Moved to [standard Home integration](launcher.md#standard-home-integration).
 
 <a id="why"></a>
 See focus confirmation, route ownership and playback-link rules above.

@@ -305,7 +305,7 @@ its cache key. Remote keys are versioned to exclude older cached fallback bytes.
 
 ## Android launcher queries and artwork
 
-See the dedicated [launcher data and artwork contract](../launcher/engineering.md#android-launcher-queries-and-artwork).
+See the dedicated [launcher data and artwork contract](launcher.md#android-launcher-queries-and-artwork).
 
 <a id="why"></a>
 See protocol, pagination, cache and source-identity rules above.

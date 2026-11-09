@@ -4,18 +4,16 @@ JellyScope Launcher is a separate Android TV Home app for opening installed apps
 and browsing Jellyfin media. It fetches media directly from Jellyfin; the optional
 server plugin controls row layout. Playback opens the separate JellyScope TV app.
 
-Technical contracts: [engineering](engineering.md) and [plugin reference](plugin-reference.md).
+Technical contracts: [engineering](../engineering/launcher.md) and [plugin reference](../engineering/launcher-plugin.md).
 
 ## Requirements and current status
 
 - Targets Android TV, Google TV and Android-based Fire OS on **Android API 25+**;
   ARMv7, ARM64 and x86_64 builds. Vega OS and Fire OS 5/API 22 are excluded.
-- Plugin source targets **Jellyfin Server 12.3**, `Jellyfin.Controller` **12.3.0**,
-  and **.NET 10**. Other 12.x versions are unqualified.
-- See [qualification](qualification.md) for host, device and server evidence.
-- Current APKs are debug-signed local verification artifacts. They lack release
-  license/readiness wiring and are not collected by `scripts/build-release-artifacts.sh`.
-  See [device qualification](qualification.md) for installation, authenticated handoff, physical Home helper observations and the unresolved default-routing mismatch.
+- The optional plugin targets **Jellyfin Server 12.3**. Other versions are unqualified.
+- There is no published launcher release. Local builds have limited device
+  testing; setting the launcher as Home does not work on every firmware. See
+  [support and verification limits](../engineering/launcher-verification.md).
 
 Optional [Home-button helper setup](home-button-helper.md) covers firmware that ignores Home selection.
 
@@ -35,20 +33,20 @@ Back leaves a subsection; Close returns to its invoking control.
 
 Disable cinematic previews in **Jellyfin account → Launcher preferences → Show
 cinematic hero**. Media refreshes on entry, manually and when Android permits
-background work; [engineering](engineering.md#android-launcher-queries-and-artwork)
+background work; [engineering](../engineering/launcher.md#android-launcher-queries-and-artwork)
 owns refresh/caching behavior.
 
 **Apps** automatically lists every launchable app. Long-press for Open or **Move**;
 Left/Right reorders inline, and Select or Back finishes with each step saved.
-Existing favorites seed the order; other apps append. Order survives sign-out.
-New apps appear after resume/Refresh; pruned/reinstalled apps append.
+App order survives sign-out. New or reinstalled apps appear at the end after
+returning to the launcher or choosing Refresh.
 
 Open **Jellyfin → Connect to server**, enter the server URL and credentials, then
 choose **Sign in**. HTTPS is preferred; HTTP is unencrypted. Success and Cancel
 both return to Jellyfin. Login opened from Settings cancels back to Settings.
 Select a field to open the keyboard; Back hides it before cancelling.
-Passwords are transient; the launcher keeps its own saved session, separate from
-JellyScope's player account.
+The launcher does not save your password. Its sign-in is separate from the
+JellyScope TV app.
 
 Install/update JellyScope TV and sign into the **same server and user in both
 apps**. Selecting a series opens its seasons/episodes; other media opens Details.
@@ -60,33 +58,14 @@ Missing apps or mismatched accounts need setup and a fresh selection.
 **Choose default Home app** opens a dialog showing current status. Choose
 **Open Android Home settings** to open Android's selector when firmware permits it.
 Device Home selects Home and Apps. Back from Jellyfin content first returns
-to its tab, then Home. At Home root, Back stays when this app is the
-reported default Home, otherwise ordinary Activity exit applies. Some firmware,
+to its tab, then Home. At Home, Back stays in the launcher when Android reports it as the default
+Home app; otherwise Back exits it. Some firmware,
 including Fire TV variants, may not allow replacement Home. System settings is
 always a separate action.
 
 ## Build and install the launcher
 
-Use the repository's [Android toolchain](../BUILD.md#toolchain). From its root:
-
-```sh
-./gradlew :android-launcher-app:assembleDebug
-./gradlew :android-launcher-app:assembleRelease
-```
-
-Outputs are `android-launcher-app/build/outputs/apk/debug/android-launcher-app-debug.apk`
-and `android-launcher-app/build/outputs/apk/release/android-launcher-app-release.apk`.
-Application ID: `com.udnahc.jellyscope.launcher`.
-
-For a chosen development device with ADB authorized, install the local Release APK:
-
-```sh
-adb -s DEVICE_SERIAL install -r android-launcher-app/build/outputs/apk/release/android-launcher-app-release.apk
-```
-
-Replace `DEVICE_SERIAL` with that device's serial, open **JellyScope Launcher** from
-its apps list, then connect. Select it as Home only if desired and supported.
-For TiVo CoreService installation restrictions, see [qualification](qualification.md#tivo-stream-4k-installation-attempt--2026-10-23).
+Local APK build and installation commands are in the [launcher build guide](../engineering/launcher.md#build-and-install).
 
 ## Install the Jellyfin plugin
 
@@ -94,21 +73,10 @@ The plugin is optional: without it, the launcher uses its default media layout.
 There is **no published catalog entry, repository feed or installable release ZIP**.
 Manual installation remains unverified.
 
-**Update the launcher before installing plugin 0.3.0.** This plugin emits schema 3
-for every layout. Older launchers retain their cached/default layout instead of
-accepting it. The updated launcher also supports the previous plugin.
+**Update the launcher before installing plugin 0.3.0.** Older launchers cannot
+use its layouts. The updated launcher also works with the previous plugin.
 
-1. Check the server version first. Use a backed-up development **12.3** server for
-   initial qualification; lower 12.x versions are not qualified. Install a .NET 10
-   SDK on the build machine. From the repository root run:
-
-   ```sh
-   dotnet build jellyfin-launcher-plugin/Jellyfin.Plugin.Launcher.csproj --configuration Release --artifacts-path .local/launcher-plugin-artifacts
-   ```
-
-   Output: `.local/launcher-plugin-artifacts/bin/Jellyfin.Plugin.Launcher/release/`.
-   The plugin is `Jellyfin.Plugin.Launcher.dll`, version **0.3.0**. Its dashboard
-   HTML is embedded; no separate web-page installation is needed.
+1. Obtain a matching plugin build using the [engineering build instructions](../engineering/launcher.md#build-the-server-plugin).
 2. Locate the running server's actual plugins directory and stop that server or
    container. Common examples are `/var/lib/jellyfin/plugins` on Linux,
    `%ProgramData%\Jellyfin\Server\plugins` for Windows tray installs, and
@@ -162,7 +130,7 @@ Recently Added uses server addition dates; Recently Released uses the selected
 library's premiere dates and excludes unknown/future dates. Series rows describe
 series, not newly added/released child episodes. Released rows may underfill.
 These are Jellyfin queries rather than Android's cross-app Watch Next feed; see
-[query semantics](plugin-reference.md#wire-schema) for exact behavior.
+[query semantics](../engineering/launcher-plugin.md#wire-schema) for exact behavior.
 
 New rows start on Jellyfin with Recently Added, landscape artwork and limit 20.
 Changing Query preserves an explicitly selected Tab. **Refresh libraries** updates
@@ -172,8 +140,7 @@ unavailable entries until replaced or removed. Saving zero rows intentionally
 removes media rows; it does not remove Apps or the Jellyfin empty-state actions.
 
 The plugin cannot change app order, tab names/count, login, system settings,
-wallpaper/theme, arbitrary filters/scripts/URLs, or per-device/per-user layouts.
-
+wallpaper/theme, custom filters or links, or per-device/per-user layouts.
 
 ## Offline use and troubleshooting
 
@@ -183,7 +150,7 @@ wallpaper/theme, arbitrary filters/scripts/URLs, or per-device/per-user layouts.
   downloaded video. Empty successful results replace old cards.
 - A signed-in empty Jellyfin tab offers Refresh/Settings, not another login prompt.
   Check row visibility, tab assignment, library access and available media.
-- **Retry sign out** finishes failed account cleanup; app order is retained. Interrupted
-  refresh/storage failures can withhold old cached rows until safe refresh/cleanup.
+- **Retry sign out** finishes a failed sign-out; app order is retained. If cached
+  rows disappear after a storage or refresh failure, retry Refresh.
 - Recheck permissions when rows disappear. Offline data cannot discover new remote
   access restrictions until a server check succeeds.

@@ -23,11 +23,8 @@ It does not change the default Home selection. Firmware support must be tested.
 The helper requests key filtering but no screen-content retrieval, gestures,
 network access or storage permission. Only Home is handled. Android grants an
 accessibility service broad trust, so enable it only if you want this behavior.
-The service attempts one synchronous launch per Home press and consumes its
-matching key events when Android accepts the launch request without a caught
-error. Missing/disabled launcher or a caught launch error leaves the original key
-unconsumed. Request acceptance does not prove a foreground transition: firmware
-that silently blocks it can still leave that Home sequence consumed.
+Some firmware may ignore or block the request. Test physical Home from another
+app before relying on the helper; enabling the service alone does not prove it works.
 
 ## Limits and removal
 
@@ -40,19 +37,7 @@ Updates may require rechecking accessibility enablement.
 
 Disable this helper in Accessibility to restore normal key routing, or uninstall
 only **JellyScope Home Helper**. The launcher and its session remain separate.
-The user confirmed one physical TiVo Home path. Its origin app was unspecified;
-held/repeated Home, other-app origins, fallback and reboot persistence remain
-unqualified. See the [bounded observation](qualification.md#optional-home-helper).
+Physical Home has been observed on one TiVo device; broader firmware and reboot
+support remain unverified. See [verification limits](../engineering/launcher-verification.md).
 
-## Build locally
-
-```sh
-./gradlew :android-launcher-home-helper:assembleRelease
-adb install -r android-launcher-home-helper/build/outputs/apk/release/android-launcher-home-helper-release.apk
-```
-
-The initial minified Release uses the local debug signing key. It is not a
-published release and is not collected by the main release-artifact script or
-included automatically in the aggregate verification script. Package:
-`com.udnahc.jellyscope.launcher.homehelper`. The SDK-only module has no player or
-launcher-library dependency; source uses MPL-2.0.
+For local APK commands, see [build the Home helper](../engineering/launcher.md#build-the-home-helper).

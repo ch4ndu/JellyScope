@@ -1,22 +1,8 @@
 # JellyScope Launcher configuration plugin
 
-The plugin supplies the launcher’s shared media layout. Documentation lives in
-the dedicated [launcher guide](../docs/launcher/README.md).
+The plugin supplies the launcher's shared media layout.
 
-## Build and compatibility
-
-See [plugin installation and build](../docs/launcher/README.md#install-the-jellyfin-plugin).
-
-## Dashboard editing
-
-See [customization](../docs/launcher/README.md#customize-the-server-layout) and
-[editor contracts](../docs/launcher/plugin-reference.md#dashboard-editing).
-
-## Wire schema
-
-See [wire schema](../docs/launcher/plugin-reference.md#wire-schema).
-
-## Launcher behavior and remaining qualification
-
-See [plugin behavior](../docs/launcher/plugin-reference.md#launcher-behavior-and-remaining-qualification)
-and [qualification](../docs/launcher/qualification.md).
+- [Installation and customization](../docs/launcher/README.md#install-the-jellyfin-plugin)
+- [Build and compatibility](../docs/engineering/launcher.md#build-the-server-plugin)
+- [Schema and editor contracts](../docs/engineering/launcher-plugin.md)
+- [Support and verification](../docs/engineering/launcher-verification.md)

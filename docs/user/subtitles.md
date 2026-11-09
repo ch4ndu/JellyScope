@@ -54,9 +54,8 @@ that track again.
 When a Jellyfin subtitle track cannot render locally, JellyScope can retry with
 the server rendering that eligible track into converted video. A Jellyfin track
 that cannot be represented to the server is marked unavailable. App-local
-OpenSubtitles files and downloaded offline sidecars use a separate attachment
-path: JellyScope asks the active player to attach them, and marks a file
-unavailable if the player cannot. In either case the video keeps playing and
+OpenSubtitles files and downloaded offline sidecars must be supported by the selected
+player; otherwise they are marked unavailable. In either case the video keeps playing and
 JellyScope does not silently choose a different subtitle. A local or offline
 file cannot be sent to the server for a burn-in fallback.
 

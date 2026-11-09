@@ -39,19 +39,14 @@ server permission as regular diagnostics. Keep its returned filename; the
 server may name the JSON file with a `.log` extension. It can be retrieved from
 the server and opened as trace JSON without conversion.
 
-Timelines contain bounded, sanitized playback events and coverage markers.
-They may omit older events, and missing boundaries do not become measured
-durations. If no timed events are available, keep collection enabled and
-reproduce playback again. Saving or sending a timeline leaves the retained
-history available for a later regular diagnostics report.
+Timelines contain sanitized playback events and may omit older activity. If no
+events are available, keep collection enabled and reproduce playback again.
+Saving or sending a timeline keeps the history available for regular diagnostics.
 
 Collection is off by default. Turning it off deletes retained app history and
-invalidates pending exports, but cannot remove a copy already handed to the OS
-or server. If Android interrupts the app while its picker is open, the app
-reports an interrupted export instead of rebuilding a different report; the
-destination may contain an empty file. A failed write may leave an incomplete
-file. On iOS, a staging-cleanup failure can be reported after the selected
-destination already received a copy. Check that destination before retrying.
+cancels pending exports, but cannot remove copies already saved or sent. After
+an interrupted or failed export, check the destination before retrying: the file
+may be empty, incomplete, or already saved.
 
 ## Include useful evidence
 

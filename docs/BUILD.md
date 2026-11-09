@@ -228,8 +228,7 @@ size and check cadence and audible sync before testing pointer movement.
 Check resize/fullscreen geometry and paused redraw with the source-built runtime.
 Controls, subtitles and close/reopen also need visual checks.
 The [desktop playback guide](engineering/desktop-playback.md#desktop-player-presentation)
-owns the lifetime and failure contracts. The retained prebuilt candidate is for local development and does not establish
-source-built package readiness.
+owns the lifetime and failure contracts.
 
 ## iOS
 

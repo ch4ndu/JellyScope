@@ -376,7 +376,10 @@ growth. Include verification and outstanding gaps in the handoff.
   license text, generated/reference data and design provenance are exempt;
   narrative must not be moved into a nominal reference appendix to evade size.
 - User guides own actions, choices and limitations; engineering guides own
-  implementation contracts and rationale. Remove generic streaming-app
+  implementation contracts and rationale. Codec, audio, video and HDR compatibility
+  are user information, not implementation detail. Keep tool orchestration, generated
+  authorship commentary and experiment diaries out of committed documentation.
+  Remove generic streaming-app
   explanations and duplication, while preserving product-specific exceptions,
   safety constraints and useful controls. Keep one user index and one engineering
   map. On relocation, update first-party links and retain valuable legacy
@@ -398,12 +401,6 @@ growth. Include verification and outstanding gaps in the handoff.
 - Before handoff, check that the affected questions remain answerable, links and
   anchors resolve, and the text matches the implementation. Report the changes
   and remaining gaps briefly; a docs-only edit needs no application build.
-
-These rules selectively incorporate [OpenClaw's diff cleanup](https://github.com/openclaw/openclaw/blob/main/.agents/skills/deslop/SKILL.md),
-[LLM Docs Optimizer's task-oriented documentation](https://github.com/alonw0/llm-docs-optimizer/blob/main/skills/llm-docs-optimizer/SKILL.md),
-and [Stephen Turner's prose cleanup](https://github.com/stephenturner/skill-deslop/blob/main/SKILL.md).
-They do not install those skills or require scoring tools, generated indexes,
-or removal of provenance to improve a documentation score.
 
 ## Dependency And Release Changes
 

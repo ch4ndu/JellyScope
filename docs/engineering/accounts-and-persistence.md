@@ -286,7 +286,7 @@ phase replaces the committed session snapshot.
 
 ## Independent Android launcher state
 
-See the dedicated [launcher persistence contract](../launcher/engineering.md#independent-android-launcher-state).
+See the dedicated [launcher persistence contract](launcher.md#independent-android-launcher-state).
 
 <a id="why"></a>
 <a id="persistence-and-transfer-recovery"></a>

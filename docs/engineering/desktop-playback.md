@@ -53,7 +53,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   before freeing. A lease that outlives the wait defers destruction until the
   count reaches zero — the native surface stays open and detach callbacks stay
   queued until that real destroy completes, then report `Terminated`. Render API
-  quarantine handles an undrained render executor; the Metal experiment also
+  quarantine handles an undrained render executor; the Metal path also
   retains resources when native destruction throws and its completion is unknown.
   Moving `sub-add`
   off the lifecycle lock removes the app-side stall; `mpv_command` is still
@@ -61,7 +61,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   native command.
 - mpv `END_FILE reason=ERROR` for the current playlist entry surfaces as
   `Failed` (handled BEFORE the pending-subtitle early return; stale entries,
-  STOP, and REDIRECT never fail playback). Outside the Metal experiment,
+  STOP, and REDIRECT never fail playback). Outside the Metal path,
   classification is native-code first —
   `MPV_ERROR_LOADING_FAILED (-13)` → Network (feeds the shared one-shot retry),
   `NOTHING_TO_PLAY (-16)`/`UNKNOWN_FORMAT (-17)`/ `UNSUPPORTED (-18)` →
@@ -70,7 +70,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   recovery remains eligible independently of health guidance; desktop uses the
   common Actionable health policy with installed evidence and quality gates. Android's
   alternate-backend replacement branch applies only to Android.
-  The Metal experiment instead projects `Unknown` errors, including failure to
+  The Metal path instead projects `Unknown` errors, including failure to
   identify the replacement playlist entry after an accepted load. Admitted online
   failures still enter the shared recovery policy; this does not select another
   native presentation path. Its startup error path does not require `FILE_LOADED`.
@@ -144,10 +144,9 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   but libmpv's OpenGL-only Render API still has a high-resolution and pointer-
   movement limitation on macOS. Keep this limitation explicit until a replacement
   demonstrates continuous embedded presentation under sustained pointer input.
-- A local Metal comparison mode uses a separate, selected source-built
+- Metal uses a separate source-built
   runtime with MPVKit's caller-owned-layer patch and an app-owned `CAMetalLayer`. It supplies that layer as `wid`
-  to the patched `gpu-next`/Vulkan/`moltenvk` output, with `hwdec=no` for the
-  first presentation comparison. It creates no Render API context or OpenGL
+  to the patched `gpu-next`/Vulkan/`moltenvk` output, with `hwdec=no` for software decoding. It creates no Render API context or OpenGL
   scheduler. Host, initialization and current output failures are terminal
   rather than selecting another presentation path.
   [BUILD.md](../BUILD.md#macos-metal-runtime) owns preparation and launch.
@@ -157,8 +156,8 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   swapchain size leaves a small or incorrectly cropped picture. The source-build
   recipe applies a context patch that supplies these events and
   bounds the existing VO wait to 50 ms for paused resize detection. In-app
-  geometry and subtitle acceptance remain separate from native checks. This
-  experiment does not change the shipped default.
+  geometry and subtitle acceptance remain separate from native checks.
+  Both runtimes are bundled.
 - Supported macOS builds expose Settings → Playback → mpv presentation.
   The app-global `desktop_mpv.presentation` preference defaults to Standard;
   unknown values also resolve to Standard. The eager desktop store freezes one

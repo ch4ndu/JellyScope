@@ -1,6 +1,6 @@
 # Launcher plugin reference
 
-[Launcher guide](README.md#install-the-jellyfin-plugin) owns installation and
+[Launcher guide](../launcher/README.md#install-the-jellyfin-plugin) owns installation and
 user-facing customization instructions. This page owns schema, authorization,
 editor persistence and compatibility details.
 
@@ -9,16 +9,9 @@ editor persistence and compatibility details.
 Plugin ID: `29172c40-7d54-4d15-9673-a772a14d5f3c`. The assembly is
 `Jellyfin.Plugin.Launcher.dll`; its embedded dashboard resource is
 `Jellyfin.Plugin.Launcher.Configuration.configPage.html`. Build and runtime
-compatibility limits are owned by the [installation guide](README.md#install-the-jellyfin-plugin).
+compatibility limits are owned by the [installation guide](../launcher/README.md#install-the-jellyfin-plugin).
 
 ## Dashboard editing
-
-Open **JellyScope Launcher** in the plugin dashboard. Add a row, edit its title,
-query, tab, library, visibility, aspect and item limit, then use Up/Down to order it.
-Remove deletes a row; saving no rows intentionally leaves the launcher's
-local controls and Jellyfin empty state. Save validates the draft and reports success only after the
-server update succeeds. Errors preserve the draft. An unavailable configured
-library remains visible as an unavailable option so it can be replaced or removed.
 
 The editor uses the existing elevated plugin configuration API. Its custom
 `GET /Launcher/Libraries` request also requires elevation and a real user session;

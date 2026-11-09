@@ -1,9 +1,9 @@
 # Launcher engineering contracts
 
-App setup and administrator tasks: [Launcher guide](README.md). This page owns
+App setup and administrator tasks: [Launcher guide](../launcher/README.md). This page owns
 launcher-only navigation, data, persistence and configuration contracts; shared
 authentication/transport contracts remain in their existing module guides.
-The player receiver owns the cross-app [playback link contract](../engineering/tv-ux-behaviors.md#playback-links).
+The player receiver owns the cross-app [playback link contract](tv-ux-behaviors.md#playback-links).
 
 ## Component ownership
 
@@ -23,7 +23,7 @@ owners. Keep them independent of the player UI and native playback runtime.
 ## Independent Android launcher
 
 The launcher has Home and Jellyfin tabs, separate from the player
-application's [drawer and hero contracts](../engineering/tv-ux-behaviors.md). Home starts with local Apps;
+application's [drawer and hero contracts](tv-ux-behaviors.md). Home starts with local Apps;
 Jellyfin contains media only. Server rows may target either tab. Apps, launcher settings and Android System settings remain
 reachable before login and during media errors. Apps contains the complete ordered
 launchable catalog, one resolved component per package. Long-press offers Open
@@ -71,7 +71,7 @@ below Apps returns to Apps; at Apps it retains ordinary activity
 exit behavior unless the public resolver reports this Activity as the default Home;
 in that case root Back is consumed without navigation. Device qualification is
 separate from this source behavior.
-Media selection uses the JellyScope [details link contract](../engineering/tv-ux-behaviors.md#playback-links).
+Media selection uses the JellyScope [details link contract](tv-ux-behaviors.md#playback-links).
 An implicit package-limited capability match precedes explicit dispatch; older
 receivers show update guidance. The TV app resolves kind and opens its existing
 Series or Detail screen, whose own data and Resume decisions remain authoritative.
@@ -143,7 +143,7 @@ center-pivot scrolling and a restoration handoff. Offscreen targets are revealed
 before attachment fulfills focus; new D-pad input cancels stale pending work.
 Apps keep their separate reorder and launch behavior.
 The TV receiver opens media links as standalone typed details, with root Back
-finishing its Activity; the [TV media-link contract](../engineering/tv-ux-behaviors.md)
+finishing its Activity; the [TV media-link contract](tv-ux-behaviors.md)
 owns lookup, loading, nested navigation and lifecycle behavior.
 The Activity saves the selected tab and restores it before first composition.
 Restoration is one-shot for a new ViewModel; a retained ViewModel or any live tab
@@ -189,7 +189,7 @@ intent resolution with exact component equality. Resolver/unknown/error results
 show conservative not-selected status. Missing/blocked selectors produce a focused
 message; System settings remains separately available. Firmware may not expose or
 honor third-party Home selection. See the
-[qualification record](qualification.md) for evidence
+[qualification record](launcher-verification.md) for evidence
 levels and the unrun device checks.
 
 ## Android launcher queries and artwork
@@ -218,7 +218,7 @@ uses the auth mutex and exact account/epoch check; failed logout remains visible
 through cleanup status. WorkManager supplies its own rescheduling components;
 the launcher adds no custom boot receiver.
 
-The independent [configuration plugin](plugin-reference.md)
+The independent [configuration plugin](launcher-plugin.md)
 owns the schema and server baseline. The launcher fetches its fixed endpoint
 only after establishing the durable refresh marker, with full session headers,
 origin validation, no redirects, strict UTF-8 and a 64 KiB response limit. Invalid,
@@ -312,7 +312,7 @@ dependency introduced into Android. It owns the shared dashboard layout and
 authenticated user projection. Launcher-local `LauncherConfigurationRepository`
 fetches the bounded schema, `LauncherLayout` validates it, and the existing
 `LauncherSnapshotStore` owns durable per-account layout/media adoption. The
-[schema](plugin-reference.md#wire-schema) and [server baseline](README.md#requirements-and-current-status) have one
+[schema](launcher-plugin.md#wire-schema) and [server baseline](../launcher/README.md#requirements-and-current-status) have one
 owner; shared transport and authentication remain unchanged by this integration.
 
 <a id="why"></a>
@@ -326,4 +326,50 @@ only under BIND_ACCESSIBILITY_SERVICE, requests key filtering and no window cont
 and subscribes to no accessibility events. A synchronous initial Home-down launch
 owns consumption of matching repeats/up; other keys pass through. No shared SDK,
 network/player dependency or core-launcher manifest change is required. Setup and
-removal belong to the [helper guide](home-button-helper.md).
+removal belong to the [helper guide](../launcher/home-button-helper.md).
+
+## Build and install
+
+Use the repository's [Android toolchain](../BUILD.md#toolchain). From its root:
+
+```sh
+./gradlew :android-launcher-app:assembleDebug
+./gradlew :android-launcher-app:assembleRelease
+```
+
+Outputs are `android-launcher-app/build/outputs/apk/debug/android-launcher-app-debug.apk`
+and `android-launcher-app/build/outputs/apk/release/android-launcher-app-release.apk`.
+Application ID: `com.udnahc.jellyscope.launcher`.
+
+For a chosen development device with ADB authorized, install the local Release APK:
+
+```sh
+adb -s DEVICE_SERIAL install -r android-launcher-app/build/outputs/apk/release/android-launcher-app-release.apk
+```
+
+Replace `DEVICE_SERIAL` with that device's serial, open **JellyScope Launcher** from
+its apps list, then connect. Select it as Home only if desired and supported.
+
+## Build the server plugin
+
+The plugin targets Jellyfin Server 12.3 (`Jellyfin.Controller` 12.3.0) and .NET 10.
+Other server versions and live installation remain unqualified. From the repository root:
+
+```sh
+dotnet build jellyfin-launcher-plugin/Jellyfin.Plugin.Launcher.csproj --configuration Release --artifacts-path .local/launcher-plugin-artifacts
+```
+
+Output: `.local/launcher-plugin-artifacts/bin/Jellyfin.Plugin.Launcher/release/`.
+The dashboard is embedded in `Jellyfin.Plugin.Launcher.dll`; there is no separate
+web-page deployment. Follow the [installation guide](../launcher/README.md#install-the-jellyfin-plugin).
+
+## Build the Home helper
+
+```sh
+./gradlew :android-launcher-home-helper:assembleRelease
+adb -s DEVICE_SERIAL install -r android-launcher-home-helper/build/outputs/apk/release/android-launcher-home-helper-release.apk
+```
+
+Replace `DEVICE_SERIAL` with the selected development device. This local minified
+APK uses debug signing and is not included in the main release-artifact or aggregate
+verification scripts. Setup belongs to the [helper guide](../launcher/home-button-helper.md).
