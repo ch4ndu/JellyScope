@@ -12,7 +12,7 @@ mpv-version=0.41.0
 ffmpeg-version=9.0.2
 dav1d-version=1.5.4
 mpv-coreaudio-patch=c5d391adba7bd024954d0df1e0405f5749f4d4ca
-# desktop-mpv-metal-* entries are recorded only for an explicitly requested Metal graph.
+# Both Standard and Metal source graphs are required for macOS distribution.
 desktop-mpv-metal-archive=desktop-mpv-metal-0.41.0-sources.tar.gz
 desktop-mpv-metal-manifest=scripts/desktop-mpv-metal/sources-macos-arm64.tsv
 desktop-mpv-metal-abi-manifest=scripts/desktop-mpv-metal/manifest-mpv-metal-0.41.0-macos15-arm64.txt

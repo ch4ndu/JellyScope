@@ -26,9 +26,8 @@ def safe(p):
         rel = p.relative_to(repo).parts
         need(rel[0] in ('.local','release-artifacts') or 'build' in rel, 'Source output must be generated output')
 usage = 'Usage: prepare-macos-release-sources.sh <output> <bundled-resources> | --verify-native-inputs <resources> | --verify-release <output> <resources> [--with-mpv-metal]'
-# The caller's explicit request is the only Metal selector; resource contents never imply it.
-metal = bool(args) and args[-1] == '--with-mpv-metal'
-if metal: args.pop()
+# Both native presentations are required. Accept the former opt-in flag for older callers.
+if args and args[-1] == '--with-mpv-metal': args.pop()
 need(bool(args),usage)
 mode = args.pop(0) if args[0].startswith('--') else 'prepare'
 need(mode in ('prepare','--verify-native-inputs','--verify-release'),'Unknown source preparation mode')
@@ -37,17 +36,12 @@ need(len(args) == 1, 'Supply the actual staged/packaged native resource director
 bundle = pathlib.Path(args[0])
 for script in ['prepare-desktop-mpv-bundle.sh','prepare-desktop-vlc-bundle.sh']:
     subprocess.run(['bash',str(repo/'scripts'/script),'--validate-only',str(bundle)],check=True)
-if metal:
-    subprocess.run(['bash',str(repo/'scripts/prepare-desktop-mpv-metal-bundle.sh'),'--validate-only',str(bundle)],check=True)
-else:
-    need(not os.path.lexists(bundle/'mpv-metal'), 'Unrequested Metal runtime in '+str(bundle))
+subprocess.run(['bash',str(repo/'scripts/prepare-desktop-mpv-metal-bundle.sh'),'--validate-only',str(bundle)],check=True)
 manifest = repo/'scripts/macos-source-bundle/manifest-macos-arm64.txt'
 METAL_KEY = 'desktop-mpv-metal-'
-# Metal provenance is recorded only when its graph is requested.
-manifest_text = ''.join(x+'\n' for x in manifest.read_text().splitlines() if metal or not x.startswith(METAL_KEY))
-meta_all = values(manifest)
-meta = {k:v for k,v in meta_all.items() if metal or not k.startswith(METAL_KEY)}
-selected = 'desktop-mpv,desktop-mpv-metal,vlc' if metal else 'desktop-mpv,vlc'
+manifest_text = manifest.read_text()
+meta = values(manifest)
+selected = 'desktop-mpv,desktop-mpv-metal,vlc'
 MPVKIT_PATCH = 'Sources/BuildScripts/patch/libmpv/0001-player-add-moltenvk-context.patch'
 data_root = pathlib.Path(os.environ.get('JELLYSCOPE_DATA_ROOT',str(pathlib.Path.home()/'Private/JellyScopeData')))
 cache = pathlib.Path(os.environ.get('JELLYSCOPE_MACOS_SOURCE_CACHE_ROOT',str(data_root/'caches/macos-sources')))
@@ -74,13 +68,12 @@ try:
     mpv_cache = pathlib.Path(os.environ.get('JELLYSCOPE_MPV_RUNTIME_CACHE_ROOT',str(data_root/'caches/desktop-mpv')))/'archives'
     metal_cache = pathlib.Path(os.environ.get('JELLYSCOPE_MPV_METAL_RUNTIME_CACHE_ROOT',str(data_root/'caches/desktop-mpv-metal')))/'archives'
     families = [('mpv',[(r,mpv_notice) for r in mpv_rows]),('vlc-contrib',[(r,repo/'scripts/vlc-bundle') for r in vlc_rows])]
-    if metal:
-        # The same merge as build-desktop-mpv-runtime.sh --metal: overlay rows replace same-named base rows.
-        overlay = rows(metal_notice/'sources-macos-arm64.tsv')
-        replaced = {r['component'] for r in overlay}
-        for component in ('moltenvk','glslang','mpvkit-patch'):
-            need([r['version'] for r in overlay if r['component'] == component] == [meta[METAL_KEY+component+'-revision']], 'Metal source pin mismatch: '+component)
-        families.append(('mpv-metal',[(r,mpv_notice) for r in mpv_rows if r['component'] not in replaced]+[(r,metal_notice) for r in overlay]))
+    # The same merge as build-desktop-mpv-runtime.sh --metal: overlay rows replace same-named base rows.
+    overlay = rows(metal_notice/'sources-macos-arm64.tsv')
+    replaced = {r['component'] for r in overlay}
+    for component in ('moltenvk','glslang','mpvkit-patch'):
+        need([r['version'] for r in overlay if r['component'] == component] == [meta[METAL_KEY+component+'-revision']], 'Metal source pin mismatch: '+component)
+    families.append(('mpv-metal',[(r,mpv_notice) for r in mpv_rows if r['component'] not in replaced]+[(r,metal_notice) for r in overlay]))
     inputs = {family:[] for family,_ in families}
     for family, source_rows in families:
         for row, notice in source_rows:
@@ -116,7 +109,7 @@ try:
     revision = run('git','-C',repo,'rev-parse','HEAD')
     dirty = bool(run('git','-C',repo,'status','--porcelain','--untracked-files=normal'))
     project_name = 'JellyScope-source-'+revision+'.tar.gz'
-    groups = [('mpv','desktop-mpv-archive'),('vlc-contrib','vlc-contrib-archive')] + ([('mpv-metal',METAL_KEY+'archive')] if metal else [])
+    groups = [('mpv','desktop-mpv-archive'),('vlc-contrib','vlc-contrib-archive'),('mpv-metal',METAL_KEY+'archive')]
     # Shipped provenance and recipe per group; the Metal sidecar also carries its patches and build records via its notices.
     notices = {'mpv':'mpv-notices','mpv-metal':'mpv-metal/mpv-notices','vlc-contrib':'licenses'}
     recipes = {'mpv':['build-desktop-mpv-runtime.sh','prepare-desktop-mpv-bundle.sh'],
@@ -126,7 +119,7 @@ try:
         recorded = values(out/'SOURCE_MANIFEST.txt')
         need(not dirty and recorded.get('tracked-worktree-dirty') == 'false', 'Source-bound release requires the exact clean candidate')
         need(recorded.get('jellyscope-revision') == revision, 'Release source revision mismatch')
-        need(recorded.get('selected-graphs') == selected and (metal or not any(k.startswith(METAL_KEY) for k in recorded)),
+        need(recorded.get('selected-graphs') == selected,
              'Recorded native graph selection differs from the request')
         for k,v in meta.items():
             if not k.endswith('-archive'): need(recorded.get(k) == v, 'Source provenance mismatch: '+k)
@@ -158,12 +151,7 @@ try:
                 t.add(repo/'scripts'/name,arcname='recipe/'+name,recursive=False)
     shutil.copy2(vlc,work/meta['vlc-archive'])
     (work/'SOURCE_MANIFEST.txt').write_text(manifest_text+'selected-graphs='+selected+'\njellyscope-revision='+revision+'\njellyscope-archive='+project_name+'\ntracked-worktree-dirty='+str(dirty).lower()+'\n')
-    stale = out/meta_all[METAL_KEY+'archive']
-    if not metal and (stale.is_file() or stale.is_symlink()):
-        # Never leave an unrequested Metal sidecar beside a Standard-only package.
-        need(not stale.is_symlink(), 'Source artifact destination is a symlink')
-        stale.unlink()
-    for name in [project_name,meta['vlc-archive'],meta['desktop-mpv-archive'],meta['vlc-contrib-archive'],'SOURCE_MANIFEST.txt'] + ([meta[METAL_KEY+'archive']] if metal else []):
+    for name in [project_name,meta['vlc-archive'],meta['desktop-mpv-archive'],meta['vlc-contrib-archive'],'SOURCE_MANIFEST.txt',meta[METAL_KEY+'archive']]:
         need(not (out/name).is_symlink(), 'Source artifact destination is a symlink')
         (work/name).replace(out/name)
     if not dirty: check_release()

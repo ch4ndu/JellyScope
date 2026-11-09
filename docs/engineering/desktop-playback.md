@@ -150,7 +150,7 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   first presentation comparison. It creates no Render API context or OpenGL
   scheduler. Host, initialization and current output failures are terminal
   rather than selecting another presentation path.
-  [BUILD.md](../BUILD.md#macos-metal-experiment) owns preparation and launch.
+  [BUILD.md](../BUILD.md#macos-metal-runtime) owns preparation and launch.
   The runtime must refresh mpv's cached video/subtitle rectangles and request
   redraw when the layer's drawable size changes, including while paused. The
   unmodified MPVKit context omits these resize/expose events; changing only the

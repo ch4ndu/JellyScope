@@ -5,9 +5,10 @@
 # configuration and notice validation belongs to prepare-desktop-mpv-bundle.sh --metal.
 set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-usage='Usage: prepare-desktop-mpv-metal-bundle.sh <runtime> <resources> | --validate-only <resources> | --clean <resources>'
+usage='Usage: prepare-desktop-mpv-metal-bundle.sh <runtime> <resources> | --build <resources> | --validate-only <resources> | --clean <resources>'
 mode="${1:?$usage}"
 case "$mode" in
+    --build) resources="${2:?$usage}"; candidate="$(bash "$script_dir/build-desktop-mpv-runtime.sh" --metal)"; mode=stage ;;
     --validate-only | --clean) resources="${2:?$usage}"; candidate="" ;;
     -*) echo "ERROR: $usage" >&2; exit 2 ;;
     *) candidate="$mode"; mode=stage; resources="${2:?$usage}" ;;

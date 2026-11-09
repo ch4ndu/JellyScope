@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-# The explicit Metal request is always last; remove it before positional parsing.
+# Accept the former opt-in flag for older callers; macOS readiness always requires Metal.
 with_mpv_metal=false
 if (( $# > 0 )) && [[ "${!#}" == --with-mpv-metal ]]; then
     with_mpv_metal=true
@@ -139,13 +139,8 @@ elif [[ "$verification_mode" == "--require-ios-ready" ]]; then
 elif [[ "$verification_mode" == "--require-macos-arm64-ready" ]]; then
     require_platform_ready macos-arm64
     resources="${3:-$repo_root/desktop-app/build/preparedDesktopAppResources/macos-arm64}"
-    if [[ "$with_mpv_metal" == true ]]; then
-        # Separately scoped rows: Standard readiness never inherits or requires Metal entries.
-        require_platform_ready macos-arm64-mpv-metal
-        bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-native-inputs "$resources" --with-mpv-metal
-    else
-        bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-native-inputs "$resources"
-    fi
+    require_platform_ready macos-arm64-mpv-metal
+    bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-native-inputs "$resources"
 elif [[ -n "$verification_mode" && "$verification_mode" != "--require-clean" ]]; then
     die "Unknown option: $verification_mode"
 fi

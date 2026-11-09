@@ -155,8 +155,7 @@ troubleshooting one stage in isolation.
 8. Build the signed DMG. The committed `desktop-app/entitlements.plist`
    supplies the hardened-runtime exceptions required by the JVM, JNA, and the
    bundled libmpv dylibs. `verifyDesktopMpvBundle` remains a required
-   packaging dependency. To include both macOS mpv presentations, pass
-   `-Pjellyscope.desktop.mpvMetalRuntimeDir=<source-built-runtime-directory>`;
+   packaging dependency. Both Standard and Metal mpv presentations are included automatically;
    [BUILD.md](BUILD.md#desktop-jvm) owns runtime acquisition and validation.
 
    ```sh
@@ -174,7 +173,7 @@ troubleshooting one stage in isolation.
    `desktop-app/build/compose/binaries/main-release/dmg/` beside the DMG. The
    maintained script validates, moves and version-renames them. The mpv archive
    retains all native source inputs, the upstream CoreAudio patch, recipe and
-   actual build records. An explicitly requested Metal runtime also stages
+   actual build records. The Metal runtime also stages
    `desktop-mpv-metal-0.41.0-sources.tar.gz` with its matching sources, patches,
    notices and build records. VLC's source archive supplies its build rules and
    patches; the contrib archive retains the selected dependency sources and
@@ -231,17 +230,8 @@ signature-checks both Android apps, then signs, notarizes, staples, and validate
 the macOS DMG and corresponding source. It rechecks source cleanliness and places
 versioned output in ignored `release-artifacts/`.
 
-To include the source-built Metal runtime through this script, pass the Gradle
-project property in its environment (the script does not forward `-P` arguments):
-
-```sh
-env "ORG_GRADLE_PROJECT_jellyscope.desktop.mpvMetalRuntimeDir=$PWD/.local/native/desktop-mpv-metal/runtime" \
-  ./scripts/build-release-artifacts.sh
-```
-
-The runtime must already be built and validated as described in
-[BUILD.md](BUILD.md#desktop-jvm). This remains a signed release command requiring
-the credentials and clean candidate above.
+Both mpv runtimes and their corresponding-source archives are included by default.
+The script uses the same Gradle preparation and verification as the direct build.
 
 #### Collected artifact names
 

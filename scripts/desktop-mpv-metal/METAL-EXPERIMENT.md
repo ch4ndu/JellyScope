@@ -6,15 +6,15 @@ static glslang, applying `mpvkit-moltenvk.patch` and `metal-context-resize.patch
 to the complete mpv source build. The overlay declares exact archives and original
 notices; the runtime validator checks the native graph and recorded feature flags.
 Build caches and package resource directories remain separate from Standard.
-Commands and explicit Metal source-sidecar selection are in
-[BUILD.md](../../docs/BUILD.md#macos-metal-experiment).
+Current build commands and source-sidecar handling are in
+[BUILD.md](../../docs/BUILD.md#macos-metal-runtime).
 
 The following notes describe the retained prebuilt investigation recipe, which
 is not accepted by the source-built packaging validator.
 
 `../prepare-desktop-mpv-metal-experiment.py` prepares an isolated macOS 15 arm64
 runtime. It never replaces the normal desktop bundle or enables Metal by default.
-Preparation and launch commands are in [BUILD.md](../../docs/BUILD.md#macos-metal-experiment).
+Preparation and launch commands are in [BUILD.md](../../docs/BUILD.md#macos-metal-runtime).
 
 The recipe retains the non-GPL/non-Samba MPVKit 1.0.0 release graph declared by
 MPVKit revision `288527dffbc6d3e63cce147fc7b520c64a791603`, except its dav1d

@@ -128,7 +128,9 @@ Release package (macOS only today):
 This direct command also works with local edits; a dirty package is for testing,
 not publication.
 
-Normal development and packaging use the same project-built mpv runtime. The
+Normal macOS development and packaging include both project-built mpv runtimes,
+Standard and Metal. Gradle builds or reuses each graph automatically; no Metal
+opt-in property is required. Standard remains the initial playback choice. The
 [source recipe](../scripts/build-desktop-mpv-runtime.sh) invokes the upstream
 Meson/Ninja, CMake and configure/Make builds for the pinned sources in
 [`scripts/desktop-mpv-bundle/`](../scripts/desktop-mpv-bundle). Install Xcode's
@@ -188,70 +190,40 @@ normal release operations. Both images are validated at their own packaged
 resource paths. DMG source artifacts and clean-source publication checks are
 owned by [the release runbook](RELEASE.md#manual-macos-stages).
 
-### macOS Metal experiment
+### macOS Metal runtime
 
-The source-built Metal path requires Apple Silicon, macOS 15 or newer, Xcode,
-and the [desktop native build prerequisites](#desktop-jvm). It uses the Standard
-source recipe plus pinned MoltenVK and a static glslang compiler, with MPVKit's
-caller-owned `CAMetalLayer` patch and the local resize repair. Build each graph
-in its separate cache:
+Metal requires Apple Silicon and macOS 15 or newer. The normal Gradle commands
+above prepare both runtimes in separate caches: `desktop-mpv` and
+`desktop-mpv-metal` under `~/Private/JellyScopeData/caches/`.
+`JELLYSCOPE_MPV_METAL_RUNTIME_CACHE_ROOT` overrides the Metal cache location.
+
+In Settings → Playback → mpv presentation, choose Standard or Metal — Experimental,
+then quit and reopen the app after the choice saves. The setting is app-wide.
+Packaging fails if either required runtime cannot be prepared or validated.
+
+For a separately prepared source-built Metal runtime, the optional Gradle property
+`-Pjellyscope.desktop.mpvMetalRuntimeDir=<absolute-runtime-directory>` overrides
+automatic preparation. It does not change the initial playback choice.
+
+For a development-only forced Metal launch:
 
 ```bash
-bash scripts/build-desktop-mpv-runtime.sh
+source "$HOME/Private/JellyScopeData/env.sh"
 metal_runtime="$(bash scripts/build-desktop-mpv-runtime.sh --metal)"
-./gradlew --no-daemon :desktop-app:run \
+./gradlew :desktop-app:run \
   -Djellyscope.desktop.mpvMetalExperiment=true \
   "-Djellyscope.desktop.mpvMetalRuntimeDir=$metal_runtime"
 ```
 
-The shared environment selects `~/Private/JellyScopeData/caches/desktop-mpv-metal`;
-`JELLYSCOPE_MPV_METAL_RUNTIME_CACHE_ROOT` may select another dedicated cache.
-`JELLYSCOPE_DATA_ROOT` changes the shared data root used by Gradle, VLC, source
-retention, and the older experiment helper. Direct source builds require the
-matching Standard/Metal cache environment variables.
-Standard and Metal caches have separate ownership and cannot substitute for each
-other. The [experiment notes](../scripts/desktop-mpv-metal/METAL-EXPERIMENT.md)
-retain the older MPVKit binary investigation, which is not accepted by the
-source-built package validator. Keep experiment outputs task-local and path checks
-intact; the builder retains matching sources, licenses, patches and build records.
+The `-D` pair forces a development launch and disables the presentation selector
+for that process. It is independent of packaging. Restart without the pair to use
+the saved choice. Do not combine it with `jellyscope.desktop.forceMpvOpenGlSurface`.
 
-Both properties are required and also work with `:desktop-app:hotRun`. Select
-mpv and do not combine them with `jellyscope.desktop.forceMpvOpenGlSurface`.
-Restart without the pair to use the saved Settings choice. Distribution
-arguments and the production runtime preparation do not consume this `-D` pair.
+Both source graphs, licenses and build records are required by macOS source
+collection and release verification. The [release runbook](RELEASE.md) owns
+publication steps.
 
-To build a local app with both runtime choices, use the **Gradle** `-P` property:
-
-```bash
-./gradlew :desktop-app:createDistributable \
-  -Pjellyscope.macos.signing.enabled=false \
-  "-Pjellyscope.desktop.mpvMetalRuntimeDir=$metal_runtime"
-```
-
-The app image is under `desktop-app/build/compose/binaries/main/app/`.
-In Settings → Playback → mpv presentation, choose Standard or Metal — Experimental,
-wait for the selection to save, then quit and reopen the app when prompted.
-Standard is the initial default. The choice is app-wide, independent of the
-Jellyfin account and Default player setting. Selecting the running mode again
-clears the restart notice. A build without the Metal runtime disables that option.
-Development launch overrides disable this selector for that process.
-
-`-P` stages the complete validated Metal graph under the app's `mpv-metal`
-resource directory; it never embeds the source cache or forces the active mode.
-The similarly named `-D` pair forces a development launch but does not stage
-libraries. Omitting `-P` removes only owned Metal staging before packaging.
-Requested Metal staging is validated before run, resource preparation, packaging
-and signing. Existing clean-source, license and signing gates still apply.
-
-Metal source collection is explicitly selected with `--with-mpv-metal` in the
-macOS source and license verification scripts; Gradle passes it when the `-P`
-property is set. The matching Metal source sidecar contains the merged source
-archives, notices, patches, build records and recipes. Unselected stale Metal
-resources fail verification. Source-built distribution readiness remains subject
-to the native build, corresponding-source inventory and package checks; this
-work does not authorize signing or publication.
-
-The experiment uses software decoding (`hwdec=no`). Begin with a fixed window
+Metal uses software decoding (`hwdec=no`). Begin with a fixed window
 size and check cadence and audible sync before testing pointer movement.
 Check resize/fullscreen geometry and paused redraw with the source-built runtime.
 Controls, subtitles and close/reopen also need visual checks.

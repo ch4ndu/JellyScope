@@ -19,9 +19,7 @@ Builds the signed release candidates owned by Gradle:
   - macOS Release DMG, including Developer ID signing, notarization, and stapling
 
 Moves the completed files into release-artifacts/ with versioned names.
-When the Gradle property jellyscope.desktop.mpvMetalRuntimeDir requests the
-source-built Metal mpv runtime, its validated corresponding-source sidecar is
-collected too.
+Both Standard and Metal mpv runtimes and their validated source sidecars are required.
 
 iOS and tvOS release archives remain Xcode-owned and are not built by this script.
 The release candidate must be committed, the Git worktree must be clean, and
@@ -258,17 +256,13 @@ vlc_version="$(read_property "$source_manifest" vlc-version)"
 vlc_source="$macos_dmg_dir/$(read_property "$source_manifest" vlc-archive)"
 mpv_source="$macos_dmg_dir/$(read_property "$source_manifest" desktop-mpv-archive)"
 vlc_contrib_source="$macos_dmg_dir/$(read_property "$source_manifest" vlc-contrib-archive)"
-# The collector records the Metal archive only for an explicitly requested Metal graph.
-mpv_metal_archive="$(read_property "$source_manifest" desktop-mpv-metal-archive || true)"
-if [[ -n "$mpv_metal_archive" ]]; then
-    bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-release \
-        "$macos_dmg_dir" "$macos_app/Contents/app/resources" --with-mpv-metal
-    [[ -f "$macos_dmg_dir/$mpv_metal_archive" ]] \
-        || die "Requested macOS Metal mpv corresponding-source archive was not produced"
-else
-    bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-release \
-        "$macos_dmg_dir" "$macos_app/Contents/app/resources"
-fi
+# Both presentations and their source archives are mandatory.
+mpv_metal_archive="$(read_property "$source_manifest" desktop-mpv-metal-archive)"
+[[ -n "$mpv_metal_archive" ]] || die "macOS Metal mpv corresponding-source archive is missing"
+bash "$repo_root/scripts/prepare-macos-release-sources.sh" --verify-release \
+    "$macos_dmg_dir" "$macos_app/Contents/app/resources"
+[[ -f "$macos_dmg_dir/$mpv_metal_archive" ]] \
+    || die "macOS Metal mpv corresponding-source archive was not produced"
 [[ -f "$jellyscope_source" ]] \
     || die "macOS revision-named JellyScope source archive was not produced"
 [[ -f "$vlc_source" ]] \
@@ -291,11 +285,6 @@ release_source_manifest_name="JellyScope-$desktop_version_name-source-manifest.t
 release_jellyscope_source="$release_output_dir/$release_jellyscope_source_name"
 release_vlc_source="$release_output_dir/$release_vlc_source_name"
 release_source_manifest="$release_output_dir/$release_source_manifest_name"
-# Reject, before any move, a same-version Metal sidecar left beside a Standard-only candidate.
-if [[ -z "$mpv_metal_archive" ]] && [[ -e "$release_output_dir/$release_mpv_metal_source_name" ||
-    -L "$release_output_dir/$release_mpv_metal_source_name" ]]; then
-    die "Standard-only collection found a stale $release_output_dir/$release_mpv_metal_source_name; remove it and rerun"
-fi
 
 echo "==> Moving release artifacts into $release_output_dir"
 mkdir -p "$release_output_dir"
@@ -308,9 +297,7 @@ mv -f "$jellyscope_source" "$release_jellyscope_source"
 mv -f "$vlc_source" "$release_vlc_source"
 mv -f "$mpv_source" "$release_output_dir/$release_mpv_source_name"
 mv -f "$vlc_contrib_source" "$release_output_dir/$release_vlc_contrib_source_name"
-if [[ -n "$mpv_metal_archive" ]]; then
-    mv -f "$macos_dmg_dir/$mpv_metal_archive" "$release_output_dir/$release_mpv_metal_source_name"
-fi
+mv -f "$macos_dmg_dir/$mpv_metal_archive" "$release_output_dir/$release_mpv_metal_source_name"
 mv -f "$source_manifest" "$release_source_manifest"
 
 source_manifest_tmp="$release_source_manifest.tmp"
@@ -338,10 +325,8 @@ grep -Fx "desktop-mpv-archive=$release_mpv_source_name" "$release_source_manifes
     || die "Collected source manifest does not name the desktop mpv source archive"
 grep -Fx "vlc-contrib-archive=$release_vlc_contrib_source_name" "$release_source_manifest" >/dev/null \
     || die "Collected source manifest does not name the VLC contrib source archive"
-if [[ -n "$mpv_metal_archive" ]]; then
-    grep -Fx "desktop-mpv-metal-archive=$release_mpv_metal_source_name" "$release_source_manifest" >/dev/null \
-        || die "Collected source manifest does not name the desktop Metal mpv source archive"
-fi
+grep -Fx "desktop-mpv-metal-archive=$release_mpv_metal_source_name" "$release_source_manifest" >/dev/null \
+    || die "Collected source manifest does not name the desktop Metal mpv source archive"
 
 trap - EXIT
 stop_gradle
@@ -358,9 +343,7 @@ echo "  JellyScope source:           $release_jellyscope_source"
 echo "  VLC source:                  $release_vlc_source"
 echo "  mpv source inputs:           $release_output_dir/$release_mpv_source_name"
 echo "  VLC contrib source inputs:   $release_output_dir/$release_vlc_contrib_source_name"
-if [[ -n "$mpv_metal_archive" ]]; then
-    echo "  Metal mpv source inputs:     $release_output_dir/$release_mpv_metal_source_name"
-fi
+echo "  Metal mpv source inputs:     $release_output_dir/$release_mpv_metal_source_name"
 echo "  Source manifest:             $release_source_manifest"
 echo "  iOS/tvOS:                    build and archive through Xcode"
 echo "  GitHub publication:          not performed"
