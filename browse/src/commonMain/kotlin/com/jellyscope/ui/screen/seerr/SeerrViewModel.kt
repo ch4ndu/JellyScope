@@ -32,11 +32,14 @@ import com.jellyscope.core.domain.model.isFullyAvailable
 import com.jellyscope.core.domain.usecase.GetSeerrCatalogUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrConnectionUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrDetailUseCase
+import com.jellyscope.core.domain.usecase.GetSeerrPersonUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrRequestsUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrSimilarUseCase
 import com.jellyscope.core.domain.usecase.ObserveSessionStateUseCase
 import com.jellyscope.core.domain.usecase.ResolveSeerrLibraryItemUseCase
 import com.jellyscope.core.domain.usecase.ValidateSeerrPublicationUseCase
+import com.jellyscope.ui.screen.person.PersonHeaderUi
+import com.jellyscope.ui.screen.person.PersonUiState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
@@ -56,6 +59,7 @@ class SeerrViewModel(
     private val getDetail: GetSeerrDetailUseCase,
     private val getSimilar: GetSeerrSimilarUseCase,
     private val getRequests: GetSeerrRequestsUseCase,
+    private val getPerson: GetSeerrPersonUseCase,
     private val resolveLibraryItem: ResolveSeerrLibraryItemUseCase,
     private val validatePublication: ValidateSeerrPublicationUseCase,
     private val validateService: ValidateSeerrServiceAction,
@@ -90,7 +94,13 @@ class SeerrViewModel(
     private var relatedRevision = 0L
     private var visible = false
     private var entrySequence = 0L
-    private val history = mutableListOf<SeerrDetailUi>()
+
+    private data class HistoryEntry(
+        val detail: SeerrDetailUi,
+        val person: SeerrPersonUi? = null,
+    )
+
+    private val history = mutableListOf<HistoryEntry>()
 
     init {
         observePolicy(observeSessionState().value)
@@ -108,7 +118,26 @@ class SeerrViewModel(
             return
         }
         if (!state.value.ownerValid) return
+        if (state.value.person != null &&
+            intent !is SeerrIntent.OpenCredit &&
+            intent !is SeerrIntent.PersonFocused &&
+            intent !is SeerrIntent.RememberPerson &&
+            intent != SeerrIntent.RetryPerson &&
+            intent != SeerrIntent.Back &&
+            intent != SeerrIntent.Resumed &&
+            intent !is SeerrIntent.SelectSection
+        ) {
+            return
+        }
         when (intent) {
+            is SeerrIntent.OpenPerson -> openPerson(intent.id)
+            is SeerrIntent.OpenCredit -> openCredit(intent.id)
+            SeerrIntent.RetryPerson -> loadPerson()
+            is SeerrIntent.PersonFocused -> state.value.person?.let { reduce(SeerrChange.Person(it.copy(focusedId = intent.id))) }
+            is SeerrIntent.RememberPerson ->
+                state.value.person?.let {
+                    reduce(SeerrChange.Person(it.copy(scroll = intent.scroll, movieScroll = intent.movies, seriesScroll = intent.series)))
+                }
             SeerrIntent.Resumed -> {
                 visible = true
                 if (state.value.detail
@@ -189,16 +218,31 @@ class SeerrViewModel(
             SeerrIntent.Back -> back()
             is SeerrIntent.SelectQuality -> {
                 val detail = state.value.detail ?: return
-                if (!detail.selectionEnabled || (intent.quality == SeerrQuality.FourK && !detail.showFourK)) return
+                if (!detail.selectionEnabled || intent.quality !in detail.requestQualities) return
                 cancelLibrary()
                 updateDetail {
-                    it.copy(quality = intent.quality, selectedSeasons = emptySet(), mutation = SeerrMutation.None, error = null)
+                    it.copy(
+                        quality = intent.quality,
+                        selectedSeasons = emptySet(),
+                        mutation = SeerrMutation.None,
+                        error = null,
+                        reviewVisible = false,
+                        reviewSeason = null,
+                        libraryPickerVisible = false,
+                        qualityPickerVisible = false,
+                        focusedId = "quality",
+                        focusRevision =
+                            it.focusRevision + 1,
+                    )
                 }
             }
             is SeerrIntent.ToggleSeason ->
                 updateDetail {
-                    if (!it.selectionEnabled || it.seasons.none { row -> row.season.number == intent.number && row.enabled }) {
+                    val row = it.seasons.firstOrNull { row -> row.season.number == intent.number }
+                    if (!it.reviewEnabled || row == null) {
                         it
+                    } else if (!row.enabled) {
+                        it.copy(reviewVisible = true, reviewSeason = intent.number, mutation = SeerrMutation.None)
                     } else {
                         it.copy(
                             selectedSeasons =
@@ -214,15 +258,51 @@ class SeerrViewModel(
                 }
             SeerrIntent.ConfirmRequest ->
                 updateDetail {
-                    if (it.canSubmit) {
-                        it.copy(mutation = SeerrMutation.Confirming(SeerrRequestIntent(it.key, it.quality, it.selectedSeasons.sorted())))
+                    if (it.reviewEnabled) {
+                        it.copy(
+                            reviewVisible = true,
+                            reviewSeason = null,
+                            mutation =
+                                if (it.canSubmit) {
+                                    SeerrMutation.Confirming(SeerrRequestIntent(it.key, it.quality, it.selectedSeasonNumbers))
+                                } else {
+                                    SeerrMutation.None
+                                },
+                        )
                     } else {
                         it
                     }
                 }
             SeerrIntent.SubmitRequest -> submit()
+            SeerrIntent.ChooseQuality ->
+                updateDetail {
+                    if (it.selectionEnabled && it.requestQualities.size > 1) it.copy(qualityPickerVisible = true) else it
+                }
+            SeerrIntent.ChooseSeasons ->
+                updateDetail {
+                    if (!it.reviewVisible || !it.chooseSeasons || it.submitting) {
+                        it
+                    } else {
+                        val target = it.seasons.firstOrNull { row -> row.enabled } ?: it.seasons.firstOrNull()
+                        it.copy(
+                            reviewVisible = false,
+                            reviewSeason = null,
+                            mutation = SeerrMutation.None,
+                            focusedId = target?.let { row -> "season:${row.season.number}" } ?: "request",
+                            focusRevision = it.focusRevision + 1,
+                        )
+                    }
+                }
             SeerrIntent.Reconcile -> reconcile()
-            SeerrIntent.OpenLibrary -> openLibrary()
+            SeerrIntent.OpenLibrary -> {
+                val detail = state.value.detail ?: return
+                if (detail.libraryQualities.size == 1) {
+                    openLibrary(detail.libraryQualities.single())
+                } else if (detail.libraryQualities.size > 1 && detail.reviewEnabled) {
+                    updateDetail { it.copy(libraryPickerVisible = true) }
+                }
+            }
+            is SeerrIntent.OpenLibraryQuality -> openLibrary(intent.quality)
             is SeerrIntent.UrlChanged -> {
                 if (state.value.connection.busy || state.value.connected) return
                 token = null
@@ -665,16 +745,16 @@ class SeerrViewModel(
                     updateDetail { it.copy(loading = false, admissionFresh = false, error = error) }
                 }) { detail ->
                     updateDetail {
-                        val preferFourK = detail.standard.blockedBy == SeerrError.PermissionDenied && detail.fourK.canRequest
                         it.copy(
                             detail = detail,
                             loading = false,
                             error = retainedError,
                             admissionFresh = detail.media.key == key,
-                            quality = if (it.detail == null && preferFourK) SeerrQuality.FourK else it.quality,
                             uncertain = detail.reconciliationRequired || state.value.connection.connection.unresolvedRequest != null,
                         )
                     }
+                    val review = state.value.detail
+                    if (review?.reviewVisible == true && review.reviewSeason == null) accept(SeerrIntent.ConfirmRequest)
                     if (state.value.detail
                             ?.related
                             ?.phase == SeerrRelatedPhase.NotAttempted
@@ -694,11 +774,39 @@ class SeerrViewModel(
             cancelAuth()
             return
         }
+        if (state.value.person != null) {
+            cancelReads()
+            reduce(SeerrChange.Person(null))
+            val parent = state.value.detail ?: return
+            reduce(SeerrChange.Focus(parent.focusedId))
+            loadDetail(parent.key)
+            return
+        }
         val detail = state.value.detail ?: return
         if (detail.submitting) return
-        if (detail.confirmation != null) {
-            updateDetail { it.copy(mutation = SeerrMutation.None) }
-            reduce(SeerrChange.Focus("request"))
+        if (detail.qualityPickerVisible) {
+            updateDetail { it.copy(qualityPickerVisible = false, focusedId = "quality", focusRevision = it.focusRevision + 1) }
+        } else if (detail.libraryPickerVisible) {
+            updateDetail { it.copy(libraryPickerVisible = false, focusedId = "library", focusRevision = it.focusRevision + 1) }
+        } else if (detail.reviewVisible) {
+            val target =
+                detail.reviewSeason?.let { number ->
+                    val season =
+                        detail.seasons.firstOrNull { it.season.number == number }
+                            ?: detail.seasons.firstOrNull { it.season.number > number }
+                            ?: detail.seasons.firstOrNull()
+                    season?.let { "season:${it.season.number}" }
+                } ?: "request"
+            updateDetail {
+                it.copy(
+                    mutation = SeerrMutation.None,
+                    reviewVisible = false,
+                    reviewSeason = null,
+                    focusedId = target,
+                    focusRevision = it.focusRevision + 1,
+                )
+            }
+            reduce(SeerrChange.Focus(target))
         } else {
             cancelReads()
             val parent = history.removeLastOrNull()
@@ -706,9 +814,10 @@ class SeerrViewModel(
                 reduce(SeerrChange.Detail(null))
                 reduce(SeerrChange.Focus(state.value.feed.selectedId))
             } else {
-                reduce(SeerrChange.Detail(parent.copy(admissionFresh = false, loading = false)))
-                reduce(SeerrChange.Focus(parent.focusedId))
-                loadDetail(parent.key)
+                reduce(SeerrChange.Detail(parent.detail.copy(admissionFresh = false, loading = false)))
+                reduce(SeerrChange.Person(parent.person))
+                reduce(SeerrChange.Focus(parent.detail.focusedId))
+                if (parent.person == null) loadDetail(parent.detail.key)
             }
         }
     }
@@ -717,7 +826,8 @@ class SeerrViewModel(
         val captured = token ?: return
         val detail = state.value.detail ?: return
         val intent = detail.confirmation ?: return
-        if (!catalogAllowed() || !detail.canSubmit || detail.submitting || mutationJob?.isActive == true) return
+        if (!catalogAllowed() || !detail.reviewCanSubmit || detail.submitting || mutationJob?.isActive == true) return
+        if (intent != SeerrRequestIntent(detail.key, detail.quality, detail.selectedSeasonNumbers)) return
         cancelRelated()
         val generation = detailGeneration
         cancelLibrary()
@@ -743,6 +853,7 @@ class SeerrViewModel(
                             it.copy(
                                 admissionFresh = false,
                                 mutation = SeerrMutation.None,
+                                reviewVisible = true,
                                 error = error,
                                 uncertain =
                                     error == SeerrError.ReconciliationRequired || it.uncertain,
@@ -750,7 +861,14 @@ class SeerrViewModel(
                         }
                     },
                 ) {
-                    updateDetail { it.copy(mutation = SeerrMutation.None, notice = SeerrNotice.Created) }
+                    updateDetail {
+                        it.copy(
+                            mutation = SeerrMutation.None,
+                            reviewVisible = false,
+                            reviewSeason = null,
+                            notice = SeerrNotice.Created,
+                        )
+                    }
                     // Reads after proven creation are safe; the POST itself is never retried.
                 }
                 if (generation == detailGeneration) {
@@ -803,18 +921,26 @@ class SeerrViewModel(
             }
     }
 
-    private fun openLibrary() {
+    private fun openLibrary(quality: SeerrQuality) {
         val captured = token ?: return
         val detail = state.value.detail ?: return
-        if (!catalogAllowed() || detail.resolvingLibrary || detail.submitting || detail.loading || detail.reconciling) return
+        if (!catalogAllowed() ||
+            quality !in detail.libraryQualities ||
+            detail.resolvingLibrary ||
+            detail.submitting ||
+            detail.loading ||
+            detail.reconciling
+        ) {
+            return
+        }
         cancelRelated()
         cancelLibrary()
         val generation = detailGeneration
         val effectId = effectSequence
-        updateDetail { it.copy(resolvingLibrary = true, error = if (it.admissionFresh) null else it.error) }
+        updateDetail { it.copy(resolvingLibrary = true, libraryPickerVisible = false, error = if (it.admissionFresh) null else it.error) }
         libraryJob =
             viewModelScope.launch {
-                publish(resolveLibraryItem(captured, detail.key, detail.quality), true, {
+                publish(resolveLibraryItem(captured, detail.key, quality), true, {
                     effectId == effectSequence &&
                         generation == detailGeneration &&
                         state.value.detail?.key == detail.key
@@ -896,7 +1022,82 @@ class SeerrViewModel(
         val row = current.related.rows.firstOrNull { it.id == id } ?: return
         cancelReads()
         val snapshot = state.value.detail ?: return
-        history.add(snapshot.copy(mutation = SeerrMutation.None, notice = null, admissionFresh = false))
+        history.add(HistoryEntry(snapshot.copy(mutation = SeerrMutation.None, notice = null, admissionFresh = false)))
+        reduce(SeerrChange.Detail(SeerrDetailUi(row.media.key, entryId = ++entrySequence)))
+        reduce(SeerrChange.Focus(null))
+        loadDetail(row.media.key)
+    }
+
+    private fun openPerson(id: Int) {
+        val detail = state.value.detail ?: return
+        if (!catalogAllowed() || !detail.relatedEnabled || detail.detail?.cast?.none { it.id == id } != false) return
+        cancelReads()
+        updateDetail { it.copy(admissionFresh = false) }
+        reduce(SeerrChange.Person(SeerrPersonUi(id, ++entrySequence)))
+        loadPerson()
+    }
+
+    private fun loadPerson() {
+        val captured = token ?: return
+        val person = state.value.person ?: return
+        if (!catalogAllowed()) return
+        cancelReads()
+        val generation = detailGeneration
+        reduce(SeerrChange.Person(person.copy(loading = true, error = null, presentation = PersonUiState.Loading)))
+        detailJob =
+            viewModelScope.launch {
+                publish(
+                    getPerson(captured, person.id),
+                    true,
+                    { generation == detailGeneration && state.value.person?.entryId == person.entryId },
+                    { error ->
+                        state.value.person?.let {
+                            reduce(
+                                SeerrChange.Person(it.copy(loading = false, error = error, presentation = PersonUiState.Error())),
+                            )
+                        }
+                    },
+                ) { value ->
+                    state.value.person?.let {
+                        val movies = value.movies.map { media -> SeerrRow(media) }
+                        val series = value.series.map { media -> SeerrRow(media) }
+                        reduce(
+                            SeerrChange.Person(
+                                it.copy(
+                                    person = value,
+                                    movies = movies,
+                                    series = series,
+                                    credits = (movies + series).associate { row -> row.id to row.media },
+                                    presentation =
+                                        PersonUiState.Content(
+                                            movies.map { row -> row.card },
+                                            series.map { row -> row.card },
+                                            PersonHeaderUi(
+                                                "tmdb:${value.tmdbId}",
+                                                value.name,
+                                                value.biography,
+                                                seerrArtworkUrl(value.profileUrl),
+                                                null,
+                                            ),
+                                        ),
+                                    loading = false,
+                                    error = null,
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
+    }
+
+    private fun openCredit(id: String) {
+        val person = state.value.person ?: return
+        val parent = state.value.detail ?: return
+        if (!catalogAllowed() || person.loading || person.error != null) return
+        val row = (person.movies + person.series).firstOrNull { it.id == id } ?: return
+        cancelReads()
+        history.add(HistoryEntry(parent, person))
+        reduce(SeerrChange.Person(null))
         reduce(SeerrChange.Detail(SeerrDetailUi(row.media.key, entryId = ++entrySequence)))
         reduce(SeerrChange.Focus(null))
         loadDetail(row.media.key)

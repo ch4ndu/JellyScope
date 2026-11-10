@@ -14,16 +14,26 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import coil3.SingletonImageLoader
+import coil3.compose.LocalPlatformContext
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.hero.HeroBackdrop
 import com.jellyscope.hero.HeroContentCrossfade
 import com.jellyscope.tv.R
+import com.jellyscope.ui.component.AmbientImageSource
 import com.jellyscope.ui.component.ImageDecode
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.component.PublicArtworkOwner
 import com.jellyscope.ui.component.TvHeroMetadata
 import com.jellyscope.ui.component.authenticatedImageRequest
+import com.jellyscope.ui.component.mediaCardKindLabel
+import com.jellyscope.ui.component.publicArtworkRequest
 import com.jellyscope.ui.component.tvHeroMetadata
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import com.jellyscope.ui.component.DetailText as TvText
@@ -35,10 +45,13 @@ internal fun TvHeroBackdrop(
     item: MediaCardUi?,
     modifier: Modifier = Modifier,
     onSizeChanged: (IntSize) -> Unit = {},
+    publicArtworkEntry: String? = null,
+    onArtworkLoaded: (AmbientImageSource) -> Unit = {},
 ) {
+    val imageLoader = SingletonImageLoader.get(LocalPlatformContext.current)
     HeroBackdrop(
-        target = item?.backdropUrl,
-        assetKey = item?.backdropUrl,
+        target = item?.backdropUrl ?: item?.imageUrl,
+        assetKey = item?.backdropUrl ?: item?.imageUrl,
         navy = LocalJellyfinPalette.current.navy,
         modifier =
             modifier
@@ -48,7 +61,16 @@ internal fun TvHeroBackdrop(
     ) { imageUrl ->
         if (imageUrl != null) {
             AsyncImage(
-                model = authenticatedImageRequest(imageUrl, session, ImageDecode.Backdrop),
+                model =
+                    if (publicArtworkEntry != null) {
+                        publicArtworkRequest(
+                            PublicArtworkOwner(AccountIdentity(session.serverId, session.userId), publicArtworkEntry, imageUrl),
+                        )
+                    } else {
+                        authenticatedImageRequest(imageUrl, session, ImageDecode.Backdrop)
+                    },
+                imageLoader = imageLoader,
+                onSuccess = { onArtworkLoaded(AmbientImageSource(it.result, imageLoader, imageUrl)) },
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
@@ -61,9 +83,11 @@ internal fun TvHeroBackdrop(
 internal fun TvHeroZone(
     item: MediaCardUi?,
     modifier: Modifier = Modifier,
+    textHeightBudget: Dp? = null,
+    catalogMetadata: Boolean = false,
 ) {
     HeroContentCrossfade(target = item, assetKey = item?.id, modifier = modifier) {
-        TvHeroZoneContent(it)
+        TvHeroZoneContent(it, textHeightBudget = textHeightBudget, catalogMetadata = catalogMetadata)
     }
 }
 
@@ -71,43 +95,94 @@ internal fun TvHeroZone(
 private fun TvHeroZoneContent(
     item: MediaCardUi?,
     modifier: Modifier = Modifier,
+    textHeightBudget: Dp? = null,
+    catalogMetadata: Boolean = false,
 ) {
+    val constrained = textHeightBudget != null
+    val titleStyle =
+        if (constrained) {
+            TvHeroTitleStyle.copy(fontSize = TvDimens.heroCompactTitleSize, lineHeight = TvDimens.heroCompactTitleLineHeight)
+        } else {
+            TvHeroTitleStyle
+        }
+    val metadataStyle =
+        if (constrained) {
+            TvHeroMetadataStyle.copy(fontSize = TvDimens.heroCompactBodySize, lineHeight = TvDimens.heroCompactMetadataLineHeight)
+        } else {
+            TvHeroMetadataStyle
+        }
+    val overviewStyle =
+        if (constrained) {
+            TvHeroOverviewStyle.copy(fontSize = TvDimens.heroCompactBodySize, lineHeight = TvDimens.heroCompactMetadataLineHeight)
+        } else {
+            TvHeroOverviewStyle
+        }
+    val gap = if (constrained) TvDimens.heroCompactGap else TvDimens.heroContentGap
+    val top = if (constrained) TvDimens.heroCompactGap else TvDimens.heroContentTopPadding
+    val genres = if (catalogMetadata) item?.genresLine?.takeIf { it.isNotBlank() } else item?.genresLine.orEmpty()
+    val overview =
+        if (catalogMetadata) {
+            item?.overview?.takeIf { it.isNotBlank() }
+        } else {
+            item?.overview ?: stringResource(R.string.tv_overview_fallback)
+        }
+    // Explicit line heights include font scaling. Keep title and metadata intact;
+    // spend the remaining measured budget on whole overview lines, never a clip.
+    val overviewLines =
+        with(LocalDensity.current) {
+            if (textHeightBudget == null) {
+                3
+            } else {
+                val fixed =
+                    top + titleStyle.lineHeight.toDp() + metadataStyle.lineHeight.toDp() + gap * 2 +
+                        (if (genres != null) metadataStyle.lineHeight.toDp() + gap else 0.dp)
+                ((textHeightBudget - fixed) / overviewStyle.lineHeight.toDp()).toInt().coerceIn(1, 3)
+            }
+        }
     Column(
-        modifier = modifier.padding(top = TvDimens.heroContentTopPadding),
-        verticalArrangement = Arrangement.spacedBy(TvDimens.heroContentGap),
+        modifier = modifier.padding(top = top),
+        verticalArrangement = Arrangement.spacedBy(gap),
     ) {
-        // Title may run wider than the description block: ~50% of the screen
-        // (0.61 of the content column), wrapping to two lines.
+        // Browse grids budget a single title line; unconstrained Home keeps two.
         TvText(
             text = item?.title.orEmpty(),
-            style = TvHeroTitleStyle,
-            maxLines = 2,
+            style = titleStyle,
+            maxLines = if (constrained) 1 else 2,
             modifier = Modifier.fillMaxWidth(TvDimens.heroTitleWidthFraction),
         )
         val selected = item
         if (selected != null) {
             Column(
                 modifier = Modifier.fillMaxWidth(TvDimens.heroContentWidthFraction),
-                verticalArrangement = Arrangement.spacedBy(TvDimens.heroContentGap),
+                verticalArrangement = Arrangement.spacedBy(gap),
             ) {
                 TvText(
-                    text = selected.tvHeroMetadata().localizedLine(),
-                    style = TvHeroMetadataStyle,
+                    text =
+                        if (catalogMetadata) {
+                            metadataLine(listOfNotNull(selected.year, mediaCardKindLabel(selected.kind)))
+                        } else {
+                            selected.tvHeroMetadata().localizedLine()
+                        },
+                    style = metadataStyle,
                     color = LocalJellyfinPalette.current.textSecondary,
                     maxLines = 1,
                 )
-                TvText(
-                    text = selected.genresLine.orEmpty(),
-                    style = TvHeroMetadataStyle,
-                    color = LocalJellyfinPalette.current.textSecondary,
-                    maxLines = 1,
-                )
-                TvText(
-                    text = selected.overview ?: stringResource(R.string.tv_overview_fallback),
-                    style = TvHeroOverviewStyle,
-                    color = LocalJellyfinPalette.current.textSecondary,
-                    maxLines = 3,
-                )
+                if (genres != null) {
+                    TvText(
+                        text = genres,
+                        style = metadataStyle,
+                        color = LocalJellyfinPalette.current.textSecondary,
+                        maxLines = 1,
+                    )
+                }
+                if (overview != null) {
+                    TvText(
+                        text = overview,
+                        style = overviewStyle,
+                        color = LocalJellyfinPalette.current.textSecondary,
+                        maxLines = overviewLines,
+                    )
+                }
             }
         } else {
             TvText(

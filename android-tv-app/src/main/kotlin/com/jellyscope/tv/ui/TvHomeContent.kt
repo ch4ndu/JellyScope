@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,14 +61,19 @@ import kotlin.math.roundToInt
 internal fun Modifier.tvHomeAmbientBackground(
     presentation: TvHeroAmbientPresentation,
     overlay: Boolean = false,
+    enabled: Boolean = true,
 ): Modifier =
-    HeroAmbientBackground(
-        HeroAmbientPresentation(presentation.animationOwnerKey, presentation.color, presentation.clearWhenColorMissing),
-        navy = LocalJellyfinPalette.current.navy,
-        gradientBottom = LocalJellyfinPalette.current.gradientBottom,
-        fallbackBrush = LocalAppBackgroundBrush.current,
-        overlay = overlay,
-    )
+    if (enabled) {
+        HeroAmbientBackground(
+            HeroAmbientPresentation(presentation.animationOwnerKey, presentation.color, presentation.clearWhenColorMissing),
+            navy = LocalJellyfinPalette.current.navy,
+            gradientBottom = LocalJellyfinPalette.current.gradientBottom,
+            fallbackBrush = LocalAppBackgroundBrush.current,
+            overlay = overlay,
+        )
+    } else {
+        background(LocalAppBackgroundBrush.current)
+    }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -89,6 +95,7 @@ internal fun TvHomeContent(
     modifier: Modifier = Modifier,
     focusRescueTick: Int = 0,
     onHeroSizeChanged: (IntSize) -> Unit = {},
+    showHero: Boolean = true,
 ) {
     val continueWatchingTitle = stringResource(R.string.tv_continue_watching)
     val favoritesTitle = stringResource(R.string.tv_favorites)
@@ -344,14 +351,16 @@ internal fun TvHomeContent(
         modifier =
             modifier
                 .fillMaxSize()
-                .tvHomeAmbientBackground(ambientPresentation, overlay = true),
+                .tvHomeAmbientBackground(ambientPresentation, overlay = true, enabled = showHero),
     ) {
-        TvHeroBackdrop(
-            session = session,
-            item = focusedItem,
-            modifier = Modifier.align(Alignment.TopEnd),
-            onSizeChanged = onHeroSizeChanged,
-        )
+        if (showHero) {
+            TvHeroBackdrop(
+                session = session,
+                item = focusedItem,
+                modifier = Modifier.align(Alignment.TopEnd),
+                onSizeChanged = onHeroSizeChanged,
+            )
+        }
         TvClock(
             modifier =
                 Modifier
@@ -369,16 +378,18 @@ internal fun TvHomeContent(
                         top = TvDimens.overscanVertical,
                     ),
         ) {
-            TvHeroZone(
-                item = focusedItem,
-                modifier =
-                    Modifier
-                        .padding(
-                            start = contentStartPadding,
-                            end = TvDimens.overscanHorizontal,
-                        ).fillMaxWidth()
-                        .height(TvDimens.heroHeight),
-            )
+            if (showHero) {
+                TvHeroZone(
+                    item = focusedItem,
+                    modifier =
+                        Modifier
+                            .padding(
+                                start = contentStartPadding,
+                                end = TvDimens.overscanHorizontal,
+                            ).fillMaxWidth()
+                            .height(TvDimens.heroHeight),
+                )
+            }
 
             // Explicit vertical pinning coexists with each ribbon's horizontal scroll.
             val scrollState = rememberScrollState()

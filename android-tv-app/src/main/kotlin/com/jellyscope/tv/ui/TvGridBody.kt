@@ -49,6 +49,7 @@ import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
 import com.jellyscope.tv.ui.focus.tvFocusScope
 import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.focus.rememberNoAutoScrollSpec
 import com.jellyscope.ui.screen.grid.GridSort
 import com.jellyscope.ui.screen.home.HomeRow
 import com.jellyscope.ui.theme.LocalJellyfinPalette
@@ -69,35 +70,62 @@ internal fun TvGridLoadedContent(
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
+    var focusedItem by remember(session.serverId, session.userId, row) { mutableStateOf<MediaCardUi?>(null) }
+    val currentItem = focusedItem?.let { focused -> items.firstOrNull { it.id == focused.id } }
+    val hero = rememberTvBrowseHero(session, currentItem, TvHeroAmbientSurface.ViewAll, row.name)
+    val heroVisible = hero.enabled && items.isNotEmpty()
+    androidx.compose.foundation.layout.Box(
+        Modifier.fillMaxSize().tvHomeAmbientBackground(hero.ambient.presentation, overlay = true, enabled = heroVisible),
     ) {
-        TvGridHeader(
-            title = gridRowTitle(row),
-            itemCount = items.size,
-            sort = sort,
-            sortButtonRequester = sortButtonRequester,
-            gridFocusRequester = gridFocusRequester,
-            onShuffle = onShuffle,
-            onOpenSortPicker = onOpenSortPicker,
-            modifier =
-                Modifier.padding(
-                    start = TvDimens.overscanHorizontal,
-                    top = TvDimens.overscanVertical,
-                    end = TvDimens.overscanHorizontal,
-                ),
-        )
-        TvGrid(
-            session = session,
-            items = items,
-            sort = sort,
-            sortPickerOpen = sortPickerOpen,
-            gridFocusRequester = gridFocusRequester,
-            onItemSelected = onItemSelected,
-            onItemPlayDirect = onItemPlayDirect,
-            modifier = Modifier.weight(1f),
-        )
+        if (heroVisible) {
+            TvHeroBackdrop(
+                session,
+                hero.item,
+                Modifier.align(Alignment.TopEnd),
+                onArtworkLoaded = hero.ambient.onArtworkLoaded,
+            )
+        }
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(TvDimens.itemGap),
+        ) {
+            TvGridHeader(
+                title = gridRowTitle(row),
+                itemCount = items.size,
+                sort = sort,
+                sortButtonRequester = sortButtonRequester,
+                gridFocusRequester = gridFocusRequester,
+                onShuffle = onShuffle,
+                onOpenSortPicker = onOpenSortPicker,
+                modifier =
+                    Modifier.padding(
+                        start = TvDimens.overscanHorizontal,
+                        top = TvDimens.overscanVertical,
+                        end = TvDimens.overscanHorizontal,
+                    ),
+            )
+            if (heroVisible) {
+                TvLibraryGridHero(
+                    session,
+                    hero.item,
+                    contentStartPadding = TvDimens.overscanHorizontal,
+                    showBackdrop = false,
+                    reserveGridViewport = true,
+                )
+            }
+            TvGrid(
+                session = session,
+                items = items,
+                sort = sort,
+                sortPickerOpen = sortPickerOpen,
+                gridFocusRequester = gridFocusRequester,
+                onItemSelected = onItemSelected,
+                onItemPlayDirect = onItemPlayDirect,
+                onItemFocused = { focusedItem = it },
+                constrainedByHero = heroVisible,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -158,6 +186,8 @@ private fun TvGrid(
     gridFocusRequester: FocusRequester,
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
+    onItemFocused: (MediaCardUi) -> Unit,
+    constrainedByHero: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val coordinator = requireNotNull(LocalTvFocusCoordinator.current)
@@ -201,8 +231,15 @@ private fun TvGrid(
             gridState = gridState,
             itemCount = items.size,
             columnCount = columnCount,
+            revealComposedTargets = constrainedByHero,
         )
-    val gridBringIntoViewSpec = rememberRowAwareMarioBringIntoViewSpec()
+    LaunchedEffect(constrainedByHero) {
+        if (gridHasFocus) {
+            val index = items.indexOfFirst { it.id == lastFocusedItemId }
+            if (index >= 0) focusNav.requestFocus(index)
+        }
+    }
+    val gridBringIntoViewSpec = if (constrainedByHero) rememberNoAutoScrollSpec() else rememberRowAwareMarioBringIntoViewSpec()
 
     val restoreWaiting = coordinator.pendingRestore != null && coordinator.readyRestore == null
     // Re-run only when a pending restore resolves, not on every focus move.
@@ -292,6 +329,7 @@ private fun TvGrid(
                         onFocused = {
                             focusNav.onItemFocused(index)
                             lastFocusedItemId = item.id
+                            onItemFocused(item)
                             val path = gridScope.path(itemKey, TvFocusTargetKind.Item, index)
                             coordinator.recordFocused(path)
                             coordinator.readyRestore?.let { restore ->

@@ -19,6 +19,7 @@ import coil3.SingletonImageLoader
 import coil3.compose.LocalPlatformContext
 import com.jellyscope.core.data.remote.ImageAuthHeaderProvider
 import com.jellyscope.core.domain.model.Session
+import com.jellyscope.tv.TvUiPreferencesStore
 import com.jellyscope.ui.component.ImageDecode
 import com.jellyscope.ui.component.LocalImageDecodeScale
 import com.jellyscope.ui.component.MeasuredImageRequestKey
@@ -55,12 +56,18 @@ internal fun TvHomeScreen(
         ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val preferences = koinInject<TvUiPreferencesStore>()
+    val heroEnabled by preferences.showLibraryGridHero.collectAsStateWithLifecycle()
+    val showHero =
+        heroEnabled &&
+            listOf(state.continueWatching, state.favorites, state.nextUp, state.recentlyAdded)
+                .any { it is RowState.Content && it.items.isNotEmpty() }
     var focusedItem by remember { mutableStateOf<MediaCardUi?>(null) }
     var focusedRow by remember { mutableStateOf<HomeRow?>(null) }
     var heroItem by remember { mutableStateOf<MediaCardUi?>(null) }
     val ambientState =
         rememberTvHeroAmbientState(
-            item = heroItem,
+            item = heroItem.takeIf { showHero },
             surface = TvHeroAmbientSurface.Home,
             accountKey = "${session.serverId}|${session.userId}",
         )
@@ -78,7 +85,8 @@ internal fun TvHomeScreen(
     val platformContext = LocalPlatformContext.current
     val imageAuthHeaderProvider = koinInject<ImageAuthHeaderProvider>()
     val reducedHeroSize = if (imageDecodeScale < 1f) heroSize else null
-    LaunchedEffect(focusedItem, reducedHeroSize, imageDecodeScale) {
+    LaunchedEffect(focusedItem, reducedHeroSize, imageDecodeScale, showHero) {
+        if (!showHero) return@LaunchedEffect
         if (reducedHeroSize == IntSize.Zero) return@LaunchedEffect
         val backdropUrl = focusedItem?.backdropUrl ?: return@LaunchedEffect
         delay(BACKDROP_PREFETCH_DEBOUNCE_MS)
@@ -157,6 +165,7 @@ internal fun TvHomeScreen(
         session = session,
         state = state,
         focusedItem = heroItem,
+        showHero = showHero,
         restoredFocusItemId = initialFocusItemId,
         restoredFocusRow = initialFocusRow,
         restoredFocusIndex = initialFocusIndex,

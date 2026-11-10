@@ -14,6 +14,7 @@ import com.jellyscope.core.domain.model.SeerrLoginMethod
 import com.jellyscope.core.domain.model.SeerrMediaCard
 import com.jellyscope.core.domain.model.SeerrMediaKey
 import com.jellyscope.core.domain.model.SeerrMediaType
+import com.jellyscope.core.domain.model.SeerrPerson
 import com.jellyscope.core.domain.model.SeerrPublicationToken
 import com.jellyscope.core.domain.model.SeerrQuality
 import com.jellyscope.core.domain.model.SeerrQuickConnect
@@ -24,6 +25,7 @@ import com.jellyscope.core.domain.model.SeerrRequestSummary
 import com.jellyscope.core.domain.model.SeerrSeason
 import com.jellyscope.ui.component.MediaCardKind
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.screen.person.PersonUiState
 
 enum class SeerrSection { Discover, Requests, Search, Connection }
 
@@ -52,6 +54,8 @@ data class SeerrRow(
             imageUrl = seerrArtworkUrl(media.posterUrl),
             kind = if (media.key.type == SeerrMediaType.Movie) MediaCardKind.Movie else MediaCardKind.Series,
             year = media.year?.toString(),
+            overview = media.overview,
+            backdropUrl = seerrArtworkUrl(media.backdropUrl),
         )
 }
 
@@ -93,6 +97,7 @@ data class SeerrSeasonUi(
     val enabled: Boolean,
     val blockedBy: SeerrError?,
     val availability: SeerrAvailability,
+    val artworkUrl: String? = null,
 )
 
 sealed interface SeerrMutation {
@@ -134,7 +139,14 @@ data class SeerrDetailUi(
     val notice: SeerrNotice? = null,
     val scroll: SeerrScrollPosition = SeerrScrollPosition(),
     val admissionFresh: Boolean = false,
+    val reviewVisible: Boolean = false,
+    val reviewSeason: Int? = null,
+    val libraryPickerVisible: Boolean = false,
+    val qualityPickerVisible: Boolean = false,
+    val requestQualities: List<SeerrQuality> = emptyList(),
+    val focusRevision: Long = 0,
 ) {
+    val selectedSeasonNumbers: List<Int> = selectedSeasons.sorted()
     val submitting: Boolean get() = mutation is SeerrMutation.Submitting
     val reconciling: Boolean get() = mutation is SeerrMutation.Reconciling
     val confirmation: SeerrRequestIntent?
@@ -146,6 +158,17 @@ data class SeerrDetailUi(
             }
 
     val option: SeerrRequestOption? get() = if (quality == SeerrQuality.Standard) detail?.standard else detail?.fourK
+    val modalVisible: Boolean get() = reviewVisible || libraryPickerVisible || qualityPickerVisible
+    val reviewEnabled: Boolean get() = detail != null && !submitting && !reconciling && !resolvingLibrary
+    val reviewCanSubmit: Boolean get() = reviewVisible && reviewSeason == null && canSubmit && confirmation != null
+    val chooseSeasons: Boolean get() = reviewSeason == null && key.type == SeerrMediaType.Tv && selectedSeasons.isEmpty()
+    val libraryQualities: List<SeerrQuality>
+        get() =
+            buildList {
+                val media = detail?.media ?: return@buildList
+                if (media.standardAvailability.isLibraryCopy()) add(SeerrQuality.Standard)
+                if (media.fourKAvailability.isLibraryCopy()) add(SeerrQuality.FourK)
+            }
     val selectionEnabled: Boolean
         get() =
             admissionFresh &&
@@ -156,6 +179,22 @@ data class SeerrDetailUi(
                 !uncertain &&
                 detail?.reconciliationRequired == false
 }
+
+data class SeerrPersonUi(
+    val id: Int,
+    val entryId: Long,
+    val person: SeerrPerson? = null,
+    val presentation: PersonUiState = PersonUiState.Loading,
+    val credits: Map<String, SeerrMediaCard> = emptyMap(),
+    val movies: List<SeerrRow> = emptyList(),
+    val series: List<SeerrRow> = emptyList(),
+    val loading: Boolean = true,
+    val error: SeerrError? = null,
+    val focusedId: String? = null,
+    val scroll: SeerrScrollPosition = SeerrScrollPosition(),
+    val movieScroll: SeerrScrollPosition = SeerrScrollPosition(),
+    val seriesScroll: SeerrScrollPosition = SeerrScrollPosition(),
+)
 
 @Immutable
 data class SeerrUiState(
@@ -172,6 +211,7 @@ data class SeerrUiState(
     val restricted: Boolean = false,
     val ownerValid: Boolean = true,
     val lastFocusedId: String? = null,
+    val person: SeerrPersonUi? = null,
 ) {
     val connected: Boolean get() = connection.connection.phase == SeerrConnectionPhase.Connected
     val feed: SeerrFeedUi
@@ -193,14 +233,34 @@ data class SeerrRelatedUi(
 )
 
 val SeerrDetailUi.libraryAvailable: Boolean
-    get() =
-        (if (quality == SeerrQuality.Standard) detail?.media?.standardAvailability else detail?.media?.fourKAvailability)
-            .let { it == SeerrAvailability.Available || it == SeerrAvailability.PartiallyAvailable }
+    get() = libraryQualities.isNotEmpty()
+
+private fun SeerrAvailability.isLibraryCopy(): Boolean = this == SeerrAvailability.Available || this == SeerrAvailability.PartiallyAvailable
 
 val SeerrDetailUi.relatedEnabled: Boolean
-    get() = admissionFresh && !loading && mutation == SeerrMutation.None && !uncertain && !resolvingLibrary
+    get() = admissionFresh && !loading && mutation == SeerrMutation.None && !modalVisible && !uncertain && !resolvingLibrary
 
 sealed interface SeerrIntent {
+    data class OpenPerson(
+        val id: Int,
+    ) : SeerrIntent
+
+    data class OpenCredit(
+        val id: String,
+    ) : SeerrIntent
+
+    data object RetryPerson : SeerrIntent
+
+    data class RememberPerson(
+        val scroll: SeerrScrollPosition,
+        val movies: SeerrScrollPosition,
+        val series: SeerrScrollPosition,
+    ) : SeerrIntent
+
+    data class PersonFocused(
+        val id: String,
+    ) : SeerrIntent
+
     data object ToggleHideAvailable : SeerrIntent
 
     data class OpenSimilar(
@@ -257,6 +317,14 @@ sealed interface SeerrIntent {
 
     data object ConfirmRequest : SeerrIntent
 
+    data object ChooseQuality : SeerrIntent
+
+    data object ChooseSeasons : SeerrIntent
+
+    data class OpenLibraryQuality(
+        val quality: SeerrQuality,
+    ) : SeerrIntent
+
     data object SubmitRequest : SeerrIntent
 
     data object Reconcile : SeerrIntent
@@ -310,6 +378,10 @@ data class SeerrLibraryEffect internal constructor(
 )
 
 internal sealed interface SeerrChange {
+    data class Person(
+        val value: SeerrPersonUi?,
+    ) : SeerrChange
+
     data class HideAvailable(
         val value: Boolean,
     ) : SeerrChange
@@ -357,6 +429,7 @@ internal fun reduceSeerr(
     change: SeerrChange,
 ): SeerrUiState =
     when (change) {
+        is SeerrChange.Person -> state.copy(person = change.value)
         is SeerrChange.HideAvailable -> state.copy(hideAvailable = change.value)
         is SeerrChange.Connection -> state.copy(connection = change.value)
         is SeerrChange.Feed ->
@@ -370,6 +443,7 @@ internal fun reduceSeerr(
             state.copy(
                 section = change.value,
                 detail = null,
+                person = null,
                 lastFocusedId =
                     when (change.value) {
                         SeerrSection.Discover -> state.discover.selectedId
@@ -410,6 +484,7 @@ internal fun reduceSeerr(
                 query = "",
                 submittedQuery = "",
                 detail = null,
+                person = null,
                 lastFocusedId = null,
             )
         is SeerrChange.Focus -> state.copy(lastFocusedId = change.id)
@@ -417,15 +492,26 @@ internal fun reduceSeerr(
 
 internal fun SeerrDetailUi.project(connection: SeerrConnection): SeerrDetailUi {
     val value = detail ?: return copy(canSubmit = false)
-    val option = if (quality == SeerrQuality.Standard) value.standard else value.fourK
-    val selected = selectedSeasons.intersect(option.eligibleSeasonNumbers.toSet())
+    val fourKConfigured = if (key.type == SeerrMediaType.Movie) connection.service?.movie4kEnabled else connection.service?.series4kEnabled
+    val fourKAllowed = connection.user?.permissions?.canRequest(key.type, SeerrQuality.FourK) == true
+    val qualities =
+        buildList {
+            if (connection.user?.permissions?.canRequest(key.type, SeerrQuality.Standard) == true) add(SeerrQuality.Standard)
+            if (fourKConfigured == true && fourKAllowed) add(SeerrQuality.FourK)
+        }
+    // Supported qualities describe context, independently of quota or active requests.
+    // A submission keeps its frozen selection until its existing mutation completes.
+    val effectiveQuality = if (submitting || quality in qualities) quality else qualities.firstOrNull() ?: quality
+    val qualityChanged = effectiveQuality != quality
+    val option = if (effectiveQuality == SeerrQuality.Standard) value.standard else value.fourK
+    val selected = if (qualityChanged) emptySet() else selectedSeasons.intersect(option.eligibleSeasonNumbers.toSet())
     val visibleSeasons = value.seasons.filter { it.number != 0 || connection.service?.specialEpisodesEnabled == true }
     val rows =
         visibleSeasons.map { season ->
-            val availability = if (quality == SeerrQuality.Standard) season.standardAvailability else season.fourKAvailability
+            val availability = if (effectiveQuality == SeerrQuality.Standard) season.standardAvailability else season.fourKAvailability
             val activeRequest =
                 value.requests.any {
-                    it.quality == quality &&
+                    it.quality == effectiveQuality &&
                         season.number in it.seasons &&
                         it.status != SeerrRequestStatus.Declined &&
                         it.status != SeerrRequestStatus.Completed
@@ -440,19 +526,35 @@ internal fun SeerrDetailUi.project(connection: SeerrConnection): SeerrDetailUi {
                     season.episodeCount == 0 -> SeerrError.NoSeasonsAvailable
                     else -> option.blockedBy ?: SeerrError.InvalidSelection
                 }
-            SeerrSeasonUi(season, season.number in selected, reason == null && selectionEnabled, reason, availability)
+            SeerrSeasonUi(
+                season,
+                season.number in selected,
+                reason == null && selectionEnabled,
+                reason,
+                availability,
+                seerrArtworkUrl(season.posterUrl) ?: seerrArtworkUrl(value.backdropUrl) ?: seerrArtworkUrl(value.media.posterUrl),
+            )
         }
-    val fourKConfigured = if (key.type == SeerrMediaType.Movie) connection.service?.movie4kEnabled else connection.service?.series4kEnabled
-    val fourKAllowed = connection.user?.permissions?.canRequest(key.type, SeerrQuality.FourK) == true
     val fourKInLibrary =
         value.media.fourKAvailability == SeerrAvailability.Available ||
             value.media.fourKAvailability == SeerrAvailability.PartiallyAvailable
     val units = if (key.type == SeerrMediaType.Movie) 1 else selected.size
     return copy(
-        selectedSeasons = selected,
-        seasons = rows,
+        quality = effectiveQuality,
+        mutation = if (qualityChanged && mutation is SeerrMutation.Confirming) SeerrMutation.None else mutation,
+        reviewVisible = if (qualityChanged) false else reviewVisible,
+        reviewSeason = if (qualityChanged) null else reviewSeason,
+        selectedSeasons = if (selectedSeasons == selected) selectedSeasons else selected,
+        seasons = if (seasons == rows) seasons else rows,
         showFourK = fourKInLibrary || (fourKConfigured == true && fourKAllowed),
-        canSubmit = selectionEnabled && option.canRequest && value.quota.allows(units) && error == null,
+        requestQualities = if (requestQualities == qualities) requestQualities else qualities,
+        canSubmit =
+            effectiveQuality in qualities &&
+                selectionEnabled &&
+                option.canRequest &&
+                units > 0 &&
+                value.quota.allows(units) &&
+                error == null,
     )
 }
 

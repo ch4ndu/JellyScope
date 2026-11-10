@@ -6,10 +6,12 @@ import com.jellyscope.core.domain.model.SeerrCatalog
 import com.jellyscope.core.domain.model.SeerrCatalogPage
 import com.jellyscope.core.domain.model.SeerrConnection
 import com.jellyscope.core.domain.model.SeerrDetail
+import com.jellyscope.core.domain.model.SeerrError
 import com.jellyscope.core.domain.model.SeerrLibraryItem
 import com.jellyscope.core.domain.model.SeerrLoginMethod
 import com.jellyscope.core.domain.model.SeerrMediaKey
 import com.jellyscope.core.domain.model.SeerrOwner
+import com.jellyscope.core.domain.model.SeerrPerson
 import com.jellyscope.core.domain.model.SeerrPublicationToken
 import com.jellyscope.core.domain.model.SeerrQuality
 import com.jellyscope.core.domain.model.SeerrQuickConnect
@@ -61,6 +63,11 @@ interface SeerrRepository {
         token: SeerrPublicationToken,
         key: SeerrMediaKey,
     ): SeerrResult<SeerrDetail>
+
+    suspend fun person(
+        token: SeerrPublicationToken,
+        personId: Int,
+    ): SeerrResult<SeerrPerson> = SeerrResult.Failure(SeerrError.UnsupportedService, token)
 
     suspend fun requests(
         token: SeerrPublicationToken,

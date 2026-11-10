@@ -59,10 +59,11 @@ internal fun WindowWidthTier.personHeaderLayout(): PersonHeaderLayout =
 internal fun PersonHeader(
     session: Session,
     header: PersonHeaderUi?,
+    artwork: (@Composable (String?, Modifier) -> Unit)? = null,
 ) {
     when (LocalWindowWidthTier.current.personHeaderLayout()) {
-        PersonHeaderLayout.StackedBackdrop -> CompactPersonHeader(session, header)
-        PersonHeaderLayout.Portrait -> PortraitPersonHeader(session, header)
+        PersonHeaderLayout.StackedBackdrop -> CompactPersonHeader(session, header, artwork)
+        PersonHeaderLayout.Portrait -> PortraitPersonHeader(session, header, artwork)
     }
 }
 
@@ -70,6 +71,7 @@ internal fun PersonHeader(
 private fun CompactPersonHeader(
     session: Session,
     header: PersonHeaderUi?,
+    artwork: (@Composable (String?, Modifier) -> Unit)? = null,
 ) {
     val horizontalContentPadding = adaptiveHorizontalContentPadding()
 
@@ -80,6 +82,7 @@ private fun CompactPersonHeader(
         PersonBackdrop(
             session = session,
             header = header,
+            artwork = artwork,
         )
         Column(
             modifier =
@@ -110,6 +113,7 @@ private fun CompactPersonHeader(
 private fun PortraitPersonHeader(
     session: Session,
     header: PersonHeaderUi?,
+    artwork: (@Composable (String?, Modifier) -> Unit)? = null,
 ) {
     val horizontalContentPadding = adaptiveHorizontalContentPadding()
     val title = header?.name ?: stringResource(Res.string.person_title)
@@ -136,18 +140,22 @@ private fun PortraitPersonHeader(
             color = MaterialTheme.colorScheme.surfaceVariant,
         ) {
             Box(contentAlignment = Alignment.Center) {
-                header?.imageUrl?.let { imageUrl ->
-                    AsyncImage(
-                        model = authenticatedImageRequest(imageUrl, session),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
+                if (artwork != null) {
+                    artwork(header?.imageUrl, Modifier.fillMaxSize())
+                } else {
+                    header?.imageUrl?.let { imageUrl ->
+                        AsyncImage(
+                            model = authenticatedImageRequest(imageUrl, session),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } ?: Text(
+                        text = title.take(1),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.headlineMedium,
                     )
-                } ?: Text(
-                    text = title.take(1),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.headlineMedium,
-                )
+                }
             }
         }
         Column(
@@ -175,6 +183,7 @@ private fun PortraitPersonHeader(
 private fun PersonBackdrop(
     session: Session,
     header: PersonHeaderUi?,
+    artwork: (@Composable (String?, Modifier) -> Unit)? = null,
 ) {
     val title = header?.name ?: stringResource(Res.string.person_title)
     val contentDescription = stringResource(Res.string.person_backdrop_cd, title)
@@ -188,7 +197,9 @@ private fun PersonBackdrop(
     ) {
         Box {
             val backdropUrl = header?.backdropUrl ?: header?.imageUrl
-            if (backdropUrl != null) {
+            if (artwork != null) {
+                artwork(backdropUrl, Modifier.fillMaxSize())
+            } else if (backdropUrl != null) {
                 AsyncImage(
                     model = authenticatedImageRequest(backdropUrl, session, ImageDecode.Backdrop),
                     contentDescription = null,

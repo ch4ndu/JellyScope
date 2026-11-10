@@ -10,6 +10,7 @@ import com.jellyscope.core.domain.model.SeerrDetail
 import com.jellyscope.core.domain.model.SeerrLibraryItem
 import com.jellyscope.core.domain.model.SeerrMediaKey
 import com.jellyscope.core.domain.model.SeerrOwner
+import com.jellyscope.core.domain.model.SeerrPerson
 import com.jellyscope.core.domain.model.SeerrPublicationToken
 import com.jellyscope.core.domain.model.SeerrQuality
 import com.jellyscope.core.domain.model.SeerrQuotas
@@ -90,4 +91,13 @@ class GetSeerrSimilarUseCase(
         token: SeerrPublicationToken,
         key: SeerrMediaKey,
     ): SeerrResult<SeerrCatalogPage> = repository.similar(token, key)
+}
+
+class GetSeerrPersonUseCase(
+    private val repository: SeerrRepository,
+) {
+    suspend operator fun invoke(
+        token: SeerrPublicationToken,
+        personId: Int,
+    ): SeerrResult<SeerrPerson> = repository.person(token, personId)
 }

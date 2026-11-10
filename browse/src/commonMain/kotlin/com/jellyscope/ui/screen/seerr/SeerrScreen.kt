@@ -30,8 +30,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,10 +57,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.jellyscope.core.domain.model.SeerrCatalog
 import com.jellyscope.core.domain.model.SeerrLibraryItem
-import com.jellyscope.core.domain.model.SeerrQuality
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
 import com.jellyscope.ui.adaptive.tileScaled
+import com.jellyscope.ui.component.LoadMoreOnApproachEnd
 import com.jellyscope.ui.component.MediaCard
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.seerr_clear
@@ -71,11 +73,9 @@ import com.jellyscope.ui.generated.resources.seerr_manage
 import com.jellyscope.ui.generated.resources.seerr_movies
 import com.jellyscope.ui.generated.resources.seerr_my_requests
 import com.jellyscope.ui.generated.resources.seerr_owner_changed
-import com.jellyscope.ui.generated.resources.seerr_page
-import com.jellyscope.ui.generated.resources.seerr_page_hint
-import com.jellyscope.ui.generated.resources.seerr_refresh
 import com.jellyscope.ui.generated.resources.seerr_requests_empty
 import com.jellyscope.ui.generated.resources.seerr_restricted
+import com.jellyscope.ui.generated.resources.seerr_retry
 import com.jellyscope.ui.generated.resources.seerr_search
 import com.jellyscope.ui.generated.resources.seerr_search_prompt
 import com.jellyscope.ui.generated.resources.seerr_search_results
@@ -170,6 +170,7 @@ private fun SeerrContent(
                 state.hideAvailable,
                 browseEligible = state.ownerValid && !state.restricted && state.connected && !state.connection.busy,
                 onIntent = onIntent,
+                refreshEnabled = !state.feed.loading,
             )
         }
         when {
@@ -185,10 +186,18 @@ private fun SeerrContent(
                         onClick = { onIntent(SeerrIntent.SelectSection(SeerrSection.Connection)) },
                     ) { Text(stringResource(Res.string.seerr_manage)) }
                 }
+            state.person != null ->
+                key(state.person.entryId) {
+                    SeerrPersonContent(state.person, session, onIntent, Modifier.weight(1f))
+                }
             state.detail != null ->
                 key(
                     state.detail.entryId,
-                ) { SeerrDetailContent(state.detail, onIntent, Modifier.weight(1f), session = session) }
+                ) {
+                    SeerrDetailSurface(session, state.detail, Modifier.weight(1f)) {
+                        SeerrDetailContent(state.detail, onIntent, session = session)
+                    }
+                }
             else ->
                 key(state.section, state.catalog, state.submittedQuery, state.feed.resetRevision) {
                     SeerrFeedContent(state, session, bottomContentPadding, onIntent, Modifier.weight(1f))
@@ -211,10 +220,35 @@ private fun SeerrFeedContent(
     val scroll = rememberLazyGridState(feed.scroll.index, feed.scroll.offset)
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
-    LaunchedEffect(feed.page) {
-        // The footer moves on append; keep the viewport at its prior content position.
-        if (feed.page > 1 && !scroll.isScrollInProgress) scroll.scrollToItem(feed.scroll.index, feed.scroll.offset)
+    var requestedSize by remember { mutableStateOf<Int?>(null) }
+    var requestedPage by remember { mutableStateOf(0) }
+    var noGrowth by remember { mutableStateOf(false) }
+    LaunchedEffect(feed.loading, feed.page, feed.error, feed.rows.size) {
+        val size = requestedSize
+        if (!feed.loading && size != null && (feed.page != requestedPage || feed.error != null)) {
+            noGrowth = feed.error == null && feed.rows.size <= size
+            requestedSize = null
+        }
     }
+
+    fun loadMore(deliberate: Boolean = false) {
+        if (feed.loading || requestedSize != null || !feed.hasMore || (!deliberate && (feed.error != null || noGrowth))) return
+        requestedSize = feed.rows.size
+        requestedPage = feed.page
+        onIntent(SeerrIntent.LoadMore)
+    }
+    val gridOffset =
+        (if (state.section == SeerrSection.Search) 1 else 0) +
+            (if (feed.loading || feed.error != null || feed.rows.isEmpty()) 1 else 0)
+    LoadMoreOnApproachEnd(
+        itemCount = feed.rows.size,
+        hasMore = feed.hasMore,
+        isLoading = feed.loading && feed.rows.isEmpty(),
+        isLoadingMore = feed.loading,
+        automaticPagingAllowed = feed.error == null && !noGrowth && requestedSize == null,
+        lastVisibleIndex = { (scroll.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: 0) - gridOffset },
+        onLoadMore = { loadMore() },
+    )
     LaunchedEffect(scroll) {
         snapshotFlow {
             if (scroll.isScrollInProgress) null else SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset)
@@ -270,43 +304,45 @@ private fun SeerrFeedContent(
                 }
             }
         }
-        item(key = "status", span = { GridItemSpan(maxLineSpan) }) {
-            Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
-                TextButton(
-                    onClick = { onIntent(SeerrIntent.Refresh) },
-                    enabled = !feed.loading,
-                ) { Text(stringResource(Res.string.seerr_refresh)) }
-                if (state.section == SeerrSection.Search &&
-                    state.submittedQuery.isEmpty()
-                ) {
-                    Text(stringResource(Res.string.seerr_search_prompt))
-                }
-                if (feed.loading) Text(stringResource(Res.string.seerr_loading))
-                feed.error?.let { Text(seerrErrorText(it), color = MaterialTheme.colorScheme.error) }
-                if (feed.loaded &&
-                    feed.rows.isEmpty() &&
-                    !feed.loading &&
-                    feed.error == null
-                ) {
-                    Text(
-                        stringResource(
-                            if (state.section ==
-                                SeerrSection.Requests
-                            ) {
-                                Res.string.seerr_requests_empty
-                            } else {
-                                if (state.hideAvailable &&
-                                    state.section == SeerrSection.Discover
+        if (feed.loading || feed.error != null || feed.rows.isEmpty()) {
+            item(key = "status", span = { GridItemSpan(maxLineSpan) }) {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
+                    if (state.section == SeerrSection.Search &&
+                        state.submittedQuery.isEmpty()
+                    ) {
+                        Text(stringResource(Res.string.seerr_search_prompt))
+                    }
+                    if (feed.loading) Text(stringResource(Res.string.seerr_loading))
+                    feed.error?.let {
+                        Text(seerrErrorText(it), color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = {
+                            if (feed.page == 0) onIntent(SeerrIntent.Refresh) else loadMore(deliberate = true)
+                        }, enabled = !feed.loading) { Text(stringResource(Res.string.seerr_retry)) }
+                    }
+                    if (feed.loaded &&
+                        feed.rows.isEmpty() &&
+                        !feed.loading &&
+                        feed.error == null
+                    ) {
+                        Text(
+                            stringResource(
+                                if (state.section ==
+                                    SeerrSection.Requests
                                 ) {
-                                    Res.string.seerr_filtered_empty
+                                    Res.string.seerr_requests_empty
                                 } else {
-                                    Res.string.seerr_empty
-                                }
-                            },
-                        ),
-                    )
+                                    if (state.hideAvailable &&
+                                        state.section == SeerrSection.Discover
+                                    ) {
+                                        Res.string.seerr_filtered_empty
+                                    } else {
+                                        Res.string.seerr_empty
+                                    }
+                                },
+                            ),
+                        )
+                    }
                 }
-                if (feed.page > 0) Text(stringResource(Res.string.seerr_page, feed.page, feed.totalPages.coerceAtLeast(feed.page)))
             }
         }
         items(feed.rows, key = { it.id }, contentType = { "title" }) { row ->
@@ -337,21 +373,15 @@ private fun SeerrFeedContent(
                     },
                     artwork = { SeerrPoster(row.media, Modifier.fillMaxWidth()) },
                 )
-                Text(
-                    seerrAvailabilityLine(SeerrQuality.Standard, row.media.standardAvailability),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                row.request?.let { Text(seerrRequestLine(it), style = MaterialTheme.typography.bodySmall) }
             }
         }
-        if (feed.hasMore) {
+        if (feed.hasMore && feed.error == null && (feed.rows.isEmpty() || noGrowth)) {
             item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Button(
                         enabled = !feed.loading,
-                        onClick = { onIntent(SeerrIntent.LoadMore) },
+                        onClick = { loadMore(deliberate = true) },
                     ) { Text(stringResource(Res.string.seerr_load_more)) }
-                    Text(stringResource(Res.string.seerr_page_hint), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

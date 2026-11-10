@@ -214,7 +214,7 @@ fun Modifier.chromeFocusGlow(
 
 @Composable
 fun FocusableBox(
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     focusableWhenDisabled: Boolean = false,
@@ -271,12 +271,18 @@ fun FocusableBox(
                 } else {
                     Modifier
                 },
-            ).clickable(
-                interactionSource = interactionSource,
-                indication = if (dpad) null else LocalIndication.current,
-                enabled = enabled,
-                role = Role.Button,
-                onClick = onClick,
+            ).then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = if (dpad) null else LocalIndication.current,
+                        enabled = enabled,
+                        role = Role.Button,
+                        onClick = onClick,
+                    )
+                } else {
+                    Modifier
+                },
             ).then(
                 if (dpad) {
                     Modifier.focusable(enabled = enabled || focusableWhenDisabled)
@@ -287,7 +293,7 @@ fun FocusableBox(
                 if (contentDescription != null) {
                     Modifier.semantics {
                         this.contentDescription = contentDescription
-                        role = Role.Button
+                        if (onClick != null) role = Role.Button
                     }
                 } else {
                     Modifier

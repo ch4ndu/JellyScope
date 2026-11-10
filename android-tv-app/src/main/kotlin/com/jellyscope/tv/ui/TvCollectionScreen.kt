@@ -57,6 +57,7 @@ import com.jellyscope.tv.ui.focus.tvFocusScope
 import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.LoadMoreOnApproachEnd
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.focus.rememberNoAutoScrollSpec
 import com.jellyscope.ui.screen.collection.CollectionIntent
 import com.jellyscope.ui.screen.collection.CollectionUiState
 import com.jellyscope.ui.screen.collection.CollectionViewModel
@@ -83,7 +84,6 @@ fun TvCollectionScreen(
     onSettingsSelected: () -> Unit,
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
-    gridHeroEligible: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: CollectionViewModel =
         koinViewModel(
@@ -108,7 +108,7 @@ fun TvCollectionScreen(
         onItemPlayDirect = onItemPlayDirect,
         onRetry = { viewModel.accept(CollectionIntent.Retry) },
         onLoadMore = { viewModel.accept(CollectionIntent.LoadMore) },
-        showGridHero = gridHeroEligible && showGridHero,
+        showGridHero = showGridHero,
         modifier = modifier,
     )
 }
@@ -134,7 +134,7 @@ private fun TvCollectionContent(
     var focusedItem by remember { mutableStateOf<MediaCardUi?>(null) }
     var heroItem by remember { mutableStateOf<MediaCardUi?>(null) }
     LaunchedEffect(state.items, focusedItem) {
-        val target = focusedItem ?: state.items.firstOrNull() ?: return@LaunchedEffect
+        val target = focusedItem ?: return@LaunchedEffect
         if (heroItem != null && heroItem?.id != target.id) delay(HERO_SETTLE_MS)
         heroItem = target
     }
@@ -149,7 +149,7 @@ private fun TvCollectionContent(
         modifier =
             modifier
                 .fillMaxSize()
-                .tvHomeAmbientBackground(ambientState.presentation, overlay = true)
+                .tvHomeAmbientBackground(ambientState.presentation, overlay = true, enabled = heroVisible)
                 .onPreviewKeyEvent { event ->
                     event.type == KeyEventType.KeyDown &&
                         event.key == Key.Back &&
@@ -188,6 +188,7 @@ private fun TvCollectionContent(
                     session = session,
                     item = heroItem,
                     showBackdrop = false,
+                    reserveGridViewport = true,
                     modifier = Modifier.padding(horizontal = TvDimens.overscanHorizontal),
                 )
             }
@@ -203,6 +204,7 @@ private fun TvCollectionContent(
                 onItemSelected = onItemSelected,
                 onItemPlayDirect = onItemPlayDirect,
                 onItemFocused = { item -> focusedItem = item },
+                constrainedByHero = heroVisible,
                 onPosterLoaded = ambientState.onPosterLoaded,
                 modifier = Modifier.focusProperties { canFocus = !state.isLoading },
             )
@@ -248,6 +250,7 @@ private fun TvCollectionBody(
     onItemPlayDirect: (MediaCardUi) -> Unit,
     onItemFocused: (MediaCardUi) -> Unit,
     onPosterLoaded: (itemId: String, bitmap: Bitmap) -> Unit,
+    constrainedByHero: Boolean,
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -273,6 +276,7 @@ private fun TvCollectionBody(
             var pageRetryHasFocus by remember { mutableStateOf(false) }
             var pageRetryReturnIndex by remember { mutableStateOf(0) }
             val columnCount = rememberStableGridColumnCount(gridState)
+            var gridHasFocus by remember { mutableStateOf(false) }
             // Remembered focus target so BACK from a detail page restores the exact
             // card, not the first one. Saveable survives the detail round-trip; the
             // engine reveals it if it scrolled off-screen.
@@ -291,8 +295,15 @@ private fun TvCollectionBody(
                     itemCount = items.size,
                     columnCount = columnCount,
                     hasMore = hasMore && !isLoading && !isLoadingMore && !error,
+                    revealComposedTargets = constrainedByHero,
                     onLoadMore = onLoadMore,
                 )
+            LaunchedEffect(constrainedByHero) {
+                if (gridHasFocus) {
+                    val index = items.indexOfFirst { it.id == lastFocusedItemId }
+                    if (index >= 0) focusNav.requestFocus(index)
+                }
+            }
             val requestPageRetryFocus: (Int) -> Boolean = { returnIndex ->
                 pageRetryReturnIndex = returnIndex
                 focusScope.launch {
@@ -350,13 +361,17 @@ private fun TvCollectionBody(
                     initialFocusRequested = true
                 }
             }
-            CompositionLocalProvider(LocalBringIntoViewSpec provides rememberRowAwareMarioBringIntoViewSpec()) {
+            CompositionLocalProvider(
+                LocalBringIntoViewSpec provides
+                    if (constrainedByHero) rememberNoAutoScrollSpec() else rememberRowAwareMarioBringIntoViewSpec(),
+            ) {
                 LazyVerticalGrid(
                     state = gridState,
                     columns = GridCells.Adaptive(TvDimens.posterWidth.tileScaled()),
                     modifier =
                         modifier
                             .fillMaxSize()
+                            .onFocusChanged { gridHasFocus = it.hasFocus }
                             .tvFocusScope(gridScope) {
                                 gridState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
                                     items.getOrNull(info.index)?.let { item -> "item:${item.id}" }

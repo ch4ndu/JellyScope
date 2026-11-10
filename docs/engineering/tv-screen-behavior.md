@@ -216,17 +216,16 @@ owners and the [user guides](../USAGE.md) for usage instructions.
   resolve current actions at invocation. Down enters first card, Retry, or status;
   content autofocus never overrides a tab/control. Sort/Filter use opaque focus
   traps and retain opener focus throughout reload.
-- Recommended uses Home-style hero and shelves. Library grid and library-origin
-  collections show the settled focused-item hero only when Show library grid hero
-  is enabled (default). Both Library views wait for an actual card focus event
-  before selecting the initial hero; loaded data alone never selects the first
-  asset. Home and Library leave an unselected hero title empty, without a
-  loading label. Hero layout space remains reserved while focus restores. The image and
-  ambient tint occupy Home's effective hero
-  footprint, extend beneath foreground without adding height, and continue under
-  the collapsed rail on top-level Library. Disabling hero removes image, tint,
-  and reserved height without resetting grid focus/scroll. Discover/Favorites
-  surfaces never use it.
+- **Show library grid hero** controls media previews in Home, Recommended,
+  Library/Favorites, Collections, View All, Discover media, Find media and Requests
+  feeds. Facets, query chips, person suggestions and connection/setup screens do
+  not select a preview. Detail and person headers remain independent.
+  Preview selection starts with actual card focus, not the first loaded asset;
+  subsequent changes settle before updating artwork. An unselected title stays
+  empty. Artwork and ambient tint extend behind foreground content without
+  adding height. Disabling previews removes artwork, tint and reserved height
+  without resetting focus or scroll. Constrained grids reserve room for the
+  complete card and labels before allocating hero height.
 - Recommended reserves title-to-card focus room and uses one vertical scroll
   owner with horizontal Mario rows. Hero-constrained Library uses one indexed
   scroll owner to center the full card, including labels, in the viewport;

@@ -32,6 +32,7 @@ import com.jellyscope.core.domain.model.SeerrLoginMethod
 import com.jellyscope.core.domain.model.SeerrMediaKey
 import com.jellyscope.core.domain.model.SeerrMediaType
 import com.jellyscope.core.domain.model.SeerrOwner
+import com.jellyscope.core.domain.model.SeerrPerson
 import com.jellyscope.core.domain.model.SeerrPublicationToken
 import com.jellyscope.core.domain.model.SeerrQuality
 import com.jellyscope.core.domain.model.SeerrQuickConnect
@@ -443,6 +444,20 @@ class DefaultSeerrRepository(
         token: SeerrPublicationToken,
         key: SeerrMediaKey,
     ): SeerrResult<SeerrDetail> = operation(token) { loadDetail(it, key) }
+
+    override suspend fun person(
+        token: SeerrPublicationToken,
+        personId: Int,
+    ): SeerrResult<SeerrPerson> =
+        operation(token) { work ->
+            if (personId <= 0) abort(SeerrError.InvalidSelection)
+            val person = exchange(work) { api.person(it, personId) }
+            val credits = exchange(work) { api.personCredits(it, personId) }
+            person.copy(
+                movies = credits.filter { it.key.type == SeerrMediaType.Movie },
+                series = credits.filter { it.key.type == SeerrMediaType.Tv },
+            )
+        }
 
     override suspend fun quota(token: SeerrPublicationToken): SeerrResult<SeerrQuotas> =
         operation(token) { work ->

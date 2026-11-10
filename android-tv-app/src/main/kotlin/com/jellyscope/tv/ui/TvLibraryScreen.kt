@@ -155,7 +155,6 @@ internal fun TvLibraryScreen(
     modifier: Modifier = Modifier,
     initialFilters: LibraryFilterSelection? = null,
     collectionType: LibraryCollectionType = LibraryCollectionType.Other,
-    gridHeroEligible: Boolean = false,
     hubViewModel: LibraryHubViewModel? = null,
     onAmbientPresentationChanged: (TvHeroAmbientPresentation) -> Unit = {},
     viewModelKey: String = "library-${parentId ?: "root"}",
@@ -172,7 +171,6 @@ internal fun TvLibraryScreen(
             parentId = parentId,
             title = resolvedTitle,
             collectionType = collectionType,
-            gridHeroEligible = gridHeroEligible,
             initialFilters = initialFilters,
             viewModelKey = viewModelKey,
             viewModel = viewModel,
@@ -226,7 +224,6 @@ internal fun TvLibraryScreen(
                 parentId = parentId,
                 title = resolvedTitle,
                 collectionType = collectionType,
-                gridHeroEligible = gridHeroEligible,
                 initialFilters = initialFilters,
                 viewModelKey = viewModelKey,
                 viewModel = viewModel,
@@ -289,7 +286,6 @@ private fun TvLibraryBrowseRoute(
     parentId: String?,
     title: String,
     collectionType: LibraryCollectionType,
-    gridHeroEligible: Boolean,
     initialFilters: LibraryFilterSelection?,
     viewModelKey: String,
     viewModel: LibraryBrowseViewModel?,
@@ -363,7 +359,7 @@ private fun TvLibraryBrowseRoute(
             libraryViewModel.accept(LibraryBrowseIntent.ShuffleAll)
         },
         shuffleNotice = shuffleNotice,
-        showGridHero = showGridHero && gridHeroEligible,
+        showGridHero = showGridHero,
         hideTitle = hideTitle,
         contentAutofocusEnabled = contentAutofocusEnabled,
         reserveLeadingSpaceForTabs = reserveLeadingSpaceForTabs,
@@ -636,7 +632,7 @@ internal fun TvLibraryContent(
         modifier =
             modifier
                 .fillMaxSize()
-                .tvHomeAmbientBackground(ambientState.presentation, overlay = true)
+                .tvHomeAmbientBackground(ambientState.presentation, overlay = true, enabled = heroVisible)
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown || event.key != Key.Back) {
                         false

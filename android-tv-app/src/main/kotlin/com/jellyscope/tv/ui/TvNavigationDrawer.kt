@@ -98,9 +98,11 @@ internal fun TvNavigationDrawer(
     focusFallbackDestination: TvRailDestination? = null,
     onFocusStateChanged: (Boolean) -> Unit = {},
     onTargetFocused: (TvRailTarget) -> Unit = {},
+    onImmediateTargetFocused: (TvRailTarget) -> Unit = {},
+    onNavigationInput: () -> Unit = {},
     selectedItemFocusRequester: FocusRequester? = null,
     contentRightFocusRequester: FocusRequester? = null,
-    onExitRight: (() -> Boolean)? = null,
+    onExitRight: ((TvRailTarget) -> Boolean)? = null,
     underlayClippedToRail: () -> Boolean = { false },
     underlay: @Composable BoxScope.() -> Unit = {},
     content: @Composable () -> Unit,
@@ -110,7 +112,7 @@ internal fun TvNavigationDrawer(
     val hasSelectedFocusTarget = selected != null || selectedLibraryInDrawer
     val requestContentRightFocus =
         onExitRight ?: contentRightFocusRequester?.let { requester ->
-            { requester.requestFocusSafely() }
+            { _: TvRailTarget -> requester.requestFocusSafely() }
         }
 
     fun focusRequesterFor(destination: TvRailDestination): FocusRequester? =
@@ -164,6 +166,9 @@ internal fun TvNavigationDrawer(
                             layout(placeable.width, placeable.height) {
                                 placeable.placeRelative(0, 0)
                             }
+                        }.onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && event.key != Key.DirectionRight) onNavigationInput()
+                            false
                         }.fillMaxHeight()
                         .background(
                             if (expanded) {
@@ -205,9 +210,10 @@ internal fun TvNavigationDrawer(
                     expanded = expanded,
                     onClick = onSearchSelected,
                     onFocused = { onTargetFocused(TvRailTarget.Find) },
+                    onImmediateFocused = { onImmediateTargetFocused(TvRailTarget.Find) },
                     focusRequester = focusRequesterFor(TvRailDestination.Find),
                     rightFocusRequester = contentRightFocusRequester,
-                    onExitRight = requestContentRightFocus,
+                    onExitRight = { requestContentRightFocus?.invoke(TvRailTarget.Find) == true },
                 )
                 TvDrawerItem(
                     label = stringResource(R.string.tv_home_tab),
@@ -216,9 +222,10 @@ internal fun TvNavigationDrawer(
                     expanded = expanded,
                     onClick = onHomeSelected,
                     onFocused = { onTargetFocused(TvRailTarget.Home) },
+                    onImmediateFocused = { onImmediateTargetFocused(TvRailTarget.Home) },
                     focusRequester = focusRequesterFor(TvRailDestination.Home),
                     rightFocusRequester = contentRightFocusRequester,
-                    onExitRight = requestContentRightFocus,
+                    onExitRight = { requestContentRightFocus?.invoke(TvRailTarget.Home) == true },
                 )
                 TvDrawerItem(
                     label = stringResource(R.string.tv_favorites),
@@ -227,9 +234,10 @@ internal fun TvNavigationDrawer(
                     expanded = expanded,
                     onClick = onFavoritesSelected,
                     onFocused = { onTargetFocused(TvRailTarget.Favorites) },
+                    onImmediateFocused = { onImmediateTargetFocused(TvRailTarget.Favorites) },
                     focusRequester = focusRequesterFor(TvRailDestination.Favorites),
                     rightFocusRequester = contentRightFocusRequester,
-                    onExitRight = requestContentRightFocus,
+                    onExitRight = { requestContentRightFocus?.invoke(TvRailTarget.Favorites) == true },
                 )
                 if (isTvDownloadsVisible(session)) {
                     TvDrawerItem(
@@ -239,9 +247,10 @@ internal fun TvNavigationDrawer(
                         expanded = expanded,
                         onClick = onDownloadsSelected,
                         onFocused = { onTargetFocused(TvRailTarget.Downloads) },
+                        onImmediateFocused = { onImmediateTargetFocused(TvRailTarget.Downloads) },
                         focusRequester = focusRequesterFor(TvRailDestination.Downloads),
                         rightFocusRequester = contentRightFocusRequester,
-                        onExitRight = requestContentRightFocus,
+                        onExitRight = { requestContentRightFocus?.invoke(TvRailTarget.Downloads) == true },
                     )
                 }
                 libraries.forEach { library ->
@@ -254,9 +263,10 @@ internal fun TvNavigationDrawer(
                         expanded = expanded,
                         onClick = { onLibrarySelected(library) },
                         onFocused = { onTargetFocused(libraryTarget) },
+                        onImmediateFocused = { onImmediateTargetFocused(libraryTarget) },
                         focusRequester = selectedItemFocusRequester.takeIf { librarySelected },
                         rightFocusRequester = contentRightFocusRequester,
-                        onExitRight = requestContentRightFocus,
+                        onExitRight = { requestContentRightFocus?.invoke(libraryTarget) == true },
                     )
                 }
                 TvDrawerItem(
@@ -266,9 +276,10 @@ internal fun TvNavigationDrawer(
                     expanded = expanded,
                     onClick = onDiscoverSelected,
                     onFocused = { onTargetFocused(TvRailTarget.Discover) },
+                    onImmediateFocused = { onImmediateTargetFocused(TvRailTarget.Discover) },
                     focusRequester = focusRequesterFor(TvRailDestination.Discover),
                     rightFocusRequester = contentRightFocusRequester,
-                    onExitRight = requestContentRightFocus,
+                    onExitRight = { requestContentRightFocus?.invoke(TvRailTarget.Discover) == true },
                 )
                 TvDrawerItem(
                     label = stringResource(R.string.tv_requests_tab),
@@ -277,9 +288,10 @@ internal fun TvNavigationDrawer(
                     expanded = expanded,
                     onClick = onRequestsSelected,
                     onFocused = { onTargetFocused(TvRailTarget.Requests) },
+                    onImmediateFocused = { onImmediateTargetFocused(TvRailTarget.Requests) },
                     focusRequester = focusRequesterFor(TvRailDestination.Requests),
                     rightFocusRequester = contentRightFocusRequester,
-                    onExitRight = requestContentRightFocus,
+                    onExitRight = { requestContentRightFocus?.invoke(TvRailTarget.Requests) == true },
                 )
                 TvDrawerItem(
                     label = stringResource(R.string.tv_settings_tab),
@@ -288,9 +300,10 @@ internal fun TvNavigationDrawer(
                     expanded = expanded,
                     onClick = onSettingsSelected,
                     onFocused = { onTargetFocused(TvRailTarget.Settings) },
+                    onImmediateFocused = { onImmediateTargetFocused(TvRailTarget.Settings) },
                     focusRequester = focusRequesterFor(TvRailDestination.Settings),
                     rightFocusRequester = contentRightFocusRequester,
-                    onExitRight = requestContentRightFocus,
+                    onExitRight = { requestContentRightFocus?.invoke(TvRailTarget.Settings) == true },
                 )
             }
             TvDrawerContentSlot(
@@ -403,6 +416,7 @@ private fun TvDrawerItem(
     expanded: Boolean,
     onClick: () -> Unit,
     onFocused: () -> Unit = {},
+    onImmediateFocused: () -> Unit = {},
     focusRequester: FocusRequester? = null,
     rightFocusRequester: FocusRequester? = null,
     onExitRight: (() -> Boolean)? = null,
@@ -443,6 +457,7 @@ private fun TvDrawerItem(
                         event.key == Key.DirectionRight &&
                         onExitRight?.invoke() == true
                 }.onFocusChanged { state ->
+                    if (state.isFocused && !focused) onImmediateFocused()
                     focused = state.isFocused
                 }.clickable(
                     interactionSource = interactionSource,

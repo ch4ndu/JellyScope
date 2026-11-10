@@ -40,11 +40,13 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.LibraryInnerView
 import com.jellyscope.core.domain.model.LibraryRecommendationReason
 import com.jellyscope.core.domain.model.LibraryRecommendationSection
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.tv.R
+import com.jellyscope.tv.TvUiPreferencesStore
 import com.jellyscope.tv.ui.focus.TvFocusTargetKind
 import com.jellyscope.tv.ui.focus.rememberChildRequester
 import com.jellyscope.tv.ui.focus.rememberTvFocusScopeNode
@@ -55,6 +57,7 @@ import com.jellyscope.ui.screen.library.LibraryRecommendationRowState
 import com.jellyscope.ui.screen.library.LibraryRecommendationRowUi
 import com.jellyscope.ui.theme.LocalJellyfinPalette
 import kotlinx.coroutines.delay
+import org.koin.compose.koinInject
 import com.jellyscope.ui.component.DetailBodyStyle as TvBodyStyle
 import com.jellyscope.ui.component.DetailText as TvText
 import com.jellyscope.ui.component.FocusableBox as TvFocusableBox
@@ -142,6 +145,8 @@ internal fun TvLibraryRecommendedContent(
     contentStartPadding: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
+    val preferences = koinInject<TvUiPreferencesStore>()
+    val heroEnabled by preferences.showLibraryGridHero.collectAsStateWithLifecycle()
     var focusedItem by remember { mutableStateOf<MediaCardUi?>(null) }
     var heroItem by remember { mutableStateOf<MediaCardUi?>(null) }
     var focusedRibbonIdentity by remember { mutableStateOf<String?>(null) }
@@ -190,6 +195,7 @@ internal fun TvLibraryRecommendedContent(
         return
     }
 
+    val showHero = heroEnabled && rows.any { it.items.isNotEmpty() }
     LaunchedEffect(focusedItem) {
         val target = focusedItem ?: return@LaunchedEffect
         if (heroItem != null && heroItem?.id != target.id) delay(HERO_SETTLE_MS)
@@ -197,7 +203,7 @@ internal fun TvLibraryRecommendedContent(
     }
     val ambientState =
         rememberTvHeroAmbientState(
-            item = heroItem,
+            item = heroItem.takeIf { showHero },
             surface = TvHeroAmbientSurface.Recommended,
             accountKey = "${session.serverId}|${session.userId}",
         )
@@ -220,22 +226,26 @@ internal fun TvLibraryRecommendedContent(
         onDispose { onAmbientPresentationChanged(TvHeroAmbientPresentation.Empty) }
     }
 
-    Box(modifier = modifier.fillMaxSize().tvHomeAmbientBackground(ambientState.presentation, overlay = true)) {
-        TvHeroBackdrop(
-            session = session,
-            item = heroItem,
-            modifier = Modifier.align(Alignment.TopEnd),
-        )
-        Column(modifier = Modifier.fillMaxSize()) {
-            TvLibraryGridHero(
+    Box(modifier = modifier.fillMaxSize().tvHomeAmbientBackground(ambientState.presentation, overlay = true, enabled = showHero)) {
+        if (showHero) {
+            TvHeroBackdrop(
                 session = session,
                 item = heroItem,
-                contentStartPadding = contentStartPadding,
-                contentTopPadding = TvDimens.libraryHeroChromeContentInset,
-                contentEndPadding = TvDimens.overscanHorizontal,
-                height = TvDimens.libraryHeroHeight,
-                showBackdrop = false,
+                modifier = Modifier.align(Alignment.TopEnd),
             )
+        }
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (showHero) {
+                TvLibraryGridHero(
+                    session = session,
+                    item = heroItem,
+                    contentStartPadding = contentStartPadding,
+                    contentTopPadding = TvDimens.libraryHeroChromeContentInset,
+                    contentEndPadding = TvDimens.overscanHorizontal,
+                    height = TvDimens.libraryHeroHeight,
+                    showBackdrop = false,
+                )
+            }
             CompositionLocalProvider(LocalBringIntoViewSpec provides noVerticalAutoScrollSpec) {
                 LazyColumn(
                     state = listState,

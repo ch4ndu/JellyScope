@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -127,7 +128,7 @@ fun TvPersonScreen(
 }
 
 @Composable
-private fun TvPersonContent(
+internal fun TvPersonContent(
     session: Session,
     state: PersonUiState,
     onBack: () -> Unit,
@@ -141,10 +142,17 @@ private fun TvPersonContent(
     onLoadMoreAutomatically: () -> Unit,
     onRetryPage: () -> Unit,
     modifier: Modifier = Modifier,
+    headerArtwork: (@Composable (String?, Modifier) -> Unit)? = null,
+    cardArtwork: (@Composable (MediaCardUi, Modifier) -> Unit)? = null,
+    scrollState: ScrollState = rememberScrollState(),
+    moviesState: LazyListState = rememberLazyListState(),
+    seriesState: LazyListState = rememberLazyListState(),
+    initialFocusId: String? = null,
+    onFocused: (String) -> Unit = {},
+    entryKey: String = "person",
 ) {
-    val moviesFocus = rememberRouteDetailFocusContainer("person/movies")
-    val seriesFocus = rememberRouteDetailFocusContainer("person/series")
-    val scrollState = rememberScrollState()
+    val moviesFocus = rememberRouteDetailFocusContainer("$entryKey/movies")
+    val seriesFocus = rememberRouteDetailFocusContainer("$entryKey/series")
     // Preserve default horizontal ribbon scrolling.
     val ribbonBringIntoViewSpec = LocalBringIntoViewSpec.current
     val noVerticalAutoScrollSpec = rememberNoAutoScrollSpec()
@@ -155,6 +163,18 @@ private fun TvPersonContent(
     LaunchedEffect(state) {
         val content = state as? PersonUiState.Content ?: return@LaunchedEffect
         if (!initialFocusRequested && (content.movies.isNotEmpty() || content.series.isNotEmpty())) {
+            val target = initialFocusId
+            val targetRow =
+                when {
+                    content.movies.any { it.id == target } -> moviesFocus
+                    content.series.any { it.id == target } -> seriesFocus
+                    else -> null
+                }
+            if (target != null && targetRow != null) {
+                targetRow.seedLastFocusedKey(target)
+                initialFocusRequested = requestTvFocusWithRetry { targetRow.requestEntry(listOf(target)) }
+                return@LaunchedEffect
+            }
             if (moviesFocus.restorePending() || seriesFocus.restorePending()) {
                 initialFocusRequested = true
                 return@LaunchedEffect
@@ -213,6 +233,11 @@ private fun TvPersonContent(
                             seriesFocus = seriesFocus,
                             scrollState = scrollState,
                             geometry = geometry,
+                            headerArtwork = headerArtwork,
+                            cardArtwork = cardArtwork,
+                            moviesState = moviesState,
+                            seriesState = seriesState,
+                            onFocused = onFocused,
                             ribbonBringIntoViewSpec = ribbonBringIntoViewSpec,
                             onItemSelected = onItemSelected,
                             onItemPlayDirect = onItemPlayDirect,
@@ -238,6 +263,11 @@ private fun TvPersonLoadedContent(
     onItemPlayDirect: (MediaCardUi) -> Unit,
     onLoadMoreAutomatically: () -> Unit,
     onRetryPage: () -> Unit,
+    headerArtwork: (@Composable (String?, Modifier) -> Unit)?,
+    cardArtwork: (@Composable (MediaCardUi, Modifier) -> Unit)?,
+    moviesState: LazyListState,
+    seriesState: LazyListState,
+    onFocused: (String) -> Unit,
 ) {
     val moviesRestoreRequest = moviesFocus.restoreRequest()
     val seriesRestoreRequest = seriesFocus.restoreRequest()
@@ -295,6 +325,7 @@ private fun TvPersonLoadedContent(
         TvPersonHeader(
             session = session,
             header = state.header,
+            artwork = headerArtwork,
             modifier = Modifier.padding(horizontal = TvDimens.overscanHorizontal),
         )
         if (state.movies.isNotEmpty()) {
@@ -302,6 +333,9 @@ private fun TvPersonLoadedContent(
                 session = session,
                 title = stringResource(R.string.tv_person_movies),
                 items = state.movies,
+                rowState = moviesState,
+                cardArtwork = cardArtwork,
+                onFocused = onFocused,
                 hasMore = state.hasMore,
                 isLoadingMore = state.isLoadingMore,
                 pageError = state.error,
@@ -317,6 +351,9 @@ private fun TvPersonLoadedContent(
                 session = session,
                 title = stringResource(R.string.tv_person_series),
                 items = state.series,
+                rowState = seriesState,
+                cardArtwork = cardArtwork,
+                onFocused = onFocused,
                 hasMore = state.hasMore,
                 isLoadingMore = state.isLoadingMore,
                 pageError = state.error,
@@ -349,6 +386,9 @@ private fun TvPersonLoadedContent(
                 session = session,
                 title = stringResource(R.string.tv_person_series),
                 items = state.series,
+                rowState = seriesState,
+                cardArtwork = cardArtwork,
+                onFocused = onFocused,
                 hasMore = state.hasMore,
                 isLoadingMore = state.isLoadingMore,
                 pageError = state.error,
@@ -412,6 +452,7 @@ private fun TvPersonHeader(
     session: Session,
     header: PersonHeaderUi?,
     modifier: Modifier = Modifier,
+    artwork: (@Composable (String?, Modifier) -> Unit)? = null,
 ) {
     val imageDecode =
         rememberCardImageDecode(
@@ -432,18 +473,22 @@ private fun TvPersonHeader(
                     .background(LocalJellyfinPalette.current.surfaceRaised),
             contentAlignment = Alignment.Center,
         ) {
-            header?.imageUrl?.let { imageUrl ->
-                AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session, imageDecode),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
+            if (artwork != null) {
+                artwork(header?.imageUrl, Modifier.fillMaxSize())
+            } else {
+                header?.imageUrl?.let { imageUrl ->
+                    AsyncImage(
+                        model = authenticatedImageRequest(imageUrl, session, imageDecode),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } ?: TvText(
+                    text = header?.name?.take(1).orEmpty(),
+                    style = TvHeadlineStyle,
+                    color = LocalJellyfinPalette.current.textSecondary,
                 )
-            } ?: TvText(
-                text = header?.name?.take(1).orEmpty(),
-                style = TvHeadlineStyle,
-                color = LocalJellyfinPalette.current.textSecondary,
-            )
+            }
         }
         Column(
             modifier = Modifier.fillMaxWidth(TvDimens.detailHeroTextWidthFraction),
@@ -479,8 +524,10 @@ private fun TvPersonMediaRow(
     onItemPlayDirect: (MediaCardUi) -> Unit,
     onLoadMoreAutomatically: () -> Unit,
     onRequestPageRetryFocus: (DetailFocusContainer) -> Boolean,
+    rowState: LazyListState,
+    cardArtwork: (@Composable (MediaCardUi, Modifier) -> Unit)?,
+    onFocused: (String) -> Unit,
 ) {
-    val rowState = rememberLazyListState()
     val restoreRequest = rowFocus.restoreRequest()
     val restoreAwareSpec =
         rememberRestoreAwareBringIntoViewSpec(
@@ -562,9 +609,10 @@ private fun TvPersonMediaRow(
                                         (event.key == Key.DirectionDown || event.key == Key.DirectionRight) &&
                                         onRequestPageRetryFocus(rowFocus)
                                 }.focusChild(rowFocus, item.id, index),
-                        onFocused = {},
+                        onFocused = { onFocused(item.id) },
                         onClick = onItemClick,
-                        onPlayDirect = onItemPlay,
+                        onPlayDirect = if (cardArtwork == null) onItemPlay else null,
+                        artwork = cardArtwork?.let { render -> { render(item, Modifier.fillMaxSize()) } },
                     )
                 }
             }

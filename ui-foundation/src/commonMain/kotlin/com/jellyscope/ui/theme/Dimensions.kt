@@ -55,11 +55,15 @@ object Dimensions {
     val detailPosterWidth = 116.dp
     val detailSectionSpacing = 20.dp
     val seerrSeasonWidth = 240.dp
+    val seerrSeasonArtworkAspectRatio = 1.1f
     val badgePadding = 6.dp
     val watchedBadgeSize = 22.dp
     val watchedBadgeIconSize = 14.dp
     val badgeHorizontalPadding = 6.dp
     val badgeVerticalPadding = 2.dp
+    val availabilityBadgeGlyphGap = 3.dp
+    val availabilityBadgeGlyphSize = 10.dp
+    val availabilityBadgeGlyphStroke = 1.dp
     val progressBarHeight = 4.dp
     val detailActionButtonHorizontalPadding = 16.dp
     val detailActionButtonVerticalPadding = 8.dp

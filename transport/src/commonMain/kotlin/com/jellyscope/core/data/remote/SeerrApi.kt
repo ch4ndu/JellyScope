@@ -8,8 +8,10 @@ import com.jellyscope.core.domain.model.SeerrCatalog
 import com.jellyscope.core.domain.model.SeerrCatalogPage
 import com.jellyscope.core.domain.model.SeerrError
 import com.jellyscope.core.domain.model.SeerrLoginMethod
+import com.jellyscope.core.domain.model.SeerrMediaCard
 import com.jellyscope.core.domain.model.SeerrMediaKey
 import com.jellyscope.core.domain.model.SeerrMediaType
+import com.jellyscope.core.domain.model.SeerrPerson
 import com.jellyscope.core.domain.model.SeerrQuality
 import com.jellyscope.core.domain.model.SeerrQuotas
 import com.jellyscope.core.domain.model.SeerrRequestIntent
@@ -157,6 +159,22 @@ class SeerrApi(
         session: SeerrTransportSession,
         key: SeerrMediaKey,
     ): SeerrApiResponse<SeerrWireDetail> = get(session, "${key.type.wireName()}/${key.tmdbId}") { it.toDetail(key) }
+
+    suspend fun person(
+        session: SeerrTransportSession,
+        personId: Int,
+    ): SeerrApiResponse<SeerrPerson> {
+        require(personId > 0)
+        return get(session, "person/$personId") { it.toPerson(personId) }
+    }
+
+    suspend fun personCredits(
+        session: SeerrTransportSession,
+        personId: Int,
+    ): SeerrApiResponse<List<SeerrMediaCard>> {
+        require(personId > 0)
+        return get(session, "person/$personId/combined_credits") { it.toPersonCredits(personId) }
+    }
 
     suspend fun quota(
         session: SeerrTransportSession,

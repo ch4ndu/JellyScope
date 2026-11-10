@@ -18,6 +18,7 @@ internal class TvHostedRailController(
     private val requestRailFocusState: State<() -> Boolean>,
     private val setContentRightFocusRequesterState: State<(String, FocusRequester?) -> Unit>,
     private val setContentRightFocusActionState: State<(String, (() -> Boolean)?) -> Unit>,
+    private val inputGenerationState: State<Long> = mutableStateOf(0L),
 ) {
     val enabled: Boolean
         get() = enabledState.value
@@ -33,6 +34,22 @@ internal class TvHostedRailController(
 
     val contentRegistrationKey: String
         get() = contentRegistrationKeyState.value
+
+    val inputGeneration: Long
+        get() = inputGenerationState.value
+
+    fun forRenderedEntry(registrationKey: String): TvHostedRailController =
+        TvHostedRailController(
+            enabledState,
+            visibleState,
+            railHasFocusState,
+            contentAutofocusSuppressedState,
+            mutableStateOf(registrationKey),
+            requestRailFocusState,
+            setContentRightFocusRequesterState,
+            setContentRightFocusActionState,
+            inputGenerationState,
+        )
 
     fun requestRailFocus(): Boolean = requestRailFocusState.value()
 

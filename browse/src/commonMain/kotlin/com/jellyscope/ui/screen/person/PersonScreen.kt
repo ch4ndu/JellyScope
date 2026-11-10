@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -19,9 +20,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.adaptiveHorizontalContentPadding
@@ -45,6 +53,7 @@ import com.jellyscope.ui.generated.resources.person_loading
 import com.jellyscope.ui.generated.resources.person_loading_more
 import com.jellyscope.ui.generated.resources.person_movies
 import com.jellyscope.ui.generated.resources.person_series
+import com.jellyscope.ui.screen.detail.requestFocusSafely
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -88,6 +97,13 @@ fun PersonContent(
     onItemSelected: (MediaCardUi) -> Unit,
     onPlayItem: (String, Long) -> Unit,
     modifier: Modifier = Modifier,
+    headerArtwork: (@Composable (String?, Modifier) -> Unit)? = null,
+    cardArtwork: (@Composable (MediaCardUi, Modifier) -> Unit)? = null,
+    listState: LazyListState = rememberLazyListState(),
+    moviesState: LazyListState = rememberLazyListState(),
+    seriesState: LazyListState = rememberLazyListState(),
+    initialFocusId: String? = null,
+    onFocused: (String) -> Unit = {},
 ) {
     when (state) {
         PersonUiState.Loading ->
@@ -112,6 +128,13 @@ fun PersonContent(
                 onItemSelected = onItemSelected,
                 onPlayItem = onPlayItem,
                 modifier = modifier,
+                headerArtwork = headerArtwork,
+                cardArtwork = cardArtwork,
+                listState = listState,
+                moviesState = moviesState,
+                seriesState = seriesState,
+                initialFocusId = initialFocusId,
+                onFocused = onFocused,
             )
     }
 }
@@ -125,8 +148,14 @@ private fun PersonBody(
     onItemSelected: (MediaCardUi) -> Unit,
     onPlayItem: (String, Long) -> Unit,
     modifier: Modifier = Modifier,
+    headerArtwork: (@Composable (String?, Modifier) -> Unit)? = null,
+    cardArtwork: (@Composable (MediaCardUi, Modifier) -> Unit)? = null,
+    listState: LazyListState = rememberLazyListState(),
+    moviesState: LazyListState = rememberLazyListState(),
+    seriesState: LazyListState = rememberLazyListState(),
+    initialFocusId: String? = null,
+    onFocused: (String) -> Unit = {},
 ) {
-    val listState = rememberLazyListState()
     val backContentDescription = stringResource(Res.string.person_back_cd)
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -147,6 +176,7 @@ private fun PersonBody(
                 PersonHeader(
                     session = session,
                     header = content.header,
+                    artwork = headerArtwork,
                 )
             }
             if (content.movies.isNotEmpty()) {
@@ -155,6 +185,10 @@ private fun PersonBody(
                         title = stringResource(Res.string.person_movies),
                         session = session,
                         items = content.movies,
+                        rowListState = moviesState,
+                        cardArtwork = cardArtwork,
+                        initialFocusId = initialFocusId,
+                        onFocused = onFocused,
                         onItemSelected = onItemSelected,
                         onPlayItem = onPlayItem,
                     )
@@ -166,6 +200,10 @@ private fun PersonBody(
                         title = stringResource(Res.string.person_series),
                         session = session,
                         items = content.series,
+                        rowListState = seriesState,
+                        cardArtwork = cardArtwork,
+                        initialFocusId = initialFocusId,
+                        onFocused = onFocused,
                         onItemSelected = onItemSelected,
                         onPlayItem = onPlayItem,
                     )
@@ -243,9 +281,13 @@ private fun PersonMediaRow(
     items: List<MediaCardUi>,
     onItemSelected: (MediaCardUi) -> Unit,
     onPlayItem: (String, Long) -> Unit,
+    rowListState: LazyListState,
+    cardArtwork: (@Composable (MediaCardUi, Modifier) -> Unit)?,
+    initialFocusId: String?,
+    onFocused: (String) -> Unit,
 ) {
     val horizontalContentPadding = adaptiveHorizontalContentPadding()
-    val rowListState = rememberLazyListState()
+    var restoreConsumed by remember { mutableStateOf(initialFocusId == null) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -273,11 +315,23 @@ private fun PersonMediaRow(
                 items = items,
                 key = { item -> item.id },
             ) { item ->
+                val requester = remember(item.id) { FocusRequester() }
+                LaunchedEffect(Unit) {
+                    if (!restoreConsumed && initialFocusId == item.id && requester.requestFocusSafely()) restoreConsumed = true
+                }
                 MediaCard(
                     item = item,
                     session = session,
                     onClick = { onItemSelected(item) },
-                    onLongClick = item.directPlayAction(onPlayItem),
+                    onLongClick = if (cardArtwork == null) item.directPlayAction(onPlayItem) else null,
+                    modifier =
+                        Modifier.focusRequester(requester).onFocusChanged {
+                            if (it.isFocused) {
+                                restoreConsumed = true
+                                onFocused(item.id)
+                            }
+                        },
+                    artwork = cardArtwork?.let { render -> { render(item, Modifier.fillMaxSize()) } },
                 )
             }
         }

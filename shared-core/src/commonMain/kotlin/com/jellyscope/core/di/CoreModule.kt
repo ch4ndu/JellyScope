@@ -159,6 +159,7 @@ import com.jellyscope.core.domain.usecase.GetSeasonEpisodesUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrCatalogUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrConnectionUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrDetailUseCase
+import com.jellyscope.core.domain.usecase.GetSeerrPersonUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrQuotaUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrRequestsUseCase
 import com.jellyscope.core.domain.usecase.GetSeerrSimilarUseCase
@@ -442,6 +443,7 @@ val coreModule =
         single { GetSeerrCatalogUseCase(repository = get()) }
         single { GetSeerrDetailUseCase(repository = get()) }
         single { GetSeerrSimilarUseCase(repository = get()) }
+        single { GetSeerrPersonUseCase(repository = get()) }
         single { GetSeerrRequestsUseCase(repository = get()) }
         single { GetSeerrQuotaUseCase(repository = get()) }
         single { ResolveSeerrLibraryItemUseCase(repository = get()) }

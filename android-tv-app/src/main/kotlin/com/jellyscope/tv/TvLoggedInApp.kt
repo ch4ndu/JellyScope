@@ -27,7 +27,9 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.DrawerValue
@@ -69,6 +71,7 @@ import com.jellyscope.tv.ui.TvSettingsScreen
 import com.jellyscope.tv.ui.focus.LocalTvFocusCoordinator
 import com.jellyscope.tv.ui.focus.TvFocusMemoryState
 import com.jellyscope.tv.ui.focus.rememberTvFocusCoordinator
+import com.jellyscope.tv.ui.requestTvFocusWithRetry
 import com.jellyscope.tv.ui.toRailTarget
 import com.jellyscope.tv.ui.tvHomeAmbientBackground
 import com.jellyscope.ui.component.MediaCardKind
@@ -659,7 +662,22 @@ internal fun TvLoggedInApp(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var railHasFocus by remember { mutableStateOf(false) }
     val activeContentRegistrationKey =
-        route.takeIf { isTvRailRoute(it, isTvDownloadsVisible(session)) }.orEmpty()
+        route
+            .takeIf {
+                isTvRailRoute(
+                    it,
+                    isTvDownloadsVisible(session),
+                )
+            }?.let { "$it:${focusCoordinator.activeRouteEntryId.value}" }
+            .orEmpty()
+    var railInputGeneration by remember { mutableStateOf(0L) }
+    var focusedRailTarget by remember { mutableStateOf<TvRailTarget?>(null) }
+    var pendingRailEntry by remember { mutableStateOf<Pair<String, Long>?>(null) }
+
+    fun cancelRailEntry() {
+        railInputGeneration++
+        pendingRailEntry = null
+    }
     var contentRightFocusRegistrationKey by remember { mutableStateOf("") }
     var contentRightFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
     var contentRightFocusActionRegistrationKey by remember { mutableStateOf("") }
@@ -722,6 +740,7 @@ internal fun TvLoggedInApp(
         }
     }
 
+    val hostedRailInputGenerationState = rememberUpdatedState(railInputGeneration)
     val hostedRailEnabledState = rememberUpdatedState(true)
     val hostedRailVisibleState = rememberUpdatedState(railEnabled)
     val hostedRailHasFocusState = rememberUpdatedState(railEnabled && railHasFocus)
@@ -745,6 +764,7 @@ internal fun TvLoggedInApp(
     val hostedRailController =
         remember {
             TvHostedRailController(
+                inputGenerationState = hostedRailInputGenerationState,
                 enabledState = hostedRailEnabledState,
                 visibleState = hostedRailVisibleState,
                 railHasFocusState = hostedRailHasFocusState,
@@ -807,6 +827,55 @@ internal fun TvLoggedInApp(
                         label = "tv-route",
                     )
                 }
+            LaunchedEffect(
+                pendingRailEntry,
+                routeTransition.currentState,
+                routeTransition.targetState,
+                routeTransition.isRunning,
+                activeContentRegistrationKey,
+                activeContentRightFocusAction,
+                activeContentRightFocusRequester,
+                railHasFocus,
+                railEnabled,
+                focusCoordinator.focusTrapActive,
+            ) {
+                val pending = pendingRailEntry ?: return@LaunchedEffect
+                if (!railEnabled ||
+                    !railHasFocus ||
+                    focusCoordinator.focusTrapActive ||
+                    pending.second != railInputGeneration ||
+                    pending.first != activeContentRegistrationKey
+                ) {
+                    pendingRailEntry = null
+                    return@LaunchedEffect
+                }
+                if (routeTransition.isRunning ||
+                    routeTransition.currentState != routeTransition.targetState ||
+                    "${routeTransition.targetState.route}:${routeTransition.targetState.entryId.value}" != pending.first
+                ) {
+                    return@LaunchedEffect
+                }
+                val action = activeContentRightFocusAction
+                val requester = activeContentRightFocusRequester
+                if (action == null && requester == null) return@LaunchedEffect
+                requestTvFocusWithRetry {
+                    if (pendingRailEntry != pending ||
+                        railInputGeneration != pending.second ||
+                        !railHasFocus ||
+                        focusCoordinator.focusTrapActive ||
+                        activeContentRegistrationKey != pending.first
+                    ) {
+                        true
+                    } else {
+                        val accepted = action?.invoke() ?: requester?.requestFocusSafely() ?: false
+                        if (accepted) {
+                            pendingRailEntry = null
+                            contentAutofocusSuppressed = false
+                        }
+                        accepted
+                    }
+                }
+            }
             val routeContent: @Composable () -> Unit = {
                 LaunchedEffect(
                     routeTransition.targetState,
@@ -829,6 +898,7 @@ internal fun TvLoggedInApp(
                         Modifier
                             .fillMaxSize()
                             .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown && !focusCoordinator.focusTrapActive) cancelRailEntry()
                                 focusCoordinator.cancelForUserInput(
                                     event,
                                     // Modal-trapped keys do not cancel pending restore.
@@ -844,7 +914,14 @@ internal fun TvLoggedInApp(
                         remember(focusCoordinator, renderKey.entryId) {
                             TvRouteEntryDetailFocusBridge(focusCoordinator, renderKey.entryId)
                         }
-                    CompositionLocalProvider(LocalDetailFocusBridge provides entryDetailFocusBridge) {
+                    val renderedRailController =
+                        remember(hostedRailController, renderKey.route, renderKey.entryId) {
+                            hostedRailController.forRenderedEntry("${renderKey.route}:${renderKey.entryId.value}")
+                        }
+                    CompositionLocalProvider(
+                        LocalDetailFocusBridge provides entryDetailFocusBridge,
+                        LocalTvHostedRailController provides renderedRailController,
+                    ) {
                         when {
                             animatedRoute == TvRoute.Series.name || animatedRoute == TvRoute.Season.name -> {
                                 val showingSeason = animatedRoute == TvRoute.Season.name
@@ -1039,7 +1116,6 @@ internal fun TvLoggedInApp(
                                             },
                                             collectionType =
                                             currentLibraryType,
-                                            gridHeroEligible = true,
                                             hubViewModel = libraryHubViewModel,
                                             onAmbientPresentationChanged = { presentation ->
                                                 drawerAmbientPresentation = presentation
@@ -1272,7 +1348,6 @@ internal fun TvLoggedInApp(
                                             collectionType =
                                                 LibraryCollectionType.entries.firstOrNull { type -> type.name == libraryCollectionType }
                                                     ?: LibraryCollectionType.Other,
-                                            gridHeroEligible = libraryParentId != null,
                                         )
                                     }
                                 }
@@ -1291,7 +1366,6 @@ internal fun TvLoggedInApp(
                                         onSettingsSelected = { resetRoute(TvRoute.Settings) },
                                         onItemSelected = { item -> openTvItem(item) },
                                         onItemPlayDirect = { item -> playTvItemDirect(item) },
-                                        gridHeroEligible = collectionOriginLibraryId != null,
                                     )
                                 }
                             }
@@ -1409,11 +1483,33 @@ internal fun TvLoggedInApp(
                     onLibrarySelected = { library -> selectRailTarget(TvRailTarget.Library(library.id)) },
                     selectedLibraryId = selectedRailLibraryId,
                     focusFallbackDestination = railFocusFallbackDestination,
-                    onFocusStateChanged = { hasFocus -> railHasFocus = hasFocus },
+                    onFocusStateChanged = { hasFocus ->
+                        railHasFocus = hasFocus
+                        if (!hasFocus) pendingRailEntry = null
+                    },
+                    onImmediateTargetFocused = { target ->
+                        if (focusedRailTarget != target) cancelRailEntry()
+                        focusedRailTarget = target
+                    },
+                    onNavigationInput = ::cancelRailEntry,
                     onTargetFocused = { target -> selectRailTarget(target) },
                     selectedItemFocusRequester = railSelectedTabRequester,
                     contentRightFocusRequester = activeContentRightFocusRequester,
-                    onExitRight = activeContentRightFocusAction,
+                    onExitRight = { target ->
+                        cancelRailEntry()
+                        selectRailTarget(target)
+                        val allowed =
+                            when (target) {
+                                TvRailTarget.Downloads -> isTvDownloadsVisible(session)
+                                is TvRailTarget.Library -> navigationLibraries.any { it.id == target.id }
+                                TvRailTarget.Home -> !(route == TvRoute.Library.name && !selectedRailLibraryLoaded)
+                                else -> true
+                            }
+                        if (allowed) {
+                            pendingRailEntry = "$route:${focusCoordinator.activeRouteEntryId.value}" to railInputGeneration
+                        }
+                        true
+                    },
                     // Read in underlay draw only: a settled Home/Library route is
                     // full-bleed opaque, so the underlay need only fill the rail.
                     underlayClippedToRail = {

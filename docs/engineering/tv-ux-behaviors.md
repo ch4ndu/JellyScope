@@ -140,8 +140,13 @@ This contract applies to Android TV.
   content scope, loaded Library enters a media tile, and Settings restores its
   last focused tile, defaulting to Server in the Account row. Temporary loading
   anchors are valid only without real content.
-- Requests drawer exit enters its selected top section, including on first load;
-  a bounded attachment retry consumes Right and cancels when its target changes.
+- Requests follows Library grid entry: drawer Right restores a media card or
+  enters the current loading, recovery, search or setup target. Top-row Up reaches
+  the selected section, or the query/action row in Search. Search controls use
+  Left/Right within the row, Up to the section and Down to results; Clear returns
+  to the query field. Section Down returns to content. Drawer Right qualifies
+  the focused destination and rendered route entry, waits for the transition to
+  settle, and cancels a pending handoff when subsequent input replaces it.
 - Library drawer exit resolves the selected inner view at invocation and consumes
   Right during a temporarily rejected request, preventing stale geometric entry.
 - TV has no visible Back buttons.

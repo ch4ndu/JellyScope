@@ -75,6 +75,7 @@ internal fun TvFindResultsPane(
     onRetry: () -> Unit,
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
+    onMediaFocused: (MediaCardUi) -> Unit,
 ) {
     if (state.queryText.isBlank() && state.recentSearches.isNotEmpty()) {
         TvFindChipSection(
@@ -158,6 +159,7 @@ internal fun TvFindResultsPane(
             contentStartPadding = contentStartPadding,
             onItemSelected = onItemSelected,
             onItemPlayDirect = onItemPlayDirect,
+            onMediaFocused = onMediaFocused,
         )
     } else if (!state.isSearching && !state.error && state.hasActiveFindUi()) {
         TvText(
@@ -317,6 +319,7 @@ private fun TvFindResultSections(
     contentStartPadding: Dp,
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
+    onMediaFocused: (MediaCardUi) -> Unit,
 ) {
     var nextResultFocusRequester: FocusRequester? = resultsFocusRequester
 
@@ -338,6 +341,7 @@ private fun TvFindResultSections(
             contentStartPadding = contentStartPadding,
             onItemSelected = onItemSelected,
             onItemPlayDirect = onItemPlayDirect,
+            onMediaFocused = onMediaFocused,
         )
     }
     if (selectedTab == FindResultTab.All || selectedTab == FindResultTab.Shows) {
@@ -350,6 +354,7 @@ private fun TvFindResultSections(
             contentStartPadding = contentStartPadding,
             onItemSelected = onItemSelected,
             onItemPlayDirect = onItemPlayDirect,
+            onMediaFocused = onMediaFocused,
         )
     }
     if (selectedTab == FindResultTab.All || selectedTab == FindResultTab.Episodes) {
@@ -362,6 +367,7 @@ private fun TvFindResultSections(
             contentStartPadding = contentStartPadding,
             onItemSelected = onItemSelected,
             onItemPlayDirect = onItemPlayDirect,
+            onMediaFocused = onMediaFocused,
         )
     }
 }
@@ -377,6 +383,7 @@ private fun TvFindResultRow(
     contentStartPadding: Dp,
     onItemSelected: (MediaCardUi) -> Unit,
     onItemPlayDirect: (MediaCardUi) -> Unit,
+    onMediaFocused: (MediaCardUi) -> Unit,
 ) {
     if (items.isEmpty()) {
         return
@@ -450,6 +457,7 @@ private fun TvFindResultRow(
                         focusRequester = itemRequester,
                         onFocused = {
                             rowScope.onChildFocused(itemKey, TvFocusTargetKind.Item, items.indexOf(item))
+                            onMediaFocused(item)
                         },
                         onClick = onItemClick,
                         onPlayDirect = onItemPlay,

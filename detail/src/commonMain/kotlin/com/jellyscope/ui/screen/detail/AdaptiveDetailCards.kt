@@ -17,21 +17,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
 import com.jellyscope.core.domain.model.MediaPersonType
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.tileScaled
 import com.jellyscope.ui.component.AdaptiveProgressBar
 import com.jellyscope.ui.component.CardImageAspect
-import com.jellyscope.ui.component.DetailBodyStyle
-import com.jellyscope.ui.component.DetailHeadlineStyle
 import com.jellyscope.ui.component.DetailSecondaryStyle
 import com.jellyscope.ui.component.DetailText
 import com.jellyscope.ui.component.FocusableBox
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.component.PersonCard
 import com.jellyscope.ui.component.SmallBadge
 import com.jellyscope.ui.component.WatchedBadge
 import com.jellyscope.ui.component.authenticatedImageRequest
@@ -165,59 +160,24 @@ internal fun AdaptivePersonCard(
             width = DetailDimens.posterWidth.tileScaled(),
             height = DetailDimens.detailPersonImageHeight.tileScaled(),
         )
-    Column(
-        modifier =
-            Modifier
-                .width(DetailDimens.posterWidth.tileScaled())
-                .semantics {
-                    this.contentDescription = contentDescription
-                    role = Role.Button
-                },
-        verticalArrangement = Arrangement.spacedBy(DetailDimens.detailPersonTextGap),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        FocusableBox(
-            onClick = onClick,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(DetailDimens.detailPersonImageHeight.tileScaled())
-                    .then(focusModifier),
-            contentDescription = person.name,
-            focusedScale = 1.06f,
-            backgroundColor = LocalJellyfinPalette.current.surfaceRaised,
-            focusedBackgroundColor = LocalJellyfinPalette.current.surfaceRaised,
-            contentAlignment = Alignment.Center,
-        ) {
-            val imageUrl = person.imageUrl
-            if (imageUrl != null) {
-                AsyncImage(
-                    model = authenticatedImageRequest(imageUrl, session, imageDecode),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                DetailText(
-                    text = person.name.take(1),
-                    style = DetailHeadlineStyle,
-                    color = LocalJellyfinPalette.current.textSecondary,
-                )
-            }
-        }
-        DetailText(
-            text = person.name,
-            style = DetailBodyStyle,
-            maxLines = 1,
-        )
-        val role = person.role ?: person.fallbackRoleType?.let { type -> personRoleLabel(type) }
-        DetailText(
-            text = role ?: " ",
-            style = DetailSecondaryStyle,
-            color = LocalJellyfinPalette.current.textSecondary,
-            maxLines = 1,
-        )
-    }
+    PersonCard(
+        name = person.name,
+        role = person.role ?: person.fallbackRoleType?.let { personRoleLabel(it) },
+        onClick = onClick,
+        focusModifier = focusModifier,
+        contentDescription = contentDescription,
+        artwork =
+            person.imageUrl?.let { imageUrl ->
+                {
+                    AsyncImage(
+                        model = authenticatedImageRequest(imageUrl, session, imageDecode),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+            },
+    )
 }
 
 @Composable

@@ -13,6 +13,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import co.touchlab.kermit.Logger
+import com.jellyscope.core.domain.model.AccountIdentity
 import com.jellyscope.core.util.DiagnosticOperation
 import com.jellyscope.core.util.DiagnosticTag
 import com.jellyscope.core.util.diagnosticLogger
@@ -20,11 +21,16 @@ import com.jellyscope.core.util.formatSafeFailureDiagnostic
 import com.jellyscope.core.util.runCatchingCancellable
 import com.jellyscope.core.util.safeDiagnosticType
 import com.jellyscope.hero.extractHeroAmbientColor
+import com.jellyscope.ui.component.AmbientColorExtractor
+import com.jellyscope.ui.component.AmbientImageSource
 import com.jellyscope.ui.component.MediaCardUi
+import com.jellyscope.ui.component.PublicArtworkOwner
+import com.jellyscope.ui.component.rememberArtworkAmbientColor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.koin.compose.koinInject
 import java.util.concurrent.atomic.AtomicLong
 
 private val ambientLogger = Logger.withTag("AmbientColorController")
@@ -38,6 +44,10 @@ internal enum class TvHeroAmbientSurface(
     Recommended("recommended"),
     Library("library"),
     Collection("collection"),
+    ViewAll("view-all"),
+    Discover("discover"),
+    Find("find"),
+    Requests("requests"),
 }
 
 private object EmptyAmbientOwnerKey
@@ -248,6 +258,7 @@ internal fun formatAmbientColorFailureDiagnostic(throwable: Throwable): String =
 internal data class TvHeroAmbientState(
     val presentation: TvHeroAmbientPresentation,
     val onPosterLoaded: (itemId: String, bitmap: Bitmap) -> Unit,
+    val onArtworkLoaded: (AmbientImageSource) -> Unit = {},
 )
 
 @Composable
@@ -255,7 +266,26 @@ internal fun rememberTvHeroAmbientState(
     item: MediaCardUi?,
     surface: TvHeroAmbientSurface,
     accountKey: String,
+    artworkAccount: AccountIdentity? = null,
+    entry: String = surface.token,
+    publicOwner: PublicArtworkOwner? = null,
 ): TvHeroAmbientState {
+    if (artworkAccount != null) {
+        val artworkUrl = item?.backdropUrl ?: item?.imageUrl
+        val extractor = koinInject<AmbientColorExtractor>()
+        val ambient = rememberArtworkAmbientColor(artworkAccount, entry, artworkUrl, extractor, publicOwner)
+        val owner = remember(artworkAccount, entry, artworkUrl, publicOwner) { Any() }
+        return TvHeroAmbientState(
+            presentation =
+                if (artworkUrl == null) {
+                    TvHeroAmbientPresentation.Empty
+                } else {
+                    TvHeroAmbientPresentation(owner, 0L, ambient.color, clearWhenColorMissing = true)
+                },
+            onPosterLoaded = { _, _ -> },
+            onArtworkLoaded = ambient::onImageLoaded,
+        )
+    }
     val requestedOwnerKey =
         remember(item?.id, item?.imageUrl, item?.backdropUrl, item?.imageRef, surface, accountKey) {
             item?.id?.let { itemId ->

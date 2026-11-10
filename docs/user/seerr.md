@@ -44,8 +44,11 @@ server's protection.
 Requests has **Discover**, **My Requests**, and **Search** sections. Discover
 offers trending titles, movies and TV shows through its catalog control. Search
 retains its query and results separately; Clear leaves an empty Search section.
-**Load more** adds another page;
-**Refresh** reloads the list from its beginning. The existing Jellyfin Discover
+**Refresh** in the browse header reloads the list from its beginning.
+Android, iOS and desktop load more titles as you approach the end. A page error
+keeps the loaded cards and offers **Retry**; a page with no new visible cards
+pauses automatic loading and offers **Load more**. The Apple TV preview uses
+**Load more** to add pages. The existing Jellyfin Discover
 destination continues to browse your server's own content.
 
 **Filters** contains **Hide available**, on by default for the trending, movie
@@ -56,15 +59,24 @@ Turn it off to browse existing titles or another quality. Search, My Requests
 and Similar remain inclusive. Availability follows Seerr's library scan and may
 lag recent Jellyfin additions. A filtered-empty page can still offer Load more.
 
-Open a title to inspect availability and request history. Choose standard or
-4K quality where your permissions and server configuration allow requests, or
-where that quality already exists in the library. Existing library access does
-not require permission to make new requests. For TV,
-select one or more eligible seasons in **Seasons**. Checkmarks show your selections
-independently of focus; unavailable choices explain why they cannot be selected.
-Changing quality clears the selection. The request action shows the selected
-season count, and confirmation lists the exact seasons and quality. Quotas may
-limit how many requests you can make; TV quotas count selected seasons.
+On Android TV, **Show library grid hero** also controls Requests browsing previews.
+Turning it off removes the preview without changing the focused card or scroll.
+Detail artwork is independent of this setting.
+
+Android TV and the shared Android, iOS and desktop screens show separate STD and
+4K availability badges: a green filled circle means fully available, an orange
+half-circle means partially available, a white outline means not available, and
+a question mark means unknown. Details repeat these symbols with explanations.
+The colors keep the same meaning in every theme; request progress is separate.
+
+Open a title and choose **Review request** to inspect availability, history and
+quota, even when submission is blocked. A single request quality appears as a
+tag; multiple request qualities offer a picker. For series, select eligible
+season tiles in **Seasons**. Checkmarks indicate selection independently of focus.
+Opening a blocked season explains its status without changing your selection.
+Changing request quality clears selected seasons. **Choose seasons** in review
+returns to the inline season ribbon. Confirmation lists the exact seasons and
+quality; TV quotas count selected seasons.
 
 Review the title, media type, quality, seasons and approval notice, then confirm.
 Seerr uses its administrator's acquisition defaults and decides whether approval
@@ -86,8 +98,10 @@ Some selections cannot be requested:
   was subsequently deleted and is otherwise eligible.
 
 Details also show **Cast** and a **Similar** ribbon when data is available.
-Cast cards are informational. Selecting a similar title opens its Seerr details;
-Back returns through the previous details to the original list. Similar shows a
+On Android TV and shared Android, iOS and desktop screens, selecting Cast opens
+a person biography and movie/series credits. Selecting a credit or similar title
+opens its Seerr details; Back restores the preceding person or detail screen
+and its position. Cast remains informational in the native Apple TV preview. Similar shows a
 bounded first page. A failed or interrupted Similar load offers Retry without
 blocking requests; returning to the screen does not automatically retry it.
 
@@ -99,7 +113,9 @@ describe the request; unavailable, processing, partly available and available
 describe the media. These are separate states.
 
 Use **View in library** to open a matching title in the current Jellyfin account.
-JellyScope verifies access, media type and provider identity before opening the
+In Android TV and shared screens, this action uses the sole available quality
+or offers a choice when both copies exist, independently of request permission
+and the selected request quality. JellyScope verifies access, media type and provider identity before opening the
 normal movie or series screen. Use its existing playback controls from there.
 Availability reported by Seerr does not grant access to media on another server.
 If no accessible match is found, remain on Requests and refresh later.

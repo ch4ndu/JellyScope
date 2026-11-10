@@ -3,7 +3,6 @@
 package com.jellyscope.tv.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
@@ -40,7 +39,6 @@ import com.jellyscope.ui.screen.find.FindResultsUi
 import com.jellyscope.ui.screen.find.FindUiState
 import com.jellyscope.ui.screen.find.FindViewModel
 import com.jellyscope.ui.screen.find.PersonUi
-import com.jellyscope.ui.theme.LocalAppBackgroundBrush
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -100,6 +98,23 @@ internal fun TvFindContent(
     onItemPlayDirect: (MediaCardUi) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val heroEntry = "find:${state.completedRequestToken}:${state.selectedResultTab}"
+    var focusedMedia by remember(session.serverId, session.userId, heroEntry) { mutableStateOf<MediaCardUi?>(null) }
+    val currentMedia =
+        focusedMedia?.let { focused ->
+            val results = state.groupedResults
+            when (state.selectedResultTab) {
+                FindResultTab.All ->
+                    results.movies.firstOrNull { it.id == focused.id }
+                        ?: results.shows.firstOrNull { it.id == focused.id }
+                        ?: results.episodes.firstOrNull { it.id == focused.id }
+                FindResultTab.Movies -> results.movies.firstOrNull { it.id == focused.id }
+                FindResultTab.Shows -> results.shows.firstOrNull { it.id == focused.id }
+                FindResultTab.Episodes -> results.episodes.firstOrNull { it.id == focused.id }
+            }
+        }
+    val hero = rememberTvBrowseHero(session, currentMedia, TvHeroAmbientSurface.Find, heroEntry)
+    val heroVisible = hero.enabled && state.groupedResults.hasResultsFor(state.selectedResultTab)
     val searchFieldRequester = remember { FocusRequester() }
     val resultsFocusRequester = remember { FocusRequester() }
     val hostedRailController = LocalTvHostedRailController.current
@@ -187,7 +202,7 @@ internal fun TvFindContent(
         modifier =
             modifier
                 .fillMaxSize()
-                .background(LocalAppBackgroundBrush.current)
+                .tvHomeAmbientBackground(hero.ambient.presentation, overlay = true, enabled = heroVisible)
                 .onPreviewKeyEvent { event ->
                     event.type == KeyEventType.KeyDown &&
                         event.key == Key.Back &&
@@ -205,6 +220,14 @@ internal fun TvFindContent(
                         }
                 },
     ) {
+        if (heroVisible) {
+            TvHeroBackdrop(
+                session,
+                hero.item,
+                Modifier.align(androidx.compose.ui.Alignment.TopEnd),
+                onArtworkLoaded = hero.ambient.onArtworkLoaded,
+            )
+        }
         Column(
             modifier =
                 Modifier
@@ -236,6 +259,15 @@ internal fun TvFindContent(
                         end = TvDimens.overscanHorizontal,
                     ),
             )
+            if (heroVisible) {
+                TvLibraryGridHero(
+                    session,
+                    hero.item,
+                    contentStartPadding = contentStartPadding,
+                    showBackdrop = false,
+                    reserveGridViewport = true,
+                )
+            }
             CompositionLocalProvider(LocalBringIntoViewSpec provides verticalBringIntoViewSpec) {
                 Column(
                     modifier =
@@ -266,6 +298,7 @@ internal fun TvFindContent(
                         onRetry = onRetry,
                         onItemSelected = onItemSelected,
                         onItemPlayDirect = onItemPlayDirect,
+                        onMediaFocused = { focusedMedia = it },
                     )
                 }
             }

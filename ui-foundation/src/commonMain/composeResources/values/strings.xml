@@ -890,6 +890,7 @@
     <string name="seerr_untitled">Untitled</string>
     <string name="seerr_open_title">Open details for %1$s</string>
     <string name="seerr_poster">Poster for %1$s</string>
+    <string name="seerr_standard_short">STD</string>
     <string name="seerr_standard">Standard</string>
     <string name="seerr_four_k">4K</string>
     <string name="seerr_availability">%1$s availability: %2$s</string>
@@ -970,4 +971,13 @@
     <string name="seerr_episode_count">%1$d episodes</string>
     <string name="seerr_filters">Filters (%1$d)</string>
     <string name="seerr_search_prompt">Search for movies and TV shows.</string>
+    <string name="seerr_close">Close</string>
+    <string name="seerr_choose_seasons_action">Choose seasons</string>
+    <string name="seerr_partial_review">Seerr cannot accept a new request for this season. Contact your administrator about missing episodes.</string>
+    <string name="seerr_subject_removed">This season is no longer available for inspection. Refresh its status.</string>
+    <string name="seerr_refresh_status">Refresh status</string>
+    <string name="seerr_library_quality">Choose library copy</string>
+    <string name="seerr_quality_title">Request quality</string>
+    <string name="seerr_quality_choice">Quality: %1$s ▾</string>
+    <string name="seerr_selection_marker">Selected</string>
 </resources>

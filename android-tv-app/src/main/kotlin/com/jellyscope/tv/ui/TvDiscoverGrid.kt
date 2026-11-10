@@ -51,6 +51,7 @@ import com.jellyscope.ui.component.CardImageAspect
 import com.jellyscope.ui.component.MediaCardUi
 import com.jellyscope.ui.component.authenticatedImageRequest
 import com.jellyscope.ui.component.rememberCardImageDecode
+import com.jellyscope.ui.focus.rememberNoAutoScrollSpec
 import com.jellyscope.ui.screen.discover.DiscoverFacetUi
 import com.jellyscope.ui.screen.discover.DiscoverListState
 import com.jellyscope.ui.screen.discover.DiscoverMediaItemsState
@@ -216,27 +217,59 @@ private fun TvDiscoverMediaGrid(
             )
         DiscoverMediaItemsState.Empty -> TvDiscoverStatus(stringResource(R.string.tv_empty_row))
         is DiscoverMediaItemsState.Error -> TvDiscoverErrorState(retryable = state.retryable, onRetry = onRetry)
-        is DiscoverMediaItemsState.Content ->
-            TvDiscoverGrid(
-                items = state.items,
-                cellMinWidth = TvDimens.posterWidth.tileScaled(),
-                gridFocusRequester = gridFocusRequester,
-                gridKey = gridKey,
-                itemKey = { item -> item.id },
-                contentStartPadding = contentStartPadding,
-            ) { item, itemRequester, onFocused ->
-                val onItemClick = remember(item, onItemSelected) { { onItemSelected(item) } }
-                val onItemPlay = onItemPlayDirect?.let { callback -> remember(item, callback) { { callback(item) } } }
-                TvMediaCard(
-                    session = session,
-                    item = item,
-                    wide = false,
-                    focusRequester = itemRequester,
-                    onFocused = onFocused,
-                    onClick = onItemClick,
-                    onPlayDirect = onItemPlay,
-                )
+        is DiscoverMediaItemsState.Content -> {
+            var focusedItem by remember(session.serverId, session.userId, gridKey) { mutableStateOf<MediaCardUi?>(null) }
+            val currentItem = focusedItem?.let { focused -> state.items.firstOrNull { it.id == focused.id } }
+            val hero = rememberTvBrowseHero(session, currentItem, TvHeroAmbientSurface.Discover, gridKey)
+            val heroVisible = hero.enabled && state.items.isNotEmpty()
+            Box(Modifier.fillMaxSize().tvHomeAmbientBackground(hero.ambient.presentation, overlay = true, enabled = heroVisible)) {
+                if (heroVisible) {
+                    TvHeroBackdrop(
+                        session,
+                        hero.item,
+                        Modifier.align(Alignment.TopEnd),
+                        onArtworkLoaded = hero.ambient.onArtworkLoaded,
+                    )
+                }
+                Column(Modifier.fillMaxSize()) {
+                    if (heroVisible) {
+                        TvLibraryGridHero(
+                            session,
+                            hero.item,
+                            contentStartPadding = contentStartPadding,
+                            showBackdrop = false,
+                            reserveGridViewport = true,
+                        )
+                    }
+                    Box(Modifier.weight(1f)) {
+                        TvDiscoverGrid(
+                            items = state.items,
+                            cellMinWidth = TvDimens.posterWidth.tileScaled(),
+                            gridFocusRequester = gridFocusRequester,
+                            gridKey = gridKey,
+                            itemKey = { item -> item.id },
+                            contentStartPadding = contentStartPadding,
+                            constrainedByHero = heroVisible,
+                        ) { item, itemRequester, onFocused ->
+                            val onItemClick = remember(item, onItemSelected) { { onItemSelected(item) } }
+                            val onItemPlay = onItemPlayDirect?.let { callback -> remember(item, callback) { { callback(item) } } }
+                            TvMediaCard(
+                                session = session,
+                                item = item,
+                                wide = false,
+                                focusRequester = itemRequester,
+                                onFocused = {
+                                    onFocused()
+                                    focusedItem = item
+                                },
+                                onClick = onItemClick,
+                                onPlayDirect = onItemPlay,
+                            )
+                        }
+                    }
+                }
             }
+        }
     }
 }
 
@@ -249,11 +282,15 @@ internal fun <T> TvDiscoverGrid(
     gridKey: String,
     itemKey: (T) -> String,
     contentStartPadding: Dp,
+    constrainedByHero: Boolean = false,
     itemContent: @Composable (T, FocusRequester?, () -> Unit) -> Unit,
 ) {
     val coordinator = requireNotNull(LocalTvFocusCoordinator.current)
     val focusScope = rememberTvFocusScopeNode(listOf("discover", gridKey))
-    CompositionLocalProvider(LocalBringIntoViewSpec provides rememberRowAwareMarioBringIntoViewSpec()) {
+    CompositionLocalProvider(
+        LocalBringIntoViewSpec provides
+            if (constrainedByHero) rememberNoAutoScrollSpec() else rememberRowAwareMarioBringIntoViewSpec(),
+    ) {
         key(gridKey) {
             val gridState = rememberLazyGridState()
             var lastFocusedItemKey by rememberSaveable {
@@ -290,7 +327,14 @@ internal fun <T> TvDiscoverGrid(
                     gridState = gridState,
                     itemCount = items.size,
                     columnCount = columnCount,
+                    revealComposedTargets = constrainedByHero,
                 )
+            LaunchedEffect(constrainedByHero) {
+                if (gridHasFocus) {
+                    val index = items.indexOfFirst { itemKey(it) == lastFocusedItemKey }
+                    if (index >= 0) focusNav.requestFocus(index)
+                }
+            }
             val pendingRestore =
                 coordinator.readyRestore
                     ?.takeIf { restore -> restore.path.scopes == focusScope.scopes }

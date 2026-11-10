@@ -13,6 +13,7 @@ import com.jellyscope.core.domain.model.SeerrMediaCard
 import com.jellyscope.core.domain.model.SeerrMediaKey
 import com.jellyscope.core.domain.model.SeerrMediaType
 import com.jellyscope.core.domain.model.SeerrPermissions
+import com.jellyscope.core.domain.model.SeerrPerson
 import com.jellyscope.core.domain.model.SeerrQuality
 import com.jellyscope.core.domain.model.SeerrQuota
 import com.jellyscope.core.domain.model.SeerrQuotaKind
@@ -161,6 +162,7 @@ internal fun JsonObject.toDetail(key: SeerrMediaKey): SeerrWireDetail {
                         season.integer("episodeCount")?.coerceAtLeast(0) ?: 0,
                         state.availability("status"),
                         state.availability("status4k"),
+                        artwork(season.text("posterPath"), "w500"),
                     )
                 }.distinctBy { it.number }
         } else {
@@ -189,6 +191,33 @@ internal fun JsonObject.toDetail(key: SeerrMediaKey): SeerrWireDetail {
         jellyfinMediaId = info?.text("jellyfinMediaId")?.takeIf(::validLibraryCandidate),
         jellyfinMediaId4k = info?.text("jellyfinMediaId4k")?.takeIf(::validLibraryCandidate),
     )
+}
+
+internal fun JsonObject.toPerson(personId: Int): SeerrPerson {
+    require(integer("id") == personId)
+    return SeerrPerson(
+        tmdbId = personId,
+        name = requiredText("name").take(256),
+        biography = text("biography")?.take(20_000)?.takeIf { it.isNotBlank() },
+        profileUrl = artwork(text("profilePath"), "w500"),
+    )
+}
+
+internal fun JsonObject.toPersonCredits(personId: Int): List<SeerrMediaCard> {
+    require(integer("id") == personId)
+    val cast = array("cast") ?: error("Missing cast credits")
+    val crew = array("crew") ?: error("Missing crew credits")
+    require(cast.size <= 5_000 && crew.size <= 5_000)
+    return (cast + crew)
+        .mapNotNull { value ->
+            val row = value as? JsonObject ?: return@mapNotNull null
+            val type = row.text("mediaType")?.toMediaType() ?: return@mapNotNull null
+            val id = row.integer("id")?.takeIf { it > 0 } ?: return@mapNotNull null
+            if (row.boolean("adult") == true) return@mapNotNull null
+            val info = row.obj("mediaInfo")
+            if (info?.integer("tmdbId") != null && info.integer("tmdbId") != id) return@mapNotNull null
+            row.toCard(SeerrMediaKey(type, id))
+        }.distinctBy { it.key }
 }
 
 internal fun JsonObject.toRequest(fallbackKey: SeerrMediaKey? = null): SeerrRequestSummary {
@@ -278,6 +307,8 @@ private fun JsonObject.toCard(key: SeerrMediaKey): SeerrMediaCard {
         artwork(text("posterPath"), "w500"),
         info.availability("status"),
         info.availability("status4k"),
+        text("overview")?.take(20_000),
+        artwork(text("backdropPath"), "w1280"),
     )
 }
 

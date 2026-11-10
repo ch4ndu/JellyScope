@@ -2,20 +2,18 @@
 
 package com.jellyscope.ui.screen.seerr
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,12 +25,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,8 +59,11 @@ import com.jellyscope.core.domain.model.Session
 import com.jellyscope.ui.adaptive.LocalWindowWidthTier
 import com.jellyscope.ui.adaptive.WindowWidthTier
 import com.jellyscope.ui.adaptive.tileScaled
+import com.jellyscope.ui.component.AvailabilityBadge
+import com.jellyscope.ui.component.FocusableBox
 import com.jellyscope.ui.component.MeasuredAsyncImage
 import com.jellyscope.ui.component.MediaCard
+import com.jellyscope.ui.component.PersonCard
 import com.jellyscope.ui.generated.resources.Res
 import com.jellyscope.ui.generated.resources.seerr_approval_required
 import com.jellyscope.ui.generated.resources.seerr_auto_approval
@@ -76,25 +76,27 @@ import com.jellyscope.ui.generated.resources.seerr_availability_pending
 import com.jellyscope.ui.generated.resources.seerr_availability_processing
 import com.jellyscope.ui.generated.resources.seerr_availability_unknown
 import com.jellyscope.ui.generated.resources.seerr_back
-import com.jellyscope.ui.generated.resources.seerr_cancel
 import com.jellyscope.ui.generated.resources.seerr_cast
 import com.jellyscope.ui.generated.resources.seerr_choose_season
+import com.jellyscope.ui.generated.resources.seerr_choose_seasons_action
+import com.jellyscope.ui.generated.resources.seerr_close
 import com.jellyscope.ui.generated.resources.seerr_confirm
-import com.jellyscope.ui.generated.resources.seerr_confirmation_summary
-import com.jellyscope.ui.generated.resources.seerr_confirmation_title
-import com.jellyscope.ui.generated.resources.seerr_episode_count
 import com.jellyscope.ui.generated.resources.seerr_four_k
+import com.jellyscope.ui.generated.resources.seerr_library_quality
 import com.jellyscope.ui.generated.resources.seerr_loading
 import com.jellyscope.ui.generated.resources.seerr_movie
-import com.jellyscope.ui.generated.resources.seerr_no_requests
 import com.jellyscope.ui.generated.resources.seerr_open_library
+import com.jellyscope.ui.generated.resources.seerr_partial_review
 import com.jellyscope.ui.generated.resources.seerr_poster
+import com.jellyscope.ui.generated.resources.seerr_quality_choice
+import com.jellyscope.ui.generated.resources.seerr_quality_title
 import com.jellyscope.ui.generated.resources.seerr_quota_exceeded
 import com.jellyscope.ui.generated.resources.seerr_quota_remaining
 import com.jellyscope.ui.generated.resources.seerr_quota_unavailable
 import com.jellyscope.ui.generated.resources.seerr_quota_unlimited
 import com.jellyscope.ui.generated.resources.seerr_reconcile
 import com.jellyscope.ui.generated.resources.seerr_reconciled
+import com.jellyscope.ui.generated.resources.seerr_refresh_status
 import com.jellyscope.ui.generated.resources.seerr_related_error
 import com.jellyscope.ui.generated.resources.seerr_related_interrupted
 import com.jellyscope.ui.generated.resources.seerr_request
@@ -107,20 +109,25 @@ import com.jellyscope.ui.generated.resources.seerr_season
 import com.jellyscope.ui.generated.resources.seerr_season_named
 import com.jellyscope.ui.generated.resources.seerr_season_selection
 import com.jellyscope.ui.generated.resources.seerr_seasons
+import com.jellyscope.ui.generated.resources.seerr_selection_marker
 import com.jellyscope.ui.generated.resources.seerr_show
 import com.jellyscope.ui.generated.resources.seerr_similar
 import com.jellyscope.ui.generated.resources.seerr_specials
 import com.jellyscope.ui.generated.resources.seerr_standard
+import com.jellyscope.ui.generated.resources.seerr_standard_short
 import com.jellyscope.ui.generated.resources.seerr_status_approved
 import com.jellyscope.ui.generated.resources.seerr_status_completed
 import com.jellyscope.ui.generated.resources.seerr_status_declined
 import com.jellyscope.ui.generated.resources.seerr_status_failed
 import com.jellyscope.ui.generated.resources.seerr_status_pending
+import com.jellyscope.ui.generated.resources.seerr_subject_removed
 import com.jellyscope.ui.generated.resources.seerr_uncertain
 import com.jellyscope.ui.generated.resources.seerr_unknown
 import com.jellyscope.ui.generated.resources.seerr_untitled
 import com.jellyscope.ui.generated.resources.seerr_working
+import com.jellyscope.ui.screen.detail.DetailDimens
 import com.jellyscope.ui.screen.detail.requestFocusSafely
+import com.jellyscope.ui.theme.AvailabilityColors
 import com.jellyscope.ui.theme.Dimensions
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -138,24 +145,34 @@ fun SeerrDetailContent(
     val requestFocus = remember { FocusRequester() }
     val libraryFocus = remember { FocusRequester() }
     val qualityFocus = remember { FocusRequester() }
-    val fourKFocus = remember { FocusRequester() }
     val recoveryFocus = remember { FocusRequester() }
+    val dialogCloseFocus = remember { FocusRequester() }
+    LaunchedEffect(state.modalVisible) { if (state.modalVisible) dialogCloseFocus.requestFocusSafely() }
     val recoveryVisible = state.detail == null || state.error != null || (!state.admissionFresh && !state.loading)
     val recoveryEnabled = recoveryVisible && !state.loading && !state.submitting && !state.reconciling
-    LaunchedEffect(state.focusedId, state.confirmation, state.loading, state.canSubmit, state.admissionFresh, recoveryEnabled) {
-        if (state.confirmation == null && !state.loading) {
+    LaunchedEffect(
+        state.focusedId,
+        state.modalVisible,
+        state.focusRevision,
+        state.loading,
+        state.canSubmit,
+        state.admissionFresh,
+        recoveryEnabled,
+    ) {
+        if (!state.modalVisible && !state.loading) {
             when {
                 state.focusedId == "recovery" && recoveryEnabled -> recoveryFocus.requestFocusSafely()
                 state.focusedId == "library" && state.libraryAvailable && state.selectionEnabled && !state.resolvingLibrary ->
                     libraryFocus
                         .requestFocusSafely()
-                state.focusedId == "standard" && state.selectionEnabled -> qualityFocus.requestFocusSafely()
-                state.focusedId == "four-k" && state.selectionEnabled && state.showFourK -> fourKFocus.requestFocusSafely()
-                state.focusedId in listOf(null, "request", "library", "standard", "four-k", "recovery") ->
+                state.focusedId == "quality" && state.selectionEnabled && state.requestQualities.size > 1 ->
+                    qualityFocus
+                        .requestFocusSafely()
+                state.focusedId in listOf(null, "request", "library", "quality", "recovery") ->
                     when {
-                        state.canSubmit -> requestFocus.requestFocusSafely()
+                        state.reviewEnabled -> requestFocus.requestFocusSafely()
                         state.libraryAvailable && state.selectionEnabled && !state.resolvingLibrary -> libraryFocus.requestFocusSafely()
-                        state.selectionEnabled -> qualityFocus.requestFocusSafely()
+                        state.selectionEnabled && state.requestQualities.size > 1 -> qualityFocus.requestFocusSafely()
                         recoveryEnabled -> recoveryFocus.requestFocusSafely()
                         else -> Unit
                     }
@@ -170,6 +187,15 @@ fun SeerrDetailContent(
             .distinctUntilChanged()
             .collect { onIntent(SeerrIntent.RememberScroll(true, it)) }
     }
+    LaunchedEffect(state.focusRevision, state.loading) {
+        if (state.focusRevision > 0 && !state.loading && !state.reviewVisible && state.focusedId?.startsWith("season:") == true) {
+            val slot =
+                1 + (if (recoveryVisible) 1 else 0) +
+                    (if (state.error != null || state.notice != null) 1 else 0) + 1 +
+                    (if (state.option?.blockedBy != null) 1 else 0) + 1
+            if (scroll.layoutInfo.visibleItemsInfo.none { it.key == "season-controls" }) scroll.scrollToItem(slot)
+        }
+    }
     val content = Modifier.widthIn(max = Dimensions.adaptiveContentMaxWidth).fillMaxWidth().padding(horizontal = Dimensions.screenPadding)
     val detail = state.detail
     LazyColumn(
@@ -181,17 +207,21 @@ fun SeerrDetailContent(
     ) {
         if (detail != null) {
             item(key = "hero", contentType = "hero") {
-                SeerrDetailHero(detail, { if (!state.submitting) onIntent(SeerrIntent.Back) }) {
+                SeerrDetailHero(
+                    detail,
+                    { if (!state.submitting) onIntent(SeerrIntent.Back) },
+                    passiveQuality = state.quality.takeIf { state.requestQualities.size <= 1 },
+                ) {
                     FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing)) {
                         Button(
-                            enabled = state.canSubmit,
+                            enabled = state.reviewEnabled,
                             modifier =
                                 Modifier
                                     .focusRequester(
                                         requestFocus,
                                     ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("request")) },
                             onClick = { onIntent(SeerrIntent.ConfirmRequest) },
-                        ) { Text(seerrRequestActionText(state)) }
+                        ) { Text(stringResource(Res.string.seerr_request)) }
                         if (state.libraryAvailable) {
                             Button(
                                 enabled =
@@ -217,35 +247,15 @@ fun SeerrDetailContent(
                                 },
                             ) { Text(stringResource(Res.string.seerr_open_library)) }
                         }
-                        FilterChip(
-                            modifier =
-                                Modifier
-                                    .focusRequester(
-                                        qualityFocus,
-                                    ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("standard")) },
-                            selected =
-                                state.quality == SeerrQuality.Standard,
-                            enabled = state.selectionEnabled,
-                            onClick = {
-                                onIntent(SeerrIntent.SelectQuality(SeerrQuality.Standard))
-                            },
-                            label = { Text(seerrQualityText(SeerrQuality.Standard)) },
-                        )
-                        if (state.showFourK) {
-                            FilterChip(
+                        if (state.requestQualities.size > 1) {
+                            Button(
                                 modifier =
-                                    Modifier
-                                        .focusRequester(
-                                            fourKFocus,
-                                        ).onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("four-k")) },
-                                selected =
-                                    state.quality == SeerrQuality.FourK,
+                                    Modifier.focusRequester(qualityFocus).onFocusChanged {
+                                        if (it.isFocused) onIntent(SeerrIntent.Focused("quality"))
+                                    },
                                 enabled = state.selectionEnabled,
-                                onClick = {
-                                    onIntent(SeerrIntent.SelectQuality(SeerrQuality.FourK))
-                                },
-                                label = { Text(seerrQualityText(SeerrQuality.FourK)) },
-                            )
+                                onClick = { onIntent(SeerrIntent.ChooseQuality) },
+                            ) { Text(stringResource(Res.string.seerr_quality_choice, seerrQualityText(state.quality))) }
                         }
                     }
                 }
@@ -269,49 +279,58 @@ fun SeerrDetailContent(
                 }
             }
         }
-        item(key = "status", contentType = "status") {
-            Column(content, verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
-                if (state.loading) Text(stringResource(Res.string.seerr_loading))
-                state.error?.let { Text(seerrErrorText(it), color = MaterialTheme.colorScheme.error) }
-                state.notice?.let {
-                    Text(
-                        stringResource(
-                            if (it ==
-                                SeerrNotice.Created
-                            ) {
-                                Res.string.seerr_request_created
-                            } else {
-                                Res.string.seerr_reconciled
-                            },
-                        ),
-                    )
+        if (state.loading || state.error != null || state.notice != null) {
+            item(key = "status", contentType = "status") {
+                Column(content, verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
+                    if (state.loading) Text(stringResource(Res.string.seerr_loading))
+                    state.error?.let { Text(seerrErrorText(it), color = MaterialTheme.colorScheme.error) }
+                    state.notice?.let {
+                        Text(
+                            stringResource(
+                                if (it ==
+                                    SeerrNotice.Created
+                                ) {
+                                    Res.string.seerr_request_created
+                                } else {
+                                    Res.string.seerr_reconciled
+                                },
+                            ),
+                        )
+                    }
                 }
             }
         }
         if (detail != null) {
-            item {
-                Column(content, verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
-                    Text(seerrAvailabilityLine(SeerrQuality.Standard, detail.media.standardAvailability))
-                    Text(seerrAvailabilityLine(SeerrQuality.FourK, detail.media.fourKAvailability))
+            item(key = "facts", contentType = "metadata") {
+                FlowRow(
+                    content,
+                    horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing),
+                    verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing),
+                ) {
+                    SeerrAvailabilityFact(SeerrQuality.Standard, detail.media.standardAvailability)
+                    SeerrAvailabilityFact(SeerrQuality.FourK, detail.media.fourKAvailability)
                     Text(seerrQuotaText(detail.quota))
-                }
-            }
-            if (detail.requests.isEmpty()) item { Text(stringResource(Res.string.seerr_no_requests), modifier = content) }
-            items(detail.requests, key = { "request:${it.id}" }, contentType = { "request" }) { request ->
-                Column(content) {
-                    Text(seerrRequestLine(request))
-                    if (request.seasons.isNotEmpty()) {
+                    detail.requests.forEach { request ->
                         Text(
-                            stringResource(Res.string.seerr_season_selection, seerrSeasonNumbersText(request.seasons)),
+                            listOfNotNull(
+                                seerrRequestLine(request),
+                                request.seasons.takeIf { it.isNotEmpty() }?.let {
+                                    stringResource(Res.string.seerr_season_selection, seerrSeasonNumbersText(it))
+                                },
+                            ).joinToString(" · "),
                         )
                     }
                 }
             }
             state.option?.blockedBy?.let { error -> item { Text(seerrErrorText(error), modifier = content) } }
-            if (detail.media.key.type == SeerrMediaType.Tv) {
-                item { Text(stringResource(Res.string.seerr_seasons), style = MaterialTheme.typography.titleMedium, modifier = content) }
+            if (detail.media.key.type == SeerrMediaType.Tv && state.seasons.isNotEmpty()) {
+                item {
+                    FlowRow(content, horizontalArrangement = Arrangement.spacedBy(Dimensions.inlineSpacing)) {
+                        Text(stringResource(Res.string.seerr_seasons), style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(Res.string.seerr_choose_season))
+                    }
+                }
                 item(key = "season-controls", contentType = "seasons") { SeerrSeasonsContent(state, onIntent) }
-                if (state.selectedSeasons.isEmpty()) item { Text(stringResource(Res.string.seerr_choose_season), modifier = content) }
             }
             if (!detail.quota.allows(if (detail.media.key.type == SeerrMediaType.Movie) 1 else state.selectedSeasons.size) &&
                 detail.quota.kind == SeerrQuotaKind.Limited &&
@@ -331,24 +350,69 @@ fun SeerrDetailContent(
             }
             if (detail.cast.isNotEmpty()) {
                 item(key = "cast", contentType = "ribbon") {
-                    Column(content, verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
-                        Text(stringResource(Res.string.seerr_cast), style = MaterialTheme.typography.titleLarge)
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(DetailDimens.detailShelfTitleGap)) {
+                        Text(stringResource(Res.string.seerr_cast), modifier = content, style = MaterialTheme.typography.titleLarge)
                         val castScroll = rememberLazyListState(state.castScroll.index, state.castScroll.offset)
                         LaunchedEffect(castScroll) {
                             snapshotFlow { SeerrScrollPosition(castScroll.firstVisibleItemIndex, castScroll.firstVisibleItemScrollOffset) }
                                 .distinctUntilChanged()
                                 .collect { onIntent(SeerrIntent.RememberCastScroll(it)) }
                         }
-                        LazyRow(state = castScroll, horizontalArrangement = Arrangement.spacedBy(Dimensions.cardSpacing)) {
-                            itemsIndexed(detail.cast, key = { index, member -> "cast:$index:${member.id}" }) { _, member ->
-                                Column(Modifier.width(Dimensions.personCardWidth.tileScaled())) {
-                                    SeerrCastPortrait(
-                                        member.profileUrl,
-                                        Modifier.fillMaxWidth().height(Dimensions.personCardImageHeight.tileScaled()),
-                                    )
-                                    Text(member.name, style = MaterialTheme.typography.bodyMedium)
-                                    member.character?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        LazyRow(
+                            state = castScroll,
+                            contentPadding =
+                                PaddingValues(
+                                    horizontal = Dimensions.screenPadding,
+                                    vertical = DetailDimens.detailShelfBottomPadding,
+                                ),
+                            horizontalArrangement = Arrangement.spacedBy(Dimensions.cardSpacing),
+                        ) {
+                            itemsIndexed(detail.cast, key = { index, member -> "cast:$index:${member.id}" }) { index, member ->
+                                val id = "cast:$index:${member.id}"
+                                val requester = remember(id) { FocusRequester() }
+                                val restoreId = remember { state.focusedId }
+                                LaunchedEffect(state.loading) {
+                                    if (!state.loading && restoreId == id) requester.requestFocusSafely()
                                 }
+                                PersonCard(
+                                    member.name,
+                                    member.character,
+                                    onClick = {
+                                        if (state.relatedEnabled) {
+                                            onIntent(
+                                                SeerrIntent.RememberScroll(
+                                                    true,
+                                                    SeerrScrollPosition(scroll.firstVisibleItemIndex, scroll.firstVisibleItemScrollOffset),
+                                                ),
+                                            )
+                                            onIntent(
+                                                SeerrIntent.RememberCastScroll(
+                                                    SeerrScrollPosition(
+                                                        castScroll.firstVisibleItemIndex,
+                                                        castScroll.firstVisibleItemScrollOffset,
+                                                    ),
+                                                ),
+                                            )
+                                            onIntent(SeerrIntent.Focused(id))
+                                            onIntent(SeerrIntent.OpenPerson(member.id))
+                                        }
+                                    },
+                                    focusModifier =
+                                        Modifier.focusRequester(requester).onFocusChanged {
+                                            if (it.isFocused) onIntent(SeerrIntent.Focused(id))
+                                        },
+                                    artwork =
+                                        seerrArtworkUrl(member.profileUrl)?.let { profile ->
+                                            {
+                                                MeasuredAsyncImage(
+                                                    model = profile,
+                                                    contentDescription = null,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
+                                        },
+                                )
                             }
                         }
                     }
@@ -363,58 +427,70 @@ fun SeerrDetailContent(
             }
         }
     }
-    state.confirmation?.let { confirmation ->
+    if (state.reviewVisible) {
         AlertDialog(
             onDismissRequest = { if (!state.submitting) onIntent(SeerrIntent.Back) },
-            title = {
-                Text(
-                    stringResource(
-                        Res.string.seerr_confirmation_title,
-                        detail?.media?.title ?: stringResource(Res.string.seerr_untitled),
-                    ),
-                )
-            },
+            title = { Text(stringResource(Res.string.seerr_request)) },
             text = {
                 Column(
                     Modifier.heightIn(max = Dimensions.playerPickerListMaxHeight).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing),
                 ) {
-                    Text(
-                        stringResource(
-                            Res.string.seerr_confirmation_summary,
-                            seerrMediaTypeText(confirmation.key.type),
-                            seerrQualityText(confirmation.quality),
-                        ),
-                    )
-                    if (confirmation.key.type ==
-                        SeerrMediaType.Tv
-                    ) {
-                        Text(stringResource(Res.string.seerr_season_selection, seerrSeasonNumbersText(confirmation.seasons)))
-                    }
-                    Text(
-                        stringResource(
-                            if (state.option?.requiresApproval !=
-                                false
-                            ) {
-                                Res.string.seerr_approval_required
-                            } else {
-                                Res.string.seerr_auto_approval
-                            },
-                        ),
-                    )
-                    if (state.submitting) Text(stringResource(Res.string.seerr_working))
+                    seerrReviewLines(state).forEach { Text(it) }
                 }
             },
             confirmButton = {
-                Button(enabled = !state.submitting && state.canSubmit, onClick = {
-                    onIntent(SeerrIntent.SubmitRequest)
-                }) { Text(stringResource(Res.string.seerr_confirm)) }
+                when {
+                    state.reviewCanSubmit ->
+                        Button(
+                            onClick = { onIntent(SeerrIntent.SubmitRequest) },
+                        ) { Text(stringResource(Res.string.seerr_confirm)) }
+                    state.chooseSeasons ->
+                        Button(enabled = !state.loading, onClick = {
+                            onIntent(SeerrIntent.ChooseSeasons)
+                        }) { Text(stringResource(Res.string.seerr_choose_seasons_action)) }
+                    state.reviewNeedsRefresh ->
+                        Button(enabled = !state.loading && !state.submitting, onClick = {
+                            onIntent(SeerrIntent.Refresh)
+                        }) { Text(stringResource(Res.string.seerr_refresh_status)) }
+                }
             },
             dismissButton = {
-                TextButton(
-                    enabled = !state.submitting,
-                    onClick = { onIntent(SeerrIntent.Back) },
-                ) { Text(stringResource(Res.string.seerr_cancel)) }
+                TextButton(modifier = Modifier.focusRequester(dialogCloseFocus), enabled = !state.submitting, onClick = {
+                    onIntent(SeerrIntent.Back)
+                }) { Text(stringResource(Res.string.seerr_close)) }
+            },
+        )
+    }
+    if (state.libraryPickerVisible || state.qualityPickerVisible) {
+        AlertDialog(
+            onDismissRequest = { onIntent(SeerrIntent.Back) },
+            title = {
+                Text(
+                    stringResource(if (state.libraryPickerVisible) Res.string.seerr_library_quality else Res.string.seerr_quality_title),
+                )
+            },
+            text = {
+                Column {
+                    (if (state.libraryPickerVisible) state.libraryQualities else state.requestQualities).forEach { quality ->
+                        TextButton(onClick = {
+                            onIntent(
+                                if (state.libraryPickerVisible) {
+                                    SeerrIntent.OpenLibraryQuality(
+                                        quality,
+                                    )
+                                } else {
+                                    SeerrIntent.SelectQuality(quality)
+                                },
+                            )
+                        }) { Text(seerrQualityText(quality)) }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(modifier = Modifier.focusRequester(dialogCloseFocus), onClick = {
+                    onIntent(SeerrIntent.Back)
+                }) { Text(stringResource(Res.string.seerr_close)) }
             },
         )
     }
@@ -425,12 +501,29 @@ fun SeerrPoster(
     media: SeerrMediaCard,
     modifier: Modifier = Modifier,
 ) {
-    MeasuredAsyncImage(
-        model = seerrArtworkUrl(media.posterUrl),
-        contentDescription = stringResource(Res.string.seerr_poster, media.title ?: stringResource(Res.string.seerr_untitled)),
-        contentScale = ContentScale.Crop,
-        modifier = modifier.aspectRatio(Dimensions.posterCardAspectRatio),
-    )
+    Box(modifier.aspectRatio(Dimensions.posterCardAspectRatio)) {
+        MeasuredAsyncImage(
+            model = seerrArtworkUrl(media.posterUrl),
+            contentDescription = stringResource(Res.string.seerr_poster, media.title ?: stringResource(Res.string.seerr_untitled)),
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.matchParentSize(),
+        )
+        Row(
+            Modifier.align(Alignment.TopEnd).padding(Dimensions.labelGlyphSpacing),
+            horizontalArrangement = Arrangement.spacedBy(Dimensions.labelGlyphSpacing),
+        ) {
+            AvailabilityBadge(
+                stringResource(Res.string.seerr_standard_short),
+                media.standardAvailability,
+                seerrAvailabilityLine(SeerrQuality.Standard, media.standardAvailability),
+            )
+            AvailabilityBadge(
+                seerrQualityText(SeerrQuality.FourK),
+                media.fourKAvailability,
+                seerrAvailabilityLine(SeerrQuality.FourK, media.fourKAvailability),
+            )
+        }
+    }
 }
 
 @Composable
@@ -504,12 +597,15 @@ fun seerrQuotaText(quota: SeerrQuota): String =
     }
 
 @Composable
-fun seerrSeasonText(season: SeerrSeason): String =
-    when {
+fun seerrSeasonText(season: SeerrSeason): String {
+    val genericTitle = stringResource(Res.string.seerr_season, season.number)
+    val title = season.title?.trim()
+    return when {
         season.number == 0 -> stringResource(Res.string.seerr_specials)
-        season.title.isNullOrBlank() -> stringResource(Res.string.seerr_season, season.number)
+        title.isNullOrBlank() || title.equals(genericTitle, ignoreCase = true) -> genericTitle
         else -> stringResource(Res.string.seerr_season_named, season.number, season.title.orEmpty())
     }
+}
 
 @Composable
 fun seerrSeasonNumbersText(numbers: List<Int>): String {
@@ -518,12 +614,14 @@ fun seerrSeasonNumbersText(numbers: List<Int>): String {
 }
 
 @Composable
-fun seerrRequestActionText(state: SeerrDetailUi): String =
+fun seerrRequestActionText(
+    type: SeerrMediaType,
+    selectedSeasonCount: Int,
+): String =
     when {
-        state.key.type == SeerrMediaType.Movie -> stringResource(Res.string.seerr_request)
-        state.selectedSeasons.isEmpty() -> stringResource(Res.string.seerr_choose_season)
-        state.selectedSeasons.size == 1 -> stringResource(Res.string.seerr_request_one_season)
-        else -> stringResource(Res.string.seerr_request_seasons, state.selectedSeasons.size)
+        type != SeerrMediaType.Tv || selectedSeasonCount <= 0 -> stringResource(Res.string.seerr_request)
+        selectedSeasonCount == 1 -> stringResource(Res.string.seerr_request_one_season)
+        else -> stringResource(Res.string.seerr_request_seasons, selectedSeasonCount)
     }
 
 @Composable
@@ -538,7 +636,7 @@ private fun SeerrSimilarContent(
             .distinctUntilChanged()
             .collect { onIntent(SeerrIntent.RememberRelatedScroll(it)) }
     }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Dimensions.contentSpacing)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(DetailDimens.detailShelfTitleGap)) {
         Text(
             stringResource(Res.string.seerr_similar),
             Modifier.padding(horizontal = Dimensions.screenPadding),
@@ -611,20 +709,32 @@ private fun SeerrSeasonsContent(
 ) {
     val tile: @Composable (SeerrSeasonUi) -> Unit = { season ->
         Column(
-            Modifier.widthIn(max = Dimensions.seerrSeasonWidth),
+            Modifier.width(Dimensions.seerrSeasonWidth.tileScaled()),
             verticalArrangement = Arrangement.spacedBy(Dimensions.labelGlyphSpacing),
         ) {
-            FilterChip(
-                modifier = Modifier.onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("season:${season.season.number}")) },
-                selected = season.selected,
-                enabled = season.enabled,
+            val requester = remember(season.season.number) { FocusRequester() }
+            LaunchedEffect(state.focusRevision, state.loading) {
+                if (!state.reviewVisible &&
+                    !state.loading &&
+                    state.focusedId == "season:${season.season.number}"
+                ) {
+                    requester.requestFocusSafely()
+                }
+            }
+            FocusableBox(
                 onClick = { onIntent(SeerrIntent.ToggleSeason(season.season.number)) },
-                label = { Text(seerrSeasonText(season.season)) },
-                leadingIcon = if (season.selected) ({ Icon(Icons.Default.Check, contentDescription = null) }) else null,
-            )
-            Text(stringResource(Res.string.seerr_episode_count, season.season.episodeCount), style = MaterialTheme.typography.bodySmall)
-            Text(seerrAvailabilityLine(state.quality, season.availability), style = MaterialTheme.typography.bodySmall)
-            season.blockedBy?.let { Text(seerrErrorText(it), style = MaterialTheme.typography.bodySmall) }
+                enabled = state.reviewEnabled,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(Dimensions.seerrSeasonArtworkAspectRatio)
+                        .focusRequester(requester)
+                        .onFocusChanged { if (it.isFocused) onIntent(SeerrIntent.Focused("season:${season.season.number}")) },
+                contentDescription = seerrSeasonText(season.season),
+            ) { SeerrSeasonArtwork(season.artworkUrl, season.selected, Modifier.fillMaxSize()) }
+            Text(seerrSeasonText(season.season), style = MaterialTheme.typography.titleMedium)
+            SeerrAvailabilityFact(SeerrQuality.Standard, season.season.standardAvailability)
+            SeerrAvailabilityFact(SeerrQuality.FourK, season.season.fourKAvailability)
         }
     }
     if (LocalWindowWidthTier.current == WindowWidthTier.Compact) {
@@ -642,6 +752,12 @@ private fun SeerrSeasonsContent(
                 .distinctUntilChanged()
                 .collect { onIntent(SeerrIntent.RememberSeasonScroll(it)) }
         }
+        LaunchedEffect(state.focusRevision, state.loading) {
+            if (state.focusRevision > 0 && !state.loading && !state.reviewVisible) {
+                val index = state.seasons.indexOfFirst { "season:${it.season.number}" == state.focusedId }
+                if (index >= 0 && scroll.layoutInfo.visibleItemsInfo.none { it.index == index }) scroll.scrollToItem(index)
+            }
+        }
         LazyRow(
             state = scroll,
             contentPadding = PaddingValues(horizontal = Dimensions.screenPadding),
@@ -653,17 +769,120 @@ private fun SeerrSeasonsContent(
 }
 
 @Composable
-fun SeerrCastPortrait(
-    profileUrl: String?,
+fun SeerrSeasonArtwork(
+    imageUrl: String?,
+    selected: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(Dimensions.personAvatarSize.tileScaled()))
+    Box(modifier) {
         MeasuredAsyncImage(
-            model = seerrArtworkUrl(profileUrl),
+            model = imageUrl,
             contentDescription = null,
-            contentScale = ContentScale.Crop,
             modifier = Modifier.matchParentSize(),
+            contentScale = ContentScale.Crop,
         )
+        if (selected) {
+            Surface(
+                modifier = Modifier.align(Alignment.TopEnd).padding(Dimensions.contentSpacing),
+                shape = MaterialTheme.shapes.small,
+                color = AvailabilityColors.background,
+            ) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = stringResource(Res.string.seerr_selection_marker),
+                    tint = AvailabilityColors.available,
+                    modifier = Modifier.padding(Dimensions.labelGlyphSpacing),
+                )
+            }
+        }
+    }
+}
+
+val SeerrDetailUi.reviewNeedsRefresh: Boolean
+    get() =
+        !admissionFresh ||
+            error != null ||
+            if (reviewSeason != null) {
+                seasons
+                    .firstOrNull {
+                        it.season.number == reviewSeason
+                    }?.availability
+                    .let { it == null || it == SeerrAvailability.Unrecognized }
+            } else {
+                (if (quality == SeerrQuality.Standard) detail?.media?.standardAvailability else detail?.media?.fourKAvailability) ==
+                    SeerrAvailability.Unrecognized
+            }
+
+@Composable
+fun seerrReviewLines(state: SeerrDetailUi): List<String> {
+    val detail = state.detail ?: return listOf(stringResource(Res.string.seerr_subject_removed))
+    val lines = mutableListOf(detail.media.title ?: stringResource(Res.string.seerr_untitled), seerrQualityText(state.quality))
+    val subject = state.reviewSeason?.let { number -> state.seasons.firstOrNull { it.season.number == number } }
+    if (state.reviewSeason != null) {
+        if (subject == null) {
+            lines += stringResource(Res.string.seerr_subject_removed)
+        } else {
+            lines += seerrSeasonText(subject.season)
+            lines += seerrAvailabilityLine(SeerrQuality.Standard, subject.season.standardAvailability)
+            lines += seerrAvailabilityLine(SeerrQuality.FourK, subject.season.fourKAvailability)
+            if (subject.availability == SeerrAvailability.PartiallyAvailable) {
+                lines += stringResource(Res.string.seerr_partial_review)
+            } else {
+                subject.blockedBy?.let { lines += seerrErrorText(it) }
+            }
+        }
+    } else {
+        if (state.chooseSeasons) {
+            lines += stringResource(Res.string.seerr_choose_season)
+        } else if (state.key.type ==
+            SeerrMediaType.Tv
+        ) {
+            lines +=
+                stringResource(Res.string.seerr_season_selection, seerrSeasonNumbersText(state.selectedSeasonNumbers))
+        }
+        lines += seerrAvailabilityLine(SeerrQuality.Standard, detail.media.standardAvailability)
+        lines += seerrAvailabilityLine(SeerrQuality.FourK, detail.media.fourKAvailability)
+        state.option?.blockedBy?.let { lines += seerrErrorText(it) }
+    }
+    lines += seerrQuotaText(detail.quota)
+    val units = if (state.key.type == SeerrMediaType.Movie) 1 else state.selectedSeasons.size
+    if (units > 0 && !detail.quota.allows(units)) lines += stringResource(Res.string.seerr_quota_exceeded)
+    detail.requests.forEach { request ->
+        lines += seerrRequestLine(request)
+        if (request.seasons.isNotEmpty()) {
+            lines +=
+                stringResource(Res.string.seerr_season_selection, seerrSeasonNumbersText(request.seasons))
+        }
+    }
+    state.error?.let { lines += seerrErrorText(it) }
+    if (state.uncertain) lines += stringResource(Res.string.seerr_uncertain)
+    if (state.reviewCanSubmit) {
+        lines +=
+            stringResource(
+                if (state.option?.requiresApproval !=
+                    false
+                ) {
+                    Res.string.seerr_approval_required
+                } else {
+                    Res.string.seerr_auto_approval
+                },
+            )
+    }
+    if (state.loading || state.submitting) lines += stringResource(Res.string.seerr_working)
+    return lines
+}
+
+@Composable
+fun SeerrAvailabilityFact(
+    quality: SeerrQuality,
+    availability: SeerrAvailability,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Dimensions.labelGlyphSpacing), verticalAlignment = Alignment.CenterVertically) {
+        AvailabilityBadge(
+            if (quality == SeerrQuality.Standard) stringResource(Res.string.seerr_standard_short) else seerrQualityText(quality),
+            availability,
+            seerrAvailabilityLine(quality, availability),
+        )
+        Text(seerrAvailabilityText(availability), style = MaterialTheme.typography.bodyMedium, color = AvailabilityColors.label)
     }
 }

@@ -3,8 +3,6 @@
 
 package com.jellyscope.ui.screen.detail
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,32 +11,24 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import coil3.SingletonImageLoader
-import coil3.compose.LocalPlatformContext
 import com.jellyscope.core.domain.model.Session
 import com.jellyscope.core.domain.playback.SubtitleSelectionIntent
 import com.jellyscope.ui.component.DetailBodyStyle
 import com.jellyscope.ui.component.DetailHeadlineStyle
+import com.jellyscope.ui.component.DetailHeroBackdrop
+import com.jellyscope.ui.component.DetailHeroLayout
 import com.jellyscope.ui.component.DetailText
 import com.jellyscope.ui.component.ImageDecode
 import com.jellyscope.ui.component.authenticatedImageRequest
@@ -66,41 +56,12 @@ internal fun DetailBackdrop(
     onPosterLoaded: (AmbientImageSource) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val imageLoader = SingletonImageLoader.get(LocalPlatformContext.current)
-    Crossfade(
-        targetState = detail.backdropUrl ?: detail.posterUrl,
-        animationSpec = tween(durationMillis = 500),
-        label = "adaptive-detail-backdrop",
-        modifier =
-            modifier
-                .fillMaxWidth(DetailDimens.detailBackdropWidthFraction)
-                .height(DetailDimens.detailBackdropHeight)
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    drawRect(brush = detailBackdropHorizontalFade, blendMode = BlendMode.DstIn)
-                    drawRect(brush = detailBackdropVerticalFade, blendMode = BlendMode.DstIn)
-                },
-    ) { imageUrl ->
-        if (imageUrl != null) {
-            AsyncImage(
-                model = authenticatedImageRequest(imageUrl, session, ImageDecode.Backdrop),
-                contentDescription = null,
-                imageLoader = imageLoader,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                onSuccess = { state ->
-                    onPosterLoaded(
-                        AmbientImageSource(
-                            result = state.result,
-                            imageLoader = imageLoader,
-                            originalArtworkUrl = imageUrl,
-                        ),
-                    )
-                },
-            )
-        }
-    }
+    DetailHeroBackdrop(
+        artworkUrl = detail.backdropUrl ?: detail.posterUrl,
+        imageRequest = { authenticatedImageRequest(it, session, ImageDecode.Backdrop) },
+        onImageLoaded = onPosterLoaded,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -108,16 +69,7 @@ internal fun DetailHero(
     session: Session,
     detail: DetailUi,
 ) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth(DetailDimens.detailHeroTextWidthFraction)
-                .padding(
-                    top = detailAdaptiveHeroTopPadding(),
-                    bottom = DetailDimens.detailHeroBottomPadding,
-                ),
-        verticalArrangement = Arrangement.spacedBy(DetailDimens.detailHeroTextGap, Alignment.Top),
-    ) {
+    DetailHeroLayout(topPadding = detailAdaptiveHeroTopPadding()) {
         if (detail.logoUrl != null) {
             AsyncImage(
                 model = authenticatedImageRequest(detail.logoUrl, session, decode = null),

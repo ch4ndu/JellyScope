@@ -31,6 +31,10 @@ Touch/desktop keep their indication inside the shape clip.
   accent (`#22B8D4`), navy surfaces, white primary text, and blue-gray secondary
   text. Midnight is charcoal/violet; Ember is black/white/orange. Do not add
   screen-local colors.
+- Seerr availability symbols use shared semantic colors across all themes: solid
+  green for available, half orange for partial, white outline for absent and a
+  question mark for unknown. Pair symbols with accessible labels; detail views
+  also explain them in text. Focus and selection remain separate indicators.
 - Android TV Material components opt into the TV-module adapter only around
   migrated components. It maps `LocalJellyfinPalette` to TV Material roles; do
   not wrap the whole TV app in another Material theme or accept stock TV colors.
@@ -384,7 +388,9 @@ See [Kids viewing](kids-viewing.md#kids-watch-page).
 - Requests follows Library header, inner navigation and media-card geometry.
   Seerr detail replaces browse chrome with an adaptive artwork-led body and
   explicit multi-season selection. Cast and Similar follow standard ribbons;
-  selected-season checkmarks remain distinct from remote focus. User controls
+  selected-season checkmarks remain distinct from remote focus. TV detail uses
+  Jellyfin’s expanded backdrop and left fade regardless of the window-tier default;
+  availability explanations stay white. Left on the first season retains focus. User controls
   and limits belong to the [Seerr guide](../user/seerr.md).
 - Library is a two-level hub. A content-sized top-bar dropdown selects and
   persists a library per server/user, falling back to and re-persisting the

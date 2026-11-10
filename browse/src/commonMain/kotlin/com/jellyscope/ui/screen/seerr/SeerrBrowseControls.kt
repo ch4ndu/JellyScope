@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -36,6 +38,7 @@ import com.jellyscope.ui.generated.resources.seerr_filters
 import com.jellyscope.ui.generated.resources.seerr_hide_available
 import com.jellyscope.ui.generated.resources.seerr_hide_available_hint
 import com.jellyscope.ui.generated.resources.seerr_manage
+import com.jellyscope.ui.generated.resources.seerr_refresh
 import com.jellyscope.ui.theme.Dimensions
 import org.jetbrains.compose.resources.stringResource
 
@@ -47,6 +50,7 @@ internal fun SeerrBrowseControls(
     hideAvailable: Boolean,
     browseEligible: Boolean,
     onIntent: (SeerrIntent) -> Unit,
+    refreshEnabled: Boolean,
 ) {
     val pickerEligible = browseEligible && section == SeerrSection.Discover
     var catalogOpen by remember(pickerEligible) { mutableStateOf(false) }
@@ -70,7 +74,10 @@ internal fun SeerrBrowseControls(
                     TextButton(
                         enabled = pickerEligible,
                         onClick = { if (pickerEligible) catalogOpen = true },
-                    ) { Text(seerrCatalogText(catalog)) }
+                    ) {
+                        Text(seerrCatalogText(catalog))
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+                    }
                     DropdownMenu(catalogOpen && pickerEligible, { catalogOpen = false }) {
                         listOf(SeerrCatalog.Trending, SeerrCatalog.Movies, SeerrCatalog.Tv).forEach {
                             DropdownMenuItem(text = { Text(seerrCatalogText(it)) }, onClick = {
@@ -82,7 +89,15 @@ internal fun SeerrBrowseControls(
                 }
                 TextButton(enabled = pickerEligible, onClick = {
                     if (pickerEligible) filtersOpen = true
-                }) { Text(stringResource(Res.string.seerr_filters, if (hideAvailable) 1 else 0)) }
+                }) {
+                    Icon(Icons.Default.FilterList, contentDescription = null)
+                    Text(stringResource(Res.string.seerr_filters, if (hideAvailable) 1 else 0))
+                }
+            }
+            if (browseEligible) {
+                TextButton(enabled = refreshEnabled, onClick = { onIntent(SeerrIntent.Refresh) }) {
+                    Text(stringResource(Res.string.seerr_refresh))
+                }
             }
             IconButton(onClick = { onIntent(SeerrIntent.SelectSection(SeerrSection.Connection)) }) {
                 Icon(Icons.Default.Settings, contentDescription = stringResource(Res.string.seerr_manage))

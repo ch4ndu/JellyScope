@@ -87,6 +87,7 @@ object TvDimens {
     val minButtonHeight = 36.dp
     val buttonHorizontalPadding = ChromeDimens.buttonHorizontalPadding
     val buttonVerticalPadding = ChromeDimens.buttonVerticalPadding
+    val seerrSeasonWidth = 159.dp
     val posterWidth = ChromeDimens.posterWidth
     val drawerExpandedWidth = 180.dp
     val drawerCollapsedWidth = 48.dp
@@ -119,6 +120,11 @@ object TvDimens {
     val heroContentWidthFraction = 0.62f
     val heroContentTopPadding = 16.dp
     val heroContentGap = 6.dp
+    val heroCompactGap = 4.dp
+    val heroCompactTitleSize = 20.sp
+    val heroCompactTitleLineHeight = 24.sp
+    val heroCompactBodySize = 12.sp
+    val heroCompactMetadataLineHeight = 16.sp
     val heroBackdropCrossfadeDurationMs = com.jellyscope.hero.HeroTiming.ARTWORK_MILLIS
     val heroContentCrossfadeDurationMs = com.jellyscope.hero.HeroTiming.CONTENT_MILLIS
     val detailBackdropHeight = ChromeDimens.detailBackdropHeight

@@ -158,6 +158,8 @@ data class SeerrMediaCard(
     val posterUrl: String?,
     val standardAvailability: SeerrAvailability,
     val fourKAvailability: SeerrAvailability,
+    val overview: String? = null,
+    val backdropUrl: String? = null,
 )
 
 /** Discover uses scan status from either quality; explicit lookup remains inclusive. */
@@ -170,6 +172,16 @@ data class SeerrCastMember(
     val name: String,
     val character: String?,
     val profileUrl: String?,
+)
+
+/** Person identity is a TMDB person ID; credit identities remain typed media keys. */
+data class SeerrPerson(
+    val tmdbId: Int,
+    val name: String,
+    val biography: String?,
+    val profileUrl: String?,
+    val movies: List<SeerrMediaCard> = emptyList(),
+    val series: List<SeerrMediaCard> = emptyList(),
 )
 
 data class SeerrCatalogPage(
@@ -207,6 +219,7 @@ data class SeerrSeason(
     val episodeCount: Int,
     val standardAvailability: SeerrAvailability,
     val fourKAvailability: SeerrAvailability,
+    val posterUrl: String? = null,
 )
 
 data class SeerrRequestSummary(
